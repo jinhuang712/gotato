@@ -59,9 +59,16 @@ type ToolSetOption func(*config)
 type config struct {
 	description string
 	effects     map[string]gotato.ToolEffect
-	cacheTTL    time.Duration
-	clientName  string
-	clientVer   string
+	// defaultEffect is the Effect of a tool with no annotations, when
+	// hasDefaultEffect.
+	defaultEffect    gotato.ToolEffect
+	hasDefaultEffect bool
+	filter           func(*sdk.Tool) bool
+	rename           func(string) string
+	sequentialWrites bool
+	cacheTTL         time.Duration
+	clientName       string
+	clientVer        string
 	// connectTimeout bounds one connect (the transport and the initialize
 	// exchange); not above zero means no bound.
 	connectTimeout time.Duration
@@ -89,6 +96,42 @@ func WithDescription(text string) ToolSetOption {
 // replacing the one its annotations give.
 func WithToolEffect(tool string, effect gotato.ToolEffect) ToolSetOption {
 	return func(c *config) { c.effects[tool] = effect }
+}
+
+// WithDefaultEffect sets the Effect of a tool whose server sent no annotations
+// at all (a tool with annotations that declare nothing is not that tool: the
+// MCP defaults give it destructive). The order is WithToolEffect, then the
+// annotations, then WithDefaultEffect, then destructive. A server that sends
+// no annotations hides every tool under WithMaxEffect unless this sets one;
+// set it only for a server whose tools you know.
+func WithDefaultEffect(effect gotato.ToolEffect) ToolSetOption {
+	return func(c *config) { c.defaultEffect, c.hasDefaultEffect = effect, true }
+}
+
+// WithToolFilter keeps out the tools for which keep returns false; Skipped
+// reports each with the reason "filtered". keep sees the tool as the server
+// sent it, under the server's own name, before any rename. A panic in keep
+// leaves that tool out (Skipped says so) and does not reach the caller.
+func WithToolFilter(keep func(*sdk.Tool) bool) ToolSetOption {
+	return func(c *config) { c.filter = keep }
+}
+
+// WithToolRename changes the name the Model sees: rename gets the server's
+// name and returns the new one. Only that name changes: WithToolEffect and
+// WithToolFilter, and the call to the server, keep the server's own name. A
+// new name that another tool already has, or an empty one, leaves the tool out
+// and Skipped reports it; so does a panic in rename.
+func WithToolRename(rename func(string) string) ToolSetOption {
+	return func(c *config) { c.rename = rename }
+}
+
+// WithSequentialWrites marks every tool whose Effect is above read as
+// Sequential, so it never runs beside another Tool of its Turn when the
+// Session allows parallel Tools (MaxParallelTools above 1). Tools of the
+// adapter are not Sequential by default, and the core groups Tools without
+// looking at their Effect.
+func WithSequentialWrites() ToolSetOption {
+	return func(c *config) { c.sequentialWrites = true }
 }
 
 // WithListCache keeps a tool list for ttl, so a Run that resolves the ToolSet
@@ -185,6 +228,9 @@ func NewToolSet(name string, transport Transport, options ...ToolSetOption) (*To
 			return nil, fmt.Errorf("mcp: unknown Effect %q for tool %q", effect, tool)
 		}
 	}
+	if s.cfg.hasDefaultEffect && !s.cfg.defaultEffect.Valid() {
+		return nil, fmt.Errorf("mcp: unknown default Effect %q", s.cfg.defaultEffect)
+	}
 	s.client = sdk.NewClient(&sdk.Implementation{Name: s.cfg.clientName, Version: s.cfg.clientVer}, &sdk.ClientOptions{
 		ToolListChangedHandler: func(context.Context, *sdk.ToolListChangedRequest) { s.gen.Add(1) },
 		// A server that asks for input in the middle of a call gets no answer:
@@ -254,6 +300,7 @@ func (s *ToolSet) Tools(ctx context.Context) ([]gotato.Tool, error) {
 	tools := make([]gotato.Tool, 0, len(listed))
 	var skipped []SkippedTool
 	seen := make(map[string]bool, len(listed))
+	offered := make(map[string]bool, len(listed))
 	for _, t := range listed {
 		switch {
 		case t == nil || strings.TrimSpace(t.Name) == "":
@@ -265,7 +312,38 @@ func (s *ToolSet) Tools(ctx context.Context) ([]gotato.Tool, error) {
 			continue
 		}
 		seen[t.Name] = true
-		tools = append(tools, newTool(s, t))
+		if s.cfg.filter != nil {
+			keep, panicked := callFilter(s.cfg.filter, t)
+			if panicked {
+				skipped = append(skipped, SkippedTool{Name: t.Name, Reason: "the tool filter panicked; the tool is left out"})
+				continue
+			}
+			if !keep {
+				skipped = append(skipped, SkippedTool{Name: t.Name, Reason: "filtered"})
+				continue
+			}
+		}
+		name := t.Name
+		if s.cfg.rename != nil {
+			renamed, panicked := callRename(s.cfg.rename, t.Name)
+			switch {
+			case panicked:
+				skipped = append(skipped, SkippedTool{Name: t.Name, Reason: "the tool rename panicked; the tool is left out"})
+				continue
+			case strings.TrimSpace(renamed) == "":
+				skipped = append(skipped, SkippedTool{Name: t.Name, Reason: "the tool rename gave an empty name"})
+				continue
+			}
+			name = renamed
+		}
+		// The names the Model sees must differ: a rename can give two tools
+		// one name, or a server name that another tool was renamed to.
+		if offered[name] {
+			skipped = append(skipped, SkippedTool{Name: t.Name, Reason: "the name the Model would see is another tool's; the first is kept"})
+			continue
+		}
+		offered[name] = true
+		tools = append(tools, newTool(s, t, name))
 	}
 	s.cacheMu.Lock()
 	// [CONCURRENCY] a slow listing that began before a change must not replace a list read after it.
@@ -274,6 +352,27 @@ func (s *ToolSet) Tools(ctx context.Context) ([]gotato.Tool, error) {
 	}
 	s.cacheMu.Unlock()
 	return slices.Clone(tools), nil
+}
+
+// callFilter runs the host's filter; a panic in it is reported, not raised.
+// (The core's callHost is not exported, so the guard is repeated here.)
+func callFilter(filter func(*sdk.Tool) bool, t *sdk.Tool) (keep, panicked bool) {
+	defer func() {
+		if recover() != nil {
+			keep, panicked = false, true
+		}
+	}()
+	return filter(t), false
+}
+
+// callRename runs the host's rename; a panic in it is reported, not raised.
+func callRename(rename func(string) string, name string) (renamed string, panicked bool) {
+	defer func() {
+		if recover() != nil {
+			renamed, panicked = "", true
+		}
+	}()
+	return rename(name), false
 }
 
 func (s *ToolSet) fromCache() ([]gotato.Tool, bool) {
