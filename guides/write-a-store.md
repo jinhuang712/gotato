@@ -1,6 +1,6 @@
 # Write a Store
 
-By the end of this page you have a `session.Store` of your own that passes the conformance suite, `storetest.Run`. You need the [Embed Gotato in a service](embed-in-a-service.md) page, and a database in mind. The adapter below keeps its rows in a map shaped like two SQL tables, so each line says which statement it stands for; every snippet was compiled, and the suite was run against it.
+By the end of this page you have a `session.Store` of your own that passes the conformance suite, `storetest.Run`. You need the [Embed Gotato in a service](embed-in-a-service.md) page, and a database in mind. The adapter below keeps its rows in a map shaped like two SQL tables, so each line says which statement it stands for; the adapter's snippets were compiled and the suite was run against it; the CI and MongoDB sections further down are illustrations that were not compiled or run here.
 
 **What is here**
 
@@ -16,6 +16,9 @@ By the end of this page you have a `session.Store` of your own that passes the c
 | | [Liveness](#liveness) | `Beat` and `Instance`, timed by the Store's clock. |
 | | [Checks every call makes](#checks-every-call-makes) | IDs, batches, and a canceled context. |
 | **The suite** | [Run storetest](#run-storetest) | One test function. |
+| | [No database at hand](#no-database-at-hand) | `storetest.Run` needs no service and no transaction. |
+| | [Run it in CI](#run-it-in-ci) | A real backing store as a service container. |
+| | [MongoDB](#mongodb) | Unique index, `E11000`, the epoch, and a single-node replica set. |
 | | [When a check fails](#when-a-check-fails) | A failure names the rule. |
 | | [Things the suite does not know](#things-the-suite-does-not-know) | |
 
@@ -445,7 +448,7 @@ func TestStore(t *testing.T) {
 ```
 
 - **`Open` returns a new handle on the same backing store each time it is called.** Two handles are two Instances sharing one database; the suite uses them to prove that one sees what the other wrote and that racing writers lose.
-- **For a real database,** create a schema (or a database) in the first function and drop it in the cleanup function. The suite makes 24 backing stores in one run.
+- **For a real database,** create a schema (or a database) in the first function and drop it in the cleanup function. The suite makes one backing store per check, 30 in one run.
 - **`storetest.Check(ctx, backing)`** does the same without `testing` and returns the problems, for a tool that checks a store at startup.
 
 `go test -race -v` lists what the suite checks:
@@ -461,6 +464,74 @@ func TestStore(t *testing.T) {
 --- PASS: TestStore/every_field_of_RecordInfo,_Entry_and_InstanceRow_is_kept
 ...
 ```
+
+### No database at hand
+
+The suite needs no external service and no transaction. `session.NewMemoryStore`, `session.NewFileStore` and the `mystore` above all pass it ([`TestMemoryStoreConformance` and `TestFileStoreConformance`](../session/file_test.go) run it on the first two), so you can write the adapter's tests against a map or a directory first and point the same function at a real database later. To check a store outside `go test`, for example at startup, call `storetest.Check`.
+
+What the contract asks of a backing store is one conditional write: a single-document atomic write, plus a unique `(id, seq)` key, is enough. A multi-document transaction is a cost of one design (entries and head in separate documents or rows), not a Gotato rule. If your database cannot take a transaction, choose a layout that does not need one.
+
+### Run it in CI
+
+A mock passes for the wrong reasons, so run the suite against the database you ship on. This GitHub Actions job starts one as a service container and passes its address in; the test reads it and skips when it is not set:
+
+```yaml
+jobs:
+  store:
+    runs-on: ubuntu-latest
+    services:
+      db:
+        image: postgres:17
+        env:
+          POSTGRES_PASSWORD: test
+        ports: ["5432:5432"]
+        options: >-
+          --health-cmd "pg_isready -U postgres"
+          --health-interval 5s --health-retries 10
+    steps:
+      - uses: actions/checkout@v6.1.0
+      - uses: actions/setup-go@v6.5.0
+        with:
+          go-version-file: go.mod
+      - run: go test -race -count=1 ./mystore/...
+        env:
+          STORE_TEST_DSN: postgres://postgres:test@localhost:5432/postgres?sslmode=disable
+```
+
+```go
+func TestStore(t *testing.T) {
+	dsn := os.Getenv("STORE_TEST_DSN")
+	if dsn == "" {
+		t.Skip("STORE_TEST_DSN is not set")
+	}
+	storetest.Run(t, func() (storetest.Open, func(), error) {
+		db, drop, err := newSchema(dsn) // your helper: a new schema or database per call
+		if err != nil {
+			return nil, nil, err
+		}
+		return func() session.Store { return mystore.New(db) }, drop, nil
+	})
+}
+```
+
+Swap the image for yours. The function runs once per check, so make creating and dropping a schema cheap. For a database that needs a replica set, see the next section.
+
+### MongoDB
+
+Mongo adapters meet the same rules as any other, in Mongo's terms.
+
+- **Unique index on `(id, seq)`** in the entries collection. A write of a position that is taken fails with a duplicate-key error, code 11000 (`E11000`). Map that, and only that, to `session.ErrConflict` (in the Go driver, `mongo.IsDuplicateKeyError`). On `Create`, a duplicate `_id` in the head document is `session.ErrExists`.
+- **The epoch goes in the head document's filter.** Update the head with a filter on the ID and `RecordInfo.RecordEpoch`, and on the head position when you use it as the guard. When it matches nothing, read the head document: a missing one, or one with another epoch, is `session.ErrNotFound`; any other is `session.ErrConflict`. The epoch is judged before the position (rule 3); the suite has a check for each order (`Append by a writer of another epoch is ErrNotFound before its position is checked`).
+- **All or nothing needs a transaction, or a head-document CAS.** An `InsertMany` of several entries is not atomic by itself. A multi-document transaction (entries and head in one) needs a replica set, which a standalone `mongod` is not. Without a transaction, make the head document the guard: move its head position by compare-and-set first, then write the entries, and design what a reader sees if the process dies in between. The suite does not kill a process between two writes, so it cannot tell you that part is right.
+
+**A single-node replica set without Docker.** *Reported by a downstream team, not run in this repository.* Their Mongo Store passed all 30 `storetest.Run` subtests, also with `-race -count=5`, on a single-node replica set started in user space with MongoDB 8.0: no Docker and no package manager.
+
+1. Download the official MongoDB 8.0 Community Server tarball for your platform from mongodb.com and unpack it in a directory you own.
+2. Start `mongod` from it with `--replSet <name>`, a `--dbpath` you own and a `--port` that is free (add `--bind_ip 127.0.0.1`).
+3. Connect once with `mongosh` and run `rs.initiate()` (the `replSetInitiate` command). It is needed once; the set elects itself primary in a few seconds.
+4. Point the test at the connection string of that node. Check the exact flags and shell against the MongoDB documentation for your version.
+
+Not covered by that run: a set of several nodes, a transaction retried after a failover, and several pods writing one Session. Test those against your own deployment before you rely on them.
 
 ### When a check fails
 
