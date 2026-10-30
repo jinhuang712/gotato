@@ -139,6 +139,18 @@ s, err := gotato.NewSession(ctx,
 
 Through the Runner, pass extensions in `service.Agent.Options`, as `gotato.WithExtension(...)`.
 
+### Needs a person
+
+Gotato has no built-in approval and no waiting state in the Loop ([decision 005](../plan/decisions/005-no-approval-system.md)). Two ways to ask a person before a step:
+
+**Ask inside `PreToolUse`.** `Before` runs for every call of a Turn, one after another, before any executor of that Turn starts. It gets a `ToolUse`: `RunID`, `Turn`, `CallID`, `ToolID`, `Arguments`, `SourceIndex` and `Effect`. It has no Session id.
+
+- A wait inside `Before` ends with the Run's context, or at `RunTimeout`. `ToolCallDeadline` does not bound it, because no tool call has started yet.
+- A `Before` that returns an error ends the Run with `CodeExtensionFailure`. To fail closed without ending the Run (a timeout, a "no"), return `PreToolDecision{Block: true, Reason: "..."}`: the model sees a blocked result and goes on.
+- A blocked call has a `tool_ended` Event and no `tool_started`. This is on purpose: `tool_started` says a tool began, and recovery relies on that.
+
+**Hand the step to a person from a tool.** A tool that opens a ticket, as decision 005 says, and returns at once. Use this when the wait is longer than a Run should live.
+
 ### Admission
 
 `service.Admission` bounds the work of one pod: `MaxActiveRuns`, `MaxActiveSessions` and `MaxWarmSessions`, and a `Queue` policy for a Session that is busy (`reject` or `wait`). A refused Run is marked not run, so the load balancer can send it to another pod.
