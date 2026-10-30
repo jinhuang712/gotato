@@ -20,7 +20,9 @@ type httpConfig struct {
 }
 
 // WithHTTPClient sets the HTTP client of a streamable HTTP transport, for
-// timeouts, a proxy, or a RoundTripper that adds an Authorization header.
+// timeouts, a proxy, or a RoundTripper that adds an Authorization header. Do not set
+// http.Client.Timeout: it cuts the standalone SSE stream. Use
+// Transport.ResponseHeaderTimeout and the Run's context instead.
 func WithHTTPClient(client *http.Client) HTTPOption {
 	return func(c *httpConfig) { c.client = client }
 }
