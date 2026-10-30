@@ -17,7 +17,7 @@ Done when: every item above is out of [TODO.md](TODO.md); the new guide examples
 
 ## Round 2: small, compatible code
 
-- **D-004** `WithDefaultEffect`; **D-002** `WithToolFilter` and `WithToolRename`.
+- **D-004** `WithDefaultEffect`: used when a tool has no annotations and no `WithToolEffect`. **D-002** `WithToolFilter` and `WithToolRename`: a rename changes only the name the Model sees; `WithToolEffect`, the filter and the call to the server keep the server's own name.
 - **D-020** a warning once when the context window is 0, and `ceiling=0` in `inspect`.
 - **D-019** the chat wire reads `cache_read_input_tokens` and `cache_creation_input_tokens`.
 - **D-026** with **D-018**: `Code` on `ToolResult` and `ToolEnded`, a code for "not loaded", and the "also found, not loaded" line worded as an instruction.
@@ -33,7 +33,7 @@ Done when: each item has a test, a FEATURES.md entry and a CHANGELOG line; no br
 
 Each item starts as a decision in [decisions](decisions/README.md). Code follows only if the decision says yes.
 
-- **D-018** load and run a read-only tool on the refusal: it changes when a load takes effect, and may touch the cache-stable tool list.
+- **D-018** load and run a read-only tool on the refusal: it changes when a load takes effect, and may touch the cache-stable tool list. Decided after round 2: measure first whether the reworded `search_tools` line and the `Code` for "not loaded" bring the refused calls down.
 - **D-019** should the chat wire send `cache_control`.
 - **D-010** a pass-through body field for reasoning effort.
 - **D-005** a price table or an Event hook. The lean is no: documentation is enough.
