@@ -1,27 +1,59 @@
-<!-- what-we-build: approved 2026-10-29 -->
+<!-- what-we-build: draft, waits for the maintainer's approval -->
 # Gotato — Roadmap
 
-What comes next, and how we know it is done. The roadmap adds no new feature. It schedules what [GOALS.md](GOALS.md) measures and what [FEATURES.md](../FEATURES.md) marks as planned (⬜) or names as a gap (🚧). The principles are in [DESIGNS.md](../DESIGNS.md), the forks already decided are in [decisions](decisions/README.md), and terms are in [GLOSSARY.md](../GLOSSARY.md).
+What comes next, and how we know it is done. The roadmap adds no new feature. It schedules what [GOALS.md](GOALS.md) measures, what [FEATURES.md](../FEATURES.md) marks as planned (⬜) or names as a gap (🚧), and what the first real adoption reported in [INTEGRATION-FEEDBACK.md](INTEGRATION-FEEDBACK.md). The principles are in [DESIGNS.md](../DESIGNS.md), the forks already decided are in [decisions](decisions/README.md), and terms are in [GLOSSARY.md](../GLOSSARY.md).
 
-Gotato has made no release yet. The first release is named 0.2.0 (versions 0.1.0 and 0.1.1 of the module path were published by mistake before it, hold other code, and are retracted), so there are no point releases before it. Every feature in FEATURES.md is built; what stands between the code and the release is the release itself. No step has a date.
+0.2.0 is released (`v0.2.0` and `adapter/mcp/v0.2.0`). [CHANGELOG.md](../CHANGELOG.md) already lists breaking changes under Unreleased, so the next release is named **0.3.0**. It is built in three rounds. Each round merges and is checked on its own. No step has a date.
 
-## Next: the 0.2.0 release
+## Round 1: safety and documentation (no API change)
 
-The maintainer approves the reviewed documents. The MCP adapter is a module of its own that reaches the root through `replace`, which `go get` ignores, so the root is tagged `v0.2.0` first, the adapter then requires that version and is tagged with its directory (`adapter/mcp/v0.2.0`). The `retract` directives in both `go.mod` files keep the stray 0.1.x versions from being chosen. A module outside the repository, with no `replace`, follows the README from nothing to a running agent with an MCP ToolSet. The release notes name what was never checked against a real provider.
+- **D-009**: the `WithForwarding` example checks the host IP against a CIDR, in the example and in `guides/http-in-five-minutes.md`; `serve --forward` says "tests only" in its help.
+- **D-001**: the release notes tell the releaser to push nested-module tags first, warm the proxy, run `go get` once in a clean module cache, and announce only when it passes; `GOPROXY=direct` is the fallback.
+- Docs only: D-011, D-003, D-012, D-005, D-021.
+- Guides: D-013, D-023 and the D-006 sentence (streaming card, process text, deltas visible only on the writer), D-007 (de-duplication across pods), D-015 (per-Run instruction, with a test that pins it), D-014 and D-008 (`storetest` without a database, Mongo), D-022 (asking a person before a tool runs, without `SessionID` yet).
+- The documentation half of D-019, D-020 and D-010: caching through a gateway, compaction after a refusal only when the window is unknown, reasoning effort through a gateway.
 
-Done when:
+Done when: every item above is out of [TODO.md](TODO.md); the new guide examples compile and run.
 
-- the outside-module check passes against proxy.golang.org with the real tags;
-- `go get github.com/jinhuang712/gotato@latest` resolves to v0.2.0.
+## Round 2: small, compatible code
 
-## Every release, from the first on
+- **D-004** `WithDefaultEffect`; **D-002** `WithToolFilter` and `WithToolRename`.
+- **D-020** a warning once when the context window is 0, and `ceiling=0` in `inspect`.
+- **D-019** the chat wire reads `cache_read_input_tokens` and `cache_creation_input_tokens`.
+- **D-026** with **D-018**: `Code` on `ToolResult` and `ToolEnded`, a code for "not loaded", and the "also found, not loaded" line worded as an instruction.
+- **D-022** `SessionID` on `ToolUse`.
+- **D-006** and **D-007** in `examples/larkbot`: a streaming card, and Lark's `message_id` as `RequestID`.
+- **D-021** an optional adapter switch that makes non-read tools `Sequential`; the default does not change.
+
+Each change is a new field or option, adds its entry to FEATURES.md, and keeps every goal that passed.
+
+Done when: each item has a test, a FEATURES.md entry and a CHANGELOG line; no break.
+
+## Round 3: decide first, then build
+
+Each item starts as a decision in [decisions](decisions/README.md). Code follows only if the decision says yes.
+
+- **D-018** load and run a read-only tool on the refusal: it changes when a load takes effect, and may touch the cache-stable tool list.
+- **D-019** should the chat wire send `cache_control`.
+- **D-010** a pass-through body field for reasoning effort.
+- **D-005** a price table or an Event hook. The lean is no: documentation is enough.
+- Whether the core de-duplicates `RequestID` (named in D-007).
+
+Done when: each item has a decision, accepted or refused.
+
+## The 0.3.0 release
+
+Starts when rounds 1 and 2 are merged and round 3 is decided.
 
 - Every goal that passed keeps passing.
-- Every benchmark but G-B13 is measured again, and compared with the previous release (for the first release, with the values in GOALS.md) and with what its row in GOALS.md names.
-- G-G06 is checked: each break has a before-and-after entry in [CHANGELOG.md](../CHANGELOG.md).
+- Every benchmark but G-B13 is measured again and compared with the 0.2.0 values and with what its row in GOALS.md names.
+- G-G06 is checked: each break, including those already under Unreleased, has a before-and-after entry in CHANGELOG.md.
+- The D-001 procedure is followed, and the release notes name what was never checked against a real provider.
 
 ## Not scheduled
 
 - G-B13, which needs developers new to Gotato;
 - the ideas in [FEATURES.md → Later](../FEATURES.md#later);
+- **D-024** `MaxTurns` and `MaxToolCalls`: decision 038 allows a limit only for a named failure; picked up when someone names one;
+- **D-025** `arguments` on `tool_started`: the base64 form is documented in round 1 and that is enough for now;
 - the other items in [TODO.md](TODO.md), which are fixed or settled outside any release.
