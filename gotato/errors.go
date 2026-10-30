@@ -37,12 +37,16 @@ const (
 	CodeToolResolutionFailure ErrorCode = "tool_resolution_failure"
 	CodeToolArgumentFailure   ErrorCode = "tool_argument_failure"
 	CodeToolExecutionFailure  ErrorCode = "tool_execution_failure"
-	CodeExtensionFailure      ErrorCode = "extension_failure"
-	CodeLimitExceeded         ErrorCode = "limit_exceeded"
-	CodeCanceled              ErrorCode = "canceled"
-	CodeDeadlineExceeded      ErrorCode = "deadline_exceeded"
-	CodeInternalInvariant     ErrorCode = "internal_invariant"
-	CodeNotSupported          ErrorCode = "not_supported"
+	// CodeToolNotLoaded is the Code of a failed Tool Result for a call to a
+	// catalog Tool the Model had not loaded: the call did not run, the Tool is
+	// loaded now, and the Model may call it again. It never ends a Run.
+	CodeToolNotLoaded     ErrorCode = "tool_not_loaded"
+	CodeExtensionFailure  ErrorCode = "extension_failure"
+	CodeLimitExceeded     ErrorCode = "limit_exceeded"
+	CodeCanceled          ErrorCode = "canceled"
+	CodeDeadlineExceeded  ErrorCode = "deadline_exceeded"
+	CodeInternalInvariant ErrorCode = "internal_invariant"
+	CodeNotSupported      ErrorCode = "not_supported"
 	// CodeConflict means another writer wrote to the Session's Record first:
 	// a stale copy can never overwrite a newer one.
 	CodeConflict ErrorCode = "conflict"
@@ -81,7 +85,7 @@ func ErrorCodes() []ErrorCode {
 	return []ErrorCode{
 		CodeInvalidArgument, CodeInvalidState, CodeBusy, CodeSessionClosed, CodeSessionClosing,
 		CodeModelFailure, CodeContextOverflow, CodeModelProtocolFailure,
-		CodeToolResolutionFailure, CodeToolArgumentFailure, CodeToolExecutionFailure,
+		CodeToolResolutionFailure, CodeToolArgumentFailure, CodeToolExecutionFailure, CodeToolNotLoaded,
 		CodeExtensionFailure, CodeLimitExceeded, CodeCanceled, CodeDeadlineExceeded,
 		CodeInternalInvariant, CodeNotSupported, CodeConflict, CodeStoreFailure,
 		CodeOverloaded, CodeDraining, CodeNotFound, CodeCannotResume, CodeNotWriter,

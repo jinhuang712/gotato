@@ -39,6 +39,7 @@ This is the one table of every error code. `Not run` and `Retryable` are what th
 | `tool_resolution_failure` | no | no | 500 | 1 | the core, from a ToolSet | check the ToolSet |
 | `tool_argument_failure` | no | no | 500 | 1 | the core | the model sent bad arguments |
 | `tool_execution_failure` | no | no | 500 | 1 | the core, from a Tool | read the Tool's message |
+| `tool_not_loaded` | no | no | 500 | 1 | the core | the model called a catalog Tool before it was loaded; it is loaded now, so the call can be made again. It is the `code` of a failed Tool Result and never ends a Run |
 | `extension_failure` | no | no | 500 | 1 | the core, from a hook | check the extension |
 | `limit_exceeded` | by cause | by cause | 429 | 1 | `service` (`MaxActiveRuns`, marked not run and retryable; a full notice queue, not retryable); the core (a limit of a Run or a queue); `modelctx` | when marked, retry on another instance; otherwise read the message |
 | `canceled` | no | no | 408 | 1 | the core, `service` | the caller left; as a Run's result it answers 200 |

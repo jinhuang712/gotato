@@ -173,6 +173,14 @@ type ToolResult struct {
 	// fills it from an error a Tool returns only with what the error makes
 	// public (see PublicError); a Tool may also set it itself.
 	SafeError string `json:"safe_error,omitempty"`
+	// Code says why a call failed without running or while running, so a
+	// subscriber need not read SafeError: tool_resolution_failure,
+	// tool_argument_failure, tool_not_loaded, tool_execution_failure or
+	// deadline_exceeded. Core owns it: it is set where Core settles a failed
+	// call and cleared on any result a Tool, a PostToolUse or a
+	// PreToolDecision produces. A Result written before this field existed has
+	// none, and a blocked call has none (its Status says so).
+	Code ErrorCode `json:"code,omitempty"`
 	// Executed reports whether the Tool's executor was started. Core owns it:
 	// a call that was blocked, rejected, or never started because the Run
 	// ended has Executed false. A Tool canceled while it ran keeps it true,

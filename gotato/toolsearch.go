@@ -146,7 +146,7 @@ func (t *searchTool) Execute(ctx context.Context, use ToolUse, progress ToolProg
 		parts = append(parts, "Unavailable now, its ToolSet is unavailable; try again in a later Run: "+strings.Join(unavailable, ", ")+".")
 	}
 	if len(found) > 0 {
-		parts = append(parts, "Also found, not loaded: "+strings.Join(found, ", ")+".")
+		parts = append(parts, "Found but not loaded, so do not call them yet; call search_tools with these names first: "+strings.Join(found, ", ")+".")
 	}
 	if len(notFound) > 0 {
 		parts = append(parts, "Not found: "+strings.Join(notFound, ", ")+".")

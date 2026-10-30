@@ -66,6 +66,7 @@ var statusOfCode = map[gotato.ErrorCode]int{
 	gotato.CodeToolResolutionFailure: http.StatusInternalServerError,
 	gotato.CodeToolArgumentFailure:   http.StatusInternalServerError,
 	gotato.CodeToolExecutionFailure:  http.StatusInternalServerError,
+	gotato.CodeToolNotLoaded:         http.StatusInternalServerError,
 	gotato.CodeExtensionFailure:      http.StatusInternalServerError,
 	gotato.CodeInternalInvariant:     http.StatusInternalServerError,
 }

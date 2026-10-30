@@ -93,7 +93,7 @@ func TestSearchToolLoadsTheTopThreeOfAQueryAndListsFiveMore(t *testing.T) {
 	loads := runCollecting(t, agent, "go")
 
 	text := textOfResult(resultOf(t, model, 1, "s"))
-	want := "Loaded: ops.t00, ops.t01, ops.t02. Also found, not loaded: ops.t03, ops.t04, ops.t05, ops.t06, ops.t07."
+	want := "Loaded: ops.t00, ops.t01, ops.t02. Found but not loaded, so do not call them yet; call search_tools with these names first: ops.t03, ops.t04, ops.t05, ops.t06, ops.t07."
 	if text != want {
 		t.Fatalf("search result = %q, want %q", text, want)
 	}
