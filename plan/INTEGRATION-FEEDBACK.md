@@ -26,7 +26,6 @@ Remove an item from *Backlog* in the commit that resolves it, as in [TODO.md](TO
 
 
 
-- [ ] **D-036 · Decision wanted: clearing old Tool Results in the middle of a Run.** Not a finding of a defect. Gotato has compaction (a Segment, written once) and spill (a page over 32 KiB) and nothing between them. A mechanism that hides old results from later requests would change bytes the provider already cached (decisions 034, 040). The measured cost of a long input is about +2 s of first-token time over 44k tokens (D-033), so the gain in latency is bounded; the gain in money is not measured. Write the decision, and decide whether the compaction ceiling (D-034) already answers it, before any code.
 
 
 
