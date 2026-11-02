@@ -96,12 +96,12 @@ func RunRecapCheck(ctx context.Context, cfg RecapCheckConfig, check reftasks.Rec
 	}
 	conversation := service.Agent{
 		Name: check.Name, Model: model, ModelName: cfg.ModelName, Instruction: check.Instruction, Tools: check.Tools,
-		Compact: modelctx.CompactPolicy{Recap: modelctx.ModelRecap{MaxTokens: cfg.MaxTokens}},
+		Compact: modelctx.Compactor{Recap: modelctx.ModelRecap{MaxTokens: cfg.MaxTokens}},
 	}
 	// Same model, instruction and tool definitions, so the questions read the
 	// conversation's prefix from the cache; only the tools' results differ.
 	questions := conversation
-	questions.Name, questions.Tools, questions.Compact = check.Name+"-questions", switchedOff, modelctx.CompactPolicy{}
+	questions.Name, questions.Tools, questions.Compact = check.Name+"-questions", switchedOff, modelctx.Compactor{}
 	runner, err := service.New(service.Config{Store: store, Agents: []service.Agent{conversation, questions}})
 	if err != nil {
 		return RecapReport{}, err

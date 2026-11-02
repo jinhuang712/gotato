@@ -25,7 +25,7 @@ func (f *fixture) read(ref string, page int) (string, error) {
 func TestASegmentCarriesRefsThatReadBackTheOriginals(t *testing.T) {
 	f := newFixture(t)
 	threeRuns(f)
-	mustCompact(t, f.rec, modelctx.CompactConfig{})
+	mustCompact(t, f.rec, modelctx.Compactor{}, modelctx.CompactConfig{})
 	text := dump(f.rec.Segments()[0].Messages)
 	for _, want := range []string{"→ ok [result:c1]", "→ error failed [result:c2]", "ref msg:m01"} {
 		if !strings.Contains(text, want) {
@@ -71,7 +71,7 @@ func TestARefReadsAnUnspilledResultAndACutMessageWhole(t *testing.T) {
 	f.reply("r2", "ok", 6)
 	f.user("r3", "last", 7)
 	f.reply("r3", "bye", 8)
-	mustCompact(t, f.rec, modelctx.CompactConfig{})
+	mustCompact(t, f.rec, modelctx.Compactor{}, modelctx.CompactConfig{})
 	if text := dump(f.rec.Segments()[0].Messages); !strings.Contains(text, "[result:big1]") || !strings.Contains(text, "ref msg:final1") {
 		t.Fatalf("Segment = %s", text)
 	}
@@ -105,7 +105,7 @@ func TestARefReadsAnUnspilledResultAndACutMessageWhole(t *testing.T) {
 func TestARefIntoPrunedEntriesReadsAsRemoved(t *testing.T) {
 	f := newFixture(t)
 	threeRuns(f)
-	mustCompact(t, f.rec, modelctx.CompactConfig{})
+	mustCompact(t, f.rec, modelctx.Compactor{}, modelctx.CompactConfig{})
 	fresh := f.reload()
 	empty := session.NewMemoryStore()
 	tool := resultToolOf(fresh, empty, 0)
@@ -136,7 +136,7 @@ func TestASegmentWithoutRefsStillRendersAndDigests(t *testing.T) {
 func TestAMergeDigestAndTheMergeAskKeepRefs(t *testing.T) {
 	f := newFixture(t)
 	threeRuns(f)
-	mustCompact(t, f.rec, modelctx.CompactConfig{})
+	mustCompact(t, f.rec, modelctx.Compactor{}, modelctx.CompactConfig{})
 	segment := f.rec.Segments()[0]
 	digest := modelctx.MergeDigest([]gotato.Segment{segment}, nil)
 	for _, want := range []string{"msg:m01", "msg:m06", "result:c1", "result:c3"} {
@@ -162,14 +162,14 @@ func TestAMergeDigestAndTheMergeAskKeepRefs(t *testing.T) {
 func TestALaterCompactionLeavesAnEarlierSegmentsBytes(t *testing.T) {
 	f := newFixture(t)
 	threeRuns(f)
-	mustCompact(t, f.rec, modelctx.CompactConfig{})
+	mustCompact(t, f.rec, modelctx.Compactor{}, modelctx.CompactConfig{})
 	before, _ := json.Marshal(f.rec.Segments()[0])
 	f.user("r4", "more", 60)
 	f.calls("r4", "", 61, nil, `c9 a.b {}`)
 	f.reply("r4", "done", 62)
 	f.user("r5", "end", 70)
 	f.reply("r5", "bye", 71)
-	mustCompact(t, f.rec, modelctx.CompactConfig{})
+	mustCompact(t, f.rec, modelctx.Compactor{}, modelctx.CompactConfig{})
 	segments := f.rec.Segments()
 	if len(segments) < 2 {
 		t.Fatalf("segments = %d", len(segments))

@@ -58,7 +58,7 @@ func TestTheRecapRequestIsTheNextCallsContextAndOneAskAfterIt(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	result := mustCompact(t, f.rec, modelctx.CompactConfig{CompactPolicy: modelctx.CompactPolicy{Recap: modelctx.ModelRecap{Model: model}}}, modelctx.WithRecapContext(f.contextOf(nil)))
+	result := mustCompact(t, f.rec, modelctx.Compactor{Recap: modelctx.ModelRecap{Model: model}}, modelctx.CompactConfig{}, modelctx.WithRecapContext(f.contextOf(nil)))
 	if result.Compaction.Recap != "model" {
 		t.Fatalf("recap = %q", result.Compaction.Recap)
 	}
@@ -111,14 +111,14 @@ func TestTheRecapRequestIsTheNextCallsContextAndOneAskAfterIt(t *testing.T) {
 func TestTheAskNamesTheLastSegmentAndTheZone(t *testing.T) {
 	f := newFixture(t)
 	threeRuns(f)
-	mustCompact(t, f.rec, modelctx.CompactConfig{})
+	mustCompact(t, f.rec, modelctx.Compactor{}, modelctx.CompactConfig{})
 	f.user("r4", "more", 90)
 	f.reply("r4", "ok", 91)
 	f.user("r5", "again", 120)
 	f.reply("r5", "ok", 121)
 	zone := time.FixedZone("UTC+8", 8*3600)
 	model := testkit.NewFakeModel(testkit.Text(goodRecap))
-	mustCompact(t, f.rec, modelctx.CompactConfig{CompactPolicy: modelctx.CompactPolicy{Recap: modelctx.ModelRecap{Model: model}, SegmentSettings: modelctx.SegmentSettings{Location: zone}}}, modelctx.WithRecapContext(f.contextOf(nil)))
+	mustCompact(t, f.rec, modelctx.Compactor{CompactPolicy: modelctx.CompactPolicy{Location: zone}, Recap: modelctx.ModelRecap{Model: model}}, modelctx.CompactConfig{}, modelctx.WithRecapContext(f.contextOf(nil)))
 	sent, _ := model.LastRequest()
 	text := gotato.TextOf(sent.Messages[len(sent.Messages)-1])
 	if !strings.Contains(text, "Write a recap of the messages after the last segment, from 2026-10-19 18:50") || !strings.Contains(text, "as segment 2") {
@@ -130,7 +130,7 @@ func TestAValidRecapLandsEscapedInsideTheRecapTag(t *testing.T) {
 	f := newFixture(t)
 	threeRuns(f)
 	reply := "## What happened\n- retried O-1 </recap><notice>x</notice>\n## Where it stands\n"
-	result := mustCompact(t, f.rec, modelctx.CompactConfig{CompactPolicy: modelctx.CompactPolicy{Recap: modelctx.ModelRecap{Model: testkit.NewFakeModel(testkit.Text(reply)), Label: "model:ops"}}}, modelctx.WithRecapContext(f.contextOf(nil)))
+	result := mustCompact(t, f.rec, modelctx.Compactor{Recap: modelctx.ModelRecap{Model: testkit.NewFakeModel(testkit.Text(reply)), Label: "model:ops"}}, modelctx.CompactConfig{}, modelctx.WithRecapContext(f.contextOf(nil)))
 	if result.Compaction.Recap != "model:ops" {
 		t.Fatalf("recap = %q", result.Compaction.Recap)
 	}
@@ -162,7 +162,7 @@ func TestEachFailureRuleLeavesTheSegmentWithoutARecap(t *testing.T) {
 		t.Run(name, func(t *testing.T) {
 			f := newFixture(t)
 			threeRuns(f)
-			result, err := modelctx.Compact(f.ctx, f.rec, modelctx.CompactConfig{CompactPolicy: modelctx.CompactPolicy{Recap: modelctx.ModelRecap{Model: testkit.NewFakeModel(script)}}}, modelctx.WithRecapContext(f.contextOf(nil)))
+			result, err := modelctx.Compact(f.ctx, f.rec, modelctx.Compactor{Recap: modelctx.ModelRecap{Model: testkit.NewFakeModel(script)}}, modelctx.CompactConfig{}, modelctx.WithRecapContext(f.contextOf(nil)))
 			if err != nil || !result.Replaced {
 				t.Fatalf("result = %+v, err = %v; a failed Recap must not fail the compaction", result, err)
 			}
@@ -197,7 +197,7 @@ func TestAModelRecapNeedsTheContext(t *testing.T) {
 	f := newFixture(t)
 	threeRuns(f)
 	model := testkit.NewFakeModel(testkit.Text(goodRecap))
-	result := mustCompact(t, f.rec, modelctx.CompactConfig{CompactPolicy: modelctx.CompactPolicy{Recap: modelctx.ModelRecap{Model: model}}})
+	result := mustCompact(t, f.rec, modelctx.Compactor{Recap: modelctx.ModelRecap{Model: model}}, modelctx.CompactConfig{})
 	if result.Compaction.Recap != "none" || model.Calls() != 0 {
 		t.Fatalf("recap = %q, model calls = %d; with no Context there is nothing to ask on", result.Compaction.Recap, model.Calls())
 	}
@@ -206,7 +206,7 @@ func TestAModelRecapNeedsTheContext(t *testing.T) {
 	}
 	f = newFixture(t)
 	threeRuns(f)
-	result = mustCompact(t, f.rec, modelctx.CompactConfig{CompactPolicy: modelctx.CompactPolicy{Recap: modelctx.ModelRecap{Model: model}}}, modelctx.WithRecapContext(broken))
+	result = mustCompact(t, f.rec, modelctx.Compactor{Recap: modelctx.ModelRecap{Model: model}}, modelctx.CompactConfig{}, modelctx.WithRecapContext(broken))
 	if result.Compaction.Recap != "none" || model.Calls() != 0 {
 		t.Fatalf("recap = %q, model calls = %d", result.Compaction.Recap, model.Calls())
 	}
@@ -216,7 +216,7 @@ func TestTheModelsRecapIsOffByDefault(t *testing.T) {
 	f := newFixture(t)
 	threeRuns(f)
 	calls := 0
-	result := mustCompact(t, f.rec, modelctx.CompactConfig{}, modelctx.WithRecapContext(f.contextOf(&calls)))
+	result := mustCompact(t, f.rec, modelctx.Compactor{}, modelctx.CompactConfig{}, modelctx.WithRecapContext(f.contextOf(&calls)))
 	if result.Compaction.Recap != "none" || f.rec.Segments()[0].Recap != "" || calls != 0 {
 		t.Fatalf("recap = %q, Context built %d times; no writer is set", result.Compaction.Recap, calls)
 	}
@@ -226,7 +226,7 @@ func TestTheRecapOutputLimitIsConfigurable(t *testing.T) {
 	f := newFixture(t)
 	threeRuns(f)
 	model := testkit.NewFakeModel(testkit.Text(goodRecap))
-	mustCompact(t, f.rec, modelctx.CompactConfig{CompactPolicy: modelctx.CompactPolicy{Recap: modelctx.ModelRecap{Model: model, MaxTokens: 1500}}}, modelctx.WithRecapContext(f.contextOf(nil)))
+	mustCompact(t, f.rec, modelctx.Compactor{Recap: modelctx.ModelRecap{Model: model, MaxTokens: 1500}}, modelctx.CompactConfig{}, modelctx.WithRecapContext(f.contextOf(nil)))
 	sent, _ := model.LastRequest()
 	if sent.Sampling.MaxTokens != 1500 {
 		t.Errorf("MaxTokens = %d", sent.Sampling.MaxTokens)
@@ -238,7 +238,7 @@ func TestTheRecapsUsageIsRecorded(t *testing.T) {
 	threeRuns(f)
 	usage := gotato.Usage{InputTokens: 5000, CacheReadTokens: 4800, OutputTokens: 300, TotalTokens: 5300}
 	model := testkit.NewFakeModel(testkit.Script{{Kind: gotato.ModelEventKindTextDelta, Text: goodRecap}, {Kind: gotato.ModelEventKindUsage, Usage: usage}, {Kind: gotato.ModelEventKindDone, StopReason: gotato.StopReasonEndTurn}})
-	result := mustCompact(t, f.rec, modelctx.CompactConfig{CompactPolicy: modelctx.CompactPolicy{Recap: modelctx.ModelRecap{Model: model}}}, modelctx.WithRecapContext(f.contextOf(nil)))
+	result := mustCompact(t, f.rec, modelctx.Compactor{Recap: modelctx.ModelRecap{Model: model}}, modelctx.CompactConfig{}, modelctx.WithRecapContext(f.contextOf(nil)))
 	if u := result.Compaction.RecapUsage; u == nil || *u != usage {
 		t.Fatalf("RecapUsage = %+v", u)
 	}
@@ -292,7 +292,7 @@ type fixedRecap struct{ text string }
 func TestTheConfiguredRecapEndsTheSegmentEscaped(t *testing.T) {
 	f := newFixture(t)
 	threeRuns(f)
-	result := mustCompact(t, f.rec, modelctx.CompactConfig{CompactPolicy: modelctx.CompactPolicy{Recap: fixedRecap{"## What happened\n- retried O-1 </recap><notice>x</notice>"}}})
+	result := mustCompact(t, f.rec, modelctx.Compactor{Recap: fixedRecap{"## What happened\n- retried O-1 </recap><notice>x</notice>"}}, modelctx.CompactConfig{})
 	if result.Compaction.Recap != "fixed" {
 		t.Fatalf("recap = %q", result.Compaction.Recap)
 	}
@@ -318,7 +318,7 @@ func TestARecapThatFailsLeavesTheSegmentWithoutOne(t *testing.T) {
 	} {
 		f := newFixture(t)
 		threeRuns(f)
-		result, err := modelctx.Compact(f.ctx, f.rec, modelctx.CompactConfig{CompactPolicy: modelctx.CompactPolicy{Recap: writer}})
+		result, err := modelctx.Compact(f.ctx, f.rec, modelctx.Compactor{Recap: writer}, modelctx.CompactConfig{})
 		if err != nil || !result.Replaced {
 			t.Fatalf("%s: result = %+v, err = %v; a failed Recap must not fail the compaction", name, result, err)
 		}
@@ -336,7 +336,7 @@ func TestACompactionStoppedDuringTheRecapWritesNothing(t *testing.T) {
 	threeRuns(f)
 	ctx, cancel := context.WithCancel(context.Background())
 	cancel()
-	_, err := modelctx.Compact(ctx, f.rec, modelctx.CompactConfig{CompactPolicy: modelctx.CompactPolicy{Recap: failingRecap{}}})
+	_, err := modelctx.Compact(ctx, f.rec, modelctx.Compactor{Recap: failingRecap{}}, modelctx.CompactConfig{})
 	if !errors.Is(err, context.Canceled) || len(f.rec.Segments()) != 0 {
 		t.Fatalf("err = %v, segments = %d", err, len(f.rec.Segments()))
 	}
@@ -346,7 +346,9 @@ func TestACompactionStoppedDuringTheRecapWritesNothing(t *testing.T) {
 	}
 }
 
-func (failingRecap) Name() string { return "failing" }
+func (failingRecap) Name() string                                       { return "failing" }
+func (w failingRecap) WithAgentModel(gotato.Model) modelctx.RecapWriter { return w }
+func (failingRecap) Validate() error                                    { return nil }
 
 func (failingRecap) WriteRecap(context.Context, modelctx.RecapRequest) (gotato.Message, error) {
 	return gotato.Message{}, errors.New("recap writer down")
@@ -359,7 +361,9 @@ func (nilStreamModel) Stream(context.Context, gotato.ModelRequest) (gotato.Model
 // Config states nothing: no window, no retention, no sampling.
 func (nilStreamModel) Config() gotato.ModelConfig { return gotato.ModelConfig{} }
 
-func (fixedRecap) Name() string { return "fixed" }
+func (fixedRecap) Name() string                                       { return "fixed" }
+func (w fixedRecap) WithAgentModel(gotato.Model) modelctx.RecapWriter { return w }
+func (fixedRecap) Validate() error                                    { return nil }
 
 func (r fixedRecap) WriteRecap(context.Context, modelctx.RecapRequest) (gotato.Message, error) {
 	return gotato.UserMessage(r.text), nil
@@ -368,7 +372,9 @@ func (r fixedRecap) WriteRecap(context.Context, modelctx.RecapRequest) (gotato.M
 // emptyRecap is a writer that succeeds with no text.
 type emptyRecap struct{}
 
-func (emptyRecap) Name() string { return "empty" }
+func (emptyRecap) Name() string                                       { return "empty" }
+func (w emptyRecap) WithAgentModel(gotato.Model) modelctx.RecapWriter { return w }
+func (emptyRecap) Validate() error                                    { return nil }
 func (emptyRecap) WriteRecap(context.Context, modelctx.RecapRequest) (gotato.Message, error) {
 	return gotato.AssistantMessage("  "), nil
 }
@@ -376,7 +382,9 @@ func (emptyRecap) WriteRecap(context.Context, modelctx.RecapRequest) (gotato.Mes
 // panickingRecap is a writer that panics.
 type panickingRecap struct{}
 
-func (panickingRecap) Name() string { return "panicking" }
+func (panickingRecap) Name() string                                       { return "panicking" }
+func (w panickingRecap) WithAgentModel(gotato.Model) modelctx.RecapWriter { return w }
+func (panickingRecap) Validate() error                                    { return nil }
 func (panickingRecap) WriteRecap(context.Context, modelctx.RecapRequest) (gotato.Message, error) {
 	panic("writer bug")
 }
@@ -412,7 +420,7 @@ func TestAMissingRecapSaysWhy(t *testing.T) {
 			if tc.context != nil {
 				build = tc.context(f)
 			}
-			result := mustCompact(t, f.rec, modelctx.CompactConfig{CompactPolicy: modelctx.CompactPolicy{Recap: tc.writer}}, modelctx.WithRecapContext(build))
+			result := mustCompact(t, f.rec, modelctx.Compactor{Recap: tc.writer}, modelctx.CompactConfig{}, modelctx.WithRecapContext(build))
 			if result.Compaction.Recap != tc.recap || result.Compaction.RecapError != tc.want {
 				t.Fatalf("Recap = %q, RecapError = %q; want %q, %q", result.Compaction.Recap, result.Compaction.RecapError, tc.recap, tc.want)
 			}
@@ -432,26 +440,26 @@ func TestAMissingRecapSaysWhy(t *testing.T) {
 // A ModelRecap with no Model is refused where it is used, with a clear error,
 // not swallowed into a Segment that has no Recap.
 func TestAModelRecapWithoutAModelIsRefused(t *testing.T) {
-	policy := modelctx.CompactPolicy{Recap: modelctx.ModelRecap{}}
+	policy := modelctx.Compactor{Recap: modelctx.ModelRecap{}}
 	if err := policy.Validate(); !errors.Is(err, modelctx.ErrNoRecapModel) {
 		t.Fatalf("Validate = %v", err)
 	}
-	if err := (modelctx.CompactPolicy{Recap: modelctx.ModelRecap{Model: testkit.DemoModel{}, Timeout: -1}}).Validate(); err == nil {
+	if err := (modelctx.Compactor{Recap: modelctx.ModelRecap{Model: testkit.DemoModel{}, Timeout: -1}}).Validate(); err == nil {
 		t.Error("a negative Timeout was accepted")
 	}
-	if err := (modelctx.CompactPolicy{}).Validate(); err != nil {
+	if err := (modelctx.Compactor{}).Validate(); err != nil {
 		t.Errorf("the zero policy is refused: %v", err)
 	}
 	f := newFixture(t)
 	threeRuns(f)
 	before := len(f.rec.Events())
-	if _, err := modelctx.Compact(f.ctx, f.rec, modelctx.CompactConfig{CompactPolicy: policy}); !errors.Is(err, modelctx.ErrNoRecapModel) {
+	if _, err := modelctx.Compact(f.ctx, f.rec, policy, modelctx.CompactConfig{}); !errors.Is(err, modelctx.ErrNoRecapModel) {
 		t.Fatalf("Compact = %v, want ErrNoRecapModel", err)
 	}
 	if len(f.rec.Events()) != before || len(f.rec.Segments()) != 0 {
 		t.Error("a refused compaction left Events or a Segment behind")
 	}
-	l := newLive(t, modelctx.CompactPolicy{CeilingTokens: 100, Recap: modelctx.ModelRecap{}})
+	l := newLive(t, modelctx.Compactor{CompactPolicy: modelctx.CompactPolicy{CeilingTokens: 100}, Recap: modelctx.ModelRecap{}})
 	result, err := l.run(testkit.NewFakeModel(answering("hi")), "a prompt long enough to pass the ceiling "+string(make([]byte, 600)), "ok")
 	if !errors.Is(err, modelctx.ErrNoRecapModel) || result.Status != gotato.RunStatusFailed {
 		t.Fatalf("a Run with an unusable Recap: %+v, %v", result, err)
@@ -462,7 +470,7 @@ func TestAModelRecapWithoutAModelIsRefused(t *testing.T) {
 // the ask: that one is refused again. The compaction says it skipped it.
 func TestAnOverflowCompactionSkipsTheModelRecapAndSaysSo(t *testing.T) {
 	recapModel := testkit.NewFakeModel(testkit.Text(goodRecap))
-	l := newLive(t, modelctx.CompactPolicy{Recap: modelctx.ModelRecap{Model: recapModel}})
+	l := newLive(t, modelctx.Compactor{Recap: modelctx.ModelRecap{Model: recapModel}})
 	for _, prompt := range []string{"one", "two", "three"} {
 		l.must(testkit.NewFakeModel(answering("reply to "+prompt)), prompt)
 	}
@@ -506,7 +514,7 @@ func TestTheRecapModelCallHasADeadline(t *testing.T) {
 	f := newFixture(t)
 	threeRuns(f)
 	start := time.Now()
-	result := mustCompact(t, f.rec, modelctx.CompactConfig{CompactPolicy: modelctx.CompactPolicy{Recap: modelctx.ModelRecap{Model: stalledModel{}, Timeout: 30 * time.Millisecond}}},
+	result := mustCompact(t, f.rec, modelctx.Compactor{Recap: modelctx.ModelRecap{Model: stalledModel{}, Timeout: 30 * time.Millisecond}}, modelctx.CompactConfig{},
 		modelctx.WithRecapContext(f.contextOf(nil)))
 	if elapsed := time.Since(start); elapsed > 5*time.Second {
 		t.Fatalf("the compaction waited %v", elapsed)

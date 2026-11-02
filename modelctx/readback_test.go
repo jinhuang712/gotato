@@ -108,7 +108,7 @@ func TestOnePageSizeOwnsTheSpillThePreviewAndBothReadTools(t *testing.T) {
 	// read_segment: the Segment that closes both Runs (a Message holds the
 	// preview of the spilled result, not its body) is read in pages of the same
 	// size, which the default page would have held in one.
-	if _, err := modelctx.Compact(context.Background(), record, modelctx.CompactConfig{KeepMessages: 1}); err != nil {
+	if _, err := modelctx.Compact(context.Background(), record, modelctx.Compactor{}, modelctx.CompactConfig{KeepMessages: 1}); err != nil {
 		t.Fatal(err)
 	}
 	out, err := readSegment(t, segmentToolOf(record, f.store, page), `{"segment":1}`)

@@ -449,7 +449,7 @@ func TestRunDuringAnIdleCompactionCancelsIt(t *testing.T) {
 		Store: asStore(store), Instance: "a",
 		Agents: []service.Agent{{
 			Name: "echo", Model: model,
-			Compact: modelctx.CompactPolicy{Recap: modelctx.ModelRecap{}},
+			Compact: modelctx.Compactor{Recap: modelctx.ModelRecap{}},
 			Warm:    service.WarmPolicy{IdleMinTokens: -1},
 		}},
 	}, clock))

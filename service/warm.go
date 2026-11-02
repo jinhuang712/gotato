@@ -445,13 +445,9 @@ func (r *Runner) compactIdleLocked(ctx context.Context, entry *warmEntry, why go
 		}
 		return
 	}
-	opts := compactOptionsFor(entry.spec, record, modelctx.CompactConfig{MinTokens: minTokens})
-	compactOpts := []modelctx.CompactOption{modelctx.WithCompactionWhy(why)}
-	if opts.Recap != nil {
-		compactOpts = append(compactOpts, modelctx.WithRecapContext(r.recapContext(entry.spec, record)))
-	}
+	compactOpts := []modelctx.CompactOption{modelctx.WithCompactionWhy(why), modelctx.WithRecapContext(r.recapContext(entry.spec, record))}
 	// The result needs no report: the compaction's Events say what it did.
-	_, _ = modelctx.Compact(ctx, record, opts, compactOpts...)
+	_, _ = modelctx.Compact(ctx, record, compactorFor(entry.spec, record), modelctx.CompactConfig{MinTokens: minTokens}, compactOpts...)
 	saveCtx, cancelSave := persistContext(ctx)
 	releaseErr := r.releaseWriter(saveCtx, writer)
 	cancelSave()

@@ -71,7 +71,7 @@ func TestInspectMatchesTheNextRun(t *testing.T) {
 }
 
 func TestInspectSaysWhenCompactionIsPending(t *testing.T) {
-	runner, _ := newRunner(t, service.Agent{Name: "echo", Model: testkit.EchoModel{}, Compact: modelctx.CompactPolicy{CeilingTokens: 20000}})
+	runner, _ := newRunner(t, service.Agent{Name: "echo", Model: testkit.EchoModel{}, Compact: modelctx.Compactor{CompactPolicy: modelctx.CompactPolicy{CeilingTokens: 20000}}})
 	ctx := context.Background()
 	first, err := runner.Run(ctx, service.RunRequest{Prompt: "hi"})
 	if err != nil {

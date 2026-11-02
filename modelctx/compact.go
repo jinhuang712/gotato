@@ -4,47 +4,48 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"slices"
 	"strings"
 	"time"
 
 	"github.com/jinhuang712/gotato/gotato"
-	"github.com/jinhuang712/gotato/session"
+	"github.com/jinhuang712/gotato/internal/text"
 )
 
-// CompactConfig controls Compact.
+// CompactConfig is what one Compact call changes about the Compactor it runs.
+// The numbers it sets (CompactPolicy) replace the Compactor's for this call
+// when they are not zero, so an on-demand merge can name a Segment budget of
+// its own.
 type CompactConfig struct {
-	// CompactPolicy holds what a Compact and an automatic compaction share:
-	// the window and the ceiling, which cap the tail that TailTokens sizes,
-	// the Recap writer (nil means the Segment has none; a Recap that fails
-	// leaves the Segment without one), DropReasoning, the Segments' budget
-	// and the SegmentSettings. Compact reads the ceiling in force
-	// (EffectiveCeilingTokens).
 	CompactPolicy
-	// KeepMessages is the number of most recent Messages to keep in the tail.
-	// The cut moves forward to a Turn boundary so a tool call keeps its
-	// result. With KeepMessages 0, the tail is the latest Run's Turns, up to
-	// SegmentSettings.TailTokens (20K tokens by default) and at most a quarter
-	// of WindowTokens, or of the ceiling in force when there is no window.
+	// KeepMessages is the number of most recent Messages to keep in the tail,
+	// for this call: it replaces the Compactor's Cutter with
+	// TailBudget{KeepMessages: n}. The cut moves forward to a Turn boundary so
+	// a tool call keeps its result. 0 leaves the Cutter as it is.
 	KeepMessages int
 	// MinTokens skips the compaction when the stretch since the last
 	// Checkpoint is estimated below it. 0 always compacts.
 	MinTokens int
+	// Recap replaces the Compactor's RecapWriter for this call; nil leaves it.
+	Recap RecapWriter
 }
 
-// compactCall is one call of Compact: the CompactConfig and the four things
-// only a caller that runs a compaction inside a Run or a Session's life knows.
-// AutoCompactor sets all four; service sets the first and the last through
-// CompactOption.
+// compactCall is one call of Compact: the Compactor and the things only a
+// caller that runs a compaction inside a Run or a Session's life knows.
+// AutoCompactor sets all of them; service sets the Recap context and the
+// reason through CompactOption.
 type compactCall struct {
-	CompactConfig
+	Compactor
+	// minTokens skips the compaction when the stretch is estimated below it.
+	minTokens int
 	// context builds the request the next model call would send for the
 	// Session as it is now, which a Recap written by a model sends as its
 	// prefix. Without it, a ModelRecap fails and the Segment has no Recap.
 	context func(context.Context) (gotato.ModelRequest, error)
 	// keepLastTurn keeps at least the latest Turn of run in the tail,
-	// whatever the budget: the Run's last reply and everything after it (its
-	// tool results, a notice, a steer, an interrupt), or on the Run's first
+	// whatever the Cutter says: the Run's last reply and everything after it
+	// (its tool results, a notice, a steer, an interrupt), or on the Run's first
 	// Turn all of its Messages, the prompt among them. A compaction in the
 	// middle of a Run needs it, since the model call that follows continues
 	// from that Turn.
@@ -110,23 +111,18 @@ type Result struct {
 	Merge *MergeResult `json:"merge,omitempty"`
 }
 
-// closeSegment appends a Segment and its Checkpoint in one step, and sets the
-// loaded Tools the compaction keeps. A test
-// replaces it to make the write fail.
-var closeSegment = (*session.Record).CloseSegment
-
 // Compact closes everything since the last Checkpoint, less a kept tail, into
-// a Segment built by code: the user's Messages and each Run's final reply word
-// for word, one line per tool call, and the Recap cfg.Recap writes, if any.
-// It appends the Segment (a segment_closed Entry) and the Checkpoint that
-// lists it (the compaction_ended Event) in one step, between a
-// compaction_started and, when the write fails, a compaction_failed. The
-// Messages it closes stay in the store, and a load starts after them. It must
-// not run while a Run is using the Session (AutoCompact runs it at the
-// sanctioned point).
+// a Segment built by the Compactor's Builder (by default the user's Messages and
+// each Run's final reply word for word, one line per tool call, and the Recap
+// the Compactor's writer writes, if any). It appends the Segment (a
+// segment_closed Entry) and the Checkpoint that lists it (the compaction_ended
+// Event) in one step, between a compaction_started and, when the write fails,
+// a compaction_failed. The Messages it closes stay in the store, and a load
+// starts after them. It must not run while a Run is using the Session
+// (AutoCompact runs it at the sanctioned point).
 //
 // The kept tail starts at a Turn boundary, so a tool call is never separated
-// from its result (see CompactConfig). The loaded Tools the Segment called and
+// from its result (see Compactor). The loaded Tools the Segment called and
 // the kept tail calls stay loaded; the others are unloaded, each with a
 // tool_unloaded Event (why: compaction).
 //
@@ -134,54 +130,145 @@ var closeSegment = (*session.Record).CloseSegment
 // "none" and Compaction.RecapError says why; the usage of a model call that
 // was made is still recorded). A stretch below cfg.MinTokens, or one the tail
 // covers whole, is left as it is and returns a Result with Replaced false and
-// a Reason. A cfg.Recap that cannot work as set (CompactPolicy.Validate) is an
-// error before anything is compacted.
-func Compact(ctx context.Context, s *session.Record, cfg CompactConfig, opts ...CompactOption) (Result, error) {
-	call := compactCall{CompactConfig: cfg}
+// a Reason. A Compactor that cannot work as set (Compactor.Validate) is an
+// error before anything is compacted. A part that fails or breaks the frame's
+// rules (ErrBadPart) drops the compaction, with an error.
+func Compact(ctx context.Context, store SegmentStore, c Compactor, cfg CompactConfig, opts ...CompactOption) (Result, error) {
+	c.CompactPolicy = c.overriddenBy(cfg.CompactPolicy)
+	if cfg.Recap != nil {
+		c.Recap = cfg.Recap
+	}
+	if cfg.KeepMessages > 0 {
+		c.Cut = TailBudget{KeepMessages: cfg.KeepMessages}
+	}
+	call := compactCall{Compactor: c, minTokens: cfg.MinTokens}
 	for _, opt := range opts {
 		opt(&call)
 	}
-	return runCompact(ctx, s, call)
+	return runCompact(ctx, store, call)
+}
+
+// cloneAll copies Messages deeply, so a part cannot change what the frame keeps.
+func cloneAll(messages []gotato.Message) []gotato.Message {
+	out := make([]gotato.Message, len(messages))
+	for i, message := range messages {
+		out[i] = message.Clone()
+	}
+	return out
+}
+
+// contextOf returns the Messages the Context holds: the Segments' and the tail.
+func contextOf(store SegmentStore, segments []gotato.Segment) []gotato.Message {
+	return slices.Concat(flatten(segments), store.Tail())
+}
+
+// failCompaction publishes the compaction_failed Event of a compaction that was
+// dropped, and returns err.
+func failCompaction(store SegmentStore, why gotato.CompactionWhy, err error) error {
+	store.Emit(gotato.CompactionFailed{Header: sessionHeader(store), Why: why, Cause: causeOf(err)})
+	return err
+}
+
+// cutOf asks the Cutter where the tail starts and brings the answer within the
+// frame's rules: inside the stretch, at a Turn boundary and, in the middle of a
+// Run, no later than the Run's last Turn. It is 0 when nothing is closed.
+func (c compactCall) cutOf(stretch []gotato.Message) (int, error) {
+	info := CutInfo{WindowTokens: c.WindowTokens, CeilingTokens: c.EffectiveCeilingTokens(), CurrentRun: c.currentRun}
+	cutter := c.cutter()
+	raw, err := callPart("Cutter", func() (int, error) { return cutter.Cut(cloneAll(stretch), info), nil })
+	if err != nil {
+		return 0, err
+	}
+	if raw < 0 || raw > len(stretch) {
+		return 0, fmt.Errorf("%w: the Cutter returned %d for a stretch of %d Messages", ErrBadPart, raw, len(stretch))
+	}
+	cut := turnCut(stretch, raw)
+	if c.keepLastTurn {
+		cut = min(cut, lastTurnStart(stretch, c.run))
+	}
+	return cut, nil
+}
+
+// segmentOf asks the Builder for Segment info.Number and makes it the frame's:
+// it checks what the Builder returned (checkSegment), appends the Recap
+// escaped, and stamps the number, the times, the source, the Message IDs and the
+// loaded Tools the Segment called.
+func (c compactCall) segmentOf(closed []gotato.Message, info SegmentInfo, loaded []string) (gotato.Segment, error) {
+	builder := c.builder()
+	built, err := callPart("Builder", func() (gotato.Segment, error) { return builder.Build(cloneAll(closed), info) })
+	if err != nil {
+		return gotato.Segment{}, err
+	}
+	if err := checkSegment(built, closed); err != nil {
+		return gotato.Segment{}, err
+	}
+	messages := cloneAll(built.Messages)
+	if info.Recap != "" {
+		recap := taggedPart(gotato.TagRecap, numberAttr(info.Number), text.EscapeTags(info.Recap))
+		if n := len(messages); n > 0 && messages[n-1].Role == gotato.RoleUser {
+			messages[n-1].Parts = append(messages[n-1].Parts, recap)
+		} else {
+			messages = append(messages, gotato.Message{Role: gotato.RoleUser, Parts: []gotato.ContentPart{recap}})
+		}
+	}
+	for i := range messages {
+		messages[i].ID = gotato.MessageID(fmt.Sprintf("segment-%d-%d", info.Number, i+1))
+	}
+	_, _, source := stamps(closed, info.Position)
+	return gotato.Segment{
+		Number: info.Number, From: info.From, To: info.To, Source: source,
+		Messages: messages, ToolCalls: slices.Clone(built.ToolCalls), Recap: info.Recap,
+		LoadedTools: toolsCalled(closed, loaded),
+	}, nil
 }
 
 // runCompact is Compact with the caller's options already applied.
-func runCompact(ctx context.Context, s *session.Record, call compactCall) (Result, error) {
-	if s == nil {
-		return Result{}, errors.New("modelctx: session is nil")
+func runCompact(ctx context.Context, store SegmentStore, call compactCall) (Result, error) {
+	if isNilStore(store) {
+		return Result{}, errors.New("modelctx: store is nil")
 	}
 	if err := call.Validate(); err != nil {
 		return Result{}, err
 	}
-	cfg := call.CompactConfig
-	all := s.Messages()
-	stretch := s.Tail()
-	if cfg.MinTokens > 0 && EstimateTokens(stretch) < cfg.MinTokens {
-		return skippedResult(s, all, CompactReasonBelowMinTokens), nil
-	}
-	cut := tailStart(stretch, call)
-	if cut <= 0 {
-		return skippedResult(s, all, CompactReasonNothingToClose), nil
+	segments := store.Segments()
+	stretch := store.Tail()
+	all := slices.Concat(flatten(segments), stretch)
+	if call.minTokens > 0 && EstimateTokens(stretch) < call.minTokens {
+		return skippedResult(store, all, CompactReasonBelowMinTokens), nil
 	}
 	why := call.why
 	if why == "" {
 		why = gotato.CompactionWhyOnDemand
 	}
-	s.Emit(gotato.CompactionStarted{Header: sessionHeader(s), Why: why})
+	cut, err := call.cutOf(stretch)
+	if err != nil {
+		store.Emit(gotato.CompactionStarted{Header: sessionHeader(store), Why: why})
+		return Result{}, failCompaction(store, why, err)
+	}
+	if cut <= 0 {
+		return skippedResult(store, all, CompactReasonNothingToClose), nil
+	}
+	store.Emit(gotato.CompactionStarted{Header: sessionHeader(store), Why: why})
 
 	closed := stretch[:cut]
-	recap, err := writeRecap(ctx, s, call, closed, why)
+	recap, err := writeRecap(ctx, store, call, closed, why)
 	if err != nil {
 		return Result{}, err
 	}
 
-	tail := keptTail(stretch[cut:], cfg.DropReasoning)
-	loaded := s.LoadedTools()
-	segment := buildSegment(s.NextSegment(), closed, recap.text, cfg.SegmentSettings, loaded, s.Position)
+	tail := keptTail(stretch[cut:], call.DropReasoning)
+	loaded := store.LoadedTools()
+	info := SegmentInfo{Number: store.NextSegment(), Location: call.location(), Recap: recap.text, Position: store.Position}
+	info.From, info.To, _ = stamps(closed, store.Position)
+	segment, err := call.segmentOf(closed, info, loaded)
+	if err != nil {
+		return Result{}, failCompaction(store, why, err)
+	}
 	kept := keptTools(loaded, segment.LoadedTools, tail)
 
 	before, _ := json.Marshal(all)
 	// What the Record holds after: the Segments before, the new one, the tail.
-	after := slices.Concat(all[:len(all)-len(stretch)], segment.Messages, tail)
+	after := slices.Concat(flatten(segments), segment.Messages, tail)
 	encoded, _ := json.Marshal(after)
 	record := gotato.Compaction{
 		At:               time.Now().UTC(),
@@ -196,48 +283,47 @@ func runCompact(ctx context.Context, s *session.Record, call compactCall) (Resul
 		TokensAfter:      EstimateTokens(after),
 		BytesBefore:      len(before),
 		BytesAfter:       len(encoded),
-		CeilingTokens:    cfg.EffectiveCeilingTokens(),
+		CeilingTokens:    call.EffectiveCeilingTokens(),
 		LoadedTools:      kept,
 	}
-	if _, err := closeSegment(s, why, segment, tail, &record); err != nil {
-		s.Emit(gotato.CompactionFailed{Header: sessionHeader(s), Why: why, Cause: causeOf(err)})
-		return Result{}, err
+	if _, err := callStore("SegmentStore.CloseSegment", func() (gotato.Segment, error) {
+		return store.CloseSegment(why, segment, tail, &record)
+	}); err != nil {
+		return Result{}, failCompaction(store, why, err)
 	}
 	for _, id := range loaded {
 		if !slices.Contains(kept, id) {
-			s.Emit(gotato.ToolUnloaded{Header: sessionHeader(s), ToolID: id, Why: gotato.ToolUnloadedWhyCompaction})
+			store.Emit(gotato.ToolUnloaded{Header: sessionHeader(store), ToolID: id, Why: gotato.ToolUnloadedWhyCompaction})
 		}
 	}
 	result := Result{
-		SessionID: s.ID(), Replaced: true, Compaction: &record,
+		SessionID: store.ID(), Replaced: true, Compaction: &record,
 		MessagesBefore: len(all), MessagesAfter: len(after),
 		TokensBefore: record.TokensBefore, TokensAfter: record.TokensAfter,
 	}
-	return mergeAfterClose(ctx, s, cfg, why, result)
+	return mergeAfterClose(ctx, store, call.Compactor, why, result)
 }
 
 // mergeAfterClose merges the oldest Segments, in a Checkpoint of their own,
 // if the Segment just closed took them past their budget. A merge that fails
 // leaves the Segment just closed in place, and the Segments unmerged.
-func mergeAfterClose(ctx context.Context, s *session.Record, cfg CompactConfig, why gotato.CompactionWhy, result Result) (Result, error) {
-	merge, err := mergeOldest(ctx, s, MergeConfig{
-		BudgetTokens: cfg.SegmentBudgetTokens, CeilingTokens: cfg.EffectiveCeilingTokens(), Recap: cfg.Recap, Why: why, Location: cfg.Location,
-	})
+func mergeAfterClose(ctx context.Context, store SegmentStore, c Compactor, why gotato.CompactionWhy, result Result) (Result, error) {
+	merge, err := mergeOldest(ctx, store, c, c.effectiveBudget(), why)
 	if err != nil {
 		return result, err
 	}
 	if merge.Merged || merge.Error != "" {
 		result.Merge = &merge
-		merged := s.Messages()
+		merged := contextOf(store, store.Segments())
 		result.MessagesAfter, result.TokensAfter = len(merged), EstimateTokens(merged)
 	}
 	return result, nil
 }
 
 // skippedResult is the Result of a Compact that closes nothing, for reason.
-func skippedResult(s *session.Record, all []gotato.Message, reason CompactReason) Result {
+func skippedResult(store SegmentStore, all []gotato.Message, reason CompactReason) Result {
 	tokens := EstimateTokens(all)
-	return Result{SessionID: s.ID(), Reason: reason, MessagesBefore: len(all), MessagesAfter: len(all), TokensBefore: tokens, TokensAfter: tokens}
+	return Result{SessionID: store.ID(), Reason: reason, MessagesBefore: len(all), MessagesAfter: len(all), TokensBefore: tokens, TokensAfter: tokens}
 }
 
 // recapSkippedOverflow is the Compaction.RecapError of a compaction that ran
@@ -276,12 +362,12 @@ func recapCause(err error) string {
 // Recap that fails costs the Segment its Recap, not the compaction, and the
 // outcome says why; only a canceled ctx is an error, after a
 // compaction_failed Event.
-func writeRecap(ctx context.Context, s *session.Record, call compactCall, closed []gotato.Message, why gotato.CompactionWhy) (recapOutcome, error) {
+func writeRecap(ctx context.Context, store SegmentStore, call compactCall, closed []gotato.Message, why gotato.CompactionWhy) (recapOutcome, error) {
 	out := recapOutcome{name: "none"}
 	if call.Recap == nil {
 		return out, nil
 	}
-	request := RecapRequest{Segment: s.NextSegment(), Closed: closed, From: stretchStart(closed, s.Position), Location: call.Location}
+	request := RecapRequest{Segment: store.NextSegment(), Closed: cloneAll(closed), From: stretchStart(closed, store.Position), Location: call.Location}
 	var contextErr error
 	if call.context != nil {
 		var built gotato.ModelRequest
@@ -295,7 +381,7 @@ func writeRecap(ctx context.Context, s *session.Record, call compactCall, closed
 		message, writeErr = guardedCall2(ctx, call.Recap.WriteRecap, request)
 	}
 	if ctxErr := ctx.Err(); ctxErr != nil {
-		s.Emit(gotato.CompactionFailed{Header: sessionHeader(s), Why: why, Cause: causeOf(ctxErr)})
+		store.Emit(gotato.CompactionFailed{Header: sessionHeader(store), Why: why, Cause: causeOf(ctxErr)})
 		return recapOutcome{}, ctxErr
 	}
 	if message.Usage != (gotato.Usage{}) {
@@ -356,33 +442,4 @@ func withoutReasoning(message gotato.Message) gotato.Message {
 	message = message.Clone()
 	message.Parts = slices.DeleteFunc(message.Parts, reasoning)
 	return message
-}
-
-// tailStart returns the index in stretch where the kept tail starts; the
-// Messages before it are closed into a Segment. 0 means nothing is closed.
-//
-// With KeepMessages, the tail is the last KeepMessages Messages. Without, it
-// is the latest Run's Turns within TailTokens (20K tokens by default), and no
-// more than a quarter of the window, or of the ceiling when no window is
-// known. Every cut moves forward to a Turn boundary.
-func tailStart(stretch []gotato.Message, cfg compactCall) int {
-	cut := 0
-	switch {
-	case cfg.KeepMessages > 0:
-		cut = turnCut(stretch, len(stretch)-cfg.KeepMessages)
-	default:
-		budget := orDefault(cfg.TailTokens, defaultTailTokens)
-		base := cfg.WindowTokens
-		if base <= 0 {
-			base = cfg.EffectiveCeilingTokens()
-		}
-		if base > 0 {
-			budget = min(budget, base/4)
-		}
-		cut = turnCut(stretch, withinBudget(stretch, budget, runStart(stretch, cfg.currentRun)))
-	}
-	if cfg.keepLastTurn {
-		cut = min(cut, lastTurnStart(stretch, cfg.run))
-	}
-	return cut
 }

@@ -28,10 +28,7 @@ func (m windowedEcho) Config() gotato.ModelConfig {
 // Recap writer, its time zone, and the Model's window.
 func TestRunnerCompactTakesTheAgentsCompactionSettings(t *testing.T) {
 	zone := time.FixedZone("UTC+8", 8*3600)
-	agent := service.Agent{Name: "echo", Model: windowedEcho{window: 1 << 20}, Compact: modelctx.CompactPolicy{
-		Recap:           modelctx.TruncateRecap{},
-		SegmentSettings: modelctx.SegmentSettings{Location: zone},
-	}}
+	agent := service.Agent{Name: "echo", Model: windowedEcho{window: 1 << 20}, Compact: modelctx.Compactor{CompactPolicy: modelctx.CompactPolicy{Location: zone}, Recap: modelctx.TruncateRecap{}}}
 	runner, store := newRunner(t, agent)
 	ctx := context.Background()
 	var id string
@@ -98,7 +95,7 @@ func TestTheModelsWindowGivesTheDefaultCeiling(t *testing.T) {
 // A ModelRecap written as a pointer gets the Agent's Model like the value does.
 func TestRunnerCompactFillsTheModelOfAPointerModelRecap(t *testing.T) {
 	recap := &modelctx.ModelRecap{}
-	runner, _ := newRunner(t, service.Agent{Name: "echo", Model: windowedEcho{window: 1 << 20}, Compact: modelctx.CompactPolicy{Recap: recap}})
+	runner, _ := newRunner(t, service.Agent{Name: "echo", Model: windowedEcho{window: 1 << 20}, Compact: modelctx.Compactor{Recap: recap}})
 	ctx := context.Background()
 	var id string
 	for _, prompt := range []string{"one", "two", "three"} {

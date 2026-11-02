@@ -142,9 +142,9 @@ func dump(messages []gotato.Message) string {
 	return b.String()
 }
 
-func mustCompact(t *testing.T, rec *session.Record, cfg modelctx.CompactConfig, opts ...modelctx.CompactOption) modelctx.Result {
+func mustCompact(t *testing.T, rec *session.Record, c modelctx.Compactor, cfg modelctx.CompactConfig, opts ...modelctx.CompactOption) modelctx.Result {
 	t.Helper()
-	result, err := modelctx.Compact(context.Background(), rec, cfg, opts...)
+	result, err := modelctx.Compact(context.Background(), rec, c, cfg, opts...)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -206,14 +206,14 @@ func (l *live) run(model gotato.Model, prompt, result string) (gotato.RunResult,
 	return agent.Prompt(context.Background(), gotato.UserMessage(prompt))
 }
 
-func newLive(t *testing.T, policy modelctx.CompactPolicy) *live {
+func newLive(t *testing.T, compactor modelctx.Compactor) *live {
 	t.Helper()
 	store := session.NewMemoryStore()
 	writer, err := session.CreateWriter(context.Background(), store, session.New(session.WithID("long")), "instance-a")
 	if err != nil {
 		t.Fatal(err)
 	}
-	return &live{t: t, store: store, writer: writer, auto: modelctx.AutoCompact(writer.Record(), policy)}
+	return &live{t: t, store: store, writer: writer, auto: modelctx.AutoCompact(writer.Record(), compactor)}
 }
 
 // live is a stored Session whose Runs a test plays one after another.
@@ -295,9 +295,24 @@ func (m errModel) Config() gotato.ModelConfig { return gotato.ModelConfig{} }
 
 type errModel struct{ err error }
 
-func mustMerge(t *testing.T, rec *session.Record, opts modelctx.MergeConfig) modelctx.MergeResult {
+// mergeConfig is what a test says about one merge: the budget, the ceiling in
+// force, the writer, the reason and the time zone.
+type mergeConfig struct {
+	BudgetTokens  int
+	CeilingTokens int
+	Recap         modelctx.RecapWriter
+	Why           gotato.CompactionWhy
+	Location      *time.Location
+}
+
+func mergeOldest(ctx context.Context, store modelctx.SegmentStore, cfg mergeConfig) (modelctx.MergeResult, error) {
+	compactor := modelctx.Compactor{CompactPolicy: modelctx.CompactPolicy{CeilingTokens: cfg.CeilingTokens, Location: cfg.Location}, Recap: cfg.Recap}
+	return modelctx.MergeOldest(ctx, store, compactor, cfg.BudgetTokens, cfg.Why)
+}
+
+func mustMerge(t *testing.T, rec *session.Record, cfg mergeConfig) modelctx.MergeResult {
 	t.Helper()
-	result, err := modelctx.MergeOldest(context.Background(), rec, opts)
+	result, err := mergeOldest(context.Background(), rec, cfg)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -323,7 +338,7 @@ func segmentsFixture(t *testing.T, n int, recap modelctx.RecapWriter) *fixture {
 		run := fmt.Sprintf("r%d", i)
 		f.user(run, fmt.Sprintf("question %d: %s", i, strings.Repeat("x", 800)), i*10)
 		f.reply(run, fmt.Sprintf("answer %d: %s", i, strings.Repeat("y", 800)), i*10+1)
-		if result := mustCompact(t, f.rec, modelctx.CompactConfig{CompactPolicy: modelctx.CompactPolicy{SegmentSettings: modelctx.SegmentSettings{TailTokens: 1}, SegmentBudgetTokens: 1 << 30, Recap: recap}}, modelctx.WithRecapContext(f.contextOf(nil))); !result.Replaced {
+		if result := mustCompact(t, f.rec, modelctx.Compactor{CompactPolicy: modelctx.CompactPolicy{SegmentBudgetTokens: 1 << 30}, Cut: modelctx.TailBudget{TailTokens: 1}, Recap: recap}, modelctx.CompactConfig{}, modelctx.WithRecapContext(f.contextOf(nil))); !result.Replaced {
 			t.Fatalf("Segment %d was not closed: %+v", i, result)
 		}
 	}

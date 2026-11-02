@@ -408,7 +408,7 @@ func TestEvictionCancelsAnIdleCompactionInProgress(t *testing.T) {
 		Admission: service.Admission{MaxActiveSessions: 1},
 		Agents: []service.Agent{{
 			Name: "echo", Model: model,
-			Compact: modelctx.CompactPolicy{Recap: modelctx.ModelRecap{}},
+			Compact: modelctx.Compactor{Recap: modelctx.ModelRecap{}},
 			Warm:    service.WarmPolicy{IdleMinTokens: -1},
 		}},
 	}, clock))

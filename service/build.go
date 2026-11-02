@@ -37,7 +37,7 @@ func (r *Runner) buildSession(ctx context.Context, spec Agent, s *session.Record
 	}
 	// Every Run has its Session compacted when the provider refuses a request
 	// as too long, and past the ceiling when there is one.
-	auto := modelctx.AutoCompact(s, compactPolicyFor(spec, s))
+	auto := modelctx.AutoCompact(s, compactorFor(spec, s))
 	options := []gotato.SessionOption{
 		gotato.WithModel(spec.Model),
 		gotato.WithInstruction(instruction),

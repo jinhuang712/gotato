@@ -165,7 +165,9 @@ func TestCheckpointWritesCompactionEndedAndALoadStartsThere(t *testing.T) {
 
 type failingRecap struct{}
 
-func (failingRecap) Name() string { return "failing" }
+func (failingRecap) Name() string                                       { return "failing" }
+func (w failingRecap) WithAgentModel(gotato.Model) modelctx.RecapWriter { return w }
+func (failingRecap) Validate() error                                    { return nil }
 
 func (failingRecap) WriteRecap(context.Context, modelctx.RecapRequest) (gotato.Message, error) {
 	return gotato.Message{}, errors.New("recap writer down")
@@ -188,7 +190,7 @@ func TestCompactWritesItsEventsToTheStoredRecord(t *testing.T) {
 	before := storedKinds(t, store, "cmp-1", 0)
 	stopped, stop := context.WithCancel(ctx)
 	stop()
-	if _, err := modelctx.Compact(stopped, writer.Record(), modelctx.CompactConfig{CompactPolicy: modelctx.CompactPolicy{Recap: failingRecap{}}, KeepMessages: 2}); err == nil {
+	if _, err := modelctx.Compact(stopped, writer.Record(), modelctx.Compactor{Recap: failingRecap{}}, modelctx.CompactConfig{KeepMessages: 2}); err == nil {
 		t.Fatal("Compact hid that its Run was stopped")
 	}
 	if err := writer.Flush(ctx); err != nil {
@@ -201,7 +203,7 @@ func TestCompactWritesItsEventsToTheStoredRecord(t *testing.T) {
 	if len(got) != 2 || got[0] != gotato.EventKindCompactionStarted || got[1] != gotato.EventKindCompactionFailed {
 		t.Fatalf("after a failed compaction: %v", got)
 	}
-	result, err := modelctx.Compact(ctx, writer.Record(), modelctx.CompactConfig{KeepMessages: 2}, modelctx.WithCompactionWhy(gotato.CompactionWhyPastCeiling))
+	result, err := modelctx.Compact(ctx, writer.Record(), modelctx.Compactor{}, modelctx.CompactConfig{KeepMessages: 2}, modelctx.WithCompactionWhy(gotato.CompactionWhyPastCeiling))
 	if err != nil || !result.Replaced {
 		t.Fatalf("Compact = %+v, %v", result, err)
 	}
