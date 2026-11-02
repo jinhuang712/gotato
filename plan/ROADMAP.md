@@ -35,6 +35,7 @@ Each item starts as a decision in [decisions](decisions/README.md). Code follows
 
 - **D-024** a cap on Turns and tool calls, moved here from *Not scheduled*: D-027 names a failure (a 16-round Run of 161.7 s with no limit). Decide first, with the wrap-up Notice question of D-024 answered.
 - **D-018** load and run a read-only tool on the refusal: it changes when a load takes effect, and may touch the cache-stable tool list. Decided after round 2: measure first whether the reworded `search_tools` line and the `Code` for "not loaded" bring the refused calls down.
+- **Model profile** ([042](decisions/042-a-models-profile-is-its-own-value-apart-from-the-connection.md), draft): describe a model apart from the connection, with the window stated. It answers D-020 and D-034 at the root, and would replace a warning for D-020. Decide first; the draft names three open points.
 - **D-019** should the chat wire send `cache_control`.
 - **D-010** a pass-through body field for reasoning effort.
 - **D-005** a price table or an Event hook. The lean is no: documentation is enough.

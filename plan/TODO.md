@@ -36,6 +36,7 @@ From the first real adoption (a Lark bot service running on several pods), each 
 
 ## Decisions
 
+- [ ] **Model profile: describe a model apart from its connection, with the window stated (draft [042](decisions/042-a-models-profile-is-its-own-value-apart-from-the-connection.md)).** Answers D-020 and D-034 at the root; no pool, no routing.
 - [ ] **D-005 · Cost: documentation only, or a hook?** `Usage` has no price. Either state in FEATURES.md that a team converts `Usage` itself (with an example), or add a price table or an `Event` hook.
 - [ ] **D-019 · Should the chat wire send `cache_control`?** Today it sends none, and `provider: anthropic` does not change that on chat. Either keep it a gateway matter and document it, or add the field.
 - [ ] **D-010 · Reasoning effort through a self-hosted gateway.** The chat and anthropic wires refuse it. Either document `provider` for such a host, or add a pass-through extra body field.
