@@ -196,7 +196,7 @@ func TestRequeueIntoAClosedSessionReturnsEveryMessage(t *testing.T) {
 		{Message: gotato.UserMessage("steer"), Source: gotato.MessageSourceSteer},
 		{Message: gotato.UserMessage("follow"), Source: gotato.MessageSourceFollowUp},
 	}
-	if rest := s.Requeue(in); len(rest) != len(in) {
+	if rest := requeue(s, in); len(rest) != len(in) {
 		t.Fatalf("Requeue into a closed Session returned %d of %d messages as rest", len(rest), len(in))
 	}
 }
@@ -277,15 +277,15 @@ func TestAnEventOfAnotherPackageRoundTrips(t *testing.T) {
 
 // A Feed sorts an Event of another package by the class the Event states.
 func TestAFeedHonoursTheClassAnEventStates(t *testing.T) {
-	feed := gotato.NewInstanceFeed()
+	feed := newInstanceFeed()
 	defer feed.Close()
 	sub, err := feed.Subscribe(context.Background())
 	if err != nil {
 		t.Fatal(err)
 	}
 	defer func() { _ = sub.Close() }()
-	feed.Publish(appEvent{Header: gotato.NewHeader("", "", 0), Tenant: "acme"})
-	feed.Publish(appDelta{Header: gotato.NewHeader("", "", 0)})
+	publish(feed, appEvent{Header: gotato.NewHeader("", "", 0), Tenant: "acme"})
+	publish(feed, appDelta{Header: gotato.NewHeader("", "", 0)})
 	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
 	defer cancel()
 	for _, want := range []gotato.EventKind{"app_event", "app_delta"} {
@@ -359,7 +359,7 @@ func TestANoticeBeingWrittenHoldsItsPlaceInTheQueue(t *testing.T) {
 	}()
 	<-journal.entered // the first notice has passed the check and waits in its write
 	other := gotato.PendingNotice{MessageID: "other", Kind: "k", Source: gotato.NoticeSourceService, Text: "other"}
-	rest := s.Requeue([]gotato.Queued{other.Queued()})
+	rest := requeue(s, []gotato.Queued{other.Queued()})
 	close(journal.release)
 	if err := <-first; err != nil {
 		t.Fatal(err)

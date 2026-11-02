@@ -171,7 +171,7 @@ func (a *Session) finishClose() {
 	if a.events.ownFeed {
 		// A Session that owns its Feed says it left, and ends its streams.
 		// A host's Feed outlives the Session, and the host closes it.
-		a.events.feed.Publish(SessionUnloaded{Header: NewHeader(a.def.id, "", 0), Why: "close"})
+		a.events.feed.publish(SessionUnloaded{Header: NewHeader(a.def.id, "", 0), Why: "close"})
 		a.events.feed.Close()
 	}
 	a.life.doneOnce.Do(func() { close(a.life.done) })

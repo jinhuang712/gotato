@@ -19,7 +19,7 @@ import "context"
 //
 // A message the Run took and could not commit is still queued: it goes back
 // to the front of the queue, so the end of the Run drops it (run_ended) or,
-// under WithQueueHandoff, TakeQueued returns it. The one message whose commit
+// under withQueueHandoff, takeQueued returns it. The one message whose commit
 // failed is dropped with commit_failed, since it would fail again.
 func (a *Session) Steer(ctx context.Context, message Message) error {
 	return a.enqueueControl(ctx, message, "Steer", MessageSourceSteer)
@@ -127,7 +127,7 @@ const (
 // is ending has dropped its queue already or is about to, and a Session whose
 // last drop pass is done takes no more. A message put in before either is
 // dropped by that pass. A Run that leaves its queue for the host
-// (WithQueueHandoff) keeps what arrives as it ends.
+// (withQueueHandoff) keeps what arrives as it ends.
 //
 // An Interrupt needs a Run in flight (needsRun): one that finds the Run over
 // is refused, since it would otherwise cancel the first model call of the
@@ -163,15 +163,15 @@ func (a *Session) dropAfterQueued(id MessageID, source MessageSource, why string
 	return err
 }
 
-// WithQueueHandoff makes the Session keep the messages (Steer, FollowUp,
+// withQueueHandoff makes the Session keep the messages (Steer, FollowUp,
 // Interrupt) still queued when a Run completes or fails, instead of dropping
-// them at its end, so the host can take them with TakeQueued and start the
+// them at its end, so the host can take them with takeQueued and start the
 // next Run with them. A Run that is canceled, or ends on its deadline, still
 // drops them. A message a failed Run took and did not commit counts as still
-// queued, and is kept too. A host that sets it must call TakeQueued, or
-// DropQueued, after every Run; Close drops what is left (message_dropped,
+// queued, and is kept too. A host that sets it must call takeQueued, or
+// dropQueued, after every Run; Close drops what is left (message_dropped,
 // session_closed).
-func WithQueueHandoff() SessionOption {
+func withQueueHandoff() SessionOption {
 	return func(c *sessionConfig) error {
 		if err := c.once("WithQueueHandoff"); err != nil {
 			return err
@@ -196,7 +196,7 @@ type Queued struct {
 
 // queuedNotice returns the queue entry of a notice that was reported queued
 // already, as number, the notice_queued Event that said so. A host that keeps a
-// notice between Runs gives it to the next Session with Requeue.
+// notice between Runs gives it to the next Session with requeue.
 func queuedNotice(message Message, number uint64) Queued {
 	return Queued{Message: message, Source: MessageSourceNotice, number: number}
 }
@@ -205,11 +205,11 @@ func queuedNotice(message Message, number uint64) Queued {
 // message.
 func (q Queued) Number() uint64 { return q.number }
 
-// TakeQueued removes and returns the messages that wait in the Steer and
+// takeQueued removes and returns the messages that wait in the Steer and
 // FollowUp queues, in the order they were accepted. It is for a host that set
-// WithQueueHandoff, between Runs: it takes them without a drop Event, and the
-// host starts the next Run with them (Requeue) or reports them (DropQueued).
-func (a *Session) TakeQueued() []Queued {
+// withQueueHandoff, between Runs: it takes them without a drop Event, and the
+// host starts the next Run with them (requeue) or reports them (dropQueued).
+func (a *Session) takeQueued() []Queued {
 	var out []Queued
 	for _, queued := range a.queue.drain(true) {
 		out = append(out, Queued{Message: queued.message, Source: queued.source, number: queued.number})
@@ -217,14 +217,14 @@ func (a *Session) TakeQueued() []Queued {
 	return out
 }
 
-// Requeue puts messages taken from another Session's queues into this one's
+// requeue puts messages taken from another Session's queues into this one's
 // queues, in order, without Events: they were reported as queued already. An
 // Interrupt becomes a Steer, since no model call is in flight to cut short.
 // They keep the order they had: they go into the Steer queue while it has
 // room and then into the FollowUp queue, and a Run takes the Steer queue
 // before the FollowUp queue. The queue limits apply; it returns the messages
 // that did not fit.
-func (a *Session) Requeue(messages []Queued) (rest []Queued) {
+func (a *Session) requeue(messages []Queued) (rest []Queued) {
 	for _, m := range messages {
 		source := m.Source
 		if source == MessageSourceInterrupt {
@@ -249,9 +249,9 @@ func (a *Session) Requeue(messages []Queued) (rest []Queued) {
 	return rest
 }
 
-// DropQueued reports messages that will not run: a message_dropped Event for
+// dropQueued reports messages that will not run: a message_dropped Event for
 // each, with why.
-func (a *Session) DropQueued(messages []Queued, why string) {
+func (a *Session) dropQueued(messages []Queued, why string) {
 	for _, m := range messages {
 		_ = a.writeNow(context.Background(), MessageDropped{Header: a.nowHeader(), MessageID: m.Message.ID, Source: m.Source, Why: why})
 	}

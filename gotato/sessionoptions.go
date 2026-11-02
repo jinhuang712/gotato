@@ -45,12 +45,12 @@ func (c *sessionConfig) once(option string) error {
 	return nil
 }
 
-// WithFeed has the Session publish its Events to feed instead of a Feed of
+// withFeed has the Session publish its Events to feed instead of a Feed of
 // its own, so the host that built it, such as a service.Runner, can offer
 // the Session's stream across Runs. The host owns the Feed and closes it; it
 // also sets the Feed's source, which is where a subscriber that falls behind
 // catches up.
-func WithFeed(feed *Feed) SessionOption {
+func withFeed(feed *Feed) SessionOption {
 	return func(c *sessionConfig) error {
 		if err := c.once("WithFeed"); err != nil {
 			return err
@@ -63,10 +63,10 @@ func WithFeed(feed *Feed) SessionOption {
 	}
 }
 
-// WithRequestID sets the caller's identifier of the request that makes the
+// withRequestID sets the caller's identifier of the request that makes the
 // Session run. Every RunStarted of the Session carries it. The runtime records
 // it and does nothing else with it: it does not look for a repeated one.
-func WithRequestID(id string) SessionOption {
+func withRequestID(id string) SessionOption {
 	return func(c *sessionConfig) error {
 		if err := c.once("WithRequestID"); err != nil {
 			return err
@@ -76,10 +76,10 @@ func WithRequestID(id string) SessionOption {
 	}
 }
 
-// WithRunStart calls fn on the Session's goroutine with each Run's ID, as the
+// withRunStart calls fn on the Session's goroutine with each Run's ID, as the
 // Run starts and before its first Event. fn must not block. A host uses it
 // to find the Run it started.
-func WithRunStart(fn func(RunID)) SessionOption {
+func withRunStart(fn func(RunID)) SessionOption {
 	return func(c *sessionConfig) error {
 		if err := c.once("WithRunStart"); err != nil {
 			return err

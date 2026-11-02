@@ -26,14 +26,14 @@ func (st *runState) detach(runCtx context.Context, live *gotato.Session) {
 	notices := handle.detachLive(func(left []gotato.Queued) bool {
 		why := st.dropReason(runCtx)
 		if why != "" {
-			live.DropQueued(left, why)
+			dropQueued(live, left, why)
 			return false
 		}
 		return true
 	})
 	for _, notice := range notices {
 		if notice.Message.Notice != nil && notice.Message.Notice.Source == gotato.NoticeSourceGotato {
-			live.DropQueued([]gotato.Queued{notice}, "run_ended")
+			dropQueued(live, []gotato.Queued{notice}, "run_ended")
 		}
 	}
 	_ = live.Close(context.Background())
@@ -129,7 +129,7 @@ func (st *runState) respond(spec Agent, auto *modelctx.AutoCompactor, result got
 	if st.request.SkipSave {
 		// The Run stored nothing: its Events are those of its own stream,
 		// numbered from 1, so the last number counts them.
-		out.Events = int(st.feed.Last())
+		out.Events = int(feedLast(st.feed))
 	}
 	if result.FinalMessage != nil {
 		out.FinalText = gotato.TextOf(*result.FinalMessage)

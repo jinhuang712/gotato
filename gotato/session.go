@@ -106,13 +106,13 @@ func NewSession(ctx context.Context, options ...SessionOption) (*Session, error)
 		// after the last number of a Feed the host shares with other Runs.
 		journal := &memoryJournal{}
 		if cfg.feed != nil {
-			journal.last = cfg.feed.Last()
+			journal.last = cfg.feed.lastNumber()
 		}
 		a.events.journal = journal
 	}
 	a.events.feed = cfg.feed
 	if a.events.feed == nil {
-		a.events.feed = NewFeed(nil)
+		a.events.feed = newFeed(nil)
 		a.events.ownFeed = true
 		if caps.Events != nil {
 			a.events.feed.setSource(caps.Events)
@@ -185,10 +185,10 @@ type sessionDef struct {
 
 // sessionHost is what the host asked of the Session through options.
 type sessionHost struct {
-	// onRunStart is called with the ID of each Run as it starts (WithRunStart).
+	// onRunStart is called with the ID of each Run as it starts (withRunStart).
 	onRunStart func(RunID)
 	// handoff keeps the messages still queued when a Run completes or fails,
-	// for the host to take (TakeQueued); see WithQueueHandoff.
+	// for the host to take (takeQueued); see withQueueHandoff.
 	handoff bool
 	// requestID is the caller's request identifier, recorded in RunStarted.
 	requestID string
@@ -246,7 +246,7 @@ func (a *Session) Subscribe(ctx context.Context, options ...SubscribeOption) (Su
 // Published returns how many Events the Session has published: its stored
 // Events and its deltas. A test that reads a Subscription compares it with how
 // many it has read, to know that it has seen everything.
-func (a *Session) Published() uint64 { return a.events.feed.Published() }
+func (a *Session) published() uint64 { return a.events.feed.published() }
 
 // SubscribeRun starts a Subscription to the next Run that starts: its Events
 // and deltas, from its RunStarted to its RunEnded, with the same numbers the

@@ -315,7 +315,7 @@ func TestPanicInAHostReadFailsTheRun(t *testing.T) {
 			return []gotato.SessionOption{gotato.WithTranscript(&hostileTranscript{holdJournal: newHoldJournal(nil), panics: "Capabilities"})}
 		}, gotato.CodeInternalInvariant, "Transcript panic"},
 		{"WithRunStart", func() []gotato.SessionOption {
-			return []gotato.SessionOption{gotato.WithRunStart(func(gotato.RunID) { panic("boom-start") })}
+			return []gotato.SessionOption{withRunStart(func(gotato.RunID) { panic("boom-start") })}
 		}, gotato.CodeExtensionFailure, "WithRunStart panic"},
 	}
 	for _, c := range cases {

@@ -41,13 +41,13 @@ func (r *Runner) acquireFeed(key feedKey, agent string) *gotato.Feed {
 	defer r.feeds.mu.Unlock()
 	entry := r.feeds.byKey[key]
 	if entry == nil {
-		feed := gotato.NewFeed(storeSource{store: r.store.Records, id: key.id})
-		feed.MirrorTo(r.feeds.instance)
+		feed := newFeed(storeSource{store: r.store.Records, id: key.id})
+		mirrorTo(feed, r.feeds.instance)
 		entry = &sessionFeed{feed: feed}
 		r.feeds.byKey[key] = entry
 	}
 	if agent != "" {
-		entry.feed.SetLabel(agent)
+		setLabel(entry.feed, agent)
 	}
 	entry.refs++
 	return entry.feed
@@ -81,10 +81,10 @@ func (r *Runner) publisher(key feedKey, agent string) func(gotato.Event) {
 		entry := r.feeds.byKey[key]
 		r.feeds.mu.Unlock()
 		if entry != nil {
-			entry.feed.Publish(event)
+			publish(entry.feed, event)
 			return
 		}
-		r.feeds.instance.PublishLabeled(event, agent)
+		publishLabeled(r.feeds.instance, event, agent)
 	}
 }
 
@@ -101,7 +101,7 @@ func (r *Runner) publishOpened(writer *session.Writer, early []gotato.Event, age
 // notice publishes an Instance Event: one that happens where no Record can take
 // it. It goes to the Instance's subscribers only.
 func (r *Runner) notice(event gotato.Event, agent string) {
-	r.feeds.instance.PublishLabeled(event, agent)
+	publishLabeled(r.feeds.instance, event, agent)
 }
 
 // storeSource reads a Session's stored Events again from the store, for a

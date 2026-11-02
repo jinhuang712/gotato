@@ -197,7 +197,7 @@ func (h *runHandle) detachLive(follow func([]gotato.Queued) bool) (notices []got
 	if live == nil {
 		return nil
 	}
-	notices, left := splitNotices(live.TakeQueued())
+	notices, left := splitNotices(takeQueued(live))
 	if len(left) > 0 && follow(left) {
 		h.next = left
 		h.ready, h.readyClosed = make(chan struct{}), false

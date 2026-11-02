@@ -62,7 +62,7 @@ func (st *runState) openSession(ctx, runCtx context.Context) (openedSession, err
 	began := r.clock.Now()
 	var err error
 	if request.SkipSave {
-		st.feed = gotato.NewFeed(nil)
+		st.feed = newFeed(nil)
 		if err := r.streamTo(ctx, st.feed, st.stream, st.track); err != nil {
 			return opened, err
 		}
@@ -151,12 +151,12 @@ func (st *runState) announceOpen(spec Agent, known bool, early []gotato.Event, r
 	if !known {
 		label = ""
 	}
-	st.feed.SetLabel(label)
+	setLabel(st.feed, label)
 	if st.writer != nil {
 		st.writer.SetPublisher(st.r.publisher(st.acquired, label))
 	}
 	for _, event := range early {
-		st.feed.Publish(event)
+		publish(st.feed, event)
 	}
 	if !reused {
 		st.r.notice(loadedEvent(st.sessionID, st.s.Len(), loadTime, nil), label)

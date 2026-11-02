@@ -25,7 +25,7 @@ type sessionRun struct {
 	open             bool
 	abortBeforeStart bool
 	// keeps says the ending Run leaves its queues for the host
-	// (WithQueueHandoff), so a message taken in meanwhile is kept, not dropped.
+	// (withQueueHandoff), so a message taken in meanwhile is kept, not dropped.
 	keeps bool
 	// stop cancels the Run; nil when none is in flight.
 	stop context.CancelFunc

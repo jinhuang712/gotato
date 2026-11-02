@@ -64,7 +64,7 @@ func (r *Runner) serve(ctx, runCtx context.Context, request RunRequest, stream *
 			for key, value := range request.Metadata {
 				st.s.Set(key, value)
 			}
-			st.feed = gotato.NewFeed(nil)
+			st.feed = newFeed(nil)
 			defer st.feed.Close()
 			if err := r.streamTo(ctx, st.feed, stream, st.track); err != nil {
 				return RunResponse{}, err
@@ -161,12 +161,12 @@ func (st *runState) abandon(runCtx context.Context, err error) error {
 // cancels it.
 func (st *runState) startRun(ctx, runCtx context.Context, spec Agent) (*gotato.Session, *modelctx.AutoCompactor, error) {
 	r, s, handle, follow := st.r, st.s, st.handle, st.follow
-	onRunStart := gotato.WithRunStart(func(runID gotato.RunID) {
+	onRunStart := withRunStart(func(runID gotato.RunID) {
 		st.track.set(runID)
 		handle.attachRunID(runID)
 		handle.abortIfStopped()
 	})
-	live, auto, err := r.buildSession(runCtx, spec, s, st.writer, InspectConfig{}, onRunStart, gotato.WithFeed(st.feed), gotato.WithQueueHandoff(), gotato.WithRequestID(st.request.RequestID))
+	live, auto, err := r.buildSession(runCtx, spec, s, st.writer, InspectConfig{}, onRunStart, withFeed(st.feed), withQueueHandoff(), withRequestID(st.request.RequestID))
 	if err != nil {
 		return nil, nil, err
 	}
@@ -186,15 +186,15 @@ func (st *runState) startRun(ctx, runCtx context.Context, spec Agent) (*gotato.S
 		for i, notice := range kept {
 			queued[i] = notice.Queued()
 		}
-		if rest := live.Requeue(queued); len(rest) > 0 {
-			live.DropQueued(rest, "queue_full")
+		if rest := requeue(live, queued); len(rest) > 0 {
+			dropQueued(live, rest, "queue_full")
 		}
 	}
 	if follow != nil {
 		// The messages that waited behind the first one wait in this Run's
 		// queues, in order, before anything new can reach them.
-		if rest := live.Requeue(follow.rest); len(rest) > 0 {
-			live.DropQueued(rest, "queue_full")
+		if rest := requeue(live, follow.rest); len(rest) > 0 {
+			dropQueued(live, rest, "queue_full")
 		}
 	}
 	st.started = true
@@ -267,7 +267,7 @@ func (st *runState) dropUntakenFollow(live *gotato.Session, result gotato.RunRes
 			return
 		}
 	}
-	live.DropQueued([]gotato.Queued{first}, "run_failed")
+	dropQueued(live, []gotato.Queued{first}, "run_failed")
 }
 
 // dropFollow reports the messages a following Run was to take as dropped, with

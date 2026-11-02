@@ -27,7 +27,7 @@ func numbers(t *testing.T, sub Subscription, count int) []uint64 {
 
 // Publish never waits for a subscriber that does not read.
 func TestPublishNeverBlocks(t *testing.T) {
-	feed := NewFeed(nil)
+	feed := newFeed(nil)
 	sub, err := feed.Subscribe(context.Background(), SubscribeBuffer(4))
 	if err != nil {
 		t.Fatal(err)
@@ -37,8 +37,8 @@ func TestPublishNeverBlocks(t *testing.T) {
 	go func() {
 		defer close(done)
 		for n := uint64(1); n <= 2000; n++ {
-			feed.Publish(storedEvent(n))
-			feed.Publish(delta(n, "x"))
+			feed.publish(storedEvent(n))
+			feed.publish(delta(n, "x"))
 		}
 	}()
 	select {
@@ -51,7 +51,7 @@ func TestPublishNeverBlocks(t *testing.T) {
 // A subscriber that falls behind stops being buffered and catches up by number:
 // it sees every stored Event once, in order. Only deltas are skipped.
 func TestSlowSubscriberCatchesUpFromTheRecord(t *testing.T) {
-	feed := NewFeed(nil)
+	feed := newFeed(nil)
 	sub, err := feed.Subscribe(context.Background(), SubscribeBuffer(4))
 	if err != nil {
 		t.Fatal(err)
@@ -59,8 +59,8 @@ func TestSlowSubscriberCatchesUpFromTheRecord(t *testing.T) {
 	defer func() { _ = sub.Close() }()
 	const total = 500
 	for n := uint64(1); n <= total; n++ {
-		feed.Publish(storedEvent(n))
-		feed.Publish(delta(n, "x"))
+		feed.publish(storedEvent(n))
+		feed.publish(delta(n, "x"))
 	}
 	var stored []uint64
 	deadline := time.After(10 * time.Second)
@@ -85,9 +85,9 @@ func TestSlowSubscriberCatchesUpFromTheRecord(t *testing.T) {
 // A Session's stream starts after any number: first the Events the source
 // keeps, then the live ones, without a gap or a duplicate.
 func TestSubscribeAfterReadsTheRecordThenGoesLive(t *testing.T) {
-	feed := NewFeed(nil)
+	feed := newFeed(nil)
 	for n := uint64(1); n <= 5; n++ {
-		feed.Publish(storedEvent(n))
+		feed.publish(storedEvent(n))
 	}
 	sub, err := feed.Subscribe(context.Background(), SubscribeAfter(2))
 	if err != nil {
@@ -97,9 +97,9 @@ func TestSubscribeAfterReadsTheRecordThenGoesLive(t *testing.T) {
 	if got := numbers(t, sub, 3); !reflect.DeepEqual(got, []uint64{3, 4, 5}) {
 		t.Fatalf("catch-up = %v, want 3 4 5", got)
 	}
-	feed.Publish(storedEvent(6))
-	feed.Publish(storedEvent(6)) // a duplicate is ignored
-	feed.Publish(storedEvent(7))
+	feed.publish(storedEvent(6))
+	feed.publish(storedEvent(6)) // a duplicate is ignored
+	feed.publish(storedEvent(7))
 	if got := numbers(t, sub, 2); !reflect.DeepEqual(got, []uint64{6, 7}) {
 		t.Fatalf("live = %v, want 6 7", got)
 	}
@@ -131,10 +131,10 @@ func (s *sliceSource) EventsAfter(_ context.Context, after uint64, _ int) ([]Eve
 // Catch-up reads from the Feed's source, when it has one.
 func TestCatchUpReadsFromTheSource(t *testing.T) {
 	source := &sliceSource{}
-	feed := NewFeed(source)
+	feed := newFeed(source)
 	for n := uint64(1); n <= 50; n++ {
 		source.add(storedEvent(n)) // written first, then sent
-		feed.Publish(storedEvent(n))
+		feed.publish(storedEvent(n))
 	}
 	sub, err := feed.Subscribe(context.Background(), SubscribeAfter(10))
 	if err != nil {
@@ -150,14 +150,14 @@ func TestCatchUpReadsFromTheSource(t *testing.T) {
 // The Instance's stream has no number: a slow subscriber skips Events and is
 // told how many.
 func TestInstanceFeedSaysHowManyWereSkipped(t *testing.T) {
-	feed := NewInstanceFeed()
+	feed := newInstanceFeed()
 	sub, err := feed.Subscribe(context.Background(), SubscribeBuffer(2))
 	if err != nil {
 		t.Fatal(err)
 	}
 	defer func() { _ = sub.Close() }()
 	for range 10 {
-		feed.Publish(storedEvent(0))
+		feed.publish(storedEvent(0))
 	}
 	var skipped uint64
 	seen := 0
@@ -176,18 +176,18 @@ func TestInstanceFeedSaysHowManyWereSkipped(t *testing.T) {
 
 // A Run's stream carries one Run, from its RunStarted to its RunEnded, and ends.
 func TestRunStreamEndsWithTheRun(t *testing.T) {
-	feed := NewFeed(nil)
+	feed := newFeed(nil)
 	sub, err := feed.Subscribe(context.Background(), SubscribeNextRun()...)
 	if err != nil {
 		t.Fatal(err)
 	}
 	defer func() { _ = sub.Close() }()
-	feed.Publish(TurnStarted{Header: Header{Number: 1}}) // before the Run: not in its stream
-	feed.Publish(RunStarted{Header: Header{Number: 2, RunID: "r1"}})
-	feed.Publish(TurnStarted{Header: Header{Number: 3, RunID: "r1"}})
-	feed.Publish(TurnStarted{Header: Header{Number: 4, RunID: "other"}})
-	feed.Publish(RunEnded{Header: Header{Number: 5, RunID: "r1"}})
-	feed.Publish(RunStarted{Header: Header{Number: 6, RunID: "r2"}})
+	feed.publish(TurnStarted{Header: Header{Number: 1}}) // before the Run: not in its stream
+	feed.publish(RunStarted{Header: Header{Number: 2, RunID: "r1"}})
+	feed.publish(TurnStarted{Header: Header{Number: 3, RunID: "r1"}})
+	feed.publish(TurnStarted{Header: Header{Number: 4, RunID: "other"}})
+	feed.publish(RunEnded{Header: Header{Number: 5, RunID: "r1"}})
+	feed.publish(RunStarted{Header: Header{Number: 6, RunID: "r2"}})
 	if got := numbers(t, sub, 3); !reflect.DeepEqual(got, []uint64{2, 3, 5}) {
 		t.Fatalf("the Run's stream = %v, want 2 3 5", got)
 	}
@@ -200,13 +200,13 @@ func TestRunStreamEndsWithTheRun(t *testing.T) {
 
 // End lets a subscriber read what is queued, and then ends the stream.
 func TestEndDrainsTheQueue(t *testing.T) {
-	feed := NewFeed(nil)
+	feed := newFeed(nil)
 	sub, err := feed.Subscribe(context.Background())
 	if err != nil {
 		t.Fatal(err)
 	}
 	for n := uint64(1); n <= 3; n++ {
-		feed.Publish(storedEvent(n))
+		feed.publish(storedEvent(n))
 	}
 	sub.End()
 	if got := numbers(t, sub, 3); !reflect.DeepEqual(got, []uint64{1, 2, 3}) {
@@ -222,9 +222,9 @@ func TestEndDrainsTheQueue(t *testing.T) {
 // A subscriber needs Events its source cannot give: the stream ends with an
 // error instead of waiting for ever.
 func TestMissingEventsEndTheStream(t *testing.T) {
-	feed := NewFeed(&sliceSource{})
-	feed.Publish(storedEvent(1))
-	feed.Publish(storedEvent(2))
+	feed := newFeed(&sliceSource{})
+	feed.publish(storedEvent(1))
+	feed.publish(storedEvent(2))
 	sub, err := feed.Subscribe(context.Background(), SubscribeAfter(0))
 	if err != nil {
 		t.Fatal(err)
@@ -282,7 +282,7 @@ func TestSubscribeDoesNotLeakGoroutines(t *testing.T) {
 // Next returns the context's error, not io.EOF, when the context given to
 // Subscribe is canceled.
 func TestCanceledSubscribeContextEndsWithItsError(t *testing.T) {
-	feed := NewFeed(nil)
+	feed := newFeed(nil)
 	ctx, cancel := context.WithCancel(context.Background())
 	sub, err := feed.Subscribe(ctx)
 	if err != nil {
@@ -298,7 +298,7 @@ func TestCanceledSubscribeContextEndsWithItsError(t *testing.T) {
 
 // Close is still a clean end.
 func TestCloseStillEndsWithEOF(t *testing.T) {
-	feed := NewFeed(nil)
+	feed := newFeed(nil)
 	sub, err := feed.Subscribe(context.Background())
 	if err != nil {
 		t.Fatal(err)
@@ -312,7 +312,7 @@ func TestCloseStillEndsWithEOF(t *testing.T) {
 // A full queue of deltas drops the oldest one to make room, and then takes the
 // new one: one delta is lost, not two.
 func TestFullQueueDropsOneDeltaAndKeepsTheNewOne(t *testing.T) {
-	feed := NewFeed(nil)
+	feed := newFeed(nil)
 	s := &subscription{feed: feed, max: 2, wake: make(chan struct{}, 1)}
 	s.queue = []Event{delta(0, "a"), delta(0, "b")}
 	s.offer(delta(0, "c"), "")
@@ -327,7 +327,7 @@ func TestFullQueueDropsOneDeltaAndKeepsTheNewOne(t *testing.T) {
 
 // A mixed Feed counts one skipped Event when one delta is dropped for another.
 func TestMixedFeedCountsOneSkippedDelta(t *testing.T) {
-	feed := NewInstanceFeed()
+	feed := newInstanceFeed()
 	s := &subscription{feed: feed, max: 2, wake: make(chan struct{}, 1)}
 	s.queue = []Event{delta(0, "a"), delta(0, "b")}
 	s.offer(delta(0, "c"), "")
@@ -340,7 +340,7 @@ func TestMixedFeedCountsOneSkippedDelta(t *testing.T) {
 // once: the publisher's and the subscriber's catch-up. Run with -race.
 func TestSubscribeFilterIsNotCalledConcurrently(t *testing.T) {
 	source := &sliceSource{}
-	feed := NewFeed(source)
+	feed := newFeed(source)
 	calls := 0 // unsynchronized on purpose
 	sub, err := feed.Subscribe(context.Background(),
 		SubscribeAfter(0), SubscribeBuffer(1),
@@ -358,7 +358,7 @@ func TestSubscribeFilterIsNotCalledConcurrently(t *testing.T) {
 	go func() {
 		defer wg.Done()
 		for n := uint64(1); n <= total; n++ {
-			feed.Publish(storedEvent(n))
+			feed.publish(storedEvent(n))
 		}
 	}()
 	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
@@ -393,10 +393,10 @@ func live(t *testing.T, sub Subscription) {
 // and sees each stored Event once, in order.
 func TestAGapInTheNumbersIsReadFromTheSource(t *testing.T) {
 	source := &sliceSource{}
-	feed := NewFeed(source)
+	feed := newFeed(source)
 	for n := uint64(1); n <= 2; n++ {
 		source.add(storedEvent(n))
-		feed.Publish(storedEvent(n))
+		feed.publish(storedEvent(n))
 	}
 	sub, err := feed.Subscribe(context.Background(), SubscribeAfter(2))
 	if err != nil {
@@ -407,8 +407,8 @@ func TestAGapInTheNumbersIsReadFromTheSource(t *testing.T) {
 	for n := uint64(3); n <= 6; n++ {
 		source.add(storedEvent(n)) // written, by this Instance or another
 	}
-	feed.Publish(storedEvent(5)) // 3 and 4 were written elsewhere
-	feed.Publish(storedEvent(6))
+	feed.publish(storedEvent(5)) // 3 and 4 were written elsewhere
+	feed.publish(storedEvent(6))
 	if got := numbers(t, sub, 4); !reflect.DeepEqual(got, []uint64{3, 4, 5, 6}) {
 		t.Fatalf("stream = %v, want 3 4 5 6", got)
 	}
@@ -418,10 +418,10 @@ func TestAGapInTheNumbersIsReadFromTheSource(t *testing.T) {
 // order, and misses nothing.
 func TestEventsPublishedOutOfOrderAreDeliveredInOrder(t *testing.T) {
 	source := &sliceSource{}
-	feed := NewFeed(source)
+	feed := newFeed(source)
 	for n := uint64(1); n <= 2; n++ {
 		source.add(storedEvent(n))
-		feed.Publish(storedEvent(n))
+		feed.publish(storedEvent(n))
 	}
 	sub, err := feed.Subscribe(context.Background(), SubscribeAfter(2))
 	if err != nil {
@@ -432,9 +432,9 @@ func TestEventsPublishedOutOfOrderAreDeliveredInOrder(t *testing.T) {
 	for n := uint64(3); n <= 5; n++ {
 		source.add(storedEvent(n))
 	}
-	feed.Publish(storedEvent(4))
-	feed.Publish(storedEvent(3))
-	feed.Publish(storedEvent(5))
+	feed.publish(storedEvent(4))
+	feed.publish(storedEvent(3))
+	feed.publish(storedEvent(5))
 	if got := numbers(t, sub, 3); !reflect.DeepEqual(got, []uint64{3, 4, 5}) {
 		t.Fatalf("stream = %v, want 3 4 5", got)
 	}
@@ -443,10 +443,10 @@ func TestEventsPublishedOutOfOrderAreDeliveredInOrder(t *testing.T) {
 // A Feed without a source drops the Events it trims from memory, not only from
 // its slice.
 func TestRetainZeroesTheTrimmedTail(t *testing.T) {
-	feed := NewFeed(nil)
+	feed := newFeed(nil)
 	feed.ringCap = 4
 	for n := uint64(1); n <= 5; n++ {
-		feed.Publish(storedEvent(n))
+		feed.publish(storedEvent(n))
 	}
 	feed.mu.Lock()
 	defer feed.mu.Unlock()
@@ -481,9 +481,9 @@ func (b *blockingSource) EventsAfter(ctx context.Context, after uint64, limit in
 // during the look is not lost: the look is not a catch-up.
 func TestTailDoesNotDropDeltasWhileItReads(t *testing.T) {
 	source := &blockingSource{entered: make(chan struct{}, 1), release: make(chan struct{})}
-	feed := NewFeed(source)
+	feed := newFeed(source)
 	source.add(storedEvent(1))
-	feed.Publish(storedEvent(1))
+	feed.publish(storedEvent(1))
 	sub, err := feed.Subscribe(context.Background(), SubscribeAfter(1), SubscribeTail(5*time.Millisecond))
 	if err != nil {
 		t.Fatal(err)
@@ -496,7 +496,7 @@ func TestTailDoesNotDropDeltasWhileItReads(t *testing.T) {
 	case <-time.After(5 * time.Second):
 		t.Fatal("the tail never looked in the source")
 	}
-	feed.Publish(TextDelta{Header: Header{Number: 1}, Text: "hello"})
+	feed.publish(TextDelta{Header: Header{Number: 1}, Text: "hello"})
 	close(source.release)
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer cancel()
@@ -515,7 +515,7 @@ func TestTailDoesNotDropDeltasWhileItReads(t *testing.T) {
 // order, once each.
 func TestTailReadsEventsThatThisFeedWasNeverGiven(t *testing.T) {
 	source := &sliceSource{}
-	feed := NewFeed(source)
+	feed := newFeed(source)
 	for n := uint64(1); n <= 2; n++ {
 		source.add(storedEvent(n))
 	}
@@ -539,9 +539,9 @@ func TestTailReadsEventsThatThisFeedWasNeverGiven(t *testing.T) {
 	// This Instance becomes the writer: its own publishes join the stream
 	// without a repeat.
 	source.add(storedEvent(5))
-	feed.Publish(storedEvent(5))
+	feed.publish(storedEvent(5))
 	source.add(storedEvent(6))
-	feed.Publish(storedEvent(6))
+	feed.publish(storedEvent(6))
 	if got := numbers(t, sub, 2); !reflect.DeepEqual(got, []uint64{5, 6}) {
 		t.Fatalf("stream = %v, want 5 6", got)
 	}
@@ -550,7 +550,7 @@ func TestTailReadsEventsThatThisFeedWasNeverGiven(t *testing.T) {
 // Without SubscribeTail a stream reads only what its Feed is given.
 func TestWithoutTailAnIdleStreamStaysIdle(t *testing.T) {
 	source := &sliceSource{}
-	feed := NewFeed(source)
+	feed := newFeed(source)
 	sub, err := feed.Subscribe(context.Background(), SubscribeAfter(0))
 	if err != nil {
 		t.Fatal(err)
@@ -579,7 +579,7 @@ func publishReturns(publish func()) bool {
 
 // A filter may close its own Subscription: it runs outside the Feed's lock.
 func TestFilterMayCloseItsSubscription(t *testing.T) {
-	feed := NewFeed(nil)
+	feed := newFeed(nil)
 	var sub Subscription
 	ready := make(chan struct{})
 	s, err := feed.Subscribe(context.Background(), SubscribeFilter(func(e Event) bool {
@@ -594,7 +594,7 @@ func TestFilterMayCloseItsSubscription(t *testing.T) {
 	}
 	sub = s
 	close(ready)
-	if !publishReturns(func() { feed.Publish(storedEvent(1)); feed.Publish(storedEvent(2)) }) {
+	if !publishReturns(func() { feed.publish(storedEvent(1)); feed.publish(storedEvent(2)) }) {
 		t.Fatal("Publish did not return after a filter closed its Subscription")
 	}
 }
@@ -602,10 +602,10 @@ func TestFilterMayCloseItsSubscription(t *testing.T) {
 // A filter on an Instance's Feed that closes its Subscription does not stall
 // the Session Feeds that mirror to it.
 func TestInstanceFilterMayCloseItsSubscription(t *testing.T) {
-	inst := NewInstanceFeed()
-	first, second := NewFeed(nil), NewFeed(nil)
-	first.MirrorTo(inst)
-	second.MirrorTo(inst)
+	inst := newInstanceFeed()
+	first, second := newFeed(nil), newFeed(nil)
+	first.mirrorTo(inst)
+	second.mirrorTo(inst)
 	var sub Subscription
 	ready := make(chan struct{})
 	s, err := inst.Subscribe(context.Background(), SubscribeFilter(func(Event) bool {
@@ -618,10 +618,10 @@ func TestInstanceFilterMayCloseItsSubscription(t *testing.T) {
 	}
 	sub = s
 	close(ready)
-	if !publishReturns(func() { first.Publish(storedEvent(1)) }) {
+	if !publishReturns(func() { first.publish(storedEvent(1)) }) {
 		t.Fatal("Publish did not return")
 	}
-	if !publishReturns(func() { second.Publish(storedEvent(1)) }) {
+	if !publishReturns(func() { second.publish(storedEvent(1)) }) {
 		t.Fatal("another Session's Publish stalled")
 	}
 }
@@ -630,7 +630,7 @@ func TestInstanceFilterMayCloseItsSubscription(t *testing.T) {
 // the subscription up.
 func TestFilterMayEndWhileTheTailReads(t *testing.T) {
 	source := &sliceSource{}
-	feed := NewFeed(source)
+	feed := newFeed(source)
 	var sub Subscription
 	ready := make(chan struct{})
 	s, err := feed.Subscribe(context.Background(), SubscribeTail(10*time.Millisecond), SubscribeFilter(func(e Event) bool {
@@ -646,11 +646,11 @@ func TestFilterMayEndWhileTheTailReads(t *testing.T) {
 	sub = s
 	close(ready)
 	source.add(storedEvent(1))
-	feed.Publish(storedEvent(1))
+	feed.publish(storedEvent(1))
 	next(t, s)
 	source.add(storedEvent(2)) // written by another Instance: only the tail sees it
 	time.Sleep(100 * time.Millisecond)
-	if !publishReturns(func() { feed.Publish(storedEvent(3)) }) {
+	if !publishReturns(func() { feed.publish(storedEvent(3)) }) {
 		t.Fatal("Publish blocked after a filter called End")
 	}
 }
@@ -665,7 +665,7 @@ func TestHostFunctionPanicEndsOnlyThatSubscription(t *testing.T) {
 		"until":   {SubscribeUntil(boom)},
 	} {
 		t.Run(name, func(t *testing.T) {
-			feed := NewFeed(nil)
+			feed := newFeed(nil)
 			bad, err := feed.Subscribe(context.Background(), options...)
 			if err != nil {
 				t.Fatal(err)
@@ -676,7 +676,7 @@ func TestHostFunctionPanicEndsOnlyThatSubscription(t *testing.T) {
 				t.Fatal(err)
 			}
 			defer func() { _ = good.Close() }()
-			if !publishReturns(func() { feed.Publish(storedEvent(1)); feed.Publish(storedEvent(2)) }) {
+			if !publishReturns(func() { feed.publish(storedEvent(1)); feed.publish(storedEvent(2)) }) {
 				t.Fatal("Publish did not return")
 			}
 			ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
@@ -702,7 +702,7 @@ type panicSource struct{}
 func (panicSource) EventsAfter(context.Context, uint64, int) ([]Event, error) { panic("boom") }
 
 func TestEventSourcePanicEndsTheSubscription(t *testing.T) {
-	feed := NewFeed(panicSource{})
+	feed := newFeed(panicSource{})
 	s, err := feed.Subscribe(context.Background(), SubscribeAfter(0))
 	if err != nil {
 		t.Fatal(err)
@@ -752,7 +752,7 @@ func TestFilterPanicDoesNotHangTheSession(t *testing.T) {
 func TestVerifyPanicEndsTheSubscription(t *testing.T) {
 	source := &sliceSource{}
 	source.add(storedEvent(1))
-	feed := NewFeed(source)
+	feed := newFeed(source)
 	s, err := feed.Subscribe(context.Background(), SubscribeAfter(0), SubscribeVerify(func(context.Context) error { panic("boom") }))
 	if err != nil {
 		t.Fatal(err)

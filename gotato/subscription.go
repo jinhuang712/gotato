@@ -81,7 +81,7 @@ func SubscribeFilter(keep func(Event) bool) SubscribeOption {
 }
 
 // SubscribeLabelFilter keeps only the Events for which keep returns true,
-// given the label of the Feed the Event was mirrored from (see SetLabel). The
+// given the label of the Feed the Event was mirrored from (see setLabel). The
 // label is empty for an Event published to this Feed directly. Like
 // SubscribeFilter's keep, it may call Close or End, and a panic in it ends this
 // Subscription.

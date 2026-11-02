@@ -59,6 +59,7 @@ var fileLayer = map[string]int{
 	"turnprep.go":     layerMechanism,
 	// Session and Loop
 	"eventwrite.go":       layerSession,
+	"hostlink.go":         layerSession,
 	"history.go":          layerSession,
 	"inspect.go":          layerSession,
 	"loop.go":             layerSession,
@@ -121,6 +122,9 @@ func TestFileLayers(t *testing.T) {
 	imp = func(path string) (*types.Package, error) {
 		if path == modulePath+"/internal/text" {
 			return checkDir(fset, "../internal/text", imp)
+		}
+		if path == modulePath+"/internal/hostlink" {
+			return checkDir(fset, "../internal/hostlink", imp)
 		}
 		return std.Import(path)
 	}

@@ -8,9 +8,9 @@ import (
 
 // A message accepted as the Run ends is taken by the host, in the order it was
 // accepted, and runs in the next Run of another Session; one that does not fit
-// is returned, and DropQueued reports it.
+// is returned, and dropQueued reports it.
 func TestTakeQueuedKeepsAcceptanceOrderAcrossQueues(t *testing.T) {
-	first, err := NewSession(context.Background(), WithModel(&recordingModel{scripts: [][]ModelEvent{finalScript("a")}}), WithQueueHandoff())
+	first, err := NewSession(context.Background(), WithModel(&recordingModel{scripts: [][]ModelEvent{finalScript("a")}}), withQueueHandoff())
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -33,12 +33,12 @@ func TestTakeQueuedKeepsAcceptanceOrderAcrossQueues(t *testing.T) {
 		}
 	}
 
-	left := first.TakeQueued()
+	left := first.takeQueued()
 	if len(left) != 3 || left[0].Source != MessageSourceFollowUp || left[1].Source != MessageSourceSteer || left[2].Source != MessageSourceFollowUp {
-		t.Fatalf("TakeQueued = %+v, want the three in the order they were accepted", left)
+		t.Fatalf("takeQueued = %+v, want the three in the order they were accepted", left)
 	}
-	if again := first.TakeQueued(); len(again) != 0 {
-		t.Fatalf("TakeQueued twice = %d messages", len(again))
+	if again := first.takeQueued(); len(again) != 0 {
+		t.Fatalf("takeQueued twice = %d messages", len(again))
 	}
 
 	limits := DefaultLimits()
@@ -48,17 +48,17 @@ func TestTakeQueuedKeepsAcceptanceOrderAcrossQueues(t *testing.T) {
 		t.Fatal(err)
 	}
 	defer func() { _ = second.Close(context.Background()) }()
-	rest := second.Requeue(left)
+	rest := second.requeue(left)
 	if len(rest) != 1 || rest[0].Message.ID != left[2].Message.ID {
-		t.Fatalf("Requeue returned %+v, want only the last message", rest)
+		t.Fatalf("requeue returned %+v, want only the last message", rest)
 	}
-	second.DropQueued(rest, "queue_full")
+	second.dropQueued(rest, "queue_full")
 }
 
 // A canceled Run still drops what is queued, as before.
 func TestACanceledRunStillDropsItsQueue(t *testing.T) {
 	model := &recordingModel{scripts: [][]ModelEvent{{{Kind: ModelEventKindDone, StopReason: StopReasonEndTurn}}}, started: make(chan int, 4), gate: make(chan struct{}, 4)}
-	session, err := NewSession(context.Background(), WithModel(model), WithQueueHandoff())
+	session, err := NewSession(context.Background(), WithModel(model), withQueueHandoff())
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -75,7 +75,7 @@ func TestACanceledRunStillDropsItsQueue(t *testing.T) {
 	session.Abort()
 	model.gate <- struct{}{}
 	<-done
-	if left := session.TakeQueued(); len(left) != 0 {
+	if left := session.takeQueued(); len(left) != 0 {
 		t.Fatalf("a canceled Run left %d messages for the host", len(left))
 	}
 }
@@ -84,7 +84,7 @@ func TestACanceledRunStillDropsItsQueue(t *testing.T) {
 // whether another Run takes it.
 func TestAFailedRunKeepsItsQueueForTheHost(t *testing.T) {
 	model := &recordingModel{scripts: [][]ModelEvent{{{Kind: "unknown"}}}, started: make(chan int, 4), gate: make(chan struct{}, 4)}
-	session, err := NewSession(context.Background(), WithModel(model), WithQueueHandoff())
+	session, err := NewSession(context.Background(), WithModel(model), withQueueHandoff())
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -104,9 +104,9 @@ func TestAFailedRunKeepsItsQueueForTheHost(t *testing.T) {
 	if err := <-done; err == nil {
 		t.Fatal("the Run did not fail")
 	}
-	left := session.TakeQueued()
+	left := session.takeQueued()
 	if len(left) != 1 || TextOf(left[0].Message) != "kept" {
-		t.Fatalf("TakeQueued = %+v, want the queued message", left)
+		t.Fatalf("takeQueued = %+v, want the queued message", left)
 	}
 	for _, event := range seen.events() {
 		if _, ok := event.(MessageDropped); ok {

@@ -442,7 +442,7 @@ func New(cfg Config) (*Runner, error) {
 		r.streams.poll = defaultStreamPoll
 	}
 	r.warm = warm.New(r.clock)
-	r.feeds.instance = gotato.NewInstanceFeed()
+	r.feeds.instance = newInstanceFeed()
 	for _, spec := range cfg.Agents {
 		name := strings.TrimSpace(spec.Name)
 		if name == "" {

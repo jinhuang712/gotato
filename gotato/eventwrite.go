@@ -117,7 +117,7 @@ func (a *Session) writeEvents(ctx context.Context, events []Event) ([]Event, *Ru
 		if number := event.Head().Number; number > a.events.last.Load() {
 			a.events.last.Store(number)
 		}
-		a.events.feed.Publish(WithoutBody(event))
+		a.events.feed.publish(WithoutBody(event))
 	}
 	return written, nil
 }
@@ -165,7 +165,7 @@ func (a *Session) closeSpan(events []Event) {
 // send sends a delta at once. It is marked with the number of the stored Event
 // it follows, and never stored.
 func (a *Session) send(event Event) {
-	a.events.feed.Publish(event)
+	a.events.feed.publish(event)
 }
 
 // deltaHeader is the Header of a delta: the Number is that of the last stored

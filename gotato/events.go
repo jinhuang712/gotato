@@ -169,7 +169,7 @@ type ToolOutcome struct {
 // ---- Runs and replies -------------------------------------------------------
 
 // RunStarted is published when a Run starts. RequestID is the caller's
-// identifier of the request that started the Run (WithRequestID), absent when
+// identifier of the request that started the Run (withRequestID), absent when
 // it gave none.
 type RunStarted struct {
 	Header

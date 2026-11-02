@@ -38,7 +38,7 @@ type PendingNotice struct {
 	Number uint64 `json:"number"`
 }
 
-// Queued returns the queue entry of the pending notice, for Requeue.
+// Queued returns the queue entry of the pending notice, for requeue.
 func (p PendingNotice) Queued() Queued {
 	message := NewNotice(p.Source, p.Kind, p.Text)
 	message.ID = p.MessageID

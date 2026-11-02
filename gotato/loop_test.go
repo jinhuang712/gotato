@@ -294,7 +294,7 @@ func firstOfKind(events []Event, kind EventKind) int {
 func TestSteerBeforeRunStartedHasNoRun(t *testing.T) {
 	var s *Session
 	s, err := NewSession(context.Background(), WithModel(&recordingModel{scripts: [][]ModelEvent{finalScript("a"), finalScript("b")}}),
-		WithRunStart(func(RunID) { _ = s.Steer(context.Background(), UserMessage("s")) }))
+		withRunStart(func(RunID) { _ = s.Steer(context.Background(), UserMessage("s")) }))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -317,7 +317,7 @@ func TestSteerBeforeRunStartedHasNoRun(t *testing.T) {
 func TestNoticeBeforeRunStartedHasNoRun(t *testing.T) {
 	var s *Session
 	s, err := NewSession(context.Background(), WithModel(&recordingModel{scripts: [][]ModelEvent{finalScript("a")}}),
-		WithRunStart(func(RunID) { _, _ = s.Notice(context.Background(), "k", "t") }))
+		withRunStart(func(RunID) { _, _ = s.Notice(context.Background(), "k", "t") }))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -360,7 +360,7 @@ func TestSteerAfterRunEndedHasNoRun(t *testing.T) {
 func TestAbortBeforeRunStartedIsStoredAfterIt(t *testing.T) {
 	for range 300 {
 		var s *Session
-		s, err := NewSession(context.Background(), WithModel(&recordingModel{scripts: [][]ModelEvent{finalScript("a")}}), WithRunStart(func(RunID) { s.Abort() }))
+		s, err := NewSession(context.Background(), WithModel(&recordingModel{scripts: [][]ModelEvent{finalScript("a")}}), withRunStart(func(RunID) { s.Abort() }))
 		if err != nil {
 			t.Fatal(err)
 		}

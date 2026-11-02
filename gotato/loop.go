@@ -367,7 +367,7 @@ func (a *Session) executeRun(ctx context.Context, prompt *Message) (RunResult, e
 
 // beginRun registers a new Run, whose Abort is cancel, and returns its ID and
 // the function that unregisters it when the Run is over. failure is a panic in
-// the host's WithRunStart function, which fails the Run once RunStarted is
+// the host's withRunStart function, which fails the Run once RunStarted is
 // stored.
 func (a *Session) beginRun(cancel context.CancelFunc) (RunID, func(), *RuntimeError) {
 	runID := RunID(nextID("run"))
@@ -382,9 +382,9 @@ func (a *Session) beginRun(cancel context.CancelFunc) (RunID, func(), *RuntimeEr
 	a.run.inRun.Store(true)
 	var failure *RuntimeError
 	if a.host.onRunStart != nil {
-		// [LIVENESS] a panic in the host's WithRunStart function fails this Run, not the process.
+		// [LIVENESS] a panic in the host's withRunStart function fails this Run, not the process.
 		if err := callHost("WithRunStart", func() error { a.host.onRunStart(runID); return nil }); err != nil {
-			failure = runtimeError(CodeExtensionFailure, "WithRunStart", PublicText(err, "WithRunStart failed"), err)
+			failure = runtimeError(CodeExtensionFailure, "WithRunStart", PublicText(err, "withRunStart failed"), err)
 		}
 	}
 	return runID, func() {

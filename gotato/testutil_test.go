@@ -166,7 +166,7 @@ func (r *recorder) events() []Event {
 		r.mu.Lock()
 		count := uint64(len(r.got))
 		r.mu.Unlock()
-		if count >= r.s.Published() {
+		if count >= r.s.published() {
 			break
 		}
 		time.Sleep(time.Millisecond)
