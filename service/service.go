@@ -37,6 +37,7 @@ import (
 
 	"github.com/jinhuang712/gotato/gotato"
 	"github.com/jinhuang712/gotato/modelctx"
+	"github.com/jinhuang712/gotato/service/internal/clock"
 	"github.com/jinhuang712/gotato/session"
 )
 
@@ -300,9 +301,10 @@ type Config struct {
 	// bound beyond the context Drain is given, which can end the wait sooner
 	// in any case.
 	DrainTimeout time.Duration
-	// clock times the warm Sessions: their TTL and their idle compaction.
-	// Nil means the system clock; the tests of this package set it.
-	clock clock
+	// clock is the time the Runner reads and waits by: warm TTLs, idle
+	// compaction, renewals, waits. Nil means the system clock; the tests of this
+	// package set it.
+	clock clock.Clock
 }
 
 // Runner serves Runs against Sessions.
@@ -318,10 +320,10 @@ type Runner struct {
 
 	locks *sessionLocks
 
-	// clock times the warm Sessions. warm holds the idle ones, each a cache
-	// of a Record and never a lock; warmClosed says the Runner has let them
-	// all go and keeps none (see warm.go).
-	clock clock
+	// clock is the one clock of the Runner. warm holds the idle Sessions, each
+	// a cache of a Record and never a lock; warmClosed says the Runner has let
+	// them all go and keeps none (see warm.go).
+	clock clock.Clock
 	// hooks are the seams the tests of this package set (export_test.go).
 	hooks      testHooks
 	warmMu     sync.Mutex
@@ -416,7 +418,7 @@ func New(cfg Config) (*Runner, error) {
 	// row or a Claim with the one it replaces.
 	r.beat.instance = r.newName()
 	if r.clock == nil {
-		r.clock = systemClock{}
+		r.clock = clock.System()
 	}
 	// [CONTRACT] a negative MaxActiveRuns is refused, as MaxActiveSessions is, so a typo does not read as no limit.
 	if r.admission.MaxActiveRuns < 0 {

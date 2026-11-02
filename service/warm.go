@@ -7,6 +7,7 @@ import (
 
 	"github.com/jinhuang712/gotato/gotato"
 	"github.com/jinhuang712/gotato/modelctx"
+	"github.com/jinhuang712/gotato/service/internal/clock"
 	"github.com/jinhuang712/gotato/session"
 )
 
@@ -95,26 +96,6 @@ func (p WarmPolicy) idleSchedule(retention time.Duration) (after time.Duration, 
 	return after, why, true
 }
 
-// clock is the time a Runner waits by. The default is the system clock; a test
-// supplies one it advances itself, so no test waits for a TTL.
-type clock interface {
-	Now() time.Time
-	// AfterFunc calls f once, in a goroutine of its own, after d.
-	AfterFunc(d time.Duration, f func()) timer
-}
-
-// timer is a pending call of clock.AfterFunc.
-type timer interface {
-	// Stop prevents the call when it has not happened yet.
-	Stop() bool
-}
-
-type systemClock struct{}
-
-func (systemClock) Now() time.Time { return time.Now() }
-
-func (systemClock) AfterFunc(d time.Duration, f func()) timer { return time.AfterFunc(d, f) }
-
 // warmEntry is the live copy of one idle Session: its Record and the Writer
 // that wrote it, kept in memory after a Run. It holds no Claim.
 type warmEntry struct {
@@ -122,7 +103,7 @@ type warmEntry struct {
 	agent  string
 	spec   Agent
 	writer *session.Writer
-	timers []timer
+	timers []clock.Timer
 	// since is when the Session went idle, and seq orders copies that went
 	// idle at the same time; eviction takes the least of them first.
 	since time.Time

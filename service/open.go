@@ -7,6 +7,7 @@ import (
 	"time"
 
 	"github.com/jinhuang712/gotato/gotato"
+	"github.com/jinhuang712/gotato/service/internal/clock"
 	"github.com/jinhuang712/gotato/session"
 )
 
@@ -65,7 +66,7 @@ func (r *Runner) open(ctx context.Context, sessionID string) (*session.Writer, [
 	if err := r.live(ctx); err != nil {
 		return nil, nil, err
 	}
-	deadline := time.Now().Add(r.liveness.Wait)
+	deadline := r.clock.Now().Add(r.liveness.Wait)
 	pause := 20 * time.Millisecond
 	waited := false
 	for {
@@ -91,7 +92,7 @@ func (r *Runner) open(ctx context.Context, sessionID string) (*session.Writer, [
 			}
 			return nil, nil, storeFailureOf(ctx, notRunIfLapsed(err), true)
 		}
-		remaining := time.Until(deadline)
+		remaining := deadline.Sub(r.clock.Now())
 		if remaining <= 0 {
 			r.notice(gotato.RunRejected{Header: gotato.NewHeader(gotato.SessionID(sessionID), "", 0), Why: "busy_elsewhere"}, "")
 			return nil, nil, busyElsewhere(r.liveness.Wait)
@@ -100,10 +101,8 @@ func (r *Runner) open(ctx context.Context, sessionID string) (*session.Writer, [
 			r.notice(gotato.RunWaiting{Header: gotato.NewHeader(gotato.SessionID(sessionID), "", 0), Why: "busy_elsewhere"}, "")
 		}
 		waited = true
-		select {
-		case <-ctx.Done():
-			return nil, nil, ctx.Err()
-		case <-time.After(min(pause, remaining)):
+		if err := clock.Sleep(ctx, r.clock, min(pause, remaining)); err != nil {
+			return nil, nil, err
 		}
 		pause = min(pause*2, 500*time.Millisecond)
 	}

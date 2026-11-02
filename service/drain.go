@@ -5,6 +5,7 @@ import (
 	"errors"
 	"time"
 
+	"github.com/jinhuang712/gotato/service/internal/clock"
 	"github.com/jinhuang712/gotato/session"
 )
 
@@ -101,10 +102,12 @@ func (r *Runner) Drain(ctx context.Context) error {
 		return markErr
 	case <-waitCtx.Done():
 		r.stopAll()
+		stopped, cancelStop := clock.After(r.clock, r.stopWait())
+		defer cancelStop()
 		select {
 		case <-drained:
 		// [LIVENESS] a Run that ignores its stop would hold Drain for good.
-		case <-time.After(r.stopWait()):
+		case <-stopped:
 		}
 		r.dropAllWarm("drain")
 		r.endStreams()

@@ -5,6 +5,7 @@ import (
 	"time"
 
 	"github.com/jinhuang712/gotato/gotato"
+	"github.com/jinhuang712/gotato/service/internal/clock"
 	"github.com/jinhuang712/gotato/session"
 )
 
@@ -58,7 +59,7 @@ func (st *runState) openSession(ctx, runCtx context.Context) (openedSession, err
 	if request.SessionID == "" {
 		return opened, nil
 	}
-	began := time.Now()
+	began := r.clock.Now()
 	var err error
 	if request.SkipSave {
 		st.feed = gotato.NewFeed(nil)
@@ -67,7 +68,7 @@ func (st *runState) openSession(ctx, runCtx context.Context) (openedSession, err
 		}
 		st.s, err = session.Open(runCtx, r.store.Records, st.sessionID)
 		err = storeFailureOf(runCtx, err, true)
-		opened.loadTime = time.Since(began)
+		opened.loadTime = clock.Since(r.clock, began)
 	} else {
 		opened.loadTime, opened.early, opened.reused, err = st.openWriter(runCtx, began)
 	}
@@ -126,7 +127,7 @@ func (st *runState) openWriter(runCtx context.Context, began time.Time) (loadTim
 		loadTime = st.writer.Stats().Load
 		st.s = st.writer.Record()
 	} else {
-		loadTime = time.Since(began)
+		loadTime = clock.Since(st.r.clock, began)
 	}
 	return loadTime, early, reused, err
 }

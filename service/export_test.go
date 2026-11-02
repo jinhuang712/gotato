@@ -1,6 +1,10 @@
 package service
 
-import "time"
+import (
+	"time"
+
+	"github.com/jinhuang712/gotato/service/internal/clock"
+)
 
 // SetBeforeDetach sets the seam that holds a Run after it has settled and
 // before its live Session stops taking messages.
@@ -12,8 +16,8 @@ func (r *Runner) SetBeforeRelease(fn func()) { r.hooks.beforeRelease = fn }
 
 // Clock and Timer are the time a Runner waits by, which a test advances itself.
 type (
-	Clock = clock
-	Timer = timer
+	Clock = clock.Clock
+	Timer = clock.Timer
 )
 
 // WithClock returns cfg with its warm Sessions timed by c, so no test waits

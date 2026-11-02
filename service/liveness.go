@@ -8,6 +8,7 @@ import (
 	"time"
 
 	"github.com/jinhuang712/gotato/gotato"
+	"github.com/jinhuang712/gotato/service/internal/clock"
 	"github.com/jinhuang712/gotato/session"
 )
 
@@ -52,8 +53,8 @@ type heartbeat struct {
 	instance string
 	// reported says liveness_lapsed was published once already.
 	reported bool
-	stop     chan struct{}
-	done     chan struct{}
+	// ticker renews the row; nil until the first write.
+	ticker *clock.Ticker
 }
 
 // errLapsed refuses a write once this Instance cannot show that its row is
@@ -120,7 +121,7 @@ func (r *Runner) Lapsed() bool {
 	if !r.beat.started || r.beat.closed {
 		return false
 	}
-	return r.beat.expired || time.Since(r.beat.lastSent) > r.liveness.TTL-r.liveness.TTL/5
+	return r.beat.expired || clock.Since(r.clock, r.beat.lastSent) > r.liveness.TTL-r.liveness.TTL/5
 }
 
 // errHolderBusy reports, inside open, a Session running on another live
@@ -158,9 +159,7 @@ func (r *Runner) live(ctx context.Context) error {
 		return nil
 	}
 	r.beat.started = true
-	r.beat.stop = make(chan struct{})
-	r.beat.done = make(chan struct{})
-	go r.renewals(r.beat.stop, r.beat.done)
+	r.beat.ticker = clock.Every(r.clock, r.liveness.TTL/3, r.renewOnTick)
 	return nil
 }
 
@@ -178,7 +177,7 @@ func (r *Runner) renew(ctx context.Context) error {
 	r.beat.mu.Lock()
 	row := session.InstanceRow{ID: r.beat.instance, Draining: r.beat.draining, Address: r.address}
 	r.beat.mu.Unlock()
-	sent := time.Now()
+	sent := r.clock.Now()
 	err := r.store.Liveness.Beat(ctx, row, r.liveness.TTL)
 	r.beat.mu.Lock()
 	switch {
@@ -201,7 +200,7 @@ func (r *Runner) renew(ctx context.Context) error {
 func (r *Runner) reregister(ctx context.Context, old session.InstanceRow) error {
 	row := old
 	row.ID = r.newName()
-	sent := time.Now()
+	sent := r.clock.Now()
 	if err := r.store.Liveness.Beat(ctx, row, r.liveness.TTL); err != nil {
 		return err
 	}
@@ -224,21 +223,13 @@ func (r *Runner) reregister(ctx context.Context, old session.InstanceRow) error 
 	return nil
 }
 
-func (r *Runner) renewals(stop, done chan struct{}) {
-	defer close(done)
-	ticker := time.NewTicker(r.liveness.TTL / 3)
-	defer ticker.Stop()
-	for {
-		select {
-		case <-stop:
-			return
-		case <-ticker.C:
-			ctx, cancel := context.WithTimeout(context.Background(), r.liveness.TTL/3)
-			_ = r.renew(ctx)
-			cancel()
-			r.repairReleases()
-		}
-	}
+// renewOnTick is one beat of the renewals: the row, then the releases that
+// failed.
+func (r *Runner) renewOnTick() {
+	ctx, cancel := context.WithTimeout(context.Background(), r.liveness.TTL/3)
+	_ = r.renew(ctx)
+	cancel()
+	r.repairReleases()
 }
 
 // guard refuses a write once the last renewal is older than the TTL less a
@@ -252,7 +243,7 @@ func (r *Runner) guardFor(name string) error {
 	if name != "" && name != r.beat.instance {
 		return errLapsed
 	}
-	if r.beat.expired || time.Since(r.beat.lastSent) > r.liveness.TTL-r.liveness.TTL/5 {
+	if r.beat.expired || clock.Since(r.clock, r.beat.lastSent) > r.liveness.TTL-r.liveness.TTL/5 {
 		if !r.beat.reported && !r.beat.closed {
 			r.beat.reported = true
 			r.notice(gotato.LivenessLapsed{Header: gotato.NewHeader("", "", 0), Instance: r.beat.instance}, "")
@@ -296,7 +287,7 @@ func (r *Runner) Close(ctx context.Context) error {
 	r.dropAllWarm("closed")
 	r.beat.mu.Lock()
 	started := r.beat.started
-	stop, done := r.beat.stop, r.beat.done
+	ticker := r.beat.ticker
 	r.beat.started = false
 	r.beat.closed = true
 	r.beat.expired = true
@@ -305,8 +296,7 @@ func (r *Runner) Close(ctx context.Context) error {
 	if !started {
 		return nil
 	}
-	close(stop)
-	<-done
+	ticker.Stop()
 	err := r.store.Liveness.Beat(ctx, session.InstanceRow{ID: name}, 0)
 	if errors.Is(err, session.ErrExpired) {
 		// A store that keeps an ended row refuses an expired one.
