@@ -2,8 +2,6 @@ package gotato
 
 import (
 	"context"
-	"sync"
-	"sync/atomic"
 	"time"
 )
 
@@ -103,13 +101,7 @@ func NewSession(ctx context.Context, options ...SessionOption) (*Session, error)
 		spillPage:      spillPage,
 		sampling:       cfg.sampling,
 		cacheKey:       cfg.cacheKey,
-		commands:       make(chan sessionCommand),
-		closeSignal:    make(chan struct{}),
-		done:           make(chan struct{}),
-		ready:          make(chan struct{}),
-		admission:      make(chan struct{}, 1),
 		queue:          newControlQueue(controlCapacity(cfg.limits.MaxSteerMessages), controlCapacity(cfg.limits.MaxFollowUpMessages), controlCapacity(cfg.limits.MaxNotices)),
-		stateChange:    make(chan struct{}),
 		onRunStart:     cfg.onRunStart,
 		handoff:        cfg.handoff,
 		requestID:      cfg.requestID,
@@ -134,9 +126,10 @@ func NewSession(ctx context.Context, options ...SessionOption) (*Session, error)
 		}
 	}
 	a.extensions.report = a.reportExtension
-	a.setStatus(SessionStatusCreated)
+	a.life.init()
+	a.life.setStatus(SessionStatusCreated)
 	go a.loop()
-	<-a.ready
+	<-a.life.ready
 	return a, nil
 }
 
@@ -177,22 +170,12 @@ type Session struct {
 	// requestID is the caller's request identifier, recorded in RunStarted.
 	requestID string
 
-	commands    chan sessionCommand
-	closeSignal chan struct{}
-	closeOnce   sync.Once
-	done        chan struct{}
-	doneOnce    sync.Once
-	ready       chan struct{}
-	admission   chan struct{}
+	// life is the Session's life: its commands, the admission of a Run, its
+	// status and its close.
+	life sessionLife
 	// queue holds the messages that wait for a Run (Steer, FollowUp,
 	// Interrupt, notice); see controlQueue. Lock order: run.mu, then its lock.
 	queue *controlQueue
-
-	closeRequested atomic.Bool
-	status         atomic.Uint32
-
-	stateMu     sync.Mutex
-	stateChange chan struct{}
 
 	// run is the Run in flight.
 	run sessionRun
@@ -228,8 +211,8 @@ func (a *Session) ID() SessionID { return a.id }
 // SessionStatusClosing as soon as Close is requested, until the Session is
 // closed.
 func (a *Session) Status() SessionStatus {
-	status := decodeSessionStatus(a.status.Load())
-	if a.closeRequested.Load() && status != SessionStatusClosed {
+	status := decodeSessionStatus(a.life.status.Load())
+	if a.life.closeRequested.Load() && status != SessionStatusClosed {
 		return SessionStatusClosing
 	}
 	return status
@@ -237,7 +220,7 @@ func (a *Session) Status() SessionStatus {
 
 // Done returns a channel that is closed once the Session has closed: after
 // Close, when no Run is left and the Session has stopped accepting messages.
-func (a *Session) Done() <-chan struct{} { return a.done }
+func (a *Session) Done() <-chan struct{} { return a.life.done }
 
 // Subscribe starts a Subscription to the Session's stored Events and deltas,
 // from now on, across Runs. Subscribe before the first Prompt to see
@@ -294,24 +277,24 @@ func (a *Session) submit(ctx context.Context, kind sessionCommandKind, operation
 	}
 
 	select {
-	case a.admission <- struct{}{}:
+	case a.life.admission <- struct{}{}:
 	default:
 		return RunResult{}, runtimeError(CodeBusy, operation, "Session is already processing a Run", nil)
 	}
 	releaseAdmission := true
 	defer func() {
 		if releaseAdmission {
-			<-a.admission
+			<-a.life.admission
 		}
 	}()
 
 	cmd := sessionCommand{kind: kind, ctx: ctx, message: message, result: make(chan promptResponse, 1)}
 	select {
-	case a.commands <- cmd:
+	case a.life.commands <- cmd:
 		releaseAdmission = false
 	case <-ctx.Done():
 		return RunResult{}, notRunBeforeAdmission(ctx.Err(), operation)
-	case <-a.closeSignal:
+	case <-a.life.closeSignal:
 		return RunResult{}, a.admissionError(operation)
 	}
 

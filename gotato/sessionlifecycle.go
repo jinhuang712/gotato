@@ -2,6 +2,8 @@ package gotato
 
 import (
 	"context"
+	"sync"
+	"sync/atomic"
 )
 
 // Abort cancels the current Run, and writes an AbortRequested Event before the
@@ -64,13 +66,13 @@ func (a *Session) Close(ctx context.Context) error {
 	if ctx == nil {
 		ctx = context.Background()
 	}
-	a.closeOnce.Do(func() {
-		a.closeRequested.Store(true)
-		a.setStatus(SessionStatusClosing)
-		close(a.closeSignal)
+	a.life.closeOnce.Do(func() {
+		a.life.closeRequested.Store(true)
+		a.life.setStatus(SessionStatusClosing)
+		close(a.life.closeSignal)
 	})
 	select {
-	case <-a.done:
+	case <-a.life.done:
 		return nil
 	case <-ctx.Done():
 		return ctx.Err()
@@ -87,9 +89,7 @@ func (a *Session) WaitForIdle(ctx context.Context) error {
 		// Capture the change signal before reading the Status, so a status
 		// transition that lands in between closes the captured channel and
 		// wakes this loop instead of being missed.
-		a.stateMu.Lock()
-		changed := a.stateChange
-		a.stateMu.Unlock()
+		changed := a.life.changeSignal()
 		switch a.Status() {
 		case SessionStatusIdle:
 			return nil
@@ -108,15 +108,15 @@ func (a *Session) WaitForIdle(ctx context.Context) error {
 // loop is the Session goroutine: it takes one command at a time, and runs it
 // to its end, until Close.
 func (a *Session) loop() {
-	a.setStatus(SessionStatusIdle)
-	close(a.ready)
+	a.life.setStatus(SessionStatusIdle)
+	close(a.life.ready)
 	defer a.finishClose()
 
 	for {
 		select {
-		case <-a.closeSignal:
+		case <-a.life.closeSignal:
 			return
-		case cmd := <-a.commands:
+		case cmd := <-a.life.commands:
 			if closing := a.serve(cmd); closing {
 				return
 			}
@@ -143,13 +143,13 @@ func (a *Session) serve(cmd sessionCommand) (closing bool) {
 		a.reply(cmd, promptResponse{err: err}, false)
 		return false
 	}
-	a.setStatus(SessionStatusBusy)
+	a.life.setStatus(SessionStatusBusy)
 	var prompt *Message
 	if cmd.kind == commandPrompt {
 		prompt = &cmd.message
 	}
 	result, err := a.executeRun(cmd.ctx, prompt)
-	closing = a.closeRequested.Load()
+	closing = a.life.closeRequested.Load()
 	a.reply(cmd, promptResponse{result: result, err: err}, !closing)
 	return closing
 }
@@ -158,23 +158,23 @@ func (a *Session) serve(cmd sessionCommand) (closing bool) {
 // only then delivers resp to the caller.
 // [CONCURRENCY] the caller that receives resp must be able to start its next operation at once, not find this command's token held and be told Busy.
 func (a *Session) reply(cmd sessionCommand, resp promptResponse, idle bool) {
-	<-a.admission
+	<-a.life.admission
 	if idle {
-		a.setStatus(SessionStatusIdle)
+		a.life.setStatus(SessionStatusIdle)
 	}
 	cmd.result <- resp
 }
 
 func (a *Session) finishClose() {
 	a.dropLeftoverControl()
-	a.setStatus(SessionStatusClosed)
+	a.life.setStatus(SessionStatusClosed)
 	if a.events.ownFeed {
 		// A Session that owns its Feed says it left, and ends its streams.
 		// A host's Feed outlives the Session, and the host closes it.
 		a.events.feed.Publish(SessionUnloaded{Header: NewHeader(a.id, "", 0), Why: "close"})
 		a.events.feed.Close()
 	}
-	a.doneOnce.Do(func() { close(a.done) })
+	a.life.doneOnce.Do(func() { close(a.life.done) })
 }
 
 // dropLeftoverControl reports a message that waited in a queue when the Session
@@ -187,14 +187,45 @@ func (a *Session) dropLeftoverControl() {
 	}
 }
 
+// sessionLife is the Session's life: the commands its goroutine takes, the
+// token that admits one Run at a time, its status and its close. It holds no
+// lock: its state is channels and atomics, so a caller never waits on it.
+type sessionLife struct {
+	commands  chan sessionCommand
+	admission chan struct{}
+	// status is the encoded SessionStatus; changed is the channel closed, and
+	// replaced, at every change of it, for WaitForIdle.
+	status  atomic.Uint32
+	changed atomic.Pointer[chan struct{}]
+	// closeRequested says Close was called; closeSignal is closed by the first.
+	closeRequested atomic.Bool
+	closeSignal    chan struct{}
+	closeOnce      sync.Once
+	// ready is closed when the goroutine is serving, done when it has ended.
+	ready    chan struct{}
+	done     chan struct{}
+	doneOnce sync.Once
+}
+
+// init makes the channels; it is called once, before the goroutine starts.
+func (l *sessionLife) init() {
+	l.commands = make(chan sessionCommand)
+	l.admission = make(chan struct{}, 1)
+	l.closeSignal = make(chan struct{})
+	l.ready = make(chan struct{})
+	l.done = make(chan struct{})
+	changed := make(chan struct{})
+	l.changed.Store(&changed)
+}
+
+// changeSignal returns the channel the next change of status closes.
+func (l *sessionLife) changeSignal() <-chan struct{} { return *l.changed.Load() }
+
 // setStatus stores a status and wakes the goroutines waiting in WaitForIdle.
-func (a *Session) setStatus(status SessionStatus) {
-	a.status.Store(encodeSessionStatus(status))
-	a.stateMu.Lock()
-	old := a.stateChange
-	a.stateChange = make(chan struct{})
-	close(old)
-	a.stateMu.Unlock()
+func (l *sessionLife) setStatus(status SessionStatus) {
+	l.status.Store(encodeSessionStatus(status))
+	next := make(chan struct{})
+	close(*l.changed.Swap(&next))
 }
 
 // encodeSessionStatus maps a status to the number stored atomically.

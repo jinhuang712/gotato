@@ -42,11 +42,11 @@ func (a *Session) InspectContext(ctx context.Context) (ContextInspection, error)
 	// Holding the admission token keeps a Run from starting while the
 	// Context is built from the Transcript and the Tool registry.
 	select {
-	case a.admission <- struct{}{}:
+	case a.life.admission <- struct{}{}:
 	default:
 		return ContextInspection{}, runtimeError(CodeBusy, "InspectContext", "Session is processing a Run", nil)
 	}
-	defer func() { <-a.admission }()
+	defer func() { <-a.life.admission }()
 	sourceErr, filterErr := a.refreshTools(ctx)
 	if filterErr != nil {
 		return ContextInspection{}, asRuntimeError(filterErr)
