@@ -13,7 +13,8 @@ By the end of this page you know which seam of Gotato to reach for when the defa
 | save Sessions in my own database | `session.Records` and `session.Liveness` |
 | change what the model sees | `gotato.ContextBuilder` |
 | block a tool call, rewrite its result, or cap the Turns | Extension stages `PreToolUse`, `PostToolUse`, `TurnStopper` |
-| bound the load on one pod | `service.Admission` |
+| bound the memory of one pod | `service.Bounds` |
+| decide whether a Run may start, such as a limit for each tenant | `service.Admitter` |
 
 **Sometimes**
 
@@ -53,7 +54,8 @@ Each row says what you want, the seam that does it, and where it lives. "Tier" t
 | change what the model sees on each Turn (window, selection, a layout of my own) | `gotato.ContextBuilder` | `gotato.WithContextBuilder`; `service.Agent.ContextBuilder` | common |
 | refuse a tool call, or change its result | `gotato.PreToolUse`, `gotato.PostToolUse` | `gotato.WithExtension` | common |
 | stop a Run after N Turns or N calls | `gotato.TurnStopper` | `gotato.WithExtension` | common |
-| limit how many Runs and Sessions one pod takes | `service.Admission` | `service.Config.Admission` | common |
+| limit how many Sessions one pod keeps in memory, and what a busy Session does | `service.Bounds` | `service.Config.Bounds` | common |
+| decide whether a Run may start: a bound on the Runs in flight, a limit for each tenant or caller | `service.Admitter` (`Admit(ctx, Admission, Load) (release, error)`) | `service.Config.Admitter`; the default is `service.Limits{MaxActiveRuns}` | common |
 | bring all the tools of an MCP server, or any named group | `gotato.ToolSet` | `gotato.WithActiveToolSet`, `WithToolSet`, `WithFoldedToolSet`, or `service.Agent.ToolSets` with a `Mode`; `adapter/mcp` builds one | sometimes |
 | supply tools that change between Turns (by user, by feature flag) | `gotato.ToolSource` | `gotato.WithToolSource`; `service.Agent.ToolSources` | sometimes |
 | have the Agent's own model write the Recap of a Segment | `modelctx.RecapWriter` (`ModelRecap`, `TruncateRecap`) | `modelctx.Compactor.Recap`, in `service.Agent.Compact` | sometimes |
@@ -75,7 +77,7 @@ Each row says what you want, the seam that does it, and where it lives. "Tier" t
 | change what a failed model call means (retryable, too long) | `gateway.Classifier` | `gateway.WithClassifier`; wrap `gateway.DefaultClassifier` to add to it | sometimes |
 | rewrite the Transcript before a model call, such as to compact | `gotato.TurnPreparer` | `gotato.WithExtension` | rare |
 | write a Session's Events to a store of my own | `gotato.Journal` (declared in `Transcript.Capabilities()` with `EventSource`, `Spill` and `LoadedToolSource`) | a `Transcript` given to `gotato.WithTranscript`; `session.Records` is the usual way | rare |
-| let a subscriber catch up from my own log | `gotato.EventSource` | `gotato.NewFeed(source)`, `gotato.WithFeed` | rare |
+| let a subscriber catch up from my own log | `gotato.EventSource` | `Events` in the `Capabilities` of a `Transcript` given to `gotato.WithTranscript` | rare |
 
 ## Common seams
 
@@ -169,7 +171,32 @@ Gotato has no built-in approval and no waiting state in the Loop ([decision 005]
 
 ### Admission
 
-`service.Admission` bounds the work of one pod: `MaxActiveRuns`, `MaxActiveSessions` and `MaxWarmSessions`, and a `Queue` policy for a Session that is busy (`reject` or `wait`). A refused Run is marked not run, so the load balancer can send it to another pod.
+Two things decide whether a Run starts on a pod, in this order ([decision 048](../plan/decisions/048-the-runner-and-the-session-are-built-from-parts-and-host-plumbing-is-internal.md)).
+
+`service.Bounds` guards the pod itself: `MaxActiveSessions` (the Sessions it keeps, active and warm, with the eviction of the longest-idle warm copy before a Run is refused as `overloaded`), `MaxWarmSessions`, and a `Queue` policy for a Session that is busy (`reject` or `wait`). A draining pod refuses first. These are not a policy: they run whatever the `Admitter` says.
+
+`service.Admitter` is the policy of the service, and the one place a Runner asks it. `Admit(ctx, service.Admission, service.Load) (release func(), err error)` is given the Run (`Admission{SessionID, Agent}`), what the pod holds (`Load{ActiveRuns, ActiveSessions, WarmSessions}`), and the caller's `ctx`, which carries who asks. The default is `service.Limits{MaxActiveRuns: n}`: refuse past n Runs in flight, and no limit at zero. A limit for each tenant is a few lines:
+
+```go
+type perTenant struct {
+	mu    sync.Mutex
+	limit map[string]int
+	held  map[string]int
+}
+
+func (p *perTenant) Admit(ctx context.Context, _ service.Admission, _ service.Load) (func(), error) {
+	tenant, _ := ctx.Value(tenantKey{}).(string)
+	p.mu.Lock()
+	defer p.mu.Unlock()
+	if p.held[tenant] >= p.limit[tenant] {
+		return nil, gotato.ErrorOf(gotato.CodeLimitExceeded, "tenant is at its limit of runs")
+	}
+	p.held[tenant]++
+	return func() { p.mu.Lock(); p.held[tenant]--; p.mu.Unlock() }, nil // the Runner calls it once when the Run ends
+}
+```
+
+A refusal is the error `Admit` returns, marked not run, so the load balancer can send the Run to another pod; an error that is not typed is answered as `limit_exceeded` (HTTP 429). `Admit` runs with the Runner's table of Runs locked, so it must return quickly and must not call the Runner; the `Load` it sees and the Run it admits are one step. A Run that follows another with the messages the first left is part of the Run already admitted and is not asked again.
 
 ### Knowing who asked
 

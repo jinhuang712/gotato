@@ -59,7 +59,6 @@ Each has a reason; one is picked up again only when someone names a real failure
 - **D-005** a price table or an Event hook: cost is a team's own conversion of `Usage`, and FEATURES.md says so;
 - the core de-duplicating `RequestID` (named in D-007): the example passes the message id as `RequestID`, and no one needs the core to do it;
 - **D-032** a per-Run value that reaches `ToolUse`: the caller's `ctx` already carries one into `Before` and `Execute`, and no one needs more;
-- the exported plumbing of `Feed` (`Published`, `PublishLabeled`, `SetLabel`, `MirrorTo`, `NewInstanceFeed`): a smaller surface means redesigning the `service` and `gotato` split, which costs more than it gives and does not touch a user of Gotato;
 - whether a user who comes back after a compaction finds the conversation they left (G-E01 checks that the Recap keeps the facts, not that the conversation carries on): no way to measure it is designed, and it needs a real model;
 - whether `tool_choice: none` keeps the prompt cache on Anthropic: Gotato runs no check against a live provider, and the Recap request is a default per wire API that the configuration can change;
 - how long a model-written Recap takes, against `ModelCallDeadline`: a team sees it on its own endpoint, and `ModelRecap.Timeout` sets the call's own deadline;

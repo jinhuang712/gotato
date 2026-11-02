@@ -91,7 +91,36 @@ After a Run the Instance keeps the Record and its Writer in memory, with no Clai
      yes ─▶ another Instance wrote: drop the copy, load from the last Checkpoint
 ```
 
-The copy holds no Claim, so another Instance can take the Session over at any time and nothing is pinned to this one; the head check finds out in one cheap read. If the Resume loses a race, the copy falls back to a load. Warm Sessions count toward the Instance's limit of active Sessions, and the longest-idle one is evicted first, so a Run is refused only when every live Session is running. A copy whose Writer failed is never kept.
+The copy holds no Claim, so another Instance can take the Session over at any time and nothing is pinned to this one; the head check finds out in one cheap read. If the Resume loses a race, the copy falls back to a load. Warm Sessions count toward the Instance's limit of active Sessions (`Bounds.MaxActiveSessions`), and the longest-idle one is evicted first, in one place for both bounds, so a Run is refused only when every live Session is running. A copy whose Writer failed is never kept.
+
+## A Runner is built from parts
+
+A Runner does eight jobs, and each is a part with its own lock and file, called in order ([decision 048](../plan/decisions/048-the-runner-and-the-session-are-built-from-parts-and-host-plumbing-is-internal.md)). The parts that guard the Instance are under `service/internal/`, so no part reaches into another.
+
+```text
+ Runner
+   instance   the Liveness row: the name, the row, the guard, the drain mark     internal/heartbeat
+   runs       the admitted Runs, their counts and the drain wait                 internal/runs
+   warm       the idle copies, their timers, one eviction                        internal/warm
+   locks      one Run per Session in this process
+   feeds      the Instance's stream and the Feed of each Record in use
+   streams    the Session streams open for clients
+   releases   the Sessions whose release write failed, repaired on the heartbeat
+   + the definitions, the store, one clock (internal/clock) and the test hooks
+```
+
+The lock order is runs, then warm: admission asks the warm cache while it holds the table of Runs, and nothing in the cache calls back. All service code reads the one clock, so a test advances a TTL, a renewal and a wait together and never sleeps.
+
+Whether a Run may start is decided in a fixed order, and only the last step is a policy the service can replace:
+
+```text
+ Run ─▶ draining?             refuse (draining)                     the Instance is leaving
+     ─▶ memory bound?         evict the longest-idle warm copy, or refuse (overloaded)
+     ─▶ Admitter.Admit(ctx, Admission, Load) ─▶ release | refusal   the service's own policy
+     ─▶ registered, counted; release is called once when the Run ends
+```
+
+The drain and the memory bound guard the Instance, not a policy, so a policy cannot hold more Sessions than memory allows; they run before `Admit`. The default `Admitter` is `service.Limits{MaxActiveRuns}`, and a service writes its own to give one tenant ten Runs and another fifty ([extension points](../guides/extension-points.md#admission)).
 
 ## A message that misses the Writer
 

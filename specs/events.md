@@ -12,7 +12,7 @@ A Run does many things, and a caller wants to watch them: a UI that shows the re
 An Event is any type that embeds a Header, and its kind decides where it lives.
 
 ```text
- gotato.Event      sealed: a type is an Event only by embedding Header
+ gotato.Event      sealed: a type is an Event by embedding Header and stating its Kind and Class
  Header            time   session_id   number   run_id   turn
 
  stored    run_started  reply_ended  tool_started ...   number = its Entry's position   ─▶ the Record
@@ -21,6 +21,19 @@ An Event is any type that embeds a Header, and its kind decides where it lives.
 ```
 
 Sealing means a caller switches on the type and reads checked fields, and no outside type can pose as an Event. In JSON an Event is one flat object whose `kind` names its type, and a kind a later version adds comes back as an `UnknownEvent`, so an old consumer keeps running. A delta is not stored because what it carried ends up whole in a Message. An Instance Event happens where no Claim is held, so no Record can take it.
+
+## An Event states its own class
+
+An Event type says where it lives with its own `Class()`, beside `Kind()`, and no table of the core holds the answer ([decision 048](../plan/decisions/048-the-runner-and-the-session-are-built-from-parts-and-host-plumbing-is-internal.md)). So the Events of the core and the Events of the service are the same kind of thing, and so is an Event of a host's own: it embeds `gotato.Header`, states `Kind()` and `Class()`, and needs no `MarshalJSON`.
+
+```text
+ gotato.MarshalEvent(e)      any Event ─▶ {"kind": e.Kind(), ...its fields}      one flat object, kind first
+ gotato.UnmarshalEvent(raw)  a kind the core defines ─▶ its type
+                             any other kind (the service's, a host's, a later version's) ─▶ UnknownEvent
+ UnknownEvent                keeps the JSON; MarshalEvent writes the same bytes back; its class is empty
+```
+
+The core defines the Events a Session makes: every stored Event, the deltas, and the two Instance Events it publishes itself, `session_unloaded` and `events_skipped`. The nine that only a Runner publishes (`run_requested`, `run_waiting`, `run_rejected`, `session_fenced`, `liveness_lapsed`, `session_deleted`, `session_loaded`, `session_saved`, `store_write_failed`) are types of `service` with the same kinds and fields, so a client of the HTTP API sees no difference. A Go program that reads the Instance stream switches on `service.RunRejected` and the others; `gotato.UnmarshalEvent` reads them as an `UnknownEvent`, because Gotato ships no Go client that needs more ([decision 026](../plan/decisions/026-gotato-ships-no-machine-no-client-and-no-tool-catalog.md)). `httpapi` writes every Event with `MarshalEvent`.
 
 ## An Event's Run is stamped when it is numbered
 
@@ -73,7 +86,7 @@ A Feed fans each Event out to Subscriptions, and publishing never blocks.
                       each Subscription has its own queue and one goroutine, in order
 ```
 
-The Session puts the Event in each queue and moves on, so one slow reader slows only itself. A Run's stream and a Session's stream carry the Session's numbers. An Instance's stream mixes many Sessions, so it has no single number and cannot be read again. When its subscriber falls behind it skips Events and says how many in an `events_skipped` Event. Each stored Event names its Session and number, so the subscriber can read what it missed from the Record. Instance Events are not in a Run's stream.
+The calls that publish to a Feed, mirror one into another and label it belong to the host that runs the Session, and the core hands them to `service` and `testkit` through `internal/hostlink`, not through its API: a Feed's methods are `Subscribe` and `Close`. The Session puts the Event in each queue and moves on, so one slow reader slows only itself. A Run's stream and a Session's stream carry the Session's numbers. An Instance's stream mixes many Sessions, so it has no single number and cannot be read again. When its subscriber falls behind it skips Events and says how many in an `events_skipped` Event. Each stored Event names its Session and number, so the subscriber can read what it missed from the Record. Instance Events are not in a Run's stream.
 
 ## A subscriber that falls behind
 

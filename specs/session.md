@@ -27,6 +27,25 @@ The Agent is on top and holds nothing; the Record at the bottom holds everything
 
 Read it top to bottom as "what is cheap to lose". The Agent is shared by many Sessions, so it can hold no conversation. The live Session is built when a Run needs it and can be dropped at any time, because the Record holds everything it needs. Its ID is the Record's ID, so whichever Instance builds it, it is the same Session. Keeping the Agent separate from the Session is what lets one definition serve many conversations.
 
+## A Session is built from parts
+
+The live Session is one package and one goroutine, built from parts that each do one job ([decision 048](../plan/decisions/048-the-runner-and-the-session-are-built-from-parts-and-host-plumbing-is-internal.md)).
+
+```text
+ Session
+   def      what the Agent gave: Model, instruction, extensions, limits, Sampling, cache key     no lock
+   life     commands, the token that admits one Run, status, close                              no lock
+   run      the Run in flight: ID and Turn, ending, how to stop it, the interrupt cancel,       run.mu
+            the count of abort writes (a sync.WaitGroup)
+   events   the Journal, what is staged, the numbers, the Feed                                  events.mu
+   history  the Transcript, its encoded size, the fallback for a result too large for a Message no lock
+   tools    the registry of installed and loaded Tools                                         tools.mu
+   queue    the messages that wait for a Run (Steer, FollowUp, Interrupt, notice)               its own lock
+   host     what the host set: the Run-start call, the hand-off of leftovers, the request ID    no lock
+```
+
+Four parts have a lock, and they are taken in one order: events, then run, then queue. The tools lock is taken with none of them held, and no call into the host is made under any lock. A Turn commits a Tool Result in stages, each its own call so that each can be read and fails alone: what the extensions make of it, what is spilled, its Message in the history, its Events, and their write (`commitResult`). The parts are tested alone, and `TestFileLayers` orders the files of the package.
+
 ## Who may set what
 
 A value that a layer owns is set only through that layer. The table is the whole rule: the owner, the one typed way in, and what any other way gets.
