@@ -2,6 +2,7 @@ package storetest
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"reflect"
@@ -12,26 +13,26 @@ import (
 )
 
 // checkEmptyEpoch holds a store to the first rule of its epoch: Create and
-// Append refuse a RecordInfo that names none, with invalid_argument, and write
+// Append refuse a Header that names none, with invalid_argument, and write
 // nothing. With none, a writer of a deleted Record could not be told from the
 // writer of the Record created again.
 func checkEmptyEpoch(ctx context.Context, open Open) error {
 	store := open()
-	none := summary("r1", 1, "")
-	none.RecordEpoch = ""
+	none := header("r1", 1, "")
+	none.Epoch = ""
 	if err := store.Create(ctx, "r1", []session.Entry{checkpoint(1, "a")}, none); !gotato.IsCode(err, gotato.CodeInvalidArgument) {
-		return failf("Create with an empty RecordEpoch returned %v, want invalid_argument: RecordInfo.RecordEpoch is required", err)
+		return failf("Create with an empty Epoch returned %v, want invalid_argument: Header.Epoch is required", err)
 	}
 	if _, err := store.Load(ctx, "r1"); !errors.Is(err, session.ErrNotFound) {
 		return failf("Load after a refused Create returned %v, want ErrNotFound: %s", err, ruleAtomic)
 	}
-	if err := store.Create(ctx, "r1", []session.Entry{checkpoint(1, "a")}, summary("r1", 1, "")); err != nil {
+	if err := store.Create(ctx, "r1", []session.Entry{checkpoint(1, "a")}, header("r1", 1, "")); err != nil {
 		return fmt.Errorf("create: %w", err)
 	}
-	none = summary("r1", 2, "")
-	none.RecordEpoch = ""
+	none = header("r1", 2, "")
+	none.Epoch = ""
 	if err := store.Append(ctx, "r1", 1, []session.Entry{fact(2, "a")}, none); !gotato.IsCode(err, gotato.CodeInvalidArgument) {
-		return failf("Append with an empty RecordEpoch returned %v, want invalid_argument: RecordInfo.RecordEpoch is required", err)
+		return failf("Append with an empty Epoch returned %v, want invalid_argument: Header.Epoch is required", err)
 	}
 	log, err := store.Log(ctx, "r1", 0, 0)
 	if err != nil || len(log) != 1 {
@@ -40,10 +41,10 @@ func checkEmptyEpoch(ctx context.Context, open Open) error {
 	return nil
 }
 
-// checkFieldsKept round-trips every field of RecordInfo, Entry and InstanceRow
-// through the store, found by reflection: a field added to one of them later
-// is filled by this check without a change here, so an adapter that maps the
-// fields it knew to columns, and drops a new one, fails.
+// checkFieldsKept round-trips every field of Header (RecordInfo included) and
+// Entry through the store, found by reflection: a field added to one of them
+// later is filled by this check without a change here, so an adapter that maps
+// the fields it knew to columns, and drops a new one, fails.
 func checkFieldsKept(ctx context.Context, open Open) error {
 	store := open()
 	data := []byte(`{"filled":true}`)
@@ -56,21 +57,29 @@ func checkFieldsKept(ctx context.Context, open Open) error {
 		}
 		entry.Seq, entry.Kind, entry.Layer, entry.Data = seq, kind, session.LayerFact, data
 	}
-	info := session.RecordInfo{}
-	if err := fillAll(reflect.ValueOf(&info).Elem(), "RecordInfo", nil); err != nil {
+	filledHeader := func(state string) (session.Header, error) {
+		h := session.Header{}
+		if err := fillAll(reflect.ValueOf(&h).Elem(), "Header", map[string]bool{"State": true}); err != nil {
+			return h, err
+		}
+		h.State = json.RawMessage(state)
+		h.Info.ID = "shape"
+		return h, nil
+	}
+	first, err := filledHeader(`{"filled":"first"}`)
+	if err != nil {
 		return err
 	}
-	info.ID = "shape"
-	if err := store.Create(ctx, "shape", entries[:1], info); err != nil {
+	if err := store.Create(ctx, "shape", entries[:1], first); err != nil {
 		return fmt.Errorf("create: %w", err)
 	}
-	next := session.RecordInfo{}
-	if err := fillAll(reflect.ValueOf(&next).Elem(), "RecordInfo", nil); err != nil {
+	next, err := filledHeader(`{"filled":"next"}`)
+	if err != nil {
 		return err
 	}
-	next.ID, next.RecordEpoch = "shape", info.RecordEpoch
+	next.Epoch = first.Epoch
 	// A second value, so that Append is told from Create.
-	next.Messages, next.Runs = info.Messages+1, info.Runs+1
+	next.Info.Messages, next.Info.Runs = first.Info.Messages+1, first.Info.Runs+1
 	if err := store.Append(ctx, "shape", 1, entries[1:], next); err != nil {
 		return fmt.Errorf("append: %w", err)
 	}
@@ -79,15 +88,8 @@ func checkFieldsKept(ctx context.Context, open Open) error {
 	if err != nil {
 		return fmt.Errorf("load: %w", err)
 	}
-	if diff := differ(reflect.ValueOf(loaded.Info), reflect.ValueOf(next), "Load.Info"); diff != "" {
-		return failf("%s: a store must keep every field of the RecordInfo of the last write", diff)
-	}
-	list, err := reader.List(ctx)
-	if err != nil || len(list) != 1 {
-		return failf("List returned %d Records (%v), want 1", len(list), err)
-	}
-	if diff := differ(reflect.ValueOf(list[0]), reflect.ValueOf(next), "List"); diff != "" {
-		return failf("%s: a store must keep every field of the RecordInfo of the last write", diff)
+	if diff := differ(reflect.ValueOf(loaded.Header), reflect.ValueOf(next), "Load.Header"); diff != "" {
+		return failf("%s: a store must keep every field of the Header of the last write", diff)
 	}
 	log, err := reader.Log(ctx, "shape", 0, 0)
 	if err != nil {
@@ -101,34 +103,13 @@ func checkFieldsKept(ctx context.Context, open Open) error {
 			return failf("%s: a store must keep every field of an Entry", diff)
 		}
 	}
-	if len(loaded.Facts) != len(entries) {
-		return failf("Load returned the facts %v, want %v", seqs(loaded.Facts), seqs(entries))
+	// The filled LogFrom is past the Record, so Load returns the facts alone.
+	if len(loaded.Entries) != len(entries) {
+		return failf("Load returned the Entries %v, want %v", seqs(loaded.Entries), seqs(entries))
 	}
 	for i := range entries {
-		if diff := differ(reflect.ValueOf(loaded.Facts[i]), reflect.ValueOf(entries[i]), fmt.Sprintf("Load.Facts[%d]", i)); diff != "" {
+		if diff := differ(reflect.ValueOf(loaded.Entries[i]), reflect.ValueOf(entries[i]), fmt.Sprintf("Load.Entries[%d]", i)); diff != "" {
 			return failf("%s: a store must keep every field of an Entry", diff)
-		}
-	}
-	row := session.InstanceRow{}
-	if err := fillAll(reflect.ValueOf(&row).Elem(), "InstanceRow", nil); err != nil {
-		return err
-	}
-	if err := store.Beat(ctx, row, time.Hour); err != nil {
-		return fmt.Errorf("beat: %w", err)
-	}
-	state, err := open().Instance(ctx, row.ID)
-	if err != nil || !state.Alive {
-		return failf("Instance after Beat returned %+v, %v, want alive", state, err)
-	}
-	got, want := reflect.ValueOf(state), reflect.ValueOf(row)
-	for i := range want.NumField() {
-		name := want.Type().Field(i).Name
-		field := got.FieldByName(name)
-		if !field.IsValid() {
-			return failf("InstanceState has no field %s, but InstanceRow has: add it, so that Instance returns what Beat stored", name)
-		}
-		if diff := differ(field, want.Field(i), "Instance."+name); diff != "" {
-			return failf("%s: Beat must store every field of the InstanceRow", diff)
 		}
 	}
 	return nil

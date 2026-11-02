@@ -157,30 +157,30 @@ func (r *Runner) StreamSession(ctx context.Context, sessionID string, from Strea
 	}
 	stream := &SessionStream{sessionID: sessionID}
 	r.addStream(stream)
-	loaded, err := r.store.Load(ctx, sessionID)
+	loaded, err := r.store.Records.Load(ctx, sessionID)
 	if err != nil {
 		r.dropStream(stream)
 		return nil, err
 	}
-	epoch := loaded.Info.RecordEpoch
+	epoch := loaded.Header.Epoch
 	if from.RecordEpoch != "" && from.RecordEpoch != epoch {
 		r.dropStream(stream)
-		return nil, cannotResume("the Record is not the one the client saw", epoch, loaded.Head)
+		return nil, cannotResume("the Record is not the one the client saw", epoch, loaded.Seq)
 	}
-	if from.After > loaded.Head {
+	if from.After > loaded.Seq {
 		r.dropStream(stream)
-		return nil, cannotResume("the position is past the Record's last Event", epoch, loaded.Head)
+		return nil, cannotResume("the position is past the Record's last Event", epoch, loaded.Seq)
 	}
 	// The epoch is checked after every read of the Record that returned Events,
 	// and before they are delivered: an epoch never comes back, so if the Record
 	// still has the stream's epoch after the read, the Events came from it.
 	verify := func(ctx context.Context) error {
-		now, err := r.store.Load(ctx, sessionID)
+		now, err := r.store.Records.Load(ctx, sessionID)
 		if err != nil {
 			return err
 		}
-		if now.Info.RecordEpoch != epoch {
-			return cannotResume("the Record was created again", now.Info.RecordEpoch, now.Head)
+		if now.Header.Epoch != epoch {
+			return cannotResume("the Record was created again", now.Header.Epoch, now.Seq)
 		}
 		return nil
 	}
@@ -190,7 +190,7 @@ func (r *Runner) StreamSession(ctx context.Context, sessionID string, from Strea
 		r.dropStream(stream)
 		return nil, err
 	}
-	stream.feedSubscription, stream.RecordEpoch, stream.Head = sub, epoch, loaded.Head
+	stream.feedSubscription, stream.RecordEpoch, stream.Head = sub, epoch, loaded.Seq
 	sub.release = func() {
 		r.releaseFeed(key)
 		r.dropStream(stream)
@@ -199,7 +199,7 @@ func (r *Runner) StreamSession(ctx context.Context, sessionID string, from Strea
 		recheck, older, over := r.startStream(stream)
 		if !recheck {
 			for _, old := range older {
-				old.failWith(cannotResume("the Record was created again", epoch, loaded.Head))
+				old.failWith(cannotResume("the Record was created again", epoch, loaded.Seq))
 			}
 			if over {
 				stream.endWith(NewReconnect("draining"))
@@ -209,9 +209,9 @@ func (r *Runner) StreamSession(ctx context.Context, sessionID string, from Strea
 		// While this stream read the Record, this Instance saw the Record
 		// with another epoch, or deleted it: read the epoch again, to know
 		// which of the two is older.
-		now, err := r.store.Load(ctx, sessionID)
-		if err == nil && now.Info.RecordEpoch != epoch {
-			err = cannotResume("the Record was created again", now.Info.RecordEpoch, now.Head)
+		now, err := r.store.Records.Load(ctx, sessionID)
+		if err == nil && now.Header.Epoch != epoch {
+			err = cannotResume("the Record was created again", now.Header.Epoch, now.Seq)
 		}
 		if err != nil {
 			_ = sub.Close()
@@ -316,13 +316,13 @@ func (r *Runner) cutStreams(ctx context.Context, sessionID, epoch string, head u
 	if len(unsure) == 0 {
 		return
 	}
-	now, err := r.store.Load(ctx, sessionID)
+	now, err := r.store.Records.Load(ctx, sessionID)
 	if err != nil {
 		return
 	}
 	for _, stream := range unsure {
-		if stream.RecordEpoch != now.Info.RecordEpoch {
-			stream.failWith(cannotResume("the Record was created again", now.Info.RecordEpoch, now.Head))
+		if stream.RecordEpoch != now.Header.Epoch {
+			stream.failWith(cannotResume("the Record was created again", now.Header.Epoch, now.Seq))
 		}
 	}
 }

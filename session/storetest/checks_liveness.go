@@ -4,12 +4,14 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"reflect"
 	"time"
 
+	"github.com/jinhuang712/gotato/gotato"
 	"github.com/jinhuang712/gotato/session"
 )
 
-func checkLiveness(ctx context.Context, open Open) error {
+func checkLiveness(ctx context.Context, open OpenLiveness, _ livenessConfig) error {
 	store := open()
 	if err := store.Beat(ctx, session.InstanceRow{ID: "instance-a", Draining: true, Address: "http://a.example:8080"}, time.Hour); err != nil {
 		return fmt.Errorf("beat: %w", err)
@@ -33,12 +35,12 @@ func checkLiveness(ctx context.Context, open Open) error {
 	return nil
 }
 
-func checkExpiry(ctx context.Context, open Open) error {
+func checkExpiry(ctx context.Context, open OpenLiveness, config livenessConfig) error {
 	store := open()
 	if err := store.Beat(ctx, session.InstanceRow{ID: "instance-b"}, 50*time.Millisecond); err != nil {
 		return fmt.Errorf("beat: %w", err)
 	}
-	time.Sleep(120 * time.Millisecond)
+	config.wait(120 * time.Millisecond)
 	if state, err := open().Instance(ctx, "instance-b"); err != nil || state.Alive {
 		return failf("Instance after its ttl returned %+v, %v, want not alive: a row expires by the store's clock", state, err)
 	}
@@ -52,7 +54,7 @@ func checkExpiry(ctx context.Context, open Open) error {
 // removed: from then on the Instance is not alive for any handle, so every
 // Claim that names it is dead, and nothing of the row is left, so its ID is
 // unknown again.
-func checkEndedRemoved(ctx context.Context, open Open) error {
+func checkEndedRemoved(ctx context.Context, open OpenLiveness, _ livenessConfig) error {
 	store := open()
 	if err := store.Beat(ctx, session.InstanceRow{ID: "instance-c", Draining: true}, time.Hour); err != nil {
 		return fmt.Errorf("beat: %w", err)
@@ -78,7 +80,7 @@ func checkEndedRemoved(ctx context.Context, open Open) error {
 
 // checkBeatRenews checks that a Beat on a live row renews it, and replaces the
 // whole row: the Draining flag and the Address are the last Beat's.
-func checkBeatRenews(ctx context.Context, open Open) error {
+func checkBeatRenews(ctx context.Context, open OpenLiveness, config livenessConfig) error {
 	store := open()
 	if err := store.Beat(ctx, session.InstanceRow{ID: "instance-d", Address: "http://old.example:1"}, 80*time.Millisecond); err != nil {
 		return fmt.Errorf("beat: %w", err)
@@ -86,7 +88,7 @@ func checkBeatRenews(ctx context.Context, open Open) error {
 	if err := store.Beat(ctx, session.InstanceRow{ID: "instance-d", Draining: true, Address: "http://new.example:2"}, time.Hour); err != nil {
 		return failf("a second Beat on a live row returned %v, want nil: Beat renews the row", err)
 	}
-	time.Sleep(160 * time.Millisecond)
+	config.wait(160 * time.Millisecond)
 	state, err := open().Instance(ctx, "instance-d")
 	if err != nil || !state.Alive {
 		return failf("Instance after a Beat that renewed the row for an hour returned %+v, %v, want alive: Beat renews the row until ttl from now, not from the first Beat", state, err)
@@ -99,12 +101,54 @@ func checkBeatRenews(ctx context.Context, open Open) error {
 
 // checkBeatEndsMissingRow checks that a Beat with a ttl of 0 on a row that is
 // not there is not an error.
-func checkBeatEndsMissingRow(ctx context.Context, open Open) error {
+func checkBeatEndsMissingRow(ctx context.Context, open OpenLiveness, _ livenessConfig) error {
 	if err := open().Beat(ctx, session.InstanceRow{ID: "instance-never"}, 0); err != nil {
 		return failf("Beat with ttl 0 on an Instance with no row returned %v, want nil: ending a row twice, or one never written, is not an error", err)
 	}
 	if state, err := open().Instance(ctx, "instance-never"); err != nil || state.Alive {
 		return failf("Instance after Beat with ttl 0 on no row returned %+v, %v, want not alive", state, err)
+	}
+	return nil
+}
+
+// checkBeatInvalidID holds Beat to the rule for an ID the store cannot keep:
+// it fails with ErrInvalidID (invalid_argument), as every call of Records that
+// takes an ID does (session.CheckID).
+func checkBeatInvalidID(ctx context.Context, open OpenLiveness, _ livenessConfig) error {
+	store := open()
+	for _, id := range []string{"", "a/b", "..", ".hidden", "a\x00b", "a\xffb"} {
+		err := store.Beat(ctx, session.InstanceRow{ID: id}, time.Hour)
+		if !errors.Is(err, session.ErrInvalidID) || !gotato.IsCode(err, gotato.CodeInvalidArgument) {
+			return failf("Beat with the Instance ID %q = %v, want ErrInvalidID (invalid_argument): call session.CheckID first", id, err)
+		}
+	}
+	return nil
+}
+
+// checkRowFieldsKept round-trips every field of InstanceRow through the store,
+// found by reflection, so an adapter that drops a field added later fails.
+func checkRowFieldsKept(ctx context.Context, open OpenLiveness, _ livenessConfig) error {
+	row := session.InstanceRow{}
+	if err := fillAll(reflect.ValueOf(&row).Elem(), "InstanceRow", nil); err != nil {
+		return err
+	}
+	if err := open().Beat(ctx, row, time.Hour); err != nil {
+		return fmt.Errorf("beat: %w", err)
+	}
+	state, err := open().Instance(ctx, row.ID)
+	if err != nil || !state.Alive {
+		return failf("Instance after Beat returned %+v, %v, want alive", state, err)
+	}
+	got, want := reflect.ValueOf(state), reflect.ValueOf(row)
+	for i := range want.NumField() {
+		name := want.Type().Field(i).Name
+		field := got.FieldByName(name)
+		if !field.IsValid() {
+			return failf("InstanceState has no field %s, but InstanceRow has: add it, so that Instance returns what Beat stored", name)
+		}
+		if diff := differ(field, want.Field(i), "Instance."+name); diff != "" {
+			return failf("%s: Beat must store every field of the InstanceRow", diff)
+		}
 	}
 	return nil
 }

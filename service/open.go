@@ -21,7 +21,7 @@ func (r *Runner) holderCheck(ctx context.Context, holder session.Claim, busy boo
 	if !busy || holder.Instance == "" {
 		return nil
 	}
-	state, err := r.store.Instance(ctx, holder.Instance)
+	state, err := r.store.Liveness.Instance(ctx, holder.Instance)
 	if err != nil {
 		return err
 	}
@@ -43,7 +43,7 @@ func (r *Runner) create(ctx context.Context, s *session.Record, agent string, op
 	mark := r.streamMark()
 	publish := r.publisher(feedKey{s.ID(), s.RecordEpoch()}, agent)
 	options = append([]session.WriterOption{session.WithGuard(func() error { return r.guardFor(name) }), session.WithPublisher(publish)}, options...)
-	writer, err := session.CreateWriter(ctx, r.store, s, name, options...)
+	writer, err := session.CreateWriter(ctx, r.store.Records, s, name, options...)
 	if errors.Is(err, session.ErrExists) {
 		return nil, ErrSessionExists
 	}
@@ -77,7 +77,7 @@ func (r *Runner) open(ctx context.Context, sessionID string) (*session.Writer, [
 			options = append(options, session.WithWaited())
 		}
 		mark := r.streamMark()
-		writer, err := session.OpenWriter(ctx, r.store, sessionID, name, options...)
+		writer, err := session.OpenWriter(ctx, r.store.Records, sessionID, name, options...)
 		// A conflict here means another Instance claimed or wrote first:
 		// look again, as for a busy holder.
 		if err == nil {

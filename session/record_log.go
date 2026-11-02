@@ -47,31 +47,38 @@ func (s *Record) startLog() {
 }
 
 // takePending returns the Entries of the pending Events, numbered from
-// head+1, the Events themselves, and the RecordInfo the store keeps once they
-// are written, and clears them. The Record's head moves only when stored
-// confirms the write.
-func (s *Record) takePending() ([]Entry, []gotato.Event, RecordInfo, error) {
+// head+1, the Events themselves, and the Header the store keeps once they are
+// written, and clears them. The Record's head moves only when stored confirms
+// the write.
+func (s *Record) takePending() ([]Entry, []gotato.Event, Header, error) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	if len(s.pending) == 0 {
-		return nil, nil, RecordInfo{}, nil
+		return nil, nil, Header{}, nil
 	}
 	events := s.pending
 	entries := make([]Entry, len(events))
 	for i, event := range events {
 		entry, err := entryOf(event, s.instance)
 		if err != nil {
-			return nil, nil, RecordInfo{}, err
+			return nil, nil, Header{}, err
 		}
 		if entry.Seq != s.head+uint64(i)+1 {
-			return nil, nil, RecordInfo{}, gotato.ErrorOf(gotato.CodeInternalInvariant, fmt.Sprintf("session: Event %d queued at position %d", entry.Seq, s.head+uint64(i)+1))
+			return nil, nil, Header{}, gotato.ErrorOf(gotato.CodeInternalInvariant, fmt.Sprintf("session: Event %d queued at position %d", entry.Seq, s.head+uint64(i)+1))
 		}
 		entries[i] = entry
 	}
+	for _, entry := range entries {
+		if entry.IsCheckpoint() {
+			s.checkpointSeq = entry.Seq
+		}
+	}
+	header, err := s.headerLocked()
+	if err != nil {
+		return nil, nil, Header{}, err
+	}
 	s.pending = nil
-	summary := s.infoLocked()
-	summary.Seq = entries[len(entries)-1].Seq
-	return entries, events, summary, nil
+	return entries, events, header, nil
 }
 
 // stored records that the store now holds every Entry up to seq.

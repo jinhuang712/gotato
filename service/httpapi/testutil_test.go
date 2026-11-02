@@ -24,7 +24,7 @@ func anyAddress(string) bool { return true }
 func newServer(t *testing.T) (*httptest.Server, *service.Runner) {
 	t.Helper()
 	runner, err := service.New(service.Config{
-		Store: session.NewMemoryStore(),
+		Store: memStore(),
 		Agents: []service.Agent{
 			{Name: "echo", Model: testkit.EchoModel{}, ModelName: "echo"},
 			{Name: "demo", Model: testkit.DemoModel{}, ModelName: "demo", Tools: []gotato.Tool{testkit.DemoEchoTool()}},

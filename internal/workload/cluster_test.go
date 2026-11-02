@@ -33,9 +33,12 @@ import (
 // killStore is an instance's view of the shared store. Once dead it fails
 // every call, as a store does for a process that is gone.
 type killStore struct {
-	session.Store
+	session.Records
+	session.Liveness
 	dead atomic.Bool
 }
+
+func (s *killStore) store() session.Store { return session.Store{Records: s, Liveness: s} }
 
 func (s *killStore) alive() error {
 	if s.dead.Load() {
@@ -44,39 +47,39 @@ func (s *killStore) alive() error {
 	return nil
 }
 
-func (s *killStore) Create(ctx context.Context, id string, entries []session.Entry, summary session.RecordInfo) error {
+func (s *killStore) Create(ctx context.Context, id string, entries []session.Entry, h session.Header) error {
 	if err := s.alive(); err != nil {
 		return err
 	}
-	return s.Store.Create(ctx, id, entries, summary)
+	return s.Records.Create(ctx, id, entries, h)
 }
 
-func (s *killStore) Append(ctx context.Context, id string, after uint64, entries []session.Entry, summary session.RecordInfo) error {
+func (s *killStore) Append(ctx context.Context, id string, after uint64, entries []session.Entry, h session.Header) error {
 	if err := s.alive(); err != nil {
 		return err
 	}
-	return s.Store.Append(ctx, id, after, entries, summary)
+	return s.Records.Append(ctx, id, after, entries, h)
 }
 
 func (s *killStore) Load(ctx context.Context, id string) (session.Loaded, error) {
 	if err := s.alive(); err != nil {
 		return session.Loaded{}, err
 	}
-	return s.Store.Load(ctx, id)
+	return s.Records.Load(ctx, id)
 }
 
 func (s *killStore) Log(ctx context.Context, id string, after uint64, limit int) ([]session.Entry, error) {
 	if err := s.alive(); err != nil {
 		return nil, err
 	}
-	return s.Store.Log(ctx, id, after, limit)
+	return s.Records.Log(ctx, id, after, limit)
 }
 
 func (s *killStore) Beat(ctx context.Context, row session.InstanceRow, ttl time.Duration) error {
 	if err := s.alive(); err != nil {
 		return err
 	}
-	return s.Store.Beat(ctx, row, ttl)
+	return s.Liveness.Beat(ctx, row, ttl)
 }
 
 // instance is one Runner behind its own HTTP server.
@@ -121,16 +124,16 @@ func lastIsVictim(n int) func(i int, cfg *service.Config) {
 // an Agent, and the hashing proxy in front of them.
 func newCluster(t *testing.T, n int, tasks []reftasks.Task, seed uint64, adjust ...func(i int, cfg *service.Config)) *cluster {
 	t.Helper()
-	c := &cluster{t: t, backing: session.NewMemoryStore(), random: rand.New(rand.NewPCG(seed, 99))}
+	c := &cluster{t: t, backing: memStore(), random: rand.New(rand.NewPCG(seed, 99))}
 	var agents []service.Agent
 	for _, task := range tasks {
 		agents = append(agents, service.Agent{Name: task.Name, Model: task.Model, Instruction: task.Instruction, Tools: task.Tools, Options: task.Options, Limits: task.Limits})
 	}
 	var backends []*backend
 	for i := range n {
-		in := &instance{name: fmt.Sprintf("instance-%d", i), store: &killStore{Store: c.backing}}
+		in := &instance{name: fmt.Sprintf("instance-%d", i), store: &killStore{Records: c.backing.Records, Liveness: c.backing.Liveness}}
 		cfg := service.Config{
-			Store: in.store, Instance: in.name, Liveness: clusterLiveness, StreamPoll: 20 * time.Millisecond,
+			Store: in.store.store(), Instance: in.name, Liveness: clusterLiveness, StreamPoll: 20 * time.Millisecond,
 			Admission: service.Admission{Queue: service.QueuePolicyWait},
 			Agents:    agents,
 		}

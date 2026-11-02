@@ -244,7 +244,7 @@ func (st *runState) promptWithDeadline(ctx context.Context, spec Agent, live *go
 // not discarded.
 func (st *runState) cleanupUnstarted(ctx context.Context, lockErr error) error {
 	deleteCtx, cancelDelete := persistContext(ctx)
-	deleteErr := st.r.store.Delete(deleteCtx, st.sessionID)
+	deleteErr := st.r.store.Records.Delete(deleteCtx, st.sessionID)
 	cancelDelete()
 	if deleteErr != nil {
 		lockErr = errors.Join(lockErr, fmt.Errorf("service: cleanup of session %s failed: %w", st.sessionID, deleteErr))

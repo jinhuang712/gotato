@@ -43,7 +43,7 @@ func noticeText(label, text string) string {
 func TestANoticeReachesARunAtItsNextModelCall(t *testing.T) {
 	ctx := context.Background()
 	model := newStagedModel(false, "first", "second")
-	runner := messageRunner(t, session.NewMemoryStore(), "instance-a", "", model)
+	runner := messageRunner(t, memStore(), "instance-a", "", model)
 	s, _ := runner.CreateSession(ctx, "echo", nil)
 
 	done := startRun(t, runner, s.ID(), "hello")
@@ -81,7 +81,7 @@ func TestANoticeBetweenRunsWaitsForTheNextRun(t *testing.T) {
 	model := newStagedModel(false, "first", "second", "third")
 	close(model.release[1])
 	close(model.release[2])
-	runner := messageRunner(t, session.NewMemoryStore(), "instance-a", "", model)
+	runner := messageRunner(t, memStore(), "instance-a", "", model)
 	s, _ := runner.CreateSession(ctx, "echo", nil)
 
 	// No Run going: the notice is stored and starts nothing.
@@ -128,7 +128,7 @@ func TestANoticeBetweenRunsWaitsForTheNextRun(t *testing.T) {
 
 func TestNoticeRefusals(t *testing.T) {
 	ctx := context.Background()
-	runner := messageRunner(t, session.NewMemoryStore(), "instance-a", "", testkit.EchoModel{})
+	runner := messageRunner(t, memStore(), "instance-a", "", testkit.EchoModel{})
 	s, _ := runner.CreateSession(ctx, "echo", nil)
 	for name, request := range map[string]service.NoticeRequest{
 		"no session": {Kind: "k", Text: "t"},
@@ -149,7 +149,7 @@ func TestNoticeRefusals(t *testing.T) {
 // the writer's address, as a message is; the writer takes its own.
 func TestANoticeForARunOnAnotherInstanceIsNotWriter(t *testing.T) {
 	ctx := context.Background()
-	store := session.NewMemoryStore()
+	store := memStore()
 	model := newStagedModel(false, "first")
 	a := messageRunner(t, store, "instance-a", "http://instance-a.example:8080", model)
 	b := messageRunner(t, store, "instance-b", "http://instance-b.example:8080", testkit.EchoModel{})
@@ -183,7 +183,7 @@ func timeAwayRunner(t *testing.T, clock *fakeClock, agent service.Agent) (*servi
 	agent.Name, agent.Model = "echo", model
 	agent.Warm.NoIdleCompaction = true
 	runner, err := service.New(service.WithClock(service.Config{
-		Store: session.NewMemoryStore(), Instance: "a", Liveness: steadyLiveness,
+		Store: memStore(), Instance: "a", Liveness: steadyLiveness,
 		Admission: service.Admission{Queue: service.QueuePolicyWait}, Agents: []service.Agent{agent},
 	}, clock))
 	if err != nil {
@@ -301,13 +301,13 @@ func TestTimeAwayShowsTheTimeInTheAgentsZone(t *testing.T) {
 func TestANoticeBetweenRunsOutlivesItsInstance(t *testing.T) {
 	ctx := context.Background()
 	stores := map[string]func(t *testing.T) session.Store{
-		"memory": func(*testing.T) session.Store { return session.NewMemoryStore() },
+		"memory": func(*testing.T) session.Store { return memStore() },
 		"file": func(t *testing.T) session.Store {
 			store, err := session.NewFileStore(t.TempDir())
 			if err != nil {
 				t.Fatal(err)
 			}
-			return store
+			return asStore(store)
 		},
 	}
 	for name, newStore := range stores {
@@ -353,7 +353,7 @@ func TestANoticeLeftByAStoppedRunWaitsForTheNextRun(t *testing.T) {
 	ctx := context.Background()
 	model := newStagedModel(true, "", "after the stop")
 	close(model.release[1])
-	runner := messageRunner(t, session.NewMemoryStore(), "instance-a", "", model)
+	runner := messageRunner(t, memStore(), "instance-a", "", model)
 	s, _ := runner.CreateSession(ctx, "echo", nil)
 
 	done := make(chan service.RunResponse, 1)
@@ -382,7 +382,7 @@ func TestANoticeLeftByAStoppedRunWaitsForTheNextRun(t *testing.T) {
 // own, afresh, from the last Run that did end.
 func TestATimeAwayOfACrashedRunIsNotKept(t *testing.T) {
 	ctx := context.Background()
-	store := session.NewMemoryStore()
+	store := memStore()
 	clock := &fakeClock{now: time.Now().UTC().Truncate(time.Second)}
 	first, model := timeAwayRunner2(t, store, "first", clock)
 	s, _ := first.CreateSession(ctx, "echo", nil)
@@ -392,7 +392,7 @@ func TestATimeAwayOfACrashedRunIsNotKept(t *testing.T) {
 	}
 
 	// A writer that queued a time_away and died: no run_ended, no release.
-	dead, err := session.OpenWriter(ctx, store, s.ID(), "dead")
+	dead, err := session.OpenWriter(ctx, store.Records, s.ID(), "dead")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -442,7 +442,7 @@ func timeAwayRunner2(t *testing.T, store session.Store, name string, clock *fake
 // of Liveness rows after arming, so that a test can wait for repair passes
 // without sleeping.
 type failOnceStore struct {
-	session.Store
+	parts
 	failKind gotato.EventKind
 	armed    atomic.Bool
 	hit      atomic.Bool
@@ -451,14 +451,14 @@ type failOnceStore struct {
 }
 
 func (s *failOnceStore) Beat(ctx context.Context, row session.InstanceRow, ttl time.Duration) error {
-	err := s.Store.Beat(ctx, row, ttl)
+	err := s.parts.Beat(ctx, row, ttl)
 	if err == nil && ttl > 0 && s.armed.Load() && s.beats.Add(1) == 3 {
 		close(s.ticks)
 	}
 	return err
 }
 
-func (s *failOnceStore) Append(ctx context.Context, id string, after uint64, entries []session.Entry, info session.RecordInfo) error {
+func (s *failOnceStore) Append(ctx context.Context, id string, after uint64, entries []session.Entry, info session.Header) error {
 	if s.armed.Load() {
 		for _, e := range entries {
 			if e.Kind == s.failKind && s.hit.CompareAndSwap(false, true) {
@@ -466,7 +466,7 @@ func (s *failOnceStore) Append(ctx context.Context, id string, after uint64, ent
 			}
 		}
 	}
-	return s.Store.Append(ctx, id, after, entries, info)
+	return s.parts.Append(ctx, id, after, entries, info)
 }
 
 // Every exit that holds a Claim must have the heartbeat give it back when a
@@ -512,11 +512,11 @@ func TestFailedWriteOfAnyExitIsRepairedByTheHeartbeat(t *testing.T) {
 			t.Parallel()
 			ctx, cancel := context.WithTimeout(context.Background(), 20*time.Second)
 			defer cancel()
-			base := session.NewMemoryStore()
-			faulty := &failOnceStore{Store: base, failKind: tc.kind, ticks: make(chan struct{})}
+			base := memStore()
+			faulty := &failOnceStore{parts: partsOf(base), failKind: tc.kind, ticks: make(chan struct{})}
 			agents := []service.Agent{{Name: "echo", Model: testkit.DemoModel{}, Tools: []gotato.Tool{testkit.DemoEchoTool()}, Warm: service.WarmPolicy{TTL: -1}}}
 			liveness := service.Liveness{TTL: time.Second, Wait: 30 * time.Millisecond}
-			a, err := service.New(service.Config{Store: faulty, Agents: agents, Liveness: liveness})
+			a, err := service.New(service.Config{Store: asStore(faulty), Agents: agents, Liveness: liveness})
 			if err != nil {
 				t.Fatal(err)
 			}
@@ -549,12 +549,12 @@ func TestFailedWriteOfAnyExitIsRepairedByTheHeartbeat(t *testing.T) {
 			case <-ctx.Done():
 				t.Fatal("the holder's heartbeat did not renew")
 			}
-			loaded, err := base.Load(ctx, rec.ID())
+			loaded, err := base.Records.Load(ctx, rec.ID())
 			if err != nil {
 				t.Fatal(err)
 			}
-			if loaded.Info.Busy || loaded.Info.Running != "" {
-				t.Fatalf("the Session is still held after the store recovered: busy=%v running=%q", loaded.Info.Busy, loaded.Info.Running)
+			if stateOf(loaded).Busy || stateOf(loaded).Running != "" {
+				t.Fatalf("the Session is still held after the store recovered: busy=%v running=%q", stateOf(loaded).Busy, stateOf(loaded).Running)
 			}
 			if _, err := b.Run(ctx, service.RunRequest{SessionID: rec.ID(), Prompt: "on the other instance"}); err != nil {
 				t.Fatalf("the other Instance cannot run the Session: %v", err)

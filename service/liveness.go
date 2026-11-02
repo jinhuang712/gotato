@@ -151,7 +151,7 @@ func (r *Runner) live(ctx context.Context) error {
 	if r.beat.closed {
 		// Closed while this first renewal was on its way: remove the row it
 		// may have written.
-		_ = r.store.Beat(ctx, session.InstanceRow{ID: r.beat.instance}, 0)
+		_ = r.store.Liveness.Beat(ctx, session.InstanceRow{ID: r.beat.instance}, 0)
 		return errClosed
 	}
 	if r.beat.started {
@@ -179,7 +179,7 @@ func (r *Runner) renew(ctx context.Context) error {
 	row := session.InstanceRow{ID: r.beat.instance, Draining: r.beat.draining, Address: r.address}
 	r.beat.mu.Unlock()
 	sent := time.Now()
-	err := r.store.Beat(ctx, row, r.liveness.TTL)
+	err := r.store.Liveness.Beat(ctx, row, r.liveness.TTL)
 	r.beat.mu.Lock()
 	switch {
 	case errors.Is(err, session.ErrExpired):
@@ -202,7 +202,7 @@ func (r *Runner) reregister(ctx context.Context, old session.InstanceRow) error 
 	row := old
 	row.ID = r.newName()
 	sent := time.Now()
-	if err := r.store.Beat(ctx, row, r.liveness.TTL); err != nil {
+	if err := r.store.Liveness.Beat(ctx, row, r.liveness.TTL); err != nil {
 		return err
 	}
 	r.beat.mu.Lock()
@@ -210,7 +210,7 @@ func (r *Runner) reregister(ctx context.Context, old session.InstanceRow) error 
 		// Closed meanwhile, or another renewal registered a name first: the
 		// row just written belongs to no one.
 		r.beat.mu.Unlock()
-		_ = r.store.Beat(ctx, session.InstanceRow{ID: row.ID}, 0)
+		_ = r.store.Liveness.Beat(ctx, session.InstanceRow{ID: row.ID}, 0)
 		return nil
 	}
 	r.beat.instance = row.ID
@@ -218,7 +218,7 @@ func (r *Runner) reregister(ctx context.Context, old session.InstanceRow) error 
 	r.beat.reported = false
 	r.beat.lastSent = sent
 	r.beat.mu.Unlock()
-	_ = r.store.Beat(ctx, session.InstanceRow{ID: old.ID}, 0)
+	_ = r.store.Liveness.Beat(ctx, session.InstanceRow{ID: old.ID}, 0)
 	// A warm copy holds no Claim, but resumes with the old name.
 	r.dropAllWarm("liveness_lapsed")
 	return nil
@@ -307,7 +307,7 @@ func (r *Runner) Close(ctx context.Context) error {
 	}
 	close(stop)
 	<-done
-	err := r.store.Beat(ctx, session.InstanceRow{ID: name}, 0)
+	err := r.store.Liveness.Beat(ctx, session.InstanceRow{ID: name}, 0)
 	if errors.Is(err, session.ErrExpired) {
 		// A store that keeps an ended row refuses an expired one.
 		return nil

@@ -21,7 +21,7 @@ import (
 type fixture struct {
 	t      *testing.T
 	ctx    context.Context
-	store  session.Store
+	store  session.Records
 	writer *session.Writer
 	rec    *session.Record
 	base   time.Time
@@ -219,7 +219,7 @@ func newLive(t *testing.T, policy modelctx.CompactPolicy) *live {
 // live is a stored Session whose Runs a test plays one after another.
 type live struct {
 	t      *testing.T
-	store  session.Store
+	store  session.Records
 	writer *session.Writer
 	auto   *modelctx.AutoCompactor
 }

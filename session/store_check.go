@@ -1,10 +1,15 @@
 package session
 
 import (
+	"bytes"
+	"encoding/base64"
+	"encoding/json"
 	"fmt"
+	"maps"
 	"slices"
 	"sort"
 	"strings"
+	"time"
 	"unicode"
 	"unicode/utf8"
 
@@ -46,14 +51,13 @@ func CheckID(id string) error {
 }
 
 // CheckBatch checks that entries continue position after without a gap, that a
-// new Record starts with a Checkpoint, and that the RecordInfo names the
-// Record's epoch: with none, the fence against a writer of a deleted Record is
-// off. It returns invalid_argument for a batch that does not hold. A Store
-// calls it before any write, so that all of them refuse the same batches the
-// same way.
-func CheckBatch(after uint64, entries []Entry, summary RecordInfo) error {
-	if summary.RecordEpoch == "" {
-		return gotato.ErrorOf(gotato.CodeInvalidArgument, "session: a write names the Record's epoch (RecordInfo.RecordEpoch)")
+// new Record starts with a Checkpoint, and that the Header names the Record's
+// epoch: with none, the fence against a writer of a deleted Record is off. It
+// returns invalid_argument for a batch that does not hold. A Store calls it
+// before any write, so that all of them refuse the same batches the same way.
+func CheckBatch(after uint64, entries []Entry, h Header) error {
+	if h.Epoch == "" {
+		return gotato.ErrorOf(gotato.CodeInvalidArgument, "session: a write names the Record's epoch (Header.Epoch)")
 	}
 	if len(entries) == 0 {
 		return gotato.ErrorOf(gotato.CodeInvalidArgument, "session: a write has no entries")
@@ -80,13 +84,14 @@ func cloneEntries(entries []Entry) []Entry {
 	return out
 }
 
-// loadedFrom returns the facts of entries from the last Checkpoint on, and
-// the segment_closed Entries before that Checkpoint, which the Checkpoint
-// may list. It is the whole of what a Store reads of an Entry's kind.
-func loadedFrom(entries []Entry) (facts, segments []Entry) {
+// loadedFrom returns what Load returns of entries: the facts from the last
+// Checkpoint on and every Entry from logFrom (0 for none), each once and in
+// order, and the segment_closed Entries before that Checkpoint, which the
+// Checkpoint may list. It is the whole of what a Store reads of an Entry.
+func loadedFrom(entries []Entry, logFrom uint64) (out, segments []Entry) {
 	start := 0
-	for i, entrie := range slices.Backward(entries) {
-		if entrie.IsCheckpoint() {
+	for i, entry := range slices.Backward(entries) {
+		if entry.IsCheckpoint() {
 			start = i
 			break
 		}
@@ -97,11 +102,23 @@ func loadedFrom(entries []Entry) (facts, segments []Entry) {
 		}
 	}
 	for _, entry := range entries[start:] {
-		if entry.Layer == LayerFact {
-			facts = append(facts, entry)
+		if entry.Layer == LayerFact || (logFrom != 0 && entry.Seq >= logFrom) {
+			out = append(out, entry)
 		}
 	}
-	return facts, segments
+	return out, segments
+}
+
+// cloneHeader copies h, so a store and its caller never share bytes.
+func cloneHeader(h Header) Header {
+	h.Info = cloneInfo(h.Info)
+	h.State = bytes.Clone(h.State)
+	return h
+}
+
+func cloneInfo(info RecordInfo) RecordInfo {
+	info.Metadata = maps.Clone(info.Metadata)
+	return info
 }
 
 func sortInfos(out []RecordInfo) {
@@ -111,4 +128,53 @@ func sortInfos(out []RecordInfo) {
 		}
 		return out[i].UpdatedAt.After(out[j].UpdatedAt)
 	})
+}
+
+// defaultListLimit is the page MemoryStore and FileStore return when the
+// query names no Limit.
+const defaultListLimit = 100
+
+// listCursor is what the reference stores' Cursor holds: the last RecordInfo
+// of the page before, by the order of the listing.
+type listCursor struct {
+	At time.Time `json:"at"`
+	ID string    `json:"id"`
+}
+
+// pageOf sorts infos, the most recently updated first, and returns the page
+// q asks for. A Cursor that was not made by pageOf is invalid_argument.
+func pageOf(infos []RecordInfo, q ListQuery) (ListPage, error) {
+	sortInfos(infos)
+	if q.Cursor != "" {
+		raw, err := base64.RawURLEncoding.DecodeString(q.Cursor)
+		var after listCursor
+		if err == nil {
+			err = json.Unmarshal(raw, &after)
+		}
+		if err != nil {
+			return ListPage{}, gotato.ErrorOf(gotato.CodeInvalidArgument, "session: the list cursor is not one this store made")
+		}
+		i := sort.Search(len(infos), func(i int) bool {
+			if infos[i].UpdatedAt.Equal(after.At) {
+				return infos[i].ID > after.ID
+			}
+			return infos[i].UpdatedAt.Before(after.At)
+		})
+		infos = infos[i:]
+	}
+	limit := q.Limit
+	if limit <= 0 {
+		limit = defaultListLimit
+	}
+	page := ListPage{Infos: infos}
+	if len(infos) > limit {
+		page.Infos = infos[:limit]
+		last := page.Infos[limit-1]
+		raw, err := json.Marshal(listCursor{At: last.UpdatedAt, ID: last.ID})
+		if err != nil {
+			return ListPage{}, err
+		}
+		page.Next = base64.RawURLEncoding.EncodeToString(raw)
+	}
+	return page, nil
 }

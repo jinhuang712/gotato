@@ -139,8 +139,8 @@ func TestCheckpointWritesCompactionEndedAndALoadStartsThere(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if loaded.Facts[0].Seq != checkpoint.Seq || loaded.Head != 7 {
-		t.Fatalf("Load starts at %d with head %d, want a load from the checkpoint at %d", loaded.Facts[0].Seq, loaded.Head, checkpoint.Seq)
+	if loaded.Entries[0].Seq != checkpoint.Seq || loaded.Seq != 7 {
+		t.Fatalf("Load starts at %d with head %d, want a load from the checkpoint at %d", loaded.Entries[0].Seq, loaded.Seq, checkpoint.Seq)
 	}
 	reopened, err := session.Open(ctx, store, "cp-1")
 	if err != nil {
@@ -220,8 +220,8 @@ func TestCompactWritesItsEventsToTheStoredRecord(t *testing.T) {
 		t.Fatalf("events = %+v", events)
 	}
 	loaded, err := store.Load(ctx, "cmp-1")
-	if err != nil || loaded.Facts[0].Kind != gotato.EventKindCompactionEnded {
-		t.Fatalf("a load starts at %v, %v; want the compaction_ended Checkpoint", loaded.Facts[0].Kind, err)
+	if err != nil || loaded.Entries[0].Kind != gotato.EventKindCompactionEnded {
+		t.Fatalf("a load starts at %v, %v; want the compaction_ended Checkpoint", loaded.Entries[0].Kind, err)
 	}
 }
 
@@ -335,7 +335,7 @@ func unloaded(id string) gotato.Event {
 }
 
 func TestLoadedToolsAreFactsOfTheRecord(t *testing.T) {
-	if session.LayerOf(gotato.EventKindToolLoaded) != session.LayerFact {
+	if layer, err := session.LayerOf(gotato.EventKindToolLoaded); err != nil || layer != session.LayerFact {
 		t.Fatal("tool_loaded is not a fact")
 	}
 	ctx := context.Background()
@@ -363,7 +363,7 @@ func TestLoadedToolsAreFactsOfTheRecord(t *testing.T) {
 }
 
 func TestAnUnloadIsAFactAndRemovesTheTool(t *testing.T) {
-	if session.LayerOf(gotato.EventKindToolUnloaded) != session.LayerFact {
+	if layer, err := session.LayerOf(gotato.EventKindToolUnloaded); err != nil || layer != session.LayerFact {
 		t.Fatal("tool_unloaded is not a fact")
 	}
 	ctx := context.Background()

@@ -29,7 +29,7 @@ func benchHeap() uint64 {
 func warmedRunner(b *testing.B, sessions, messages int, ttl time.Duration) *service.Runner {
 	b.Helper()
 	ctx := context.Background()
-	runner, err := service.New(service.Config{Store: session.NewMemoryStore(), Agents: []service.Agent{
+	runner, err := service.New(service.Config{Store: memStore(), Agents: []service.Agent{
 		{Name: "echo", Model: testkit.EchoModel{}, Warm: service.WarmPolicy{TTL: ttl, NoIdleCompaction: true}},
 	}})
 	if err != nil {
@@ -94,7 +94,7 @@ func BenchmarkWarmSessionFootprint(b *testing.B) {
 func TestMaxWarmSessionsEvictsTheOldestIdle(t *testing.T) {
 	clock := newFakeClock()
 	runner, err := service.New(service.WithClock(service.Config{
-		Store: session.NewMemoryStore(), Instance: "a",
+		Store: memStore(), Instance: "a",
 		Admission: service.Admission{MaxWarmSessions: 2},
 		Agents:    []service.Agent{{Name: "echo", Model: testkit.EchoModel{}, Warm: service.WarmPolicy{NoIdleCompaction: true}}},
 	}, clock))
@@ -125,7 +125,7 @@ func TestMaxWarmSessionsEvictsTheOldestIdle(t *testing.T) {
 // keep every Session of the hour for ever.
 func TestWarmSessionsHaveADefaultBound(t *testing.T) {
 	runner, err := service.New(service.Config{
-		Store:  session.NewMemoryStore(),
+		Store:  memStore(),
 		Agents: []service.Agent{{Name: "echo", Model: testkit.EchoModel{}}},
 	})
 	if err != nil {
@@ -138,20 +138,20 @@ func TestWarmSessionsHaveADefaultBound(t *testing.T) {
 
 // guarded refuses the callers whose ctx carries stranger{}, the way a store
 // wrapper of an embedding application answers a caller it does not authorize.
-type guarded struct{ session.Store }
+type guarded struct{ parts }
 
 func (g guarded) Load(ctx context.Context, id string) (session.Loaded, error) {
 	if refused(ctx) {
 		return session.Loaded{}, session.ErrNotFound
 	}
-	return g.Store.Load(ctx, id)
+	return g.parts.Load(ctx, id)
 }
 
 func (g guarded) Log(ctx context.Context, id string, after uint64, limit int) ([]session.Entry, error) {
 	if refused(ctx) {
 		return nil, session.ErrNotFound
 	}
-	return g.Store.Log(ctx, id, after, limit)
+	return g.parts.Log(ctx, id, after, limit)
 }
 
 // a caller the Store refuses must change nothing. Compact, Notice
@@ -175,7 +175,7 @@ func TestRefusedCallerDoesNotEvictTheWarmSession(t *testing.T) {
 	}
 	for name, call := range calls {
 		t.Run(name, func(t *testing.T) {
-			runner := newRunnerOn(t, guarded{session.NewMemoryStore()}, service.Agent{Name: "a", Model: testkit.EchoModel{}})
+			runner := newRunnerOn(t, asStore(guarded{partsOf(memStore())}), service.Agent{Name: "a", Model: testkit.EchoModel{}})
 			ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 			defer cancel()
 			s, err := runner.CreateSession(ctx, "a", nil)
@@ -242,7 +242,7 @@ func TestMemoryLimitEvictsTheLongestIdleWarmSessionAndRefusesOnlyWhenAllRun(t *t
 	ctx := context.Background()
 	clock := newFakeClock()
 	model := &gatedEcho{gate: make(chan struct{}), started: make(chan string, 8)}
-	runner := limitedInstance(t, session.NewMemoryStore(), clock, model, 2)
+	runner := limitedInstance(t, memStore(), clock, model, 2)
 	instance := instanceRecorder(t, runner)
 
 	// Two Sessions run and idle, one after the other: the first idles longest.
@@ -306,7 +306,7 @@ func TestMemoryLimitNeverEvictsARunningSession(t *testing.T) {
 	ctx := context.Background()
 	clock := newFakeClock()
 	model := &gatedEcho{gate: make(chan struct{}), started: make(chan string, 8)}
-	runner := limitedInstance(t, session.NewMemoryStore(), clock, model, 2)
+	runner := limitedInstance(t, memStore(), clock, model, 2)
 	instance := instanceRecorder(t, runner)
 	close(model.gate)
 	idle := runOn(t, runner, "", "idle")
@@ -342,7 +342,7 @@ func TestMemoryLimitNeverEvictsARunningSession(t *testing.T) {
 // Eviction takes the Session idle longest, where a Run restarts the clock.
 func TestMemoryLimitEvictsInOrderOfIdleTime(t *testing.T) {
 	clock := newFakeClock()
-	runner := limitedInstance(t, session.NewMemoryStore(), clock, testkit.EchoModel{}, 3)
+	runner := limitedInstance(t, memStore(), clock, testkit.EchoModel{}, 3)
 	instance := instanceRecorder(t, runner)
 
 	var ids []string
@@ -370,8 +370,8 @@ func TestMemoryLimitEvictsInOrderOfIdleTime(t *testing.T) {
 // its timers are gone with it.
 func TestEvictedSessionReloadsFromTheStore(t *testing.T) {
 	clock := newFakeClock()
-	store := &tallyStore{Store: session.NewMemoryStore()}
-	runner := limitedInstance(t, store, clock, testkit.EchoModel{}, 1)
+	store := &tallyStore{parts: partsOf(memStore())}
+	runner := limitedInstance(t, asStore(store), clock, testkit.EchoModel{}, 1)
 
 	first := runOn(t, runner, "", "one")
 	second := runOn(t, runner, "", "two")
@@ -401,10 +401,10 @@ func TestEvictedSessionReloadsFromTheStore(t *testing.T) {
 func TestEvictionCancelsAnIdleCompactionInProgress(t *testing.T) {
 	ctx := context.Background()
 	clock := newFakeClock()
-	store := &tallyStore{Store: session.NewMemoryStore()}
+	store := &tallyStore{parts: partsOf(memStore())}
 	model := &askModel{started: make(chan struct{}), reply: recapModel()}
 	runner, err := service.New(service.WithClock(service.Config{
-		Store: store, Instance: "a",
+		Store: asStore(store), Instance: "a",
 		Admission: service.Admission{MaxActiveSessions: 1},
 		Agents: []service.Agent{{
 			Name: "echo", Model: model,
@@ -443,7 +443,7 @@ func TestEvictionCancelsAnIdleCompactionInProgress(t *testing.T) {
 	if got := evictedIDs(instance); !slices.Equal(got, []string{first.SessionID}) {
 		t.Fatalf("evicted %v, want [%s]", got, first.SessionID)
 	}
-	kinds := storedKinds(t, store, first.SessionID)
+	kinds := storedKinds(t, asStore(store), first.SessionID)
 	if count(kinds, gotato.EventKindCompactionStarted) != 1 || count(kinds, gotato.EventKindCompactionFailed) != 1 || count(kinds, gotato.EventKindSegmentClosed) != 0 {
 		t.Fatalf("stored Events %v, want one canceled compaction and no Segment", kinds)
 	}

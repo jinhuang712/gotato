@@ -38,8 +38,8 @@ func TestFileStoreListReadsOnlyTheLastWrite(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if loaded.Head != 4 || loaded.Info.Seq != 4 || len(loaded.Facts) != 2 || loaded.Facts[0].Seq != 3 {
-		t.Fatalf("Load = head %d, %d facts, want head 4 and facts 3, 4", loaded.Head, len(loaded.Facts))
+	if loaded.Seq != 4 || loaded.Header.Info.Messages != 4 || len(loaded.Entries) != 2 || loaded.Entries[0].Seq != 3 {
+		t.Fatalf("Load = seq %d, %d facts, want seq 4 and facts 3, 4", loaded.Seq, len(loaded.Entries))
 	}
 
 	matches, _ := filepath.Glob(filepath.Join(dir, "r", "*", "00000000000000000002.json"))
@@ -49,8 +49,8 @@ func TestFileStoreListReadsOnlyTheLastWrite(t *testing.T) {
 	if err := os.WriteFile(matches[0], []byte("not json"), 0o644); err != nil {
 		t.Fatal(err)
 	}
-	infos, err := store.List(ctx)
-	if err != nil || len(infos) != 1 || infos[0].Seq != 4 {
+	page, err := store.List(ctx, session.ListQuery{})
+	if infos := page.Infos; err != nil || len(infos) != 1 || infos[0].Messages != 4 {
 		t.Fatalf("List = %+v (%v), want one Record at seq 4", infos, err)
 	}
 }
@@ -169,8 +169,8 @@ func TestFileStoreRoundTripContinuesHistory(t *testing.T) {
 	if err := reopened.Flush(ctx); err != nil {
 		t.Fatal(err)
 	}
-	list, err := store.List(ctx)
-	if err != nil || len(list) != 1 || list[0].Messages != 4 || list[0].Runs != 2 {
+	page, err := store.List(ctx, session.ListQuery{})
+	if list := page.Infos; err != nil || len(list) != 1 || list[0].Messages != 4 || list[0].Runs != 2 {
 		t.Fatalf("list = %+v err=%v", list, err)
 	}
 	if err := store.Delete(ctx, s.ID()); err != nil {
@@ -196,7 +196,7 @@ func TestFileStoreListSurfacesUnreadableSession(t *testing.T) {
 	if err := os.WriteFile(filepath.Join(dir, "broken", "stray.json"), []byte("{not json"), 0o600); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := store.List(context.Background()); err == nil {
+	if _, err := store.List(context.Background(), session.ListQuery{}); err == nil {
 		t.Fatal("List hid an unreadable session")
 	}
 }
@@ -249,34 +249,72 @@ func TestFileStoreListDoesNotDecodeTheEntriesOfTheLastWrite(t *testing.T) {
 	if err := os.WriteFile(matches[0], []byte(broken), 0o644); err != nil {
 		t.Fatal(err)
 	}
-	infos, err := store.List(ctx)
-	if err != nil || len(infos) != 1 || infos[0].Seq != 1 {
+	page, err := store.List(ctx, session.ListQuery{})
+	if infos := page.Infos; err != nil || len(infos) != 1 || infos[0].Messages != 1 {
 		t.Fatalf("List = %+v, %v; want the one summary", infos, err)
 	}
 }
 
 func TestMemoryStoreConformance(t *testing.T) {
-	storetest.Run(t, func() (storetest.Open, func(), error) {
+	records := func() (storetest.Open, func(), error) {
 		store := session.NewMemoryStore()
-		return func() session.Store { return store }, nil, nil
+		return func() session.Records { return store }, nil, nil
+	}
+	t.Run("Records", func(t *testing.T) { storetest.RunRecords(t, records) })
+	t.Run("Lister", func(t *testing.T) { storetest.RunLister(t, records) })
+	t.Run("Liveness", func(t *testing.T) {
+		storetest.RunLiveness(t, func() (storetest.OpenLiveness, func(), error) {
+			store := session.NewMemoryStore()
+			return func() session.Liveness { return store }, nil, nil
+		})
 	})
+}
+
+// A MemoryStore times its rows by the clock it was given, so the suite moves
+// that clock and sleeps none.
+func TestMemoryStoreConformanceWithAClock(t *testing.T) {
+	var clock fakeClock
+	storetest.RunLiveness(t, func() (storetest.OpenLiveness, func(), error) {
+		store := session.NewMemoryStore(session.WithClock(clock.now))
+		return func() session.Liveness { return store }, nil, nil
+	}, storetest.WithAdvance(clock.advance))
 }
 
 // Every handle is a FileStore of its own on one directory, as two processes
 // sharing it are.
-func TestFileStoreConformance(t *testing.T) {
-	storetest.Run(t, func() (storetest.Open, func(), error) {
-		dir, err := os.MkdirTemp("", "gotato-filestore-*")
+func fileBacking() (storetest.Open, func(), error) {
+	dir, err := os.MkdirTemp("", "gotato-filestore-*")
+	if err != nil {
+		return nil, nil, err
+	}
+	open := func() session.Records {
+		store, err := session.NewFileStore(dir)
 		if err != nil {
-			return nil, nil, err
+			panic(err)
 		}
-		open := func() session.Store {
-			store, err := session.NewFileStore(dir)
+		return store
+	}
+	return open, func() { _ = os.RemoveAll(dir) }, nil
+}
+
+func TestFileStoreConformance(t *testing.T) {
+	t.Run("Records", func(t *testing.T) { storetest.RunRecords(t, fileBacking) })
+	t.Run("Lister", func(t *testing.T) { storetest.RunLister(t, fileBacking) })
+	t.Run("Liveness", func(t *testing.T) {
+		var clock fakeClock
+		storetest.RunLiveness(t, func() (storetest.OpenLiveness, func(), error) {
+			dir, err := os.MkdirTemp("", "gotato-filestore-*")
 			if err != nil {
-				panic(err)
+				return nil, nil, err
 			}
-			return store
-		}
-		return open, func() { _ = os.RemoveAll(dir) }, nil
+			open := func() session.Liveness {
+				store, err := session.NewFileStore(dir, session.WithClock(clock.now))
+				if err != nil {
+					panic(err)
+				}
+				return store
+			}
+			return open, func() { _ = os.RemoveAll(dir) }, nil
+		}, storetest.WithAdvance(clock.advance))
 	})
 }

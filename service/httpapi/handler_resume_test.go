@@ -372,7 +372,7 @@ func TestDrainEndsASessionStreamWithAReconnectFrame(t *testing.T) {
 
 // An idle stream sends a comment now and then, so a proxy keeps it open.
 func TestSessionStreamSendsKeepaliveComments(t *testing.T) {
-	runner, err := service.New(service.Config{Store: session.NewMemoryStore(), Agents: []service.Agent{{Name: "echo", Model: testkit.EchoModel{}}}})
+	runner, err := service.New(service.Config{Store: memStore(), Agents: []service.Agent{{Name: "echo", Model: testkit.EchoModel{}}}})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -504,7 +504,7 @@ func playTask(t *testing.T, server *httptest.Server, runner *service.Runner, tas
 func taskRunner(t *testing.T, task reftasks.Task) (*httptest.Server, *service.Runner) {
 	t.Helper()
 	runner, err := service.New(service.Config{
-		Store: session.NewMemoryStore(),
+		Store: memStore(),
 		Agents: []service.Agent{{
 			Name: task.Name, Model: task.Model, Instruction: task.Instruction, Tools: task.Tools, Options: task.Options, Limits: task.Limits,
 		}},
@@ -621,7 +621,7 @@ func firstDifference(got, want []string) string {
 
 // timeoutLogStore fails the log read with an error that wraps DeadlineExceeded once armed.
 type timeoutLogStore struct {
-	session.Store
+	parts
 	armed atomic.Bool
 }
 
@@ -629,13 +629,13 @@ func (s *timeoutLogStore) Log(ctx context.Context, id string, after uint64, limi
 	if s.armed.Load() {
 		return nil, fmt.Errorf("store: log: %w", context.DeadlineExceeded)
 	}
-	return s.Store.Log(ctx, id, after, limit)
+	return s.parts.Log(ctx, id, after, limit)
 }
 
 // A Store error that wraps DeadlineExceeded is a failure, not the keep-alive timer.
 func TestSessionStreamReportsAStoreTimeoutAsAnError(t *testing.T) {
-	store := &timeoutLogStore{Store: session.NewMemoryStore()}
-	runner, err := service.New(service.Config{Store: store, StreamPoll: 5 * time.Millisecond, Agents: []service.Agent{{Name: "echo", Model: testkit.EchoModel{}}}})
+	store := &timeoutLogStore{parts: partsOf(memStore())}
+	runner, err := service.New(service.Config{Store: asStore(store), StreamPoll: 5 * time.Millisecond, Agents: []service.Agent{{Name: "echo", Model: testkit.EchoModel{}}}})
 	if err != nil {
 		t.Fatal(err)
 	}

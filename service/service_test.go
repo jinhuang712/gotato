@@ -26,7 +26,7 @@ type callerKey struct{}
 // that authorizes by the request's context does, and pauses the first Load of
 // anyone else.
 type refusingStore struct {
-	session.Store
+	parts
 	entered, proceed chan struct{}
 	block            atomic.Bool
 }
@@ -45,14 +45,14 @@ func (s *refusingStore) Load(ctx context.Context, id string) (session.Loaded, er
 			return session.Loaded{}, ctx.Err()
 		}
 	}
-	return s.Store.Load(ctx, id)
+	return s.parts.Load(ctx, id)
 }
 
 func (s *refusingStore) Log(ctx context.Context, id string, after uint64, limit int) ([]session.Entry, error) {
 	if s.refused(ctx) {
 		return nil, session.ErrNotFound
 	}
-	return s.Store.Log(ctx, id, after, limit)
+	return s.parts.Log(ctx, id, after, limit)
 }
 
 // AbortSession asks the store whatever stage the Run is in: a caller the store
@@ -60,8 +60,8 @@ func (s *refusingStore) Log(ctx context.Context, id string, after uint64, limit 
 // stop one that has a live Session.
 func TestAbortSessionAuthorizesWhileTheRunIsLoading(t *testing.T) {
 	ctx := context.Background()
-	store := &refusingStore{Store: session.NewMemoryStore(), entered: make(chan struct{}), proceed: make(chan struct{})}
-	r, err := service.New(service.Config{Store: store, Agents: []service.Agent{{Name: "echo", Model: testkit.EchoModel{}}}})
+	store := &refusingStore{parts: partsOf(memStore()), entered: make(chan struct{}), proceed: make(chan struct{})}
+	r, err := service.New(service.Config{Store: asStore(store), Agents: []service.Agent{{Name: "echo", Model: testkit.EchoModel{}}}})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -111,7 +111,7 @@ func (s resolvingSet) Tools(ctx context.Context) ([]gotato.Tool, error) {
 func startResolving(t *testing.T) (*service.Runner, string, context.Context, chan error, resolvingSet) {
 	t.Helper()
 	set := resolvingSet{entered: make(chan context.Context, 1), release: make(chan struct{})}
-	r, err := service.New(service.Config{Store: session.NewMemoryStore(), Agents: []service.Agent{{Name: "slow", Model: testkit.EchoModel{}, Options: []gotato.SessionOption{gotato.WithToolSet(set)}}}})
+	r, err := service.New(service.Config{Store: memStore(), Agents: []service.Agent{{Name: "slow", Model: testkit.EchoModel{}, Options: []gotato.SessionOption{gotato.WithToolSet(set)}}}})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -183,7 +183,7 @@ func gatewayRunner(t *testing.T, config gateway.Config, fake *fakegateway.Gatewa
 	if err != nil {
 		t.Fatal(err)
 	}
-	runner, err := service.New(service.Config{Store: session.NewMemoryStore(), Agents: []service.Agent{{Name: "fake", Model: client, Compact: policy}}})
+	runner, err := service.New(service.Config{Store: memStore(), Agents: []service.Agent{{Name: "fake", Model: client, Compact: policy}}})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -422,7 +422,7 @@ func TestForkKeepsTheParentsCacheKey(t *testing.T) {
 			t.Fatalf("request %d cache key = %q, want the parent's %q", i, request.CacheKey, want)
 		}
 	}
-	stored, err := session.View(ctx, store, grandchild.ID())
+	stored, err := session.View(ctx, store.Records, grandchild.ID())
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -604,7 +604,7 @@ func (m *peekingModel) Stream(ctx context.Context, _ gotato.ModelRequest) (gotat
 	if call == 1 {
 		return testkit.NewFakeModel(testkit.ToolCalls(gotato.ToolCall{ID: "call-1", ToolID: "lookup", Arguments: []byte(`{}`)})).Stream(ctx, gotato.ModelRequest{})
 	}
-	stored, err := session.Open(ctx, m.store, id)
+	stored, err := session.Open(ctx, m.store.Records, id)
 	if err != nil {
 		return nil, err
 	}
@@ -615,7 +615,7 @@ func (m *peekingModel) Stream(ctx context.Context, _ gotato.ModelRequest) (gotat
 }
 
 func TestEveryStepIsStoredBeforeTheNext(t *testing.T) {
-	store := session.NewMemoryStore()
+	store := memStore()
 	model := &peekingModel{store: store}
 	runner, err := service.New(service.Config{Store: store, Agents: []service.Agent{{
 		Name: "lookup", Model: model, Tools: []gotato.Tool{testkit.NewFakeTool("lookup", "found")},
@@ -643,7 +643,7 @@ func TestEveryStepIsStoredBeforeTheNext(t *testing.T) {
 // Liveness row, once a write has held a tool_started Entry, as the
 // instance's death right after a tool starts would.
 type crashingStore struct {
-	session.Store
+	parts
 	mu      sync.Mutex
 	crashed bool
 }
@@ -655,10 +655,10 @@ func (s *crashingStore) Beat(ctx context.Context, row session.InstanceRow, ttl t
 	if crashed {
 		return context.Canceled
 	}
-	return s.Store.Beat(ctx, row, ttl)
+	return s.parts.Beat(ctx, row, ttl)
 }
 
-func (s *crashingStore) Append(ctx context.Context, id string, after uint64, entries []session.Entry, summary session.RecordInfo) error {
+func (s *crashingStore) Append(ctx context.Context, id string, after uint64, entries []session.Entry, summary session.Header) error {
 	s.mu.Lock()
 	crashed := s.crashed
 	for _, entry := range entries {
@@ -670,18 +670,18 @@ func (s *crashingStore) Append(ctx context.Context, id string, after uint64, ent
 	if crashed {
 		return context.Canceled
 	}
-	return s.Store.Append(ctx, id, after, entries, summary)
+	return s.parts.Append(ctx, id, after, entries, summary)
 }
 
 func TestACrashDuringAToolIsAnsweredOnTheNextRun(t *testing.T) {
-	backing := session.NewMemoryStore()
+	backing := memStore()
 	agent := func(model gotato.Model) service.Agent {
 		return service.Agent{Name: "lookup", Model: model, Tools: []gotato.Tool{testkit.NewFakeTool("lookup", "found")}}
 	}
 	// A short TTL lets the crashed instance's row expire quickly. The instance
 	// that takes over is alive, so its TTL is long.
 	crashLiveness := service.Liveness{TTL: 100 * time.Millisecond, Wait: 2 * time.Second}
-	crashing, err := service.New(service.Config{Store: &crashingStore{Store: backing}, Liveness: crashLiveness, Agents: []service.Agent{
+	crashing, err := service.New(service.Config{Store: asStore(&crashingStore{parts: partsOf(backing)}), Liveness: crashLiveness, Agents: []service.Agent{
 		agent(testkit.NewFakeModel(testkit.ToolCalls(gotato.ToolCall{ID: "call-1", ToolID: "lookup", Arguments: []byte(`{}`)}))),
 	}})
 	if err != nil {
@@ -729,7 +729,7 @@ func TestACrashDuringAToolIsAnsweredOnTheNextRun(t *testing.T) {
 // the same Context as before the reload (ROADMAP Phase 4).
 func TestCompactAppendReloadKeepsTheContext(t *testing.T) {
 	ctx := context.Background()
-	store := session.NewMemoryStore()
+	store := memStore()
 	first, err := service.New(service.Config{Store: store, Instance: "instance-a", Agents: []service.Agent{{Name: "echo", Model: testkit.EchoModel{}}}})
 	if err != nil {
 		t.Fatal(err)

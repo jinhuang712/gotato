@@ -18,23 +18,23 @@ import (
 // createErrorStore fails to create one ID, standing in for a Store that is
 // broken rather than holding the Session already.
 type createErrorStore struct {
-	session.Store
+	parts
 	failID string
 	err    error
 }
 
-func (s *createErrorStore) Create(ctx context.Context, id string, entries []session.Entry, summary session.RecordInfo) error {
+func (s *createErrorStore) Create(ctx context.Context, id string, entries []session.Entry, summary session.Header) error {
 	if id == s.failID {
 		return s.err
 	}
-	return s.Store.Create(ctx, id, entries, summary)
+	return s.parts.Create(ctx, id, entries, summary)
 }
 
 func TestForkTreatsStoreErrorAsFailure(t *testing.T) {
-	backing := session.NewMemoryStore()
+	backing := memStore()
 	getErr := errors.New("store: unavailable")
 	runner, err := service.New(service.Config{
-		Store:  &createErrorStore{Store: backing, failID: "child", err: getErr},
+		Store:  asStore(&createErrorStore{parts: partsOf(backing), failID: "child", err: getErr}),
 		Agents: []service.Agent{{Name: "echo", Model: testkit.EchoModel{}}},
 	})
 	if err != nil {
@@ -48,7 +48,7 @@ func TestForkTreatsStoreErrorAsFailure(t *testing.T) {
 	if _, err := runner.Fork(ctx, parent.ID(), "child"); !errors.Is(err, getErr) {
 		t.Fatalf("fork err = %v, want the store error", err)
 	}
-	if _, err := session.View(ctx, backing, "child"); !errors.Is(err, session.ErrNotFound) {
+	if _, err := session.View(ctx, backing.Records, "child"); !errors.Is(err, session.ErrNotFound) {
 		t.Fatalf("fork saved a session despite a store error: %v", err)
 	}
 }
@@ -131,8 +131,8 @@ func wantNotRunStoreFailure(t *testing.T, what string, err error) {
 func TestStoreErrorsBeforeAnyRunWriteAreClassified(t *testing.T) {
 	ctx := context.Background()
 	newRunner := func(t *testing.T) (*service.Runner, *faultStore, string) {
-		store := &faultStore{Store: session.NewMemoryStore()}
-		runner := instanceRunner(t, store, "instance-a", testkit.EchoModel{}, steadyLiveness)
+		store := &faultStore{parts: partsOf(memStore())}
+		runner := instanceRunner(t, asStore(store), "instance-a", testkit.EchoModel{}, steadyLiveness)
 		s, err := runner.CreateSession(ctx, "echo", nil)
 		if err != nil {
 			t.Fatal(err)
@@ -163,8 +163,8 @@ func TestStoreErrorsBeforeAnyRunWriteAreClassified(t *testing.T) {
 		wantNotRunStoreFailure(t, "CreateSession with Create failing", err)
 	})
 	t.Run("Beat", func(t *testing.T) {
-		store := &faultStore{Store: session.NewMemoryStore()}
-		runner := instanceRunner(t, store, "instance-a", testkit.EchoModel{}, steadyLiveness)
+		store := &faultStore{parts: partsOf(memStore())}
+		runner := instanceRunner(t, asStore(store), "instance-a", testkit.EchoModel{}, steadyLiveness)
 		store.fail("Beat", true)
 		_, err := runner.CreateSession(ctx, "echo", nil)
 		wantNotRunStoreFailure(t, "CreateSession with the first Beat failing", err)
@@ -195,8 +195,8 @@ func TestStoreErrorsBeforeAnyRunWriteAreClassified(t *testing.T) {
 // A missing Session stays not_found: the store's own answer is not a failure.
 func TestStoreAnswersKeepTheirCode(t *testing.T) {
 	ctx := context.Background()
-	store := &faultStore{Store: session.NewMemoryStore()}
-	runner := instanceRunner(t, store, "instance-a", testkit.EchoModel{}, steadyLiveness)
+	store := &faultStore{parts: partsOf(memStore())}
+	runner := instanceRunner(t, asStore(store), "instance-a", testkit.EchoModel{}, steadyLiveness)
 	if _, err := runner.Run(ctx, service.RunRequest{SessionID: "missing", Prompt: "hi"}); !gotato.IsCode(err, gotato.CodeNotFound) {
 		t.Fatalf("Run on a missing Session = %v, want not_found", err)
 	}
@@ -210,7 +210,7 @@ func TestStoreAnswersKeepTheirCode(t *testing.T) {
 // Delete, whichever comes first. The caller then holds a Record that another
 // Instance can still change.
 type pausingStore struct {
-	session.Store
+	parts
 	loads            atomic.Int32
 	once             sync.Once
 	entered, proceed chan struct{}
@@ -224,7 +224,7 @@ func (s *pausingStore) pause() {
 }
 
 func (s *pausingStore) Load(ctx context.Context, id string) (session.Loaded, error) {
-	loaded, err := s.Store.Load(ctx, id)
+	loaded, err := s.parts.Load(ctx, id)
 	if s.loads.Add(1) == 2 {
 		s.pause()
 	}
@@ -233,7 +233,7 @@ func (s *pausingStore) Load(ctx context.Context, id string) (session.Loaded, err
 
 func (s *pausingStore) Delete(ctx context.Context, id string) error {
 	s.pause()
-	return s.Store.Delete(ctx, id)
+	return s.parts.Delete(ctx, id)
 }
 
 // A delete is made by the Instance that holds the Claim. Another Instance that
@@ -242,10 +242,10 @@ func (s *pausingStore) Delete(ctx context.Context, id string) error {
 func TestDeleteSessionDoesNotRemoveARunClaimedAfterTheLook(t *testing.T) {
 	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 	defer cancel()
-	base := session.NewMemoryStore()
-	gate := &pausingStore{Store: base, entered: make(chan struct{}), proceed: make(chan struct{})}
+	base := memStore()
+	gate := &pausingStore{parts: partsOf(base), entered: make(chan struct{}), proceed: make(chan struct{})}
 	liveness := service.Liveness{TTL: time.Second, Wait: 30 * time.Millisecond}
-	a, err := service.New(service.Config{Store: gate, Liveness: liveness,
+	a, err := service.New(service.Config{Store: asStore(gate), Liveness: liveness,
 		Agents: []service.Agent{{Name: "echo", Model: testkit.EchoModel{}, Warm: service.WarmPolicy{TTL: -1}}}})
 	if err != nil {
 		t.Fatal(err)
@@ -286,7 +286,7 @@ func TestDeleteSessionDoesNotRemoveARunClaimedAfterTheLook(t *testing.T) {
 	if err := <-deleted; err == nil {
 		t.Fatal("DeleteSession removed a Session another Instance claimed after its look")
 	}
-	if _, err := base.Load(ctx, s.ID()); err != nil {
+	if _, err := base.Records.Load(ctx, s.ID()); err != nil {
 		t.Fatalf("the Session is gone: %v", err)
 	}
 	close(finish)
@@ -326,7 +326,7 @@ func heldRun(t *testing.T, a *service.Runner, model *testkit.FakeModel, sessionI
 // refused as not_writer, as a message is, and the Session is still there.
 func TestDeleteSessionRefusesARunOnAnotherInstance(t *testing.T) {
 	ctx := context.Background()
-	store := session.NewMemoryStore()
+	store := memStore()
 	model := testkit.NewFakeModel(testkit.Text("slow"))
 	a := instanceRunner(t, store, "instance-a", model, steadyLiveness)
 	b := instanceRunner(t, store, "instance-b", testkit.EchoModel{}, steadyLiveness)
@@ -359,7 +359,7 @@ func TestDeleteSessionRefusesARunOnAnotherInstance(t *testing.T) {
 // asks the caller to retry a request that cannot succeed.
 func TestRunOfASessionDeletedUnderItIsNotAStoreFailure(t *testing.T) {
 	ctx := context.Background()
-	store := session.NewMemoryStore()
+	store := memStore()
 	model := testkit.NewFakeModel(testkit.Text("slow"))
 	a := instanceRunner(t, store, "instance-a", model, steadyLiveness)
 	s, err := a.CreateSession(ctx, "echo", nil)
@@ -367,7 +367,7 @@ func TestRunOfASessionDeletedUnderItIsNotAStoreFailure(t *testing.T) {
 		t.Fatal(err)
 	}
 	release, result := heldRun(t, a, model, s.ID())
-	if err := store.Delete(ctx, s.ID()); err != nil {
+	if err := store.Records.Delete(ctx, s.ID()); err != nil {
 		t.Fatal(err)
 	}
 	release()
@@ -391,7 +391,7 @@ func TestRunOfASessionDeletedUnderItIsNotAStoreFailure(t *testing.T) {
 // under the Run.
 func TestCompactOfASessionRunningElsewhereAnswersBusy(t *testing.T) {
 	ctx := context.Background()
-	store := session.NewMemoryStore()
+	store := memStore()
 	model := testkit.NewFakeModel(testkit.Text("slow"))
 	a := instanceRunner(t, store, "instance-a", model, steadyLiveness)
 	b := instanceRunner(t, store, "instance-b", testkit.EchoModel{}, service.Liveness{TTL: 5 * time.Second, Wait: 200 * time.Millisecond})
@@ -414,7 +414,7 @@ func TestCompactOfASessionRunningElsewhereAnswersBusy(t *testing.T) {
 // stopped", which is true only of a Record whose writer is gone.
 func TestForkMidRunDoesNotCarryAFalseStoppedToolResult(t *testing.T) {
 	ctx := context.Background()
-	store := session.NewMemoryStore()
+	store := memStore()
 	started := make(chan struct{})
 	finish := make(chan struct{})
 	tool, err := gotato.NewFuncTool("slow", "slow tool", func(context.Context, struct{}) (string, error) {

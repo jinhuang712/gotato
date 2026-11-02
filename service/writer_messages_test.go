@@ -52,7 +52,7 @@ func addressedRunner(t *testing.T, store session.Store, instance string, model g
 // queued, and the order they were committed, and the IDs that were dropped.
 func messageEvents(t *testing.T, store session.Store, id string) (queued, committed map[gotato.MessageSource][]gotato.MessageID, dropped map[gotato.MessageID]bool) {
 	t.Helper()
-	events, err := session.StoredEvents(context.Background(), store, id, 0, 0)
+	events, err := session.StoredEvents(context.Background(), store.Records, id, 0, 0)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -78,7 +78,7 @@ func messageEvents(t *testing.T, store session.Store, id string) (queued, commit
 // and no instance but the writer calls the model (GOALS.md G-G08).
 func TestMessagesMidRunLandOnceOnTheWriter(t *testing.T) {
 	ctx := context.Background()
-	store := session.NewMemoryStore()
+	store := memStore()
 	var violations, calls atomic.Int64
 	var dead atomic.Bool
 	hold := &holdingOwner{
@@ -167,7 +167,7 @@ func TestMessagesMidRunLandOnceOnTheWriter(t *testing.T) {
 			t.Fatalf("message %s: committed %d times, dropped %v; want committed once", messageID, committedOnce[messageID], dropped[messageID])
 		}
 	}
-	view, err := session.View(ctx, store, id)
+	view, err := session.View(ctx, store.Records, id)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -193,7 +193,7 @@ func TestManyInstancesOneWriterWithMessages(t *testing.T) {
 			ctx := context.Background()
 			var open func() session.Store
 			if kind == "memory" {
-				backing := session.NewMemoryStore()
+				backing := memStore()
 				open = func() session.Store { return backing }
 			} else {
 				dir := t.TempDir()
@@ -202,7 +202,7 @@ func TestManyInstancesOneWriterWithMessages(t *testing.T) {
 					if err != nil {
 						t.Fatal(err)
 					}
-					return store
+					return asStore(store)
 				}
 			}
 			var violations, calls atomic.Int64
@@ -210,9 +210,9 @@ func TestManyInstancesOneWriterWithMessages(t *testing.T) {
 			runners := make([]*service.Runner, instances)
 			stores := make([]*killableStore, instances)
 			for i := range instances {
-				stores[i] = &killableStore{Store: open()}
+				stores[i] = &killableStore{parts: partsOf(open())}
 				model := ownerModel{instance: fmt.Sprintf("instance-%d", i), store: open(), dead: &stores[i].dead, violations: &violations, calls: &calls}
-				runners[i] = addressedRunner(t, stores[i], model.instance, model)
+				runners[i] = addressedRunner(t, asStore(stores[i]), model.instance, model)
 			}
 			var ids []string
 			for range 2 {
@@ -288,7 +288,7 @@ func TestManyInstancesOneWriterWithMessages(t *testing.T) {
 				for messageID := range dropped {
 					ended[id][messageID] = true
 				}
-				view, err := session.View(ctx, open(), id)
+				view, err := session.View(ctx, open().Records, id)
 				if err != nil {
 					t.Fatal(err)
 				}

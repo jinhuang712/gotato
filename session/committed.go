@@ -8,7 +8,7 @@ import (
 	"github.com/jinhuang712/gotato/gotato"
 )
 
-// EntryLog is the part of a Store that reads a Record's log. Every Store is
+// EntryLog is the part of Records that reads a Record's log. Every Records is
 // one.
 type EntryLog interface {
 	Log(ctx context.Context, id string, after uint64, limit int) ([]Entry, error)

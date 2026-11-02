@@ -354,7 +354,8 @@ func TestTheRequestIsTheSameAfterAReload(t *testing.T) {
 		t.Fatal(err)
 	}
 	agents := []service.Agent{{Name: "a", Model: client, Instruction: "sys", Tools: []gotato.Tool{testkit.NewFakeTool("echo", "echoed")}}}
-	store := session.NewMemoryStore()
+	mem := session.NewMemoryStore()
+	store := session.Store{Records: mem, Liveness: mem}
 	first, err := service.New(service.Config{Store: store, Agents: agents})
 	if err != nil {
 		t.Fatal(err)

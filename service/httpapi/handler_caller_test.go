@@ -28,7 +28,7 @@ type callerKey struct{}
 // wrapper: it answers not_found for a Record whose "owner" metadata is not
 // the caller. It also notes which calls saw a caller in their ctx.
 type ownerStore struct {
-	session.Store
+	parts
 	mu    sync.Mutex
 	calls map[string][]bool
 }
@@ -44,15 +44,15 @@ func (s *ownerStore) note(ctx context.Context, op string) string {
 	return caller
 }
 
-func (s *ownerStore) Create(ctx context.Context, id string, entries []session.Entry, summary session.RecordInfo) error {
+func (s *ownerStore) Create(ctx context.Context, id string, entries []session.Entry, summary session.Header) error {
 	s.note(ctx, "create")
-	return s.Store.Create(ctx, id, entries, summary)
+	return s.parts.Create(ctx, id, entries, summary)
 }
 
 func (s *ownerStore) Load(ctx context.Context, id string) (session.Loaded, error) {
 	caller := s.note(ctx, "load")
-	loaded, err := s.Store.Load(ctx, id)
-	if err == nil && loaded.Info.Metadata["owner"] != caller {
+	loaded, err := s.parts.Load(ctx, id)
+	if err == nil && loaded.Header.Info.Metadata["owner"] != caller {
 		return session.Loaded{}, session.ErrNotFound // does not reveal that the Session exists
 	}
 	return loaded, err
@@ -64,12 +64,12 @@ func (s *ownerStore) Log(ctx context.Context, id string, after uint64, limit int
 	if _, err := s.Load(ctx, id); err != nil {
 		return nil, err
 	}
-	return s.Store.Log(ctx, id, after, limit)
+	return s.parts.Log(ctx, id, after, limit)
 }
 
-func (s *ownerStore) Append(ctx context.Context, id string, after uint64, entries []session.Entry, summary session.RecordInfo) error {
+func (s *ownerStore) Append(ctx context.Context, id string, after uint64, entries []session.Entry, summary session.Header) error {
 	s.note(ctx, "append")
-	return s.Store.Append(ctx, id, after, entries, summary)
+	return s.parts.Append(ctx, id, after, entries, summary)
 }
 
 func (s *ownerStore) seen(op string) []bool {
@@ -98,10 +98,10 @@ func callAs(t *testing.T, server *httptest.Server, caller, method, path string, 
 // call the request makes, and a store that answers not_found for another
 // caller's Session makes HTTP answer 404.
 func TestRequestContextReachesTheStoreAndARefusalAnswers404(t *testing.T) {
-	store := &ownerStore{Store: session.NewMemoryStore()}
+	store := &ownerStore{parts: partsOf(memStore())}
 	newServer := func() (*httptest.Server, *service.Runner) {
 		runner, err := service.New(service.Config{
-			Store:  store,
+			Store:  asStore(store),
 			Agents: []service.Agent{{Name: "echo", Model: testkit.EchoModel{}, ModelName: "echo"}},
 		})
 		if err != nil {
@@ -178,12 +178,12 @@ func TestRequestContextReachesTheStoreAndARefusalAnswers404(t *testing.T) {
 // cannot cancel it, steer it or send it a notice: each call reads through the
 // store first, so the wrapper's not_found answers 404. The owner still can.
 func TestARefusalAlsoGuardsALiveRun(t *testing.T) {
-	store := &ownerStore{Store: session.NewMemoryStore()}
+	store := &ownerStore{parts: partsOf(memStore())}
 	block := make(chan struct{})
 	model := testkit.NewFakeModel(testkit.Text("slow"))
 	model.Block = block
 	runner, err := service.New(service.Config{
-		Store:  store,
+		Store:  asStore(store),
 		Agents: []service.Agent{{Name: "slow", Model: model}},
 	})
 	if err != nil {
@@ -239,7 +239,7 @@ func TestARefusalAlsoGuardsALiveRun(t *testing.T) {
 
 // beatOutage fails the Liveness renewals while down is set.
 type beatOutage struct {
-	session.Store
+	parts
 	down atomic.Bool
 }
 
@@ -247,15 +247,15 @@ func (s *beatOutage) Beat(ctx context.Context, row session.InstanceRow, ttl time
 	if s.down.Load() {
 		return errors.New("store unreachable")
 	}
-	return s.Store.Beat(ctx, row, ttl)
+	return s.parts.Beat(ctx, row, ttl)
 }
 
 // A Runner that cannot show its Liveness row is alive refuses writes, so
 // /readyz answers 503 until it can.
 func TestReadyzReportsALapsedRow(t *testing.T) {
-	store := &beatOutage{Store: session.NewMemoryStore()}
+	store := &beatOutage{parts: partsOf(memStore())}
 	runner, err := service.New(service.Config{
-		Store:    store,
+		Store:    asStore(store),
 		Liveness: service.Liveness{TTL: 300 * time.Millisecond},
 		Agents:   []service.Agent{{Name: "echo", Model: testkit.EchoModel{}}},
 	})
@@ -294,7 +294,7 @@ func TestReadyzReportsALapsedRow(t *testing.T) {
 // same request again may succeed. A 404 is the first and not the second.
 func TestRetryableHeaderFollowsTheRuntimesAnswer(t *testing.T) {
 	g := newGate()
-	in := newInstance(t, session.NewMemoryStore(), "a", g, false)
+	in := newInstance(t, memStore(), "a", g, false)
 	id, wait := running(t, in, g)
 	resp, data := in.post(t, "/v1/sessions/"+id+"/runs", map[string]any{"prompt": "again"})
 	if resp.StatusCode != http.StatusConflict || resp.Header.Get(httpapi.NotRunHeader) != "true" || resp.Header.Get(httpapi.RetryableHeader) != "true" {
@@ -351,7 +351,7 @@ func TestWithMaxBodyRaisesAndLowersTheCap(t *testing.T) {
 		{"raised", httpapi.WithMaxBody(4 << 20), big, http.StatusCreated},
 		{"lowered", httpapi.WithMaxBody(10), small, http.StatusRequestEntityTooLarge},
 	} {
-		runner, err := service.New(service.Config{Store: session.NewMemoryStore(), Agents: []service.Agent{{Name: "echo", Model: testkit.EchoModel{}}}})
+		runner, err := service.New(service.Config{Store: memStore(), Agents: []service.Agent{{Name: "echo", Model: testkit.EchoModel{}}}})
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -372,7 +372,7 @@ func TestWithMaxBodyRaisesAndLowersTheCap(t *testing.T) {
 // A Session whose Agent was dropped answers 400 unknown agent; the run body's
 // agent rebinds it, which is the way to repair it over HTTP.
 func TestRunBodyAgentRepairsASessionWhoseAgentIsGone(t *testing.T) {
-	store := session.NewMemoryStore()
+	store := memStore()
 	a := newInstance(t, store, "a", testkit.EchoModel{}, false)
 	s, err := a.runner.CreateSession(t.Context(), "echo", nil)
 	if err != nil {
@@ -403,7 +403,7 @@ func TestRunBodyAgentRepairsASessionWhoseAgentIsGone(t *testing.T) {
 // from the store, and the forward carries the caller's credentials.
 func TestForwardingOnlyToAnAllowedAddress(t *testing.T) {
 	for _, allowed := range []bool{false, true} {
-		store := session.NewMemoryStore()
+		store := memStore()
 		g := newGate()
 		a := newInstance(t, store, "instance-a", g, true)
 		var asked string

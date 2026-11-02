@@ -15,7 +15,7 @@ import (
 // FileStore keeps each Record in a directory of its own epoch, one file per
 // write, named by the write's first position:
 //
-//	<dir>/<id>/<epoch>/00000000000000000001.json   {"entries":[…],"info":{…}}
+//	<dir>/<id>/<epoch>/00000000000000000001.json   {"entries":[…],"header":{…}}
 //	<dir>/<id>/<epoch>/00000000000000000003.json
 //	<dir>/.instances/<instance>.json               one Liveness row per Instance
 //
@@ -29,7 +29,8 @@ import (
 // created again under the same ID finds no directory to write into, however
 // late it checks. Create builds the Record's directory under a temporary name
 // and renames it to <id>, which fails when the ID is taken. Liveness rows are
-// timed by this machine's clock.
+// timed by this machine's clock. It is Records, Liveness and Lister, and a
+// Store takes it for each: Store{Records: f, Liveness: f}.
 type FileStore struct {
 	dir string
 	now func() time.Time
@@ -62,7 +63,7 @@ type fileHead struct {
 // dir, with any missing parents (mode 0755), when it does not exist, so a
 // service needs no setup step; an empty dir, or one that cannot be created, is
 // an error.
-func NewFileStore(dir string) (*FileStore, error) {
+func NewFileStore(dir string, options ...StoreOption) (*FileStore, error) {
 	if strings.TrimSpace(dir) == "" {
 		return nil, errors.New("session: store directory is empty")
 	}
@@ -71,18 +72,18 @@ func NewFileStore(dir string) (*FileStore, error) {
 	}
 	sweepDir(dir, leftoverAge, ".creating-", ".deleted-")
 	sweepDir(filepath.Join(dir, ".instances"), leftoverAge, ".tmp-")
-	return &FileStore{dir: dir, now: time.Now, heads: map[string]fileHead{}}, nil
+	return &FileStore{dir: dir, now: newStoreConfig(options).now, heads: map[string]fileHead{}}, nil
 }
 
-// Create implements Store.
-func (f *FileStore) Create(ctx context.Context, id string, entries []Entry, summary RecordInfo) error {
+// Create implements Records.
+func (f *FileStore) Create(ctx context.Context, id string, entries []Entry, h Header) error {
 	if err := ctx.Err(); err != nil {
 		return err
 	}
 	if err := checkFileID(id); err != nil {
 		return err
 	}
-	if err := CheckBatch(0, entries, summary); err != nil {
+	if err := CheckBatch(0, entries, h); err != nil {
 		return err
 	}
 	if _, err := f.currentDir(id); !errors.Is(err, ErrNotFound) {
@@ -91,10 +92,10 @@ func (f *FileStore) Create(ctx context.Context, id string, entries []Entry, summ
 		}
 		return err
 	}
-	if err := f.publishRecord(id, entries, summary); err != nil {
+	if err := f.publishRecord(id, entries, h); err != nil {
 		return err
 	}
-	dir := f.epochDir(id, summary.RecordEpoch)
+	dir := f.epochDir(id, h.Epoch)
 	f.setHead(id, fileHead{head: entries[len(entries)-1].Seq, first: entries[0].Seq, dir: dir})
 	return nil
 }
@@ -106,17 +107,17 @@ func (f *FileStore) Create(ctx context.Context, id string, entries []Entry, summ
 // step. A rename onto a directory that holds a Record fails, so of two
 // creators of one ID only one wins, and the other's epoch never gets a
 // directory beside the winner's.
-func (f *FileStore) publishRecord(id string, entries []Entry, summary RecordInfo) error {
+func (f *FileStore) publishRecord(id string, entries []Entry, h Header) error {
 	building, err := os.MkdirTemp(f.dir, ".creating-")
 	if err != nil {
 		return err
 	}
 	defer func() { _ = os.RemoveAll(building) }()
-	epochDir := filepath.Join(building, filepath.Base(f.epochDir(id, summary.RecordEpoch)))
+	epochDir := filepath.Join(building, filepath.Base(f.epochDir(id, h.Epoch)))
 	if err := os.Mkdir(epochDir, 0o755); err != nil {
 		return err
 	}
-	if err := f.writeBatch(epochDir, fileBatch{Entries: entries, Info: summary}); err != nil {
+	if err := f.writeBatch(epochDir, fileBatch{Entries: entries, Header: h}); err != nil {
 		return err
 	}
 	// writeBatch synced the epoch directory; building holds that directory's
@@ -133,22 +134,22 @@ func (f *FileStore) publishRecord(id string, entries []Entry, summary RecordInfo
 	return syncDir(f.dir)
 }
 
-// Append implements Store.
-func (f *FileStore) Append(ctx context.Context, id string, after uint64, entries []Entry, summary RecordInfo) error {
+// Append implements Records.
+func (f *FileStore) Append(ctx context.Context, id string, after uint64, entries []Entry, h Header) error {
 	if err := ctx.Err(); err != nil {
 		return err
 	}
 	if err := checkFileID(id); err != nil {
 		return err
 	}
-	if err := CheckBatch(after, entries, summary); err != nil {
+	if err := CheckBatch(after, entries, h); err != nil {
 		return err
 	}
 	// The batch goes into the directory of the writer's own epoch. A Record
 	// deleted, or deleted and created again under this ID, has no such
 	// directory, and the write fails with ErrNotFound, however late: the
 	// directory is the check, and nothing is left between it and the write.
-	dir := f.epochDir(id, summary.RecordEpoch)
+	dir := f.epochDir(id, h.Epoch)
 	last, err := f.head(id, dir, after)
 	if err != nil {
 		return err
@@ -156,7 +157,7 @@ func (f *FileStore) Append(ctx context.Context, id string, after uint64, entries
 	if last.head != after {
 		return ErrConflict
 	}
-	if err := f.writeBatch(dir, fileBatch{Entries: entries, Info: summary}); err != nil {
+	if err := f.writeBatch(dir, fileBatch{Entries: entries, Header: h}); err != nil {
 		return err
 	}
 	f.setHead(id, fileHead{head: entries[len(entries)-1].Seq, first: entries[0].Seq, dir: dir})
@@ -202,7 +203,7 @@ func (f *FileStore) setHead(id string, head fileHead) {
 	f.heads[id] = head
 }
 
-// Load implements Store. It reads the writes back from the last one to the
+// Load implements Records. It reads the writes back from the last one to the
 // write that holds the last Checkpoint, and from the writes before that only
 // their segment_closed Entries.
 // [LIMITATION] a cold Load reads the segment_closed Entries of every batch before the last Checkpoint's, because no index file of Segments exists yet.
@@ -238,11 +239,12 @@ func (f *FileStore) Load(ctx context.Context, id string) (Loaded, error) {
 	for _, batch := range tail {
 		entries = append(entries, batch.Entries...)
 	}
-	facts, segments := loadedFrom(entries)
-	return Loaded{Facts: facts, Segments: segments, Head: lastSeq(tail), Info: tail[len(tail)-1].Info}, nil
+	last := tail[len(tail)-1].Header
+	entries, segments := loadedFrom(entries, last.LogFrom)
+	return Loaded{Entries: entries, Segments: segments, Seq: lastSeq(tail), Header: last}, nil
 }
 
-// Log implements Store.
+// Log implements Records.
 func (f *FileStore) Log(ctx context.Context, id string, after uint64, limit int) ([]Entry, error) {
 	if err := ctx.Err(); err != nil {
 		return nil, err
@@ -275,14 +277,16 @@ func (f *FileStore) Log(ctx context.Context, id string, after uint64, limit int)
 	return out, nil
 }
 
-// List implements Store.
-func (f *FileStore) List(ctx context.Context) ([]RecordInfo, error) {
+// List implements Lister: a page of the Records, the most recently updated
+// first, 100 when the query names no Limit. It reads the last write of every
+// Record, as it has no index to page by.
+func (f *FileStore) List(ctx context.Context, q ListQuery) (ListPage, error) {
 	if err := ctx.Err(); err != nil {
-		return nil, err
+		return ListPage{}, err
 	}
 	names, err := os.ReadDir(f.dir)
 	if err != nil {
-		return nil, err
+		return ListPage{}, err
 	}
 	out := make([]RecordInfo, 0, len(names))
 	var unreadable []string
@@ -305,13 +309,12 @@ func (f *FileStore) List(ctx context.Context) ([]RecordInfo, error) {
 		out = append(out, summary)
 	}
 	if len(unreadable) > 0 {
-		return nil, fmt.Errorf("session: %d unreadable session(s): %s", len(unreadable), strings.Join(unreadable, "; "))
+		return ListPage{}, fmt.Errorf("session: %d unreadable session(s): %s", len(unreadable), strings.Join(unreadable, "; "))
 	}
-	sortInfos(out)
-	return out, nil
+	return pageOf(out, q)
 }
 
-// info reads a Record's RecordInfo from its last write alone.
+// info reads a Record's RecordInfo from the Header of its last write alone.
 func (f *FileStore) info(id string) (RecordInfo, error) {
 	dir, firsts, err := f.batchList(id)
 	if err != nil {
@@ -324,7 +327,7 @@ func (f *FileStore) info(id string) (RecordInfo, error) {
 	return info, err
 }
 
-// Delete implements Store. The Record's directory is renamed away first, so
+// Delete implements Records. The Record's directory is renamed away first, so
 // a writer that appends meanwhile gets ErrNotFound instead of bringing it
 // back.
 func (f *FileStore) Delete(ctx context.Context, id string) error {
@@ -370,3 +373,9 @@ func (f *FileStore) Delete(ctx context.Context, id string) error {
 	}
 	return nil
 }
+
+var (
+	_ Records  = (*FileStore)(nil)
+	_ Lister   = (*FileStore)(nil)
+	_ Liveness = (*FileStore)(nil)
+)

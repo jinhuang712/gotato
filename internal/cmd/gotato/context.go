@@ -113,7 +113,7 @@ func (c *cli) contextCompact(args []string) int {
 			return c.failErr(err)
 		}
 		if agent == "" {
-			s, err := session.Open(ctx, rt.store, positionals[0])
+			s, err := session.Open(ctx, rt.store.Records, positionals[0])
 			if err != nil {
 				return c.failErr(err)
 			}

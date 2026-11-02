@@ -19,7 +19,7 @@ func (f *FileStore) instancePath(id string) string {
 	return filepath.Join(f.dir, ".instances", nameOf(id)+".json")
 }
 
-// Beat implements Store.
+// Beat implements Liveness.
 func (f *FileStore) Beat(ctx context.Context, row InstanceRow, ttl time.Duration) error {
 	if err := ctx.Err(); err != nil {
 		return err
@@ -91,7 +91,7 @@ func readInstance(path string) (fileInstance, error) {
 // renamed file can be empty or cut short.
 var errTornRow = errors.New("session: unreadable liveness row")
 
-// Instance implements Store.
+// Instance implements Liveness.
 func (f *FileStore) Instance(ctx context.Context, id string) (InstanceState, error) {
 	if err := ctx.Err(); err != nil {
 		return InstanceState{}, err

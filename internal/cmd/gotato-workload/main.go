@@ -138,7 +138,7 @@ func run(ctx context.Context, args []string, stdout, stderr io.Writer, getenv fu
 			fmt.Fprintln(stderr, "gotato-workload:", err)
 			return exitError
 		}
-		cfg.Store = store
+		cfg.Store = session.Store{Records: store, Liveness: store}
 	}
 
 	if *recapCheck {

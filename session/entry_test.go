@@ -4,7 +4,12 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"go/ast"
+	"go/parser"
+	"go/token"
 	"reflect"
+	"strconv"
+	"strings"
 	"testing"
 	"time"
 
@@ -60,7 +65,7 @@ func runEvent(kind string, runID gotato.RunID, at time.Time) gotato.Event {
 
 func TestEntriesRebuildEveryChange(t *testing.T) {
 	ctx := context.Background()
-	r := session.New(session.WithClock(fixedClock()), session.WithMessages(gotato.UserMessage("history")))
+	r := session.New(session.WithRecordClock(fixedClock()), session.WithMessages(gotato.UserMessage("history")))
 	session.StartLog(r)
 	var entries []session.Entry
 	entries = append(entries, session.TakePending(r)...)
@@ -111,7 +116,7 @@ func TestEntriesRebuildEveryChange(t *testing.T) {
 }
 
 func TestFactsAloneRebuildTheTranscript(t *testing.T) {
-	r := session.New(session.WithClock(fixedClock()))
+	r := session.New(session.WithRecordClock(fixedClock()))
 	session.StartLog(r)
 	commit(t, r, gotato.UserMessage("hi"))
 	if _, err := r.Write(context.Background(), []gotato.Event{runEvent("start", "run-1", time.Now())}); err != nil {
@@ -139,7 +144,7 @@ func TestFactsAloneRebuildTheTranscript(t *testing.T) {
 }
 
 func TestCheckpointStandsInForEverythingBefore(t *testing.T) {
-	r := session.New(session.WithClock(fixedClock()))
+	r := session.New(session.WithRecordClock(fixedClock()))
 	session.StartLog(r)
 	for _, text := range []string{"one", "two", "three"} {
 		commit(t, r, gotato.UserMessage(text))
@@ -276,8 +281,8 @@ func TestEntryIsTheStoredEvent(t *testing.T) {
 		if event.Kind() != entry.Kind || event.Head().Number != entry.Seq || event.Head().SessionID != gotato.SessionID(r.ID()) {
 			t.Fatalf("EventOf(%+v) = %s numbered %d", entry, event.Kind(), event.Head().Number)
 		}
-		if session.LayerOf(entry.Kind) != entry.Layer {
-			t.Fatalf("%s: layer %s, LayerOf says %s", entry.Kind, entry.Layer, session.LayerOf(entry.Kind))
+		if layer, err := session.LayerOf(entry.Kind); err != nil || layer != entry.Layer {
+			t.Fatalf("%s: layer %s, LayerOf says %s (%v)", entry.Kind, entry.Layer, layer, err)
 		}
 	}
 }
@@ -311,10 +316,55 @@ func TestEntryOfAnOldKindIsRefused(t *testing.T) {
 	if _, err := session.FromEntries([]session.Entry{old}); err == nil {
 		t.Fatal("FromEntries accepted an Entry of the kind checkpoint")
 	}
-	if got := session.LayerOf("checkpoint"); got != session.LayerLog {
-		t.Fatalf("LayerOf(checkpoint) = %s, want a log Entry", got)
+	if got, err := session.LayerOf("checkpoint"); err == nil {
+		t.Fatalf("LayerOf(checkpoint) = %s, want an error: a kind that is not stored has no Layer", got)
 	}
 	if old.IsCheckpoint() {
 		t.Fatal("an Entry of the kind checkpoint starts a load")
+	}
+}
+
+// Every Event kind that is stored has a Layer: layerOf never guesses, so a new
+// stored kind that is not listed fails here instead of being a log Entry that a
+// load would leave out. The kinds are read from the core's list of constants.
+func TestEveryStoredKindHasALayer(t *testing.T) {
+	fset := token.NewFileSet()
+	file, err := parser.ParseFile(fset, "../gotato/eventkinds.go", nil, 0)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var kinds []gotato.EventKind
+	ast.Inspect(file, func(n ast.Node) bool {
+		spec, ok := n.(*ast.ValueSpec)
+		if !ok || len(spec.Names) != 1 || !strings.HasPrefix(spec.Names[0].Name, "EventKind") || len(spec.Values) != 1 {
+			return true
+		}
+		if lit, ok := spec.Values[0].(*ast.BasicLit); ok && lit.Kind == token.STRING {
+			value, err := strconv.Unquote(lit.Value)
+			if err != nil {
+				t.Fatal(err)
+			}
+			kinds = append(kinds, gotato.EventKind(value))
+		}
+		return true
+	})
+	if len(kinds) < 40 {
+		t.Fatalf("read %d Event kinds from eventkinds.go, want the whole list", len(kinds))
+	}
+	stored := 0
+	for _, kind := range kinds {
+		layer, err := session.LayerOf(kind)
+		switch {
+		case kind.Class() == gotato.EventClassStored:
+			stored++
+			if err != nil || (layer != session.LayerFact && layer != session.LayerLog) {
+				t.Errorf("the stored kind %s has no Layer (%q, %v): list it in storedLayers", kind, layer, err)
+			}
+		case err == nil:
+			t.Errorf("%s is %s, not stored, yet storedLayers gives it the Layer %s", kind, kind.Class(), layer)
+		}
+	}
+	if stored < 20 {
+		t.Fatalf("found %d stored kinds, want the whole list", stored)
 	}
 }

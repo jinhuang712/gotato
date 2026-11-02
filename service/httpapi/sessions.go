@@ -3,10 +3,12 @@ package httpapi
 import (
 	"encoding/json"
 	"net/http"
+	"strconv"
 
 	"github.com/jinhuang712/gotato/gotato"
 	"github.com/jinhuang712/gotato/modelctx"
 	"github.com/jinhuang712/gotato/service"
+	"github.com/jinhuang712/gotato/session"
 )
 
 type createSessionRequest struct {
@@ -40,7 +42,7 @@ func (h *Handler) createSession(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 		w.Header().Set(SessionIDHeader, s.ID())
-		writeJSON(w, http.StatusCreated, s.Info())
+		writeJSON(w, http.StatusCreated, summaryOf(s))
 		return
 	}
 	s, err := h.runner.CreateSession(r.Context(), in.Agent, in.Metadata)
@@ -49,16 +51,43 @@ func (h *Handler) createSession(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	w.Header().Set(SessionIDHeader, s.ID())
-	writeJSON(w, http.StatusCreated, s.Info())
+	writeJSON(w, http.StatusCreated, summaryOf(s))
 }
 
+// sessionSummary is the answer to a create or a fork: the Session's listing
+// columns and its Record epoch, which a client keeps to resume a stream.
+type sessionSummary struct {
+	session.RecordInfo
+	RecordEpoch string `json:"record_epoch"`
+}
+
+func summaryOf(s *session.Record) sessionSummary {
+	return sessionSummary{RecordInfo: s.Info(), RecordEpoch: s.RecordEpoch()}
+}
+
+// listSessions answers one page of Sessions: {"sessions": [...], "next": "..."},
+// with next left out after the last page. limit and cursor are the query
+// parameters of session.ListQuery; the cursor is the previous page's next.
 func (h *Handler) listSessions(w http.ResponseWriter, r *http.Request) {
-	list, err := h.runner.Sessions(r.Context())
+	var q session.ListQuery
+	if raw := r.URL.Query().Get("limit"); raw != "" {
+		limit, err := strconv.Atoi(raw)
+		if err != nil || limit < 0 {
+			writeFailure(w, gotato.ErrorOf(gotato.CodeInvalidArgument, "limit must be a non-negative integer"))
+			return
+		}
+		q.Limit = limit
+	}
+	q.Cursor = r.URL.Query().Get("cursor")
+	page, err := h.runner.Sessions(r.Context(), q)
 	if err != nil {
 		writeFailure(w, err)
 		return
 	}
-	writeJSON(w, http.StatusOK, list)
+	if page.Infos == nil {
+		page.Infos = []session.RecordInfo{}
+	}
+	writeJSON(w, http.StatusOK, page)
 }
 
 func (h *Handler) getSession(w http.ResponseWriter, r *http.Request) {
@@ -85,7 +114,7 @@ func (h *Handler) fork(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	w.Header().Set(SessionIDHeader, child.ID())
-	writeJSON(w, http.StatusCreated, child.Info())
+	writeJSON(w, http.StatusCreated, summaryOf(child))
 }
 
 func (h *Handler) events(w http.ResponseWriter, r *http.Request) {

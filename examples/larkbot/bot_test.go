@@ -156,13 +156,13 @@ type larkInstance struct {
 	ackDelay  atomic.Int64 // ns to wait before answering /lark/event (events are processed first)
 }
 
-func newLarkInstance(t *testing.T, store session.Store, name, fakeURL string, model gotato.Model) *larkInstance {
+func newLarkInstance(t *testing.T, store storeParts, name, fakeURL string, model gotato.Model) *larkInstance {
 	t.Helper()
 	li := &larkInstance{}
 	srv := httptest.NewUnstartedServer(nil)
 	t.Cleanup(srv.Close)
 	runner, err := service.New(service.Config{
-		Store: store, Instance: name, Address: "http://" + srv.Listener.Addr().String(),
+		Store: session.Store{Records: store, Liveness: store}, Instance: name, Address: "http://" + srv.Listener.Addr().String(),
 		Agents: []service.Agent{{Name: "fake", Model: model, ModelName: "fake", Limits: botLimits()}},
 	})
 	if err != nil {

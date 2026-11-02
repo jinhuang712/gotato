@@ -77,7 +77,7 @@ func (r *Runner) DeleteSession(ctx context.Context, sessionID string) error {
 		}
 		agent, _ := writer.Record().Get(MetaAgent)
 		r.publishOpened(writer, early, agent)
-		if err := r.store.Delete(ctx, sessionID); err != nil {
+		if err := r.store.Records.Delete(ctx, sessionID); err != nil {
 			// The Claim was written and the Record stays: give it back.
 			_ = r.releaseWriter(ctx, writer)
 			return storeFailureOf(ctx, err, true)
@@ -95,7 +95,7 @@ func (r *Runner) DeleteSession(ctx context.Context, sessionID string) error {
 // free: a fork never overwrites an existing Session, and a taken ID is
 // ErrSessionExists, as CreateSessionExclusive reports it.
 func (r *Runner) Fork(ctx context.Context, sessionID, newID string) (*session.Record, error) {
-	parent, err := session.View(ctx, r.store, sessionID)
+	parent, err := session.View(ctx, r.store.Records, sessionID)
 	if err != nil {
 		return nil, storeFailureOf(ctx, err, true)
 	}

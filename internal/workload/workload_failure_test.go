@@ -44,7 +44,7 @@ type rigFault struct {
 type rig struct {
 	t      *testing.T
 	runner *service.Runner
-	store  session.Store
+	store  session.Records
 
 	mu       sync.Mutex
 	fault    rigFault
@@ -148,12 +148,15 @@ func (t rigTool) Execute(ctx context.Context, _ gotato.ToolUse, _ gotato.ToolPro
 // the Messages the store held after each, and fails the write numbered
 // failAt (from 1) once.
 type flakyStore struct {
-	session.Store
+	session.Records
+	session.Liveness
 	mu     sync.Mutex
 	writes int
 	failAt int
 	states [][]gotato.Message
 }
+
+func (s *flakyStore) store() session.Store { return session.Store{Records: s, Liveness: s} }
 
 func (s *flakyStore) reset(failAt int) {
 	s.mu.Lock()
@@ -172,7 +175,7 @@ func (s *flakyStore) write(ctx context.Context, id string, do func() error) erro
 	if err := do(); err != nil {
 		return err
 	}
-	stored, err := session.Open(ctx, s.Store, id)
+	stored, err := session.Open(ctx, s.Records, id)
 	if err != nil {
 		return err
 	}
@@ -182,19 +185,20 @@ func (s *flakyStore) write(ctx context.Context, id string, do func() error) erro
 	return nil
 }
 
-func (s *flakyStore) Create(ctx context.Context, id string, entries []session.Entry, summary session.RecordInfo) error {
-	return s.write(ctx, id, func() error { return s.Store.Create(ctx, id, entries, summary) })
+func (s *flakyStore) Create(ctx context.Context, id string, entries []session.Entry, h session.Header) error {
+	return s.write(ctx, id, func() error { return s.Records.Create(ctx, id, entries, h) })
 }
 
-func (s *flakyStore) Append(ctx context.Context, id string, after uint64, entries []session.Entry, summary session.RecordInfo) error {
-	return s.write(ctx, id, func() error { return s.Store.Append(ctx, id, after, entries, summary) })
+func (s *flakyStore) Append(ctx context.Context, id string, after uint64, entries []session.Entry, h session.Header) error {
+	return s.write(ctx, id, func() error { return s.Records.Append(ctx, id, after, entries, h) })
 }
 
 func newRig(t *testing.T) (*rig, *flakyStore) {
 	t.Helper()
-	store := &flakyStore{Store: session.NewMemoryStore()}
+	mem := session.NewMemoryStore()
+	store := &flakyStore{Records: mem, Liveness: mem}
 	r := &rig{t: t, store: store}
-	runner, err := service.New(service.Config{Store: store, Agents: []service.Agent{{
+	runner, err := service.New(service.Config{Store: store.store(), Agents: []service.Agent{{
 		Name: "probe", Model: rigModel{r}, Tools: []gotato.Tool{rigTool{r}},
 	}}})
 	if err != nil {
@@ -532,7 +536,8 @@ func unrepaired(messages []gotato.Message) []gotato.Message {
 // Sessions over without waiting for a TTL. When record is set, it keeps the
 // Transcript the store held after each write.
 type faultStore struct {
-	session.Store
+	session.Records
+	session.Liveness
 	crashAfter int
 	record     bool
 
@@ -543,6 +548,8 @@ type faultStore struct {
 	buried   bool
 }
 
+func (s *faultStore) store() session.Store { return session.Store{Records: s, Liveness: s} }
+
 // bury removes the dead instance's row once, as its expiry would.
 func (s *faultStore) bury(ctx context.Context) {
 	s.mu.Lock()
@@ -550,7 +557,7 @@ func (s *faultStore) bury(ctx context.Context) {
 	s.buried = true
 	s.mu.Unlock()
 	if row != "" && !buried {
-		_ = s.Store.Beat(ctx, session.InstanceRow{ID: row}, 0)
+		_ = s.Liveness.Beat(ctx, session.InstanceRow{ID: row}, 0)
 	}
 }
 
@@ -569,7 +576,7 @@ func (s *faultStore) write(ctx context.Context, id string, do func() error) erro
 	defer s.mu.Unlock()
 	s.writes++
 	if s.record {
-		stored, err := session.Open(ctx, s.Store, id)
+		stored, err := session.Open(ctx, s.Records, id)
 		if err != nil {
 			return err
 		}
@@ -587,15 +594,15 @@ func (s *faultStore) Beat(ctx context.Context, row session.InstanceRow, ttl time
 		s.bury(ctx)
 		return errCrashed
 	}
-	return s.Store.Beat(ctx, row, ttl)
+	return s.Liveness.Beat(ctx, row, ttl)
 }
 
-func (s *faultStore) Create(ctx context.Context, id string, entries []session.Entry, summary session.RecordInfo) error {
-	return s.write(ctx, id, func() error { return s.Store.Create(ctx, id, entries, summary) })
+func (s *faultStore) Create(ctx context.Context, id string, entries []session.Entry, h session.Header) error {
+	return s.write(ctx, id, func() error { return s.Records.Create(ctx, id, entries, h) })
 }
 
-func (s *faultStore) Append(ctx context.Context, id string, after uint64, entries []session.Entry, summary session.RecordInfo) error {
-	return s.write(ctx, id, func() error { return s.Store.Append(ctx, id, after, entries, summary) })
+func (s *faultStore) Append(ctx context.Context, id string, after uint64, entries []session.Entry, h session.Header) error {
+	return s.write(ctx, id, func() error { return s.Records.Append(ctx, id, after, entries, h) })
 }
 
 // TestCrashAtEveryWriteRebuildsTheLastStep checks GOALS.md G-G01 on the
@@ -606,8 +613,9 @@ func TestCrashAtEveryWriteRebuildsTheLastStep(t *testing.T) {
 	ctx := context.Background()
 	for _, task := range reftasks.ReferenceTasks() {
 		t.Run(task.Name, func(t *testing.T) {
-			clean := &faultStore{Store: session.NewMemoryStore(), record: true}
-			if _, err := play(ctx, taskRunner(t, clean, task, "clean"), task); err != nil {
+			cleanMem := session.NewMemoryStore()
+			clean := &faultStore{Records: cleanMem, Liveness: cleanMem, record: true}
+			if _, err := play(ctx, taskRunner(t, clean.store(), task, "clean"), task); err != nil {
 				t.Fatalf("a clean play failed: %v", err)
 			}
 			if clean.writes < 3 {
@@ -627,9 +635,9 @@ func TestCrashAtEveryWriteRebuildsTheLastStep(t *testing.T) {
 				t.Fatalf("the play wrote %d Messages after the history", final-first)
 			}
 			for n := 1; n < clean.writes; n++ {
-				backing := session.NewMemoryStore()
-				dying := &faultStore{Store: backing, crashAfter: n}
-				id, err := play(ctx, taskRunner(t, dying, task, "dying"), task)
+				backing := memStore()
+				dying := &faultStore{Records: backing.Records, Liveness: backing.Liveness, crashAfter: n}
+				id, err := play(ctx, taskRunner(t, dying.store(), task, "dying"), task)
 				// The last write only releases the Session. A crash after the
 				// one before it loses nothing of the Run, so the Run completes.
 				releaseOnly := n == clean.writes-1
@@ -639,7 +647,7 @@ func TestCrashAtEveryWriteRebuildsTheLastStep(t *testing.T) {
 
 				// Another instance opens the Session: it holds what the
 				// n-th write left, with every Tool call answered.
-				rebuilt, err := session.Open(ctx, backing, id)
+				rebuilt, err := session.Open(ctx, backing.Records, id)
 				if err != nil {
 					t.Fatalf("crash after write %d: %v", n, err)
 				}
@@ -651,7 +659,7 @@ func TestCrashAtEveryWriteRebuildsTheLastStep(t *testing.T) {
 				if err != nil {
 					t.Fatalf("crash after write %d: inspect: %v", n, err)
 				}
-				reference := taskRunner(t, session.NewMemoryStore(), task, "reference")
+				reference := taskRunner(t, memStore(), task, "reference")
 				before, err := reference.CreateSession(ctx, task.Name, nil, session.WithMessages(clean.states[n-1]...), reftasks.WithLoadedToolsOf(clean.states[n-1]))
 				if err != nil {
 					t.Fatal(err)

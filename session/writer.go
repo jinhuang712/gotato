@@ -2,7 +2,9 @@ package session
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
+	"fmt"
 	"slices"
 	"sync"
 	"time"
@@ -26,7 +28,7 @@ import (
 // later Flush returns the same error, and the Record must be opened again
 // from the store, which shows whether the write landed.
 type Writer struct {
-	store   Store
+	store   Records
 	record  *Record
 	guard   func() error
 	publish func(gotato.Event)
@@ -131,7 +133,7 @@ type WriteStats struct {
 // with ErrExists when the ID is taken. Any other failure of the store is a
 // store_failure whose outcome is unknown (it is not NotRun): the Record may
 // exist, so a caller that retries with the same ID must tolerate ErrExists.
-func CreateWriter(ctx context.Context, store Store, r *Record, instance string, options ...WriterOption) (*Writer, error) {
+func CreateWriter(ctx context.Context, store Records, r *Record, instance string, options ...WriterOption) (*Writer, error) {
 	config := newWriterConfig(options)
 	if r.Head() > 0 {
 		return nil, gotato.ErrorOf(gotato.CodeInvalidState, "session: the Record is stored already")
@@ -149,7 +151,7 @@ func CreateWriter(ctx context.Context, store Store, r *Record, instance string, 
 		r.emit(gotato.SessionReleased{Header: r.header(), Instance: r.claim.Instance, Epoch: r.claim.Epoch})
 	}
 	r.mu.Unlock()
-	entries, events, summary, err := r.takePending()
+	entries, events, header, err := r.takePending()
 	if err != nil {
 		return nil, storeFailure(err)
 	}
@@ -160,7 +162,7 @@ func CreateWriter(ctx context.Context, store Store, r *Record, instance string, 
 		}
 	}
 	began := time.Now()
-	err = store.Create(ctx, r.ID(), entries, summary)
+	err = store.Create(ctx, r.ID(), entries, header)
 	w.count(entries, time.Since(began), err)
 	if err != nil {
 		return nil, classifyStore(err, false)
@@ -179,7 +181,7 @@ func CreateWriter(ctx context.Context, store Store, r *Record, instance string, 
 // OpenWriter returns, so a writer that held the Record before can no longer
 // write to it, and an Instance that opens it at the same moment gets a
 // conflict.
-func OpenWriter(ctx context.Context, store Store, id, instance string, options ...WriterOption) (*Writer, error) {
+func OpenWriter(ctx context.Context, store Records, id, instance string, options ...WriterOption) (*Writer, error) {
 	config := newWriterConfig(options)
 	began := time.Now()
 	loaded, err := store.Load(ctx, id)
@@ -187,7 +189,7 @@ func OpenWriter(ctx context.Context, store Store, id, instance string, options .
 	if err != nil {
 		return nil, classifyStore(err, true)
 	}
-	r, err := fromLoaded(ctx, store, id, loaded, true)
+	r, err := fromLoaded(loaded)
 	if err != nil {
 		return nil, err
 	}
@@ -293,17 +295,17 @@ func (w *Writer) Stale(ctx context.Context) (bool, error) {
 
 // Open loads a Record from its facts, for reading only: everything a Run
 // needs, without its Run records and Events.
-func Open(ctx context.Context, store Store, id string) (*Record, error) {
+func Open(ctx context.Context, store Records, id string) (*Record, error) {
 	loaded, err := store.Load(ctx, id)
 	if err != nil {
 		return nil, err
 	}
-	return fromLoaded(ctx, store, id, loaded, false)
+	return fromLoaded(loaded)
 }
 
 // View loads a Record from its whole log, for reading only: its facts, and
 // its Run records, usage and Events.
-func View(ctx context.Context, store Store, id string) (*Record, error) {
+func View(ctx context.Context, store Records, id string) (*Record, error) {
 	entries, err := store.Log(ctx, id, 0, 0)
 	if err != nil {
 		return nil, err
@@ -318,62 +320,51 @@ func View(ctx context.Context, store Store, id string) (*Record, error) {
 	return r, nil
 }
 
-// fromLoaded rebuilds a Record from its facts, with its Run count and usage
-// from the RecordInfo, since its Run records are in the log. When the
-// RecordInfo says a Run started and never ended, the log since the last Checkpoint is read too,
-// because it holds the parts of a reply that was streaming, which become a
-// Cut-off reply: a crash loses at most the last part.
-//
-// writing says the Record is about to be claimed: it must then be settled, as
-// of one position, or fromLoaded returns ErrConflict. A reader takes the view
-// it gets, as a Record that is being written changes under it anyway.
-func fromLoaded(ctx context.Context, store Store, id string, loaded Loaded, writing bool) (*Record, error) {
-	entries, head := loaded.Facts, loaded.Head
-	if loaded.Info.Running != "" && len(loaded.Facts) > 0 {
-		tail, err := store.Log(ctx, id, loaded.Facts[0].Seq-1, 0)
-		if err != nil {
-			return nil, classifyStore(err, true)
-		}
-		// Load and Log are two reads. A Record that moved between them has
-		// a RecordInfo (Running, Busy) older than its tail: rebuilding from
-		// both would end a finished Run again. The caller loads again.
-		if writing && len(tail) > 0 && tail[len(tail)-1].Seq != loaded.Head {
-			return nil, ErrConflict
-		}
-		if len(tail) > 0 && tail[0].IsCheckpoint() {
-			entries, head = tail, max(head, tail[len(tail)-1].Seq)
+// fromLoaded rebuilds a Record from one Load: its facts, and its Run count,
+// usage and what was in flight from the Header's State, since the Run records
+// are in the log. When the Header's LogFrom is set, a Run started and never
+// ended, and the Load held the log from the last Checkpoint on too: it holds
+// the parts of a reply that was streaming, which become a Cut-off reply, so a
+// crash loses at most the last part. It all comes from the one read, so there
+// is nothing for it to disagree with.
+func fromLoaded(loaded Loaded) (*Record, error) {
+	var state recordState
+	if len(loaded.Header.State) > 0 {
+		if err := json.Unmarshal(loaded.Header.State, &state); err != nil {
+			return nil, fmt.Errorf("session: the state of the Record: %w", err)
 		}
 	}
-	r, err := rebuildRecord(entries, false, loaded.Segments)
+	r, err := rebuildRecord(loaded.Entries, false, loaded.Segments)
 	if err != nil {
 		return nil, err
 	}
 	r.mu.Lock()
 	defer r.mu.Unlock()
-	if len(entries) != len(loaded.Facts) {
-		// The log was read for its parts only: its Runs are in the RecordInfo.
+	if loaded.Header.LogFrom != 0 {
+		// The log was read for its parts only: its Runs are in the state.
 		r.runs, r.eventHead = nil, 0
 	}
-	r.head = head
-	r.last = head
+	r.head = loaded.Seq
+	r.last = loaded.Seq
+	r.checkpointSeq = loaded.Entries[0].Seq
 	// A load that starts at a compaction_ended Checkpoint has not read
-	// session_created: what it held comes from the RecordInfo.
+	// session_created: what it held comes from the Header.
 	if r.createdAt.IsZero() {
-		r.createdAt = loaded.Info.CreatedAt
+		r.createdAt = loaded.Header.Info.CreatedAt
 	}
 	if r.parentID == "" {
-		r.parentID = loaded.Info.ParentID
+		r.parentID = loaded.Header.Info.ParentID
 	}
 	if r.epoch == "" {
-		r.epoch = loaded.Info.RecordEpoch
+		r.epoch = loaded.Header.Epoch
 	}
-	r.baseRuns = loaded.Info.Runs
-	r.usage = loaded.Info.Usage
-	r.running = loaded.Info.Running
-	r.busy = loaded.Info.Busy
-	r.notices = slices.Clone(loaded.Info.Notices)
-	if !loaded.Info.LastRunEnd.IsZero() {
-		r.lastRunEnd = loaded.Info.LastRunEnd.UTC()
+	r.baseRuns = state.Runs
+	r.usage = state.Usage
+	r.running = state.Running
+	r.busy = state.Busy
+	r.notices = slices.Clone(state.Notices)
+	if !state.LastRunEnd.IsZero() {
+		r.lastRunEnd = state.LastRunEnd.UTC()
 	}
 	r.logging = false
 	r.retainRead = true
@@ -441,7 +432,7 @@ func (w *Writer) EventsAfter(ctx context.Context, after uint64, limit int) ([]go
 // comes without its body, as a subscriber sees it: read_result reads the body.
 // With a limit it returns at least one Event when the Record has one after
 // after, so an empty answer always means there are no more.
-func StoredEvents(ctx context.Context, store Store, id string, after uint64, limit int) ([]gotato.Event, error) {
+func StoredEvents(ctx context.Context, store Records, id string, after uint64, limit int) ([]gotato.Event, error) {
 	var events []gotato.Event
 	for {
 		entries, err := store.Log(ctx, id, after, limit)
@@ -507,7 +498,7 @@ func (w *Writer) flushLocked(ctx context.Context, publish bool) ([]gotato.Event,
 	if w.failed != nil {
 		return nil, w.failed
 	}
-	entries, events, summary, err := w.record.takePending()
+	entries, events, header, err := w.record.takePending()
 	if err != nil {
 		w.failed = storeFailure(err)
 		return nil, w.failed
@@ -522,7 +513,7 @@ func (w *Writer) flushLocked(ctx context.Context, publish bool) ([]gotato.Event,
 		}
 	}
 	began := time.Now()
-	err = w.store.Append(ctx, w.record.ID(), entries[0].Seq-1, entries, summary)
+	err = w.store.Append(ctx, w.record.ID(), entries[0].Seq-1, entries, header)
 	w.count(entries, time.Since(began), err)
 	if err != nil {
 		if !errors.Is(err, ErrConflict) && !errors.Is(err, ErrNotFound) {

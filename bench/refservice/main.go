@@ -53,7 +53,7 @@ func run(addr, storeDir, endpoint, modelName string) error {
 		return err
 	}
 	runner, err := service.New(service.Config{
-		Store:  store,
+		Store:  session.Store{Records: store, Liveness: store},
 		Agents: []service.Agent{{Name: "assistant", Model: model, ModelName: modelName}},
 	})
 	if err != nil {

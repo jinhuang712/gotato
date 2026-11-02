@@ -64,7 +64,7 @@ func TestDrainCommitsRunsAndReleasesClaims(t *testing.T) {
 			var state session.InstanceState
 			waitFor(t, func() bool {
 				var err error
-				state, err = open().Instance(ctx, a.Instance())
+				state, err = open().Liveness.Instance(ctx, a.Instance())
 				return err == nil && state.Alive && state.Draining
 			})
 			if !state.Alive || !state.Draining {
@@ -109,7 +109,7 @@ func TestDrainCommitsRunsAndReleasesClaims(t *testing.T) {
 			// instance leaves: its row is still alive, yet another instance
 			// claims each Session without waiting.
 			for i, id := range ids {
-				view, err := session.View(ctx, open(), id)
+				view, err := session.View(ctx, open().Records, id)
 				if err != nil {
 					t.Fatal(err)
 				}
@@ -122,7 +122,7 @@ func TestDrainCommitsRunsAndReleasesClaims(t *testing.T) {
 				}
 				checkReleased(t, open(), id, "instance-a")
 			}
-			if state, err := open().Instance(ctx, a.Instance()); err != nil || !state.Alive {
+			if state, err := open().Liveness.Instance(ctx, a.Instance()); err != nil || !state.Alive {
 				t.Fatalf("instance-a after its drain = %+v, %v; want still alive", state, err)
 			}
 			for _, id := range ids {
@@ -135,7 +135,7 @@ func TestDrainCommitsRunsAndReleasesClaims(t *testing.T) {
 			if err := a.Close(ctx); err != nil {
 				t.Fatal(err)
 			}
-			if state, err := open().Instance(ctx, a.Instance()); err != nil || state.Alive {
+			if state, err := open().Liveness.Instance(ctx, a.Instance()); err != nil || state.Alive {
 				t.Fatalf("instance-a after Close = %+v, %v; want not alive", state, err)
 			}
 		})
@@ -147,7 +147,7 @@ func TestDrainCommitsRunsAndReleasesClaims(t *testing.T) {
 // with a reconnect hint only after every Run of the drain is released.
 func TestDrainDeadlineStopsRunsAndSaysReconnect(t *testing.T) {
 	ctx := context.Background()
-	store := session.NewMemoryStore()
+	store := memStore()
 	model := &gatedEcho{gate: make(chan struct{}), started: make(chan string, 8)}
 	defer close(model.gate)
 	a := instanceRunner(t, store, "instance-a", model, steadyLiveness)
@@ -176,7 +176,7 @@ func TestDrainDeadlineStopsRunsAndSaysReconnect(t *testing.T) {
 			// released.
 			var busy []string
 			for _, id := range ids {
-				if loaded, err := store.Load(ctx, id); err != nil || loaded.Info.Busy {
+				if loaded, err := store.Records.Load(ctx, id); err != nil || stateOf(loaded).Busy {
 					busy = append(busy, id)
 				}
 			}
@@ -205,7 +205,7 @@ func TestDrainDeadlineStopsRunsAndSaysReconnect(t *testing.T) {
 		}
 	}
 	for _, id := range ids {
-		view, err := session.View(ctx, store, id)
+		view, err := session.View(ctx, store.Records, id)
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -220,7 +220,7 @@ func TestCapacityAndDrain(t *testing.T) {
 	block := make(chan struct{})
 	model := testkit.NewFakeModel(testkit.Text("slow"))
 	model.Block = block
-	store := session.NewMemoryStore()
+	store := memStore()
 	runner, _ := service.New(service.Config{
 		Store:     store,
 		Agents:    []service.Agent{{Name: "slow", Model: model}},
@@ -252,7 +252,7 @@ func TestDrainCancelsQueuedRun(t *testing.T) {
 	model := testkit.NewFakeModel(testkit.Text("slow"))
 	model.Block = block
 	runner, _ := service.New(service.Config{
-		Store:     session.NewMemoryStore(),
+		Store:     memStore(),
 		Agents:    []service.Agent{{Name: "slow", Model: model}},
 		Admission: service.Admission{Queue: service.QueuePolicyWait, MaxActiveRuns: 4},
 	})
@@ -296,9 +296,9 @@ func TestDrainCancelsQueuedRun(t *testing.T) {
 // compaction's own write is refused. A deploy loses the compaction it was
 // asked to wait for.
 func TestDrainMustWaitForACompactionInFlight(t *testing.T) {
-	store := newKindGate(session.NewMemoryStore(), gotato.EventKindCompactionEnded)
+	store := newKindGate(memStore(), gotato.EventKindCompactionEnded)
 	hold := store.holds[gotato.EventKindCompactionEnded]
-	runner := newRunnerOn(t, store, service.Agent{Name: "a", Model: testkit.EchoModel{}, Warm: service.WarmPolicy{TTL: -1}})
+	runner := newRunnerOn(t, asStore(store), service.Agent{Name: "a", Model: testkit.EchoModel{}, Warm: service.WarmPolicy{TTL: -1}})
 	ctx, cancel := context.WithTimeout(context.Background(), 20*time.Second)
 	defer cancel()
 	s, err := runner.CreateSession(ctx, "a", nil)
@@ -321,7 +321,7 @@ func TestDrainMustWaitForACompactionInFlight(t *testing.T) {
 	select {
 	case err := <-drained:
 		loaded, loadErr := store.Load(ctx, s.ID())
-		t.Errorf("Drain returned (%v) while a compaction still holds the Claim (busy=%v, load error %v)", err, loaded.Info.Busy, loadErr)
+		t.Errorf("Drain returned (%v) while a compaction still holds the Claim (busy=%v, load error %v)", err, stateOf(loaded).Busy, loadErr)
 	case <-time.After(300 * time.Millisecond):
 	}
 	close(hold.proceed)
@@ -333,7 +333,7 @@ func TestDrainMustWaitForACompactionInFlight(t *testing.T) {
 // slowBeatStore holds every Liveness write while hold is set, until the
 // write's context ends, as a slow store would.
 type slowBeatStore struct {
-	session.Store
+	parts
 	hold atomic.Bool
 }
 
@@ -342,7 +342,7 @@ func (s *slowBeatStore) Beat(ctx context.Context, row session.InstanceRow, ttl t
 		<-ctx.Done()
 		return ctx.Err()
 	}
-	return s.Store.Beat(ctx, row, ttl)
+	return s.parts.Beat(ctx, row, ttl)
 }
 
 // Drain says it drains before it writes the row, so a slow store does not
@@ -350,8 +350,8 @@ func (s *slowBeatStore) Beat(ctx context.Context, row session.InstanceRow, ttl t
 // see leaving.
 func TestDrainMarksDrainingBeforeTheRowIsWritten(t *testing.T) {
 	ctx := context.Background()
-	store := &slowBeatStore{Store: session.NewMemoryStore()}
-	a := instanceRunner(t, store, "instance-a", testkit.EchoModel{}, service.Liveness{TTL: 3 * time.Second, Wait: time.Second})
+	store := &slowBeatStore{parts: partsOf(memStore())}
+	a := instanceRunner(t, asStore(store), "instance-a", testkit.EchoModel{}, service.Liveness{TTL: 3 * time.Second, Wait: time.Second})
 	t.Cleanup(func() { store.hold.Store(false) })
 	if _, err := a.CreateSession(ctx, "echo", nil); err != nil {
 		t.Fatal(err)
@@ -389,7 +389,7 @@ func TestDrainReturnsAfterItsContextEvenForAToolThatIgnoresIt(t *testing.T) {
 	}
 	model := testkit.NewFakeModel(testkit.ToolCalls(gotato.ToolCall{ID: "c1", ToolID: "stuck", Arguments: []byte(`{}`)}), testkit.Text("ok"))
 	a, err := service.New(service.Config{
-		Store: session.NewMemoryStore(), Liveness: steadyLiveness,
+		Store: memStore(), Liveness: steadyLiveness,
 		Agents: []service.Agent{{Name: "echo", Model: model, Tools: []gotato.Tool{tool}}},
 	})
 	if err != nil {
@@ -415,7 +415,7 @@ func TestDrainReturnsAfterItsContextEvenForAToolThatIgnoresIt(t *testing.T) {
 // A draining Runner does not claim an idle Session for a compaction.
 func TestCompactRefusesWhileDraining(t *testing.T) {
 	ctx := context.Background()
-	a := instanceRunner(t, session.NewMemoryStore(), "instance-a", testkit.EchoModel{}, steadyLiveness)
+	a := instanceRunner(t, memStore(), "instance-a", testkit.EchoModel{}, steadyLiveness)
 	s, err := a.CreateSession(ctx, "echo", nil)
 	if err != nil {
 		t.Fatal(err)
@@ -438,7 +438,7 @@ func TestDrainHasATimeoutOfItsOwn(t *testing.T) {
 	model.Block = block
 	t.Cleanup(func() { close(block) })
 	a, err := service.New(service.Config{
-		Store: session.NewMemoryStore(), Liveness: steadyLiveness, DrainTimeout: 200 * time.Millisecond,
+		Store: memStore(), Liveness: steadyLiveness, DrainTimeout: 200 * time.Millisecond,
 		Agents: []service.Agent{{Name: "echo", Model: model}},
 	})
 	if err != nil {
@@ -494,7 +494,7 @@ func TestDrainReturnsAfterTheStopWaitForAModelThatIgnoresItsContext(t *testing.T
 	ctx := context.Background()
 	model := &stubbornModel{started: make(chan struct{}), release: make(chan struct{})}
 	a, err := service.New(service.Config{
-		Store: session.NewMemoryStore(), Liveness: steadyLiveness,
+		Store: memStore(), Liveness: steadyLiveness,
 		Agents: []service.Agent{{Name: "echo", Model: model}},
 	})
 	if err != nil {

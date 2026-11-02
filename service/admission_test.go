@@ -41,7 +41,7 @@ func TestWaitPolicyQueuesAndAbortSessionAborts(t *testing.T) {
 	block := make(chan struct{})
 	model := testkit.NewFakeModel(testkit.Text("slow"))
 	model.Block = block
-	store := session.NewMemoryStore()
+	store := memStore()
 	runner, err := service.New(service.Config{
 		Store:     store,
 		Agents:    []service.Agent{{Name: "slow", Model: model}},
@@ -86,7 +86,7 @@ func TestQueuedRunIsCancelable(t *testing.T) {
 	model := testkit.NewFakeModel(testkit.Text("slow"))
 	model.Block = block
 	runner, _ := service.New(service.Config{
-		Store:     session.NewMemoryStore(),
+		Store:     memStore(),
 		Agents:    []service.Agent{{Name: "slow", Model: model}},
 		Admission: service.Admission{Queue: service.QueuePolicyWait, MaxActiveRuns: 4},
 	})
@@ -165,7 +165,7 @@ func TestSessionMutationsRespectTheLock(t *testing.T) {
 // blockingGetStore stalls Get until its context ends, standing in for a slow
 // or hung Store during the pre-lock load.
 type blockingGetStore struct {
-	session.Store
+	parts
 	once    sync.Once
 	started chan struct{}
 }
@@ -179,9 +179,9 @@ func (s *blockingGetStore) Load(ctx context.Context, id string) (session.Loaded,
 // A Run that is admitted but still loading its Session must be reachable by
 // AbortSession; before the handle was registered up front it was invisible.
 func TestAbortSessionReachesRunLoadingSession(t *testing.T) {
-	blocking := &blockingGetStore{Store: session.NewMemoryStore(), started: make(chan struct{})}
+	blocking := &blockingGetStore{parts: partsOf(memStore()), started: make(chan struct{})}
 	runner, err := service.New(service.Config{
-		Store:  blocking,
+		Store:  asStore(blocking),
 		Agents: []service.Agent{{Name: "echo", Model: testkit.EchoModel{}, ModelName: "echo"}},
 	})
 	if err != nil {
@@ -215,7 +215,7 @@ func TestAbortSessionReachesRunLoadingSession(t *testing.T) {
 
 // A negative limit is a mistake in the Config, for runs as it is for Sessions.
 func TestNewRefusesANegativeMaxActiveRuns(t *testing.T) {
-	_, err := service.New(service.Config{Store: session.NewMemoryStore(), Agents: []service.Agent{{Name: "a", Model: testkit.EchoModel{}}}, Admission: service.Admission{MaxActiveRuns: -1}})
+	_, err := service.New(service.Config{Store: memStore(), Agents: []service.Agent{{Name: "a", Model: testkit.EchoModel{}}}, Admission: service.Admission{MaxActiveRuns: -1}})
 	if err == nil {
 		t.Fatal("New accepted MaxActiveRuns -1")
 	}

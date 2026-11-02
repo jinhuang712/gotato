@@ -45,8 +45,8 @@ func TestRecordEpochIsStableAcrossLoadsAndChangesWithANewRecord(t *testing.T) {
 		t.Fatalf("session_created JSON = %s", entries[0].Data)
 	}
 	loaded, err := store.Load(ctx, "same")
-	if err != nil || loaded.Info.RecordEpoch != epoch {
-		t.Fatalf("RecordInfo epoch = %q, %v; want %q", loaded.Info.RecordEpoch, err, epoch)
+	if err != nil || loaded.Header.Epoch != epoch {
+		t.Fatalf("RecordInfo epoch = %q, %v; want %q", loaded.Header.Epoch, err, epoch)
 	}
 
 	// Another Instance opens it, and writes to it: same epoch.
@@ -95,9 +95,9 @@ func TestRecordEpochIsStableAcrossLoadsAndChangesWithANewRecord(t *testing.T) {
 // at the same length, must not write into the new Record: its Entries belong
 // to another log, and the new Record's RecordInfo would name the old epoch.
 func TestWriterOfADeletedRecordCannotAppendToARecordCreatedAgain(t *testing.T) {
-	stores := map[string]func(t *testing.T) session.Store{
-		"memory": func(*testing.T) session.Store { return session.NewMemoryStore() },
-		"file": func(t *testing.T) session.Store {
+	stores := map[string]func(t *testing.T) session.Records{
+		"memory": func(*testing.T) session.Records { return session.NewMemoryStore() },
+		"file": func(t *testing.T) session.Records {
 			store, err := session.NewFileStore(t.TempDir())
 			if err != nil {
 				t.Fatal(err)
@@ -142,8 +142,8 @@ func TestWriterOfADeletedRecordCannotAppendToARecordCreatedAgain(t *testing.T) {
 				t.Fatalf("the new Record holds %d Entries after the refused write (%v), want %d", len(after), err, len(before))
 			}
 			loaded, err := store.Load(ctx, "same")
-			if err != nil || loaded.Info.RecordEpoch != fresh.Record().RecordEpoch() {
-				t.Fatalf("the new Record's epoch = %q (%v), want %q", loaded.Info.RecordEpoch, err, fresh.Record().RecordEpoch())
+			if err != nil || loaded.Header.Epoch != fresh.Record().RecordEpoch() {
+				t.Fatalf("the new Record's epoch = %q (%v), want %q", loaded.Header.Epoch, err, fresh.Record().RecordEpoch())
 			}
 		})
 	}
@@ -166,8 +166,9 @@ func TestFileStoreRefusesAPositionAnotherRecordHolds(t *testing.T) {
 	entry := func(seq uint64, kind gotato.EventKind, layer session.Layer) session.Entry {
 		return session.Entry{Seq: seq, Kind: kind, Layer: layer, Data: []byte(`{}`)}
 	}
-	summary := func(epoch string, seq uint64) session.RecordInfo {
-		return session.RecordInfo{ID: "r", RecordEpoch: epoch, CreatedAt: time.Date(2026, 10, 17, 0, 0, 0, 0, time.UTC), UpdatedAt: time.Date(2026, 10, 17, 0, 0, 0, 0, time.UTC), Seq: seq}
+	summary := func(epoch string, seq uint64) session.Header {
+		at := time.Date(2026, 10, 17, 0, 0, 0, 0, time.UTC)
+		return session.Header{Epoch: epoch, Info: session.RecordInfo{ID: "r", CreatedAt: at, UpdatedAt: at, Messages: int(seq)}}
 	}
 	first := []session.Entry{entry(1, gotato.EventKindSessionCreated, session.LayerFact), entry(2, gotato.EventKindMessageCommitted, session.LayerFact), entry(3, gotato.EventKindMessageCommitted, session.LayerFact)}
 	if err := a.Create(ctx, "r", first, summary("e1", 3)); err != nil {
@@ -212,8 +213,9 @@ func TestFileStoreWriterHeldAfterItsCheckCannotWriteARecordCreatedAgain(t *testi
 		}
 		return session.Entry{Seq: seq, Kind: kind, Layer: session.LayerFact, Data: []byte(`{}`)}
 	}
-	summary := func(epoch string, seq uint64) session.RecordInfo {
-		return session.RecordInfo{ID: "r", RecordEpoch: epoch, CreatedAt: time.Date(2026, 10, 17, 0, 0, 0, 0, time.UTC), UpdatedAt: time.Date(2026, 10, 17, 0, 0, 0, 0, time.UTC), Seq: seq}
+	summary := func(epoch string, seq uint64) session.Header {
+		at := time.Date(2026, 10, 17, 0, 0, 0, 0, time.UTC)
+		return session.Header{Epoch: epoch, Info: session.RecordInfo{ID: "r", CreatedAt: at, UpdatedAt: at, Messages: int(seq)}}
 	}
 	first := []session.Entry{entry(1), entry(2)}
 	if err := a.Create(ctx, "r", first, summary("e1", 2)); err != nil {
@@ -243,7 +245,7 @@ func TestFileStoreWriterHeldAfterItsCheckCannotWriteARecordCreatedAgain(t *testi
 		t.Fatalf("the new Record holds %d Entries (%v), want 2", len(entries), err)
 	}
 	loaded, err := b.Load(ctx, "r")
-	if err != nil || loaded.Info.RecordEpoch != "e2" || loaded.Head != 2 {
-		t.Fatalf("the new Record = %+v (%v), want epoch e2 at head 2", loaded.Info, err)
+	if err != nil || loaded.Header.Epoch != "e2" || loaded.Seq != 2 {
+		t.Fatalf("the new Record = %+v (%v), want epoch e2 at head 2", loaded.Header, err)
 	}
 }

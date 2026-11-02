@@ -67,9 +67,9 @@ func TestCodeStringsMatchTheirNames(t *testing.T) {
 }
 
 func TestUnpersistedRunIsReported(t *testing.T) {
-	store := &failingSaveStore{Store: session.NewMemoryStore(), failFinal: true}
+	store := &failingSaveStore{parts: partsOf(memStore()), failFinal: true}
 	runner, err := service.New(service.Config{
-		Store:  store,
+		Store:  asStore(store),
 		Agents: []service.Agent{{Name: "echo", Model: testkit.EchoModel{}}},
 	})
 	if err != nil {
@@ -85,9 +85,9 @@ func TestUnpersistedRunIsReported(t *testing.T) {
 }
 
 func TestLostReleaseKeepsTheRunCompletedAndWarns(t *testing.T) {
-	store := &failingSaveStore{Store: session.NewMemoryStore(), failRelease: true}
+	store := &failingSaveStore{parts: partsOf(memStore()), failRelease: true}
 	runner, err := service.New(service.Config{
-		Store:  store,
+		Store:  asStore(store),
 		Agents: []service.Agent{{Name: "echo", Model: testkit.EchoModel{}}},
 	})
 	if err != nil {
@@ -119,7 +119,7 @@ func TestFailedOneShotLeavesNoSession(t *testing.T) {
 	if !gotato.IsCode(err, gotato.CodeInvalidArgument) {
 		t.Fatalf("err = %v, want invalid_argument", err)
 	}
-	list, err := store.List(context.Background())
+	list, err := listAll(context.Background(), store)
 	if err != nil || len(list) != 0 {
 		t.Fatalf("failed one-shot left %d sessions (err=%v)", len(list), err)
 	}
@@ -128,7 +128,7 @@ func TestFailedOneShotLeavesNoSession(t *testing.T) {
 // failingDeleteStore fails every Delete, standing in for a Store whose cleanup
 // cannot remove the one-shot Session.
 type failingDeleteStore struct {
-	session.Store
+	parts
 	err error
 }
 
@@ -137,7 +137,7 @@ func (s *failingDeleteStore) Delete(context.Context, string) error { return s.er
 func TestFailedOneShotCleanupIsReported(t *testing.T) {
 	delErr := errors.New("store: delete denied")
 	runner, err := service.New(service.Config{
-		Store:  &failingDeleteStore{Store: session.NewMemoryStore(), err: delErr},
+		Store:  asStore(&failingDeleteStore{parts: partsOf(memStore()), err: delErr}),
 		Agents: []service.Agent{unbuildableSpec()},
 	})
 	if err != nil {
@@ -153,12 +153,12 @@ func TestFailedOneShotCleanupIsReported(t *testing.T) {
 }
 
 func TestUnpersistedFailedRunStillReportsSaveFailure(t *testing.T) {
-	store := &failingSaveStore{Store: session.NewMemoryStore(), failFinal: true}
+	store := &failingSaveStore{parts: partsOf(memStore()), failFinal: true}
 	model := testkit.NewFakeModel(testkit.Text("x"))
 	modelErr := errors.New("model exploded")
 	model.Err = modelErr
 	runner, err := service.New(service.Config{
-		Store:  store,
+		Store:  asStore(store),
 		Agents: []service.Agent{{Name: "boom", Model: model}},
 	})
 	if err != nil {

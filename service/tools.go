@@ -38,13 +38,13 @@ type sessionTools struct {
 // that fit one page, in the zone of its Segments' times.
 func (r *Runner) segmentTools(spec Agent, record *session.Record) gotato.ToolSource {
 	options := modelctx.ReadSegmentConfig{Location: spec.Compact.Location}
-	return modelctx.SegmentTools(record, r.store, options)
+	return modelctx.SegmentTools(record, r.store.Records, options)
 }
 
 // resultTools is the ToolSource that offers read_result: a spilled result is
 // read back from the live Record or from the Runner's store.
 func (r *Runner) resultTools(record *session.Record) gotato.ToolSource {
-	return modelctx.ResultTools(record, r.store, modelctx.ReadResultConfig{})
+	return modelctx.ResultTools(record, r.store.Records, modelctx.ReadResultConfig{})
 }
 
 func (t *sessionTools) Tools(ctx context.Context) ([]gotato.Tool, error) {
@@ -140,7 +140,7 @@ func (r *Runner) Tools(ctx context.Context, agent, sessionID string) ([]ToolEntr
 	var s *session.Record
 	if sessionID != "" {
 		var err error
-		s, err = session.Open(ctx, r.store, sessionID)
+		s, err = session.Open(ctx, r.store.Records, sessionID)
 		if err != nil {
 			return nil, storeFailureOf(ctx, err, true)
 		}
@@ -227,7 +227,7 @@ func (r *Runner) SetToolActive(ctx context.Context, sessionID, toolID string, ac
 	// The lookup may ask the ToolSets over the network, so it is made before
 	// the Session lock, on a read of the Record, and under its own bound.
 	// What the lock guards is the write of the switch.
-	read, err := session.Open(ctx, r.store, sessionID)
+	read, err := session.Open(ctx, r.store.Records, sessionID)
 	if err != nil {
 		return ToolEntry{}, storeFailureOf(ctx, err, true)
 	}

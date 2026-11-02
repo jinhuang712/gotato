@@ -87,8 +87,8 @@ func RunRecapCheck(ctx context.Context, cfg RecapCheckConfig, check reftasks.Rec
 		return RecapReport{}, errors.New("workload: the Recap check has no Model")
 	}
 	store := cfg.Store
-	if store == nil {
-		store = session.NewMemoryStore()
+	if store.Records == nil || store.Liveness == nil {
+		store = memoryStore()
 	}
 	switchedOff := make([]gotato.Tool, len(check.Tools))
 	for i, tool := range check.Tools {
@@ -147,7 +147,7 @@ func RunRecapCheck(ctx context.Context, cfg RecapCheckConfig, check reftasks.Rec
 		report.RecapWritten = compacted.Compaction.Recap != "none"
 		report.RecapUsage = compacted.Compaction.RecapUsage
 	}
-	if record, err := session.View(ctx, store, id); err == nil {
+	if record, err := session.View(ctx, store.Records, id); err == nil {
 		if segments := record.Segments(); len(segments) > 0 {
 			report.Recap = segments[len(segments)-1].Recap
 		}

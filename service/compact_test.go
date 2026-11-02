@@ -48,7 +48,7 @@ func TestRunnerCompactTakesTheAgentsCompactionSettings(t *testing.T) {
 	if err != nil || !result.Replaced || result.Compaction.Recap != "truncate" {
 		t.Fatalf("compact = %+v, %v", result, err)
 	}
-	record, err := session.View(ctx, store, id)
+	record, err := session.View(ctx, store.Records, id)
 	if err != nil {
 		t.Fatal(err)
 	}

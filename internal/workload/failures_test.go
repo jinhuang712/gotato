@@ -8,7 +8,6 @@ import (
 	"github.com/jinhuang712/gotato/gotato"
 	"github.com/jinhuang712/gotato/internal/reftasks"
 	"github.com/jinhuang712/gotato/service"
-	"github.com/jinhuang712/gotato/session"
 	"github.com/jinhuang712/gotato/testkit"
 )
 
@@ -77,7 +76,7 @@ func TestRunFailureAttribution(t *testing.T) {
 // prefix hash differs from its inspection is counted and described.
 func TestContextCheckReportsAMismatch(t *testing.T) {
 	task := reftasks.LookupTask()
-	store := session.NewMemoryStore()
+	store := memoryStore()
 	runner, err := service.New(service.Config{Store: store, Agents: []service.Agent{{Name: task.Name, Model: task.Model, Tools: task.Tools}}})
 	if err != nil {
 		t.Fatal(err)

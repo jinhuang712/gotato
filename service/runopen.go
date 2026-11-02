@@ -65,7 +65,7 @@ func (st *runState) openSession(ctx, runCtx context.Context) (openedSession, err
 		if err := r.streamTo(ctx, st.feed, st.stream, st.track); err != nil {
 			return opened, err
 		}
-		st.s, err = session.Open(runCtx, r.store, st.sessionID)
+		st.s, err = session.Open(runCtx, r.store.Records, st.sessionID)
 		err = storeFailureOf(runCtx, err, true)
 		opened.loadTime = time.Since(began)
 	} else {

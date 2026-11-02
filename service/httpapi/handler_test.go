@@ -9,6 +9,7 @@ import (
 	"io"
 	"net/http"
 	"net/http/httptest"
+	"net/url"
 	"slices"
 	"strings"
 	"sync"
@@ -29,7 +30,7 @@ func TestReadyzReportsDraining(t *testing.T) {
 	model := testkit.NewFakeModel(testkit.Text("slow"))
 	model.Block = block
 	runner, err := service.New(service.Config{
-		Store:  session.NewMemoryStore(),
+		Store:  memStore(),
 		Agents: []service.Agent{{Name: "slow", Model: model}},
 	})
 	if err != nil {
@@ -68,8 +69,14 @@ func TestSessionLifecycleOverHTTP(t *testing.T) {
 	if status != http.StatusCreated {
 		t.Fatalf("create = %d %s", status, body)
 	}
-	var summary session.RecordInfo
+	var summary struct {
+		session.RecordInfo
+		RecordEpoch string `json:"record_epoch"`
+	}
 	_ = json.Unmarshal(body, &summary)
+	if summary.RecordEpoch == "" {
+		t.Fatalf("the create answer has no record_epoch: %s", body)
+	}
 	if summary.ID == "" || summary.Metadata[service.MetaAgent] != "demo" || summary.Metadata["tenant"] != "x" {
 		t.Fatalf("summary = %+v", summary)
 	}
@@ -128,17 +135,20 @@ func TestSessionLifecycleOverHTTP(t *testing.T) {
 	}
 
 	status, body = call(t, server, http.MethodPost, "/v1/sessions/"+summary.ID+"/fork", nil)
-	var fork session.RecordInfo
+	var fork struct {
+		session.RecordInfo
+		RecordEpoch string `json:"record_epoch"`
+	}
 	_ = json.Unmarshal(body, &fork)
-	if status != http.StatusCreated || fork.ParentID != summary.ID || fork.Messages != 6 {
+	if status != http.StatusCreated || fork.ParentID != summary.ID || fork.Messages != 6 || fork.RecordEpoch == "" || fork.RecordEpoch == summary.RecordEpoch {
 		t.Fatalf("fork = %d %+v", status, fork)
 	}
 
 	status, body = call(t, server, http.MethodGet, "/v1/sessions", nil)
-	var list []session.RecordInfo
+	var list session.ListPage
 	_ = json.Unmarshal(body, &list)
-	if status != http.StatusOK || len(list) != 2 {
-		t.Fatalf("list = %d %d", status, len(list))
+	if status != http.StatusOK || len(list.Infos) != 2 || list.Next != "" {
+		t.Fatalf("list = %d %s", status, body)
 	}
 
 	status, _ = call(t, server, http.MethodDelete, "/v1/sessions/"+fork.ID, nil)
@@ -278,7 +288,7 @@ func TestHealthAndAgents(t *testing.T) {
 
 func TestAgentsReportMaxEffect(t *testing.T) {
 	runner, err := service.New(service.Config{
-		Store: session.NewMemoryStore(),
+		Store: memStore(),
 		Agents: []service.Agent{
 			{Name: "open", Model: testkit.EchoModel{}},
 			{Name: "reader", Model: testkit.EchoModel{}, MaxEffect: gotato.ToolEffectRead},
@@ -316,7 +326,7 @@ func TestRunTimeoutOutOfRangeIsRejected(t *testing.T) {
 // failingSaveStore fails the write that ends a Run, with a store-internal
 // message.
 type failingSaveStore struct {
-	session.Store
+	parts
 	mu    sync.Mutex
 	saves int
 	// failFinal fails the write that ends a Run: the one holding run_ended.
@@ -335,23 +345,23 @@ func (s *failingSaveStore) fail(entries []session.Entry) bool {
 	return false
 }
 
-func (s *failingSaveStore) Create(ctx context.Context, id string, entries []session.Entry, summary session.RecordInfo) error {
+func (s *failingSaveStore) Create(ctx context.Context, id string, entries []session.Entry, summary session.Header) error {
 	if s.fail(entries) {
 		return errors.New("store: disk full at /var/secret/path")
 	}
-	return s.Store.Create(ctx, id, entries, summary)
+	return s.parts.Create(ctx, id, entries, summary)
 }
 
-func (s *failingSaveStore) Append(ctx context.Context, id string, after uint64, entries []session.Entry, summary session.RecordInfo) error {
+func (s *failingSaveStore) Append(ctx context.Context, id string, after uint64, entries []session.Entry, summary session.Header) error {
 	if s.fail(entries) {
 		return errors.New("store: disk full at /var/secret/path")
 	}
-	return s.Store.Append(ctx, id, after, entries, summary)
+	return s.parts.Append(ctx, id, after, entries, summary)
 }
 
 func TestInternalErrorsDoNotLeakStoreDetails(t *testing.T) {
 	runner, err := service.New(service.Config{
-		Store:  &failingSaveStore{Store: session.NewMemoryStore(), failFinal: true},
+		Store:  asStore(&failingSaveStore{parts: partsOf(memStore()), failFinal: true}),
 		Agents: []service.Agent{{Name: "echo", Model: testkit.EchoModel{}}},
 	})
 	if err != nil {
@@ -386,7 +396,7 @@ func (overflowErr) ContextOverflow() bool { return true }
 
 func TestContextOverflowRunReportsItsCodeAndMapsTo422(t *testing.T) {
 	runner, err := service.New(service.Config{
-		Store:  session.NewMemoryStore(),
+		Store:  memStore(),
 		Agents: []service.Agent{{Name: "big", Model: overflowingModel{}}},
 	})
 	if err != nil {
@@ -436,7 +446,7 @@ func TestForwardDoesNotFollowARedirectOutOfTheAllowList(t *testing.T) {
 	}))
 	defer writerAddr.Close()
 
-	store := session.NewMemoryStore()
+	store := memStore()
 	entered, release := make(chan struct{}), make(chan struct{})
 	slow := testkit.NewFuncModel(func(ctx context.Context, _ gotato.ModelRequest) (testkit.Script, error) {
 		close(entered)
@@ -502,7 +512,7 @@ func forwardMessage(ctx context.Context, runner *service.Runner, client *http.Cl
 }
 
 func TestEmbedderForwardsANotWriterMessageWithItsOwnClient(t *testing.T) {
-	store := session.NewMemoryStore()
+	store := memStore()
 	g := newGate()
 	a := newInstance(t, store, "instance-a", g, true)
 	b := newInstance(t, store, "instance-b", testkit.EchoModel{}, true)
@@ -530,7 +540,7 @@ func (panickingStopper) Stop(context.Context, gotato.TurnSnapshot) (gotato.StopD
 
 // What an Extension panicked with does not reach the client of a Run.
 func TestExtensionPanicTextDoesNotReachTheClient(t *testing.T) {
-	r, err := service.New(service.Config{Store: session.NewMemoryStore(), Agents: []service.Agent{{Name: "echo", Model: testkit.EchoModel{}, Options: []gotato.SessionOption{gotato.WithExtension(panickingStopper{})}}}})
+	r, err := service.New(service.Config{Store: memStore(), Agents: []service.Agent{{Name: "echo", Model: testkit.EchoModel{}, Options: []gotato.SessionOption{gotato.WithExtension(panickingStopper{})}}}})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -552,7 +562,7 @@ func TestExtensionPanicTextDoesNotReachTheClient(t *testing.T) {
 // A JSON body is one value: data after it is refused, and the request does not
 // run. A chunked body, which has no length to check first, is bound the same.
 func TestABodyWithTrailingDataIsRefused(t *testing.T) {
-	runner, err := service.New(service.Config{Store: session.NewMemoryStore(), Agents: []service.Agent{{Name: "echo", Model: testkit.EchoModel{}}}})
+	runner, err := service.New(service.Config{Store: memStore(), Agents: []service.Agent{{Name: "echo", Model: testkit.EchoModel{}}}})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -593,7 +603,7 @@ func TestABodyWithTrailingDataIsRefused(t *testing.T) {
 // "keep_messages" the latest Run's Turns stay.
 func TestCompactTakesMinTokensAndKeepsTheLatestRun(t *testing.T) {
 	ctx := context.Background()
-	runner, err := service.New(service.Config{Store: session.NewMemoryStore(), Agents: []service.Agent{{Name: "echo", Model: testkit.EchoModel{}, ModelName: "echo"}}})
+	runner, err := service.New(service.Config{Store: memStore(), Agents: []service.Agent{{Name: "echo", Model: testkit.EchoModel{}, ModelName: "echo"}}})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -635,7 +645,7 @@ func TestCompactTakesMinTokensAndKeepsTheLatestRun(t *testing.T) {
 // The compact route says when it merged the oldest Segments.
 func TestCompactAnswersWithTheMergeOfTheOldestSegments(t *testing.T) {
 	ctx := context.Background()
-	runner, err := service.New(service.Config{Store: session.NewMemoryStore(), Agents: []service.Agent{{
+	runner, err := service.New(service.Config{Store: memStore(), Agents: []service.Agent{{
 		Name: "echo", Model: testkit.EchoModel{}, ModelName: "echo", Compact: modelctx.CompactPolicy{SegmentBudgetTokens: 1},
 	}}})
 	if err != nil {
@@ -670,5 +680,77 @@ func TestCompactAnswersWithTheMergeOfTheOldestSegments(t *testing.T) {
 	merge, _ := second["merge"].(map[string]any)
 	if second["replaced"] != true || merge["merged"] != true || merge["recap"] != "digest" || len(merge["replaced"].([]any)) != 2 {
 		t.Fatalf("the second compaction: %v", second)
+	}
+}
+
+// GET /v1/sessions answers a page, newest update first, with limit and cursor
+// to walk through the rest.
+func TestListSessionsPagesWithLimitAndCursor(t *testing.T) {
+	server, _ := newServer(t)
+	var created []string
+	for range 3 {
+		created = append(created, newSession(t, server, "echo"))
+		time.Sleep(2 * time.Millisecond)
+	}
+	var seen []string
+	path := "/v1/sessions?limit=2"
+	pages := 0
+	for {
+		status, body := call(t, server, http.MethodGet, path, nil)
+		var page session.ListPage
+		if err := json.Unmarshal(body, &page); err != nil || status != http.StatusOK {
+			t.Fatalf("list = %d %s (%v)", status, body, err)
+		}
+		pages++
+		for _, info := range page.Infos {
+			seen = append(seen, info.ID)
+		}
+		if page.Next == "" {
+			if pages != 2 || len(page.Infos) != 1 {
+				t.Fatalf("the last page holds %d Sessions after %d pages, want 1 after 2: %s", len(page.Infos), pages, body)
+			}
+			break
+		}
+		if len(page.Infos) != 2 || pages > 2 {
+			t.Fatalf("page %d holds %d Sessions with next %q: %s", pages, len(page.Infos), page.Next, body)
+		}
+		path = "/v1/sessions?limit=2&cursor=" + url.QueryEscape(page.Next)
+	}
+	if want := []string{created[2], created[1], created[0]}; !slices.Equal(seen, want) {
+		t.Fatalf("pages gave %v, want the newest first: %v", seen, want)
+	}
+}
+
+func TestListSessionsRefusesABadLimitAndCursor(t *testing.T) {
+	server, _ := newServer(t)
+	for _, path := range []string{"/v1/sessions?limit=abc", "/v1/sessions?limit=-1", "/v1/sessions?cursor=not-a-cursor"} {
+		status, body := call(t, server, http.MethodGet, path, nil)
+		if status != http.StatusBadRequest || !strings.Contains(string(body), "invalid_argument") {
+			t.Fatalf("GET %s = %d %s, want 400 invalid_argument", path, status, body)
+		}
+	}
+}
+
+// onlyRecords hides what a Records may also be, so that it is not a Lister.
+type onlyRecords struct{ session.Records }
+
+// A store that does not list leaves Sessions not_supported, which is a 400.
+func TestListSessionsNeedsAStoreThatLists(t *testing.T) {
+	m := session.NewMemoryStore()
+	runner, err := service.New(service.Config{
+		Store:  session.Store{Records: onlyRecords{m}, Liveness: m},
+		Agents: []service.Agent{{Name: "echo", Model: testkit.EchoModel{}}},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	server := httptest.NewServer(httpapi.New(runner))
+	t.Cleanup(server.Close)
+	if _, err := runner.Sessions(context.Background(), session.ListQuery{}); !gotato.IsCode(err, gotato.CodeNotSupported) {
+		t.Fatalf("Runner.Sessions = %v, want not_supported", err)
+	}
+	status, body := call(t, server, http.MethodGet, "/v1/sessions", nil)
+	if status != http.StatusBadRequest || !strings.Contains(string(body), "not_supported") {
+		t.Fatalf("GET /v1/sessions = %d %s, want 400 not_supported", status, body)
 	}
 }

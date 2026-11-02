@@ -89,7 +89,7 @@ func run() error {
 	if err != nil {
 		return err
 	}
-	runner, err := service.New(service.Config{Store: store, Agents: []service.Agent{agent}, Instance: *instance, Address: advertiseAddr(*advertise, *addr)})
+	runner, err := service.New(service.Config{Store: session.Store{Records: store, Liveness: store}, Agents: []service.Agent{agent}, Instance: *instance, Address: advertiseAddr(*advertise, *addr)})
 	if err != nil {
 		return err
 	}

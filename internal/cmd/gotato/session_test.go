@@ -39,7 +39,7 @@ func outsideRun(t *testing.T, h *harness, id, address string) func() {
 		t.Fatal(err)
 	}
 	model := &holdModel{started: make(chan struct{}, 1), release: make(chan struct{})}
-	runner, err := service.New(service.Config{Store: store, Instance: "outside", Address: address, Agents: []service.Agent{{Name: "echo", Model: model}}})
+	runner, err := service.New(service.Config{Store: session.Store{Records: store, Liveness: store}, Instance: "outside", Address: address, Agents: []service.Agent{{Name: "echo", Model: model}}})
 	if err != nil {
 		t.Fatal(err)
 	}

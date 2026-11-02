@@ -65,8 +65,8 @@ func TestCheckpointSegmentsPointsToTheStoredSegment(t *testing.T) {
 			if err != nil {
 				t.Fatal(err)
 			}
-			if loaded.Facts[0].Kind != gotato.EventKindCompactionEnded || len(loaded.Segments) != 1 || loaded.Segments[0].Kind != gotato.EventKindSegmentClosed {
-				t.Fatalf("Load = facts from %s, %d segment Entries; want the Checkpoint and one segment_closed Entry before it", loaded.Facts[0].Kind, len(loaded.Segments))
+			if loaded.Entries[0].Kind != gotato.EventKindCompactionEnded || len(loaded.Segments) != 1 || loaded.Segments[0].Kind != gotato.EventKindSegmentClosed {
+				t.Fatalf("Load = facts from %s, %d segment Entries; want the Checkpoint and one segment_closed Entry before it", loaded.Entries[0].Kind, len(loaded.Segments))
 			}
 
 			reopened, err := session.Open(ctx, store, "seg-1")
