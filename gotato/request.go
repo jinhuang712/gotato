@@ -195,3 +195,71 @@ func (a *Session) assembleTurn(ctx context.Context, snapshot ContextSnapshot) (M
 	request.CacheKey = a.cacheKey
 	return built, request, prefix, nil
 }
+
+// ContextEstimate is an estimate, in tokens, of what each part of a request
+// weighs. It uses the one rule the code already uses (the bytes of the JSON
+// encoding, over 4, rounded up), so the parts add up to the estimate of the
+// whole request within a few tokens of rounding.
+type ContextEstimate struct {
+	// System is the instruction.
+	System int
+	// ToolDefs is the tool definitions of the request.
+	ToolDefs int
+	// Segments is the Segment and Recap Messages, and the lines that stand
+	// for the Tool calls a Segment closed over.
+	Segments int
+	// History is the user and assistant Messages, and Notices.
+	History int
+	// ToolResults is the Messages that carry a Tool Result.
+	ToolResults int
+}
+
+// Total is the sum of the parts.
+func (e ContextEstimate) Total() int {
+	return e.System + e.ToolDefs + e.Segments + e.History + e.ToolResults
+}
+
+// EstimateContext estimates the parts of the request built from built and
+// request: the instruction and the tools come from request, the Messages from
+// built, sorted by what they are. A Message is sized as the model receives it
+// (see ForModel).
+func EstimateContext(built ModelContext, request ModelRequest) ContextEstimate {
+	tools, _ := json.Marshal(request.Tools)
+	est := ContextEstimate{
+		System:   (len(request.SystemInstructions) + 3) / 4,
+		ToolDefs: (len(tools) + 3) / 4,
+	}
+	// The array's two brackets count with the history; each Message counts
+	// its own comma.
+	segments, history, results := 0, 2, 0
+	for _, message := range built.Messages {
+		sent := ForModel([]Message{message})
+		if len(sent) == 0 {
+			continue
+		}
+		encoded, _ := json.Marshal(sent[0])
+		size := len(encoded) + 1
+		switch {
+		case message.ToolResult != nil:
+			results += size
+		case isSegmentMessage(message):
+			segments += size
+		default:
+			history += size
+		}
+	}
+	est.Segments, est.History, est.ToolResults = (segments+3)/4, (history+3)/4, (results+3)/4
+	return est
+}
+
+// isSegmentMessage reports whether a Message renders a Segment: it holds a
+// Part of the segment, recap or tool_calls tag.
+func isSegmentMessage(message Message) bool {
+	for _, part := range message.Parts {
+		switch part.Metadata[MetaTag] {
+		case TagSegment, TagRecap, TagToolCalls:
+			return true
+		}
+	}
+	return false
+}

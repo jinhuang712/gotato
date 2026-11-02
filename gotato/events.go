@@ -214,15 +214,25 @@ type TurnEnded struct {
 // hash and sizes.
 type ContextBuilt struct {
 	Header
-	Strategy         string            `json:"strategy,omitempty"`
-	Messages         int               `json:"messages"`
-	SourceMessages   int               `json:"source_messages"`
-	SelectedMessages int               `json:"selected_messages"`
-	PrefixHash       string            `json:"prefix_hash"`
-	PrefixMessages   int               `json:"prefix_messages"`
-	SystemBytes      int               `json:"system_bytes"`
-	Tools            int               `json:"tools"`
-	Metadata         map[string]string `json:"metadata,omitempty"`
+	Strategy         string `json:"strategy,omitempty"`
+	Messages         int    `json:"messages"`
+	SourceMessages   int    `json:"source_messages"`
+	SelectedMessages int    `json:"selected_messages"`
+	PrefixHash       string `json:"prefix_hash"`
+	PrefixMessages   int    `json:"prefix_messages"`
+	SystemBytes      int    `json:"system_bytes"`
+	Tools            int    `json:"tools"`
+	// The estimates are in tokens, by the rule of modelctx.EstimateTokens
+	// (bytes of the JSON encoding over 4): the instruction, the tool
+	// definitions, the Segment and Recap Messages, the user and assistant
+	// Messages, and the Tool Results. A Record written before they existed
+	// reads them as 0.
+	EstimateSystemTokens      int               `json:"estimate_system_tokens"`
+	EstimateToolDefsTokens    int               `json:"estimate_tool_defs_tokens"`
+	EstimateSegmentsTokens    int               `json:"estimate_segments_tokens"`
+	EstimateHistoryTokens     int               `json:"estimate_history_tokens"`
+	EstimateToolResultsTokens int               `json:"estimate_tool_results_tokens"`
+	Metadata                  map[string]string `json:"metadata,omitempty"`
 }
 
 // ReplyStarted is published when the model's reply starts. It is stored before
