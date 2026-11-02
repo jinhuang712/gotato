@@ -77,7 +77,7 @@ func TestSessionLifecycleOverHTTP(t *testing.T) {
 	if summary.RecordEpoch == "" {
 		t.Fatalf("the create answer has no record_epoch: %s", body)
 	}
-	if summary.ID == "" || summary.Metadata[service.MetaAgent] != "demo" || summary.Metadata["tenant"] != "x" {
+	if summary.ID == "" || summary.Metadata["gotato.agent"] != "demo" || summary.Metadata["tenant"] != "x" {
 		t.Fatalf("summary = %+v", summary)
 	}
 
@@ -543,7 +543,7 @@ func (panickingStopper) Stop(context.Context, gotato.TurnSnapshot) (gotato.StopD
 
 // What an Extension panicked with does not reach the client of a Run.
 func TestExtensionPanicTextDoesNotReachTheClient(t *testing.T) {
-	r, err := service.New(service.Config{Store: memStore(), Agents: []service.Agent{{Name: "echo", Model: testkit.EchoModel{}, Options: []gotato.SessionOption{gotato.WithExtension(panickingStopper{})}}}})
+	r, err := service.New(service.Config{Store: memStore(), Agents: []service.Agent{{Name: "echo", Model: testkit.EchoModel{}, Extensions: []any{panickingStopper{}}}}})
 	if err != nil {
 		t.Fatal(err)
 	}

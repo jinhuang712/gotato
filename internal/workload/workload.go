@@ -109,7 +109,7 @@ func runTask(ctx context.Context, cfg Config, task reftasks.Task) (TaskReport, e
 		ModelName:   cfg.ModelName,
 		Instruction: task.Instruction,
 		Tools:       task.Tools,
-		Options:     task.Options,
+		ToolSets:    task.ToolSets,
 		Limits:      task.Limits,
 	}
 	if task.Recap {

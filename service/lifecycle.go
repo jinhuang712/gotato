@@ -33,7 +33,7 @@ func (r *Runner) newSession(agent string, metadata map[string]string, options ..
 	for key, value := range metadata {
 		s.Set(key, value)
 	}
-	s.Set(MetaAgent, spec.Name)
+	s.Set(metaAgent, spec.Name)
 	return s, spec, nil
 }
 
@@ -75,7 +75,7 @@ func (r *Runner) DeleteSession(ctx context.Context, sessionID string) error {
 		if err != nil {
 			return err
 		}
-		agent, _ := writer.Record().Get(MetaAgent)
+		agent, _ := writer.Record().Get(metaAgent)
 		r.publishOpened(writer, early, agent)
 		if err := r.store.Records.Delete(ctx, sessionID); err != nil {
 			// The Claim was written and the Record stays: give it back.
@@ -106,10 +106,10 @@ func (r *Runner) Fork(ctx context.Context, sessionID, newID string) (*session.Re
 	child := session.Fork(parent, options...)
 	// The child starts with its parent's history, so it keeps its parent's
 	// cache key and its first Turn reads the parent's cached prefix.
-	child.Set(MetaCacheKey, sessionCacheKey(parent))
+	child.Set(metaCacheKey, sessionCacheKey(parent))
 	// The store's Create is the existence check, so two concurrent forks with
 	// the same explicit newID cannot both succeed.
-	childAgent, _ := child.Get(MetaAgent)
+	childAgent, _ := child.Get(metaAgent)
 	if _, err := r.create(ctx, child, childAgent, session.WithIdle()); err != nil {
 		return nil, err
 	}

@@ -17,6 +17,26 @@ import (
 	"github.com/jinhuang712/gotato/testkit"
 )
 
+// The Session metadata keys the Runner owns, as a client reads them from a Record.
+const (
+	metaAgentKey       = service.ReservedPrefix + "agent"
+	metaCacheKeyKey    = service.ReservedPrefix + "cache_key"
+	metaToolKeyPrefix  = service.ReservedPrefix + "tool."
+	metaInstructionKey = service.ReservedPrefix + "instruction"
+	metaCeilingKey     = service.ReservedPrefix + "compact_ceiling"
+)
+
+// plant stores a Record as an earlier version, a migration or another process
+// would, bypassing the Runner, and returns its ID.
+func plant(t *testing.T, store session.Store, options ...session.RecordOption) string {
+	t.Helper()
+	record := session.New(options...)
+	if _, err := session.CreateWriter(context.Background(), store.Records, record, "planter", session.WithIdle()); err != nil {
+		t.Fatal(err)
+	}
+	return record.ID()
+}
+
 func newRunner(t *testing.T, specs ...service.Agent) (*service.Runner, session.Store) {
 	t.Helper()
 	store := memStore()

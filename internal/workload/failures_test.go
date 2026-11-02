@@ -82,7 +82,7 @@ func TestContextCheckReportsAMismatch(t *testing.T) {
 		t.Fatal(err)
 	}
 	s := testkit.NewRecord("where is order 42?", "it shipped")
-	s.Set(service.MetaAgent, task.Name)
+	s.Set(service.ReservedPrefix+"agent", task.Name)
 	var report TaskReport
 	checkContext(context.Background(), runner, store, s, []build{{messages: 1, prefix: "not-the-hash"}, {messages: 9, prefix: "x"}}, &report)
 	if report.ContextTurns != 2 || report.ContextMismatches != 2 || !strings.Contains(report.ContextDetail, "not-the-hash") {

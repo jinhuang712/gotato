@@ -111,7 +111,7 @@ func (s resolvingSet) Tools(ctx context.Context) ([]gotato.Tool, error) {
 func startResolving(t *testing.T) (*service.Runner, string, context.Context, chan error, resolvingSet) {
 	t.Helper()
 	set := resolvingSet{entered: make(chan context.Context, 1), release: make(chan struct{})}
-	r, err := service.New(service.Config{Store: memStore(), Agents: []service.Agent{{Name: "slow", Model: testkit.EchoModel{}, Options: []gotato.SessionOption{gotato.WithToolSet(set)}}}})
+	r, err := service.New(service.Config{Store: memStore(), Agents: []service.Agent{{Name: "slow", Model: testkit.EchoModel{}, ToolSets: []service.ToolSet{{Set: set}}}}})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -436,8 +436,8 @@ func TestForkKeepsTheParentsCacheKey(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if key, _ := stored.Get(service.MetaCacheKey); key != want {
-		t.Fatalf("stored %s = %q, want %q", service.MetaCacheKey, key, want)
+	if key, _ := stored.Get(metaCacheKeyKey); key != want {
+		t.Fatalf("stored %s = %q, want %q", metaCacheKeyKey, key, want)
 	}
 }
 
@@ -466,7 +466,7 @@ func runDeadline(t *testing.T, ctx context.Context, runTimeout, requestTimeout t
 		Name:       "probe",
 		Model:      testkit.NewFakeModel(testkit.ToolCalls(gotato.ToolCall{ID: "c1", ToolID: "lookup", Arguments: []byte(`{}`)}), testkit.Text("done")),
 		Tools:      []gotato.Tool{testkit.NewFakeTool("lookup", "found")},
-		Options:    []gotato.SessionOption{gotato.WithExtension(probe)},
+		Extensions: []any{probe},
 		RunTimeout: runTimeout,
 	})
 	start := time.Now()
@@ -549,10 +549,10 @@ func TestAValueInTheCallersCtxReachesBeforeAndExecute(t *testing.T) {
 		return testkit.ToolCalls(gotato.ToolCall{ID: gotato.ToolCallID(id), ToolID: "whoami", Arguments: []byte(`{}`)})
 	}
 	runner, _ := newRunner(t, service.Agent{
-		Name:    "asker",
-		Model:   testkit.NewFakeModel(call("c1"), testkit.Text("one"), call("c2"), testkit.Text("two")),
-		Tools:   []gotato.Tool{tool},
-		Options: []gotato.SessionOption{gotato.WithExtension(probe)},
+		Name:       "asker",
+		Model:      testkit.NewFakeModel(call("c1"), testkit.Text("one"), call("c2"), testkit.Text("two")),
+		Tools:      []gotato.Tool{tool},
+		Extensions: []any{probe},
 	})
 	first, err := runner.Run(context.WithValue(context.Background(), askerKey{}, "ann"), service.RunRequest{Prompt: "go"})
 	if err != nil || first.Result.Status != gotato.RunStatusCompleted {

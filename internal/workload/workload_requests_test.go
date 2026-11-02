@@ -158,7 +158,7 @@ func TestSameRecordSameRequest(t *testing.T) {
 			if err != nil {
 				t.Fatal(err)
 			}
-			cacheKey, ok := final.Get(service.MetaCacheKey)
+			cacheKey, ok := final.Get(service.ReservedPrefix + "cache_key")
 			if !ok || cacheKey == "" {
 				cacheKey = service.CacheKey(id)
 			}
@@ -188,7 +188,7 @@ func TestSameRecordSameRequest(t *testing.T) {
 				// The Record as it stood at this Turn: a copy of its first n
 				// Messages under the same cache key, which is the only part of
 				// the Record's identity that reaches the request.
-				prefix, err := viewA.CreateSession(ctx, task.Name, map[string]string{service.MetaCacheKey: cacheKey}, session.WithMessages(stored[:n]...), reftasks.WithLoadedToolsOf(stored[:n]))
+				prefix, err := viewA.CreateSession(ctx, task.Name, map[string]string{service.ReservedPrefix + "cache_key": cacheKey}, session.WithMessages(stored[:n]...), reftasks.WithLoadedToolsOf(stored[:n]))
 				if err != nil {
 					t.Fatal(err)
 				}

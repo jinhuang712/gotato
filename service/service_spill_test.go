@@ -214,7 +214,7 @@ func TestAToolSetOnlyAgentIsOfferedReadResult(t *testing.T) {
 	)
 	runner, err := service.New(service.Config{
 		Store:  memStore(),
-		Agents: []service.Agent{{Name: "a", Model: model, Options: []gotato.SessionOption{gotato.WithActiveToolSet(bigToolSet{body})}}},
+		Agents: []service.Agent{{Name: "a", Model: model, ToolSets: []service.ToolSet{{Set: bigToolSet{body}, Mode: service.ToolSetActive}}}},
 	})
 	if err != nil {
 		t.Fatal(err)
@@ -252,8 +252,8 @@ func segmentRunner(t *testing.T, store session.Store, model gotato.Model) *servi
 	t.Helper()
 	runner, err := service.New(service.Config{
 		Store: store,
-		Agents: []service.Agent{{Name: "a", Model: model, Options: []gotato.SessionOption{
-			gotato.WithToolSet(filesToolSet{}), gotato.WithToolSet(gitToolSet{}),
+		Agents: []service.Agent{{Name: "a", Model: model, ToolSets: []service.ToolSet{
+			{Set: filesToolSet{}}, {Set: gitToolSet{}},
 		}}},
 	})
 	if err != nil {

@@ -642,9 +642,10 @@ func TestBinaryScenario(t *testing.T) {
 	}
 }
 
-// Settings given to a run change the session as the run's first write, and
-// --no-save keeps them to that run only.
-func TestRunSettingsAreSavedUnlessNoSave(t *testing.T) {
+// --instruction selects another Agent, a variant of the built-in one: the run
+// switches the session to it as its first write, a later run without the flag
+// keeps it, and --no-save keeps it to that run only.
+func TestRunInstructionSelectsAnAgentUnlessNoSave(t *testing.T) {
 	h := newHarness(t)
 	var created runOutcome
 	h.mustJSON(h.ok("run", "--json", "hello"), &created)
@@ -655,9 +656,17 @@ func TestRunSettingsAreSavedUnlessNoSave(t *testing.T) {
 		Messages []any             `json:"messages"`
 	}
 	h.mustJSON(h.ok("session", "show", created.SessionID, "--json"), &doc)
-	if doc.Metadata[service.MetaInstruction] != "kept" {
-		t.Fatalf("instruction = %q, want the saved run's", doc.Metadata[service.MetaInstruction])
+	if agent := doc.Metadata[agentKey]; !strings.HasPrefix(agent, "echo+") {
+		t.Fatalf("agent = %q, want a variant of echo", agent)
 	}
+	if _, set := doc.Metadata[service.ReservedPrefix+"instruction"]; set {
+		t.Fatalf("the instruction was stored as session metadata: %v", doc.Metadata)
+	}
+	// A run with no flags is a new invocation, and still finds the variant.
+	if out := h.ok("context", "build", created.SessionID, "--json"); !strings.Contains(out, "kept") || strings.Contains(out, "dropped") {
+		t.Fatalf("the session's instruction is not the saved run's: %s", out)
+	}
+	h.ok("run", "--session", created.SessionID, "--json", "and again")
 	if len(doc.Messages) != 4 {
 		t.Fatalf("messages = %d, want 4: the --no-save run left nothing", len(doc.Messages))
 	}

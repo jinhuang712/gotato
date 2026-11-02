@@ -36,7 +36,7 @@ func TestRunDisposesOfTheLiveSession(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if agent, _ := s.Get(service.MetaAgent); agent != "echo" {
+	if agent, _ := s.Get(metaAgentKey); agent != "echo" {
 		t.Fatalf("session agent metadata = %q", agent)
 	}
 	if tenant, _ := s.Get("tenant"); tenant != "a" {
@@ -58,7 +58,7 @@ func TestRunDisposesOfTheLiveSession(t *testing.T) {
 	}
 }
 
-func TestSpecsToolsAndSessionOverrides(t *testing.T) {
+func TestAnAgentOwnsItsInstructionAndAStoredSettingIsIgnored(t *testing.T) {
 	model := testkit.NewFakeModel(
 		testkit.ToolCalls(gotato.ToolCall{ID: "c1", ToolID: testkit.DemoToolID, Arguments: []byte(`{"value":"v"}`)}),
 		testkit.Text("done"),
@@ -68,16 +68,15 @@ func TestSpecsToolsAndSessionOverrides(t *testing.T) {
 		service.Agent{Name: "tools", Model: model, Instruction: "spec instruction", Tools: []gotato.Tool{testkit.DemoEchoTool()}},
 	)
 	ctx := context.Background()
-	// A Session created before the panel was removed may still carry its
-	// setting; the Runner ignores it.
-	s, err := runner.CreateSession(ctx, "tools", map[string]string{
-		service.MetaInstruction: "session instruction",
-		"gotato.panel":          "time",
-	})
-	if err != nil {
-		t.Fatal(err)
-	}
-	result, err := runner.Run(ctx, service.RunRequest{SessionID: s.ID(), Prompt: "go"})
+	// A Session of an earlier version may still carry an instruction, a
+	// ceiling and a panel of its own; the Runner ignores them all.
+	id := plant(t, store, session.WithMetadata(map[string]string{
+		metaAgentKey:       "tools",
+		metaInstructionKey: "session instruction",
+		metaCeilingKey:     "1",
+		"gotato.panel":     "time",
+	}))
+	result, err := runner.Run(ctx, service.RunRequest{SessionID: id, Prompt: "go"})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -85,8 +84,8 @@ func TestSpecsToolsAndSessionOverrides(t *testing.T) {
 		t.Fatalf("result = %+v", result)
 	}
 	request, _ := model.LastRequest()
-	if request.SystemInstructions != "session instruction" {
-		t.Fatalf("instruction override lost: %q", request.SystemInstructions)
+	if request.SystemInstructions != "spec instruction" || result.Compacted {
+		t.Fatalf("instruction = %q, compacted = %v: a stored setting must not reach the Session", request.SystemInstructions, result.Compacted)
 	}
 	if len(request.Tools) != 2 || request.Tools[0].ID != testkit.DemoToolID || request.Tools[1].ID != "read_result" {
 		t.Fatalf("tools = %+v", request.Tools)
@@ -96,7 +95,7 @@ func TestSpecsToolsAndSessionOverrides(t *testing.T) {
 			t.Fatalf("a request carries a panel: %+v", message)
 		}
 	}
-	stored, _ := session.View(ctx, store.Records, s.ID())
+	stored, _ := session.View(ctx, store.Records, id)
 	if len(stored.Messages()) != 4 {
 		t.Fatalf("stored %d messages, want 4", len(stored.Messages()))
 	}
@@ -453,7 +452,12 @@ func TestCompactionLeavesOutReasoningForAModelSentOnlyTheCurrentRound(t *testing
 			t.Errorf("round=%v: Compact kept %d reasoning Parts, want %d", round, got, want)
 		}
 
-		runner, store = newRunner(t, service.Agent{Name: "a", Model: model(), Compact: modelctx.CompactPolicy{WindowTokens: 4000, SegmentSettings: modelctx.SegmentSettings{TailTokens: 70}}})
+		// "b" is "a" with a ceiling of one token, which can never be met.
+		policy := modelctx.CompactPolicy{WindowTokens: 4000, SegmentSettings: modelctx.SegmentSettings{TailTokens: 70}}
+		tight := policy
+		tight.CeilingTokens = 1
+		sharedModel := model()
+		runner, store = newRunner(t, service.Agent{Name: "a", Model: sharedModel, Compact: policy}, service.Agent{Name: "b", Model: sharedModel, Compact: tight})
 		first, err = runner.Run(ctx, service.RunRequest{Agent: "a", Prompt: "u1"})
 		if err != nil {
 			t.Fatal(err)
@@ -461,8 +465,7 @@ func TestCompactionLeavesOutReasoningForAModelSentOnlyTheCurrentRound(t *testing
 		if _, err := runner.Run(ctx, service.RunRequest{SessionID: first.SessionID, Prompt: "u2"}); err != nil {
 			t.Fatal(err)
 		}
-		third, err := runner.Run(ctx, service.RunRequest{SessionID: first.SessionID, Prompt: "u3",
-			Update: map[string]string{service.MetaCompactCeiling: "1"}})
+		third, err := runner.Run(ctx, service.RunRequest{SessionID: first.SessionID, Agent: "b", Prompt: "u3"})
 		// A ceiling of one token can never be met, so the Run ends after its
 		// compaction; the compaction is what this checks. The window of 4000
 		// tokens leaves the tail its 70.

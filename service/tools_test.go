@@ -45,7 +45,7 @@ func TestAGoneToolIsUnloadedInTheRecordForEveryInstance(t *testing.T) {
 	model := testkit.NewFakeModel(loadFiles(), testkit.Text("opened"), testkit.Text("second"))
 	runner, err := service.New(service.Config{
 		Store:  store,
-		Agents: []service.Agent{{Name: "a", Model: model, Options: []gotato.SessionOption{gotato.WithToolSet(set)}}},
+		Agents: []service.Agent{{Name: "a", Model: model, ToolSets: []service.ToolSet{{Set: set}}}},
 	})
 	if err != nil {
 		t.Fatal(err)
@@ -93,10 +93,10 @@ func (hangingToolSet) Tools(ctx context.Context) ([]gotato.Tool, error) {
 func slowRunner(t *testing.T) (*service.Runner, string) {
 	t.Helper()
 	agent := service.Agent{
-		Name:    "a",
-		Model:   testkit.NewFakeModel(testkit.Text("ok")),
-		Tools:   []gotato.Tool{testkit.NewFakeTool("own", "x")},
-		Options: []gotato.SessionOption{gotato.WithToolSet(hangingToolSet{})},
+		Name:     "a",
+		Model:    testkit.NewFakeModel(testkit.Text("ok")),
+		Tools:    []gotato.Tool{testkit.NewFakeTool("own", "x")},
+		ToolSets: []service.ToolSet{{Set: hangingToolSet{}}},
 	}
 	runner, err := service.New(service.Config{Store: memStore(), Agents: []service.Agent{agent}, ToolSetTimeout: 100 * time.Millisecond})
 	if err != nil {
@@ -159,7 +159,7 @@ func toolSetRunner(t *testing.T, store session.Store, model gotato.Model) *servi
 	t.Helper()
 	runner, err := service.New(service.Config{
 		Store:  store,
-		Agents: []service.Agent{{Name: "a", Model: model, Options: []gotato.SessionOption{gotato.WithToolSet(filesToolSet{})}}},
+		Agents: []service.Agent{{Name: "a", Model: model, ToolSets: []service.ToolSet{{Set: filesToolSet{}}}}},
 	})
 	if err != nil {
 		t.Fatal(err)
@@ -247,7 +247,7 @@ func TestAToolSwitchedOffForASessionIsNeverInTheCatalogOrLoaded(t *testing.T) {
 	runner := toolSetRunner(t, memStore(), model)
 	result, err := runner.Run(ctx, service.RunRequest{
 		Prompt:   "open the files",
-		Metadata: map[string]string{service.MetaToolPrefix + "files.read": "inactive"},
+		Metadata: map[string]string{metaToolKeyPrefix + "files.read": "inactive"},
 	})
 	if err != nil {
 		t.Fatal(err)
@@ -307,7 +307,7 @@ func TestAToolOfAToolSetIsListedAndSwitchedByID(t *testing.T) {
 	model := testkit.NewFakeModel(
 		testkit.ToolCalls(gotato.ToolCall{ID: "load-1", ToolID: gotato.SearchToolName, Arguments: []byte(arguments)}),
 		testkit.Text("loaded"))
-	agent := service.Agent{Name: "a", Model: model, Options: []gotato.SessionOption{gotato.WithToolSet(twoToolSet{}), gotato.WithToolSet(downToolSet{})}}
+	agent := service.Agent{Name: "a", Model: model, ToolSets: []service.ToolSet{{Set: twoToolSet{}}, {Set: downToolSet{}}}}
 	runner, err := service.New(service.Config{Store: store, Agents: []service.Agent{agent}})
 	if err != nil {
 		t.Fatal(err)
@@ -348,7 +348,7 @@ func TestAToolOfAToolSetIsListedAndSwitchedByID(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if v, _ := record.Get(service.MetaToolPrefix + "files.read"); v != "inactive" {
+	if v, _ := record.Get(metaToolKeyPrefix + "files.read"); v != "inactive" {
 		t.Fatalf("metadata = %q, want inactive", v)
 	}
 	// Unknown names and names in a ToolSet that is down are refused.

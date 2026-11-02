@@ -506,7 +506,7 @@ func taskRunner(t *testing.T, task reftasks.Task) (*httptest.Server, *service.Ru
 	runner, err := service.New(service.Config{
 		Store: memStore(),
 		Agents: []service.Agent{{
-			Name: task.Name, Model: task.Model, Instruction: task.Instruction, Tools: task.Tools, Options: task.Options, Limits: task.Limits,
+			Name: task.Name, Model: task.Model, Instruction: task.Instruction, Tools: task.Tools, ToolSets: task.ToolSets, Limits: task.Limits,
 		}},
 	})
 	if err != nil {

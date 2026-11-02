@@ -64,10 +64,12 @@ func TestRunnerCompactTakesTheAgentsCompactionSettings(t *testing.T) {
 }
 
 // A model that says its window is compacted past the default ceiling, the
-// window less its reserve, with no ceiling set; the Session's own ceiling
-// wins.
+// window less its reserve, with no ceiling set; the Agent's own ceiling wins,
+// and a ceiling stored in a Session's metadata is ignored.
 func TestTheModelsWindowGivesTheDefaultCeiling(t *testing.T) {
-	runner, _ := newRunner(t, service.Agent{Name: "echo", Model: windowedEcho{window: 200_000}})
+	runner, store := newRunner(t,
+		service.Agent{Name: "echo", Model: windowedEcho{window: 200_000}},
+		service.Agent{Name: "capped", Model: windowedEcho{window: 200_000}, Compact: modelctx.CompactPolicy{CeilingTokens: 9000}})
 	ctx := context.Background()
 	first, err := runner.Run(ctx, service.RunRequest{Prompt: "hi"})
 	if err != nil {
@@ -77,12 +79,17 @@ func TestTheModelsWindowGivesTheDefaultCeiling(t *testing.T) {
 	if err != nil || report.CompactCeilingTokens != 180_000 {
 		t.Fatalf("ceiling = %d, %v; want 180000 from the window", report.CompactCeilingTokens, err)
 	}
-	if _, err := runner.Run(ctx, service.RunRequest{SessionID: first.SessionID, Prompt: "again",
-		Update: map[string]string{service.MetaCompactCeiling: "9000"}}); err != nil {
+	if _, err := runner.Run(ctx, service.RunRequest{SessionID: first.SessionID, Agent: "capped", Prompt: "again"}); err != nil {
 		t.Fatal(err)
 	}
 	if report, err = runner.Inspect(ctx, first.SessionID, service.InspectConfig{}); err != nil || report.CompactCeilingTokens != 9000 {
-		t.Fatalf("ceiling = %d, %v; want the Session's 9000", report.CompactCeilingTokens, err)
+		t.Fatalf("ceiling = %d, %v; want the Agent's 9000", report.CompactCeilingTokens, err)
+	}
+	// A Record of an earlier version may still carry a ceiling of its own; the
+	// Runner ignores it, and the window gives the ceiling.
+	old := plant(t, store, session.WithMetadata(map[string]string{metaAgentKey: "echo", metaCeilingKey: "100"}))
+	if report, err = runner.Inspect(ctx, old, service.InspectConfig{}); err != nil || report.CompactCeilingTokens != 180_000 {
+		t.Fatalf("ceiling = %d, %v; want 180000: a stored ceiling is ignored", report.CompactCeilingTokens, err)
 	}
 	// Without a window there is no ceiling.
 	plain, _ := newRunner(t, service.Agent{Name: "echo", Model: testkit.EchoModel{}})

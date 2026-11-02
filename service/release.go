@@ -95,7 +95,7 @@ func (r *Runner) repairRelease(ctx context.Context, sessionID string) bool {
 	if err != nil {
 		return errors.Is(err, session.ErrNotFound)
 	}
-	agent, _ := writer.Record().Get(MetaAgent)
+	agent, _ := writer.Record().Get(metaAgent)
 	r.publishOpened(writer, early, agent)
 	if err := writer.Release(ctx); err != nil {
 		return false

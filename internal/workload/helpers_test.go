@@ -29,7 +29,7 @@ func memStore() session.Store {
 func taskRunner(t *testing.T, store session.Store, task reftasks.Task, instance string) *service.Runner {
 	t.Helper()
 	runner, err := service.New(service.Config{Store: store, Instance: instance, Liveness: service.Liveness{TTL: 5 * time.Second, Wait: 2 * time.Second}, Agents: []service.Agent{{
-		Name: task.Name, Model: task.Model, Instruction: task.Instruction, Tools: task.Tools, Options: task.Options, Limits: task.Limits,
+		Name: task.Name, Model: task.Model, Instruction: task.Instruction, Tools: task.Tools, ToolSets: task.ToolSets, Limits: task.Limits,
 	}}})
 	if err != nil {
 		t.Fatal(err)
