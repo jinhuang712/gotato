@@ -27,22 +27,34 @@ func TestCompactBuildsASegmentFromTheConversationAndOneLinePerCall(t *testing.T)
 <segment n="1" from="2026-10-19T10:01:00Z" to="2026-10-19T10:41:00Z">
 Segment 1. The messages are word for word; reasoning,
 intermediate steps and tool results were left out. read_segment(1) returns
-the segment in full.
+the segment in full; read_result(ref) returns one tool result or message by its ref.
 </segment>
 Some charges in last night's batch failed. Why?
+<segment n="1">
+ref msg:m01
+</segment>
 [assistant]
 <tool_calls>
-10:02 payments.get_batch {"batch_id":"B-1"} → ok
-10:02 logs.query {"order":"O-1"} → error failed
+10:02 payments.get_batch {"batch_id":"B-1"} → ok [result:c1]
+10:02 logs.query {"order":"O-1"} → error failed [result:c2]
 </tool_calls>
 3 of 412 failed.
+<segment n="1">
+ref msg:m05
+</segment>
 [user]
 Retry O-1
+<segment n="1">
+ref msg:m06
+</segment>
 [assistant]
 <tool_calls>
-10:40 payments.retry {"order":"O-1"} → ok
+10:40 payments.retry {"order":"O-1"} → ok [result:c3]
 </tool_calls>
 O-1 went through.
+<segment n="1">
+ref msg:m09
+</segment>
 `
 	if got := dump(segments[0].Messages); got != want {
 		t.Fatalf("Segment =\n%s\nwant\n%s", got, want)
@@ -61,8 +73,8 @@ O-1 went through.
 			}
 		}
 	}
-	if tagged != 3 {
-		t.Errorf("tagged Parts = %d, want the header and two tool_calls blocks", tagged)
+	if tagged != 7 {
+		t.Errorf("tagged Parts = %d, want the header, two tool_calls blocks and four refs", tagged)
 	}
 	// The kept tail is the latest Run, word for word, after the Segment.
 	if tail := f.rec.Tail(); len(tail) != 2 || gotato.TextOf(tail[0]) != "thanks" || gotato.TextOf(tail[1]) != "welcome" {

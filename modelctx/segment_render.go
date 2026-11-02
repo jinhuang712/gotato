@@ -17,7 +17,7 @@ import (
 // renderLine writes a tool call as one line. The arguments are quoted as text
 // inside <tool_calls>, so they pass through EscapeTags: an argument holding
 // the end of the tag could end the block early.
-func renderLine(line gotato.ToolCallLine, loc *time.Location) string {
+func renderLine(line callLine, loc *time.Location) string {
 	clock := "--:--"
 	if !line.At.IsZero() {
 		clock = line.At.In(loc).Format("15:04")
@@ -37,7 +37,28 @@ func renderLine(line gotato.ToolCallLine, loc *time.Location) string {
 	if line.Count > 1 {
 		out += fmt.Sprintf(" ×%d", line.Count)
 	}
+	if len(line.refs) > 0 {
+		out += " [" + strings.Join(line.refs, " ") + "]"
+	}
 	return out
+}
+
+// callLine is a tool call line with the refs of the Tool Results it stands for,
+// one for each call it counts. The refs are only rendered: a Segment's data
+// (gotato.ToolCallLine) is unchanged.
+type callLine struct {
+	gotato.ToolCallLine
+	refs []string
+}
+
+// refPartOf is the part that ends a kept user Message or final reply in a
+// Segment: its ref, on a line of its own, `ref msg:<id>`. It is empty for a
+// Message with no ID that can stand in a ref.
+func refPartOf(number int, id gotato.MessageID) []gotato.ContentPart {
+	if !text.RefSafe(string(id)) {
+		return nil
+	}
+	return []gotato.ContentPart{taggedPart(gotato.TagSegment, numberAttr(number), "ref "+text.MessageRef(string(id)))}
 }
 
 // toolsCalled lists the loaded Tools (qualified IDs) the Messages call, in the
@@ -173,7 +194,7 @@ type item struct {
 	isCalls  bool
 	role     gotato.Role
 	parts    []gotato.ContentPart
-	lines    []gotato.ToolCallLine
+	lines    []callLine
 	overflow string
 }
 
