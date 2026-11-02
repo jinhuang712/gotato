@@ -9,8 +9,13 @@ import (
 )
 
 // CreateSession creates and saves a Session bound to an Agent. It fails with
-// ErrSessionExists when an ID given in options is taken.
+// ErrSessionExists when an ID given in options is taken, and with
+// ErrReservedKey, before anything is written, when metadata sets a key under
+// ReservedPrefix.
 func (r *Runner) CreateSession(ctx context.Context, agent string, metadata map[string]string, options ...session.RecordOption) (*session.Record, error) {
+	if err := refuseReserved(metadata); err != nil {
+		return nil, err
+	}
 	s, spec, err := r.newSession(agent, metadata, options...)
 	if err != nil {
 		return nil, err

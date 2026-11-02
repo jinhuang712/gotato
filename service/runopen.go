@@ -88,17 +88,13 @@ func (st *runState) openSession(ctx, runCtx context.Context) (openedSession, err
 	return opened, nil
 }
 
-// resolveAgent finds the Agent of the Run: the request's, else an Update of
-// metaAgent, else the Session's. It is resolved before the Update is applied,
-// so a Run that is refused for its Agent writes nothing.
+// resolveAgent finds the Agent of the Run: the request's, else the Session's.
+// It is resolved before the Update is applied, so a Run that is refused for its
+// Agent writes nothing.
 func (st *runState) resolveAgent() (Agent, bool) {
 	agentName := st.request.Agent
 	if agentName == "" {
-		if value, set := st.request.Update[metaAgent]; set {
-			agentName = value
-		} else {
-			agentName, _ = st.s.Get(metaAgent)
-		}
+		agentName, _ = st.s.Get(metaAgent)
 	}
 	return st.r.Agent(agentName)
 }

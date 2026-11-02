@@ -240,15 +240,21 @@ func TestLoadedToolStaysLoadedInLaterRuns(t *testing.T) {
 }
 
 // TestAToolSwitchedOffForASessionIsNeverInTheCatalogOrLoaded: the Session's
-// switch (gotato.tool.<id>) wins over loading, for a tool of a ToolSet too.
+// switch (SetToolActive, stored as gotato.tool.<id>) wins over loading, for a
+// tool of a ToolSet too. It is the only way to set it: a client's metadata
+// cannot (TestAReservedKeyIsRefused...).
 func TestAToolSwitchedOffForASessionIsNeverInTheCatalogOrLoaded(t *testing.T) {
 	ctx := context.Background()
 	model := testkit.NewFakeModel(loadFiles(), testkit.Text("done"))
 	runner := toolSetRunner(t, memStore(), model)
-	result, err := runner.Run(ctx, service.RunRequest{
-		Prompt:   "open the files",
-		Metadata: map[string]string{metaToolKeyPrefix + "files.read": "inactive"},
-	})
+	created, err := runner.CreateSession(ctx, "", nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := runner.SetToolActive(ctx, created.ID(), "files.read", false); err != nil {
+		t.Fatal(err)
+	}
+	result, err := runner.Run(ctx, service.RunRequest{SessionID: created.ID(), Prompt: "open the files"})
 	if err != nil {
 		t.Fatal(err)
 	}
