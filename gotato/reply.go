@@ -29,16 +29,16 @@ func (a *Session) readAssistant(ctx context.Context, runID RunID, turn TurnNumbe
 	modelCtx, cancel := boundedContext(ctx, a.limits.ModelCallDeadline)
 	defer cancel()
 	// An Interrupt cancels this call; one that is waiting already does, now.
-	a.intrMu.Lock()
-	a.callCancel = cancel
+	a.run.mu.Lock()
+	a.run.callCancel = cancel
 	if a.queue.interrupting() {
 		cancel()
 	}
-	a.intrMu.Unlock()
+	a.run.mu.Unlock()
 	defer func() {
-		a.intrMu.Lock()
-		a.callCancel = nil
-		a.intrMu.Unlock()
+		a.run.mu.Lock()
+		a.run.callCancel = nil
+		a.run.mu.Unlock()
 	}()
 	reader := &assistantReader{
 		a: a, ctx: ctx, runID: runID, turn: turn,

@@ -38,15 +38,15 @@ func (st *runState) metrics() RunMetrics {
 }
 
 func (st *runState) setTurn(turn TurnNumber) {
-	st.a.runMu.Lock()
-	st.a.currentTurn = turn
-	st.a.runMu.Unlock()
+	st.a.run.mu.Lock()
+	st.a.run.turn = turn
+	st.a.run.mu.Unlock()
 }
 
 func (st *runState) currentTurn() TurnNumber {
-	st.a.runMu.Lock()
-	defer st.a.runMu.Unlock()
-	return st.a.currentTurn
+	st.a.run.mu.Lock()
+	defer st.a.run.mu.Unlock()
+	return st.a.run.turn
 }
 
 func (st *runState) header(turn TurnNumber) Header { return NewHeader(st.a.id, st.runID, turn) }
@@ -60,18 +60,18 @@ func (st *runState) end(turn TurnNumber, result RunResult, extra func(*RunEnded)
 	// From here on no Abort can start a write, and no Steer, FollowUp or
 	// Interrupt is taken into a queue (see sendControl): what is queued now is
 	// dropped below, and nothing slips in behind that.
-	a.runMu.Lock()
-	a.runEnding = true
-	a.runKeeps = a.keepsQueued(result.Status)
-	a.runMu.Unlock()
-	if !a.runKeeps {
+	a.run.mu.Lock()
+	a.run.ending = true
+	a.run.keeps = a.keepsQueued(result.Status)
+	a.run.mu.Unlock()
+	if !a.run.keeps {
 		a.discardControl(st.runID, turn)
 	}
 	// The Aborts that did start a write have finished: an abort_requested
 	// never follows run_ended.
-	a.waitForAborts()
-	if a.endingHook != nil {
-		a.endingHook()
+	a.run.aborts.Wait()
+	if a.run.endingHook != nil {
+		a.run.endingHook()
 	}
 	metrics := st.metrics()
 	ended := RunEnded{
@@ -412,15 +412,15 @@ func (a *Session) executeRun(ctx context.Context, prompt *Message) (RunResult, e
 // stored.
 func (a *Session) beginRun(cancel context.CancelFunc) (RunID, func(), *RuntimeError) {
 	runID := RunID(nextID("run"))
-	a.runMu.Lock()
-	a.currentRunID = runID
-	a.currentTurn = 0
-	a.runEnding = false
-	a.abortBeforeStart = false
-	a.runKeeps = false
-	a.currentRunStop = cancel
-	a.runMu.Unlock()
-	a.inRun.Store(true)
+	a.run.mu.Lock()
+	a.run.id = runID
+	a.run.turn = 0
+	a.run.ending = false
+	a.run.abortBeforeStart = false
+	a.run.keeps = false
+	a.run.stop = cancel
+	a.run.mu.Unlock()
+	a.run.inRun.Store(true)
 	var failure *RuntimeError
 	if a.onRunStart != nil {
 		// [LIVENESS] a panic in the host's WithRunStart function fails this Run, not the process.
@@ -429,16 +429,16 @@ func (a *Session) beginRun(cancel context.CancelFunc) (RunID, func(), *RuntimeEr
 		}
 	}
 	return runID, func() {
-		a.inRun.Store(false)
+		a.run.inRun.Store(false)
 		// [LIVENESS] a Run whose run_ended was never written must not leave its span open for the next Run's Events.
-		a.runMu.Lock()
-		a.runOpen = false
-		if a.currentRunID == runID {
-			a.currentRunID = ""
-			a.currentTurn = 0
-			a.currentRunStop = nil
+		a.run.mu.Lock()
+		a.run.open = false
+		if a.run.id == runID {
+			a.run.id = ""
+			a.run.turn = 0
+			a.run.stop = nil
 		}
-		a.runMu.Unlock()
+		a.run.mu.Unlock()
 	}, failure
 }
 

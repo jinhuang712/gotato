@@ -35,15 +35,15 @@ func (a *Session) Steer(ctx context.Context, message Message) error {
 // flight, or when the Run ends before the Interrupt reaches its queue.
 // ctx and a nil result mean what they mean for Steer.
 func (a *Session) Interrupt(ctx context.Context, message Message) error {
-	if !a.inRun.Load() {
+	if !a.run.inRun.Load() {
 		return runtimeError(CodeInvalidState, "Interrupt", "no Run is in flight", nil)
 	}
 	if err := a.enqueueControl(ctx, message, "Interrupt", MessageSourceInterrupt); err != nil {
 		return err
 	}
-	a.intrMu.Lock()
-	cancel := a.callCancel
-	a.intrMu.Unlock()
+	a.run.mu.Lock()
+	cancel := a.run.callCancel
+	a.run.mu.Unlock()
 	// The Message may have been consumed already, at a boundary that fell
 	// between the queueing and this check.
 	if cancel != nil && a.queue.interrupting() {
@@ -131,10 +131,10 @@ const (
 //
 // An Interrupt needs a Run in flight (needsRun): one that finds the Run over
 // is refused, since it would otherwise cancel the first model call of the
-// next Run. The caller holds runMu.
+// next Run. The caller holds run.mu.
 func (a *Session) controlGate(needsRun bool) controlOutcome {
-	inRun := a.inRun.Load()
-	if (needsRun && !inRun) || (inRun && a.runEnding && !a.runKeeps) {
+	inRun := a.run.inRun.Load()
+	if (needsRun && !inRun) || (inRun && a.run.ending && !a.run.keeps) {
 		return controlRunEnded
 	}
 	return sentControl
@@ -142,10 +142,10 @@ func (a *Session) controlGate(needsRun bool) controlOutcome {
 
 // fillControl puts a message in the place reserved for it, once its
 // message_queued is written. A message that is not put in gives the place back.
-// [CONCURRENCY] the gate and the fill run under runMu, so a message is never queued after the last drop pass or into the next Run.
+// [CONCURRENCY] the gate and the fill run under run.mu, so a message is never queued after the last drop pass or into the next Run.
 func (a *Session) fillControl(queued control, needsRun bool) controlOutcome {
-	a.runMu.Lock()
-	defer a.runMu.Unlock()
+	a.run.mu.Lock()
+	defer a.run.mu.Unlock()
 	if outcome := a.controlGate(needsRun); outcome != sentControl {
 		a.queue.release(queued.kind)
 		return outcome
@@ -234,14 +234,14 @@ func (a *Session) Requeue(messages []Queued) (rest []Queued) {
 		if source == MessageSourceNotice {
 			queued.kind = kindNotice
 		}
-		// [CONCURRENCY] the gate and the put are one step under runMu, so a message never lands in a Session that closed.
-		a.runMu.Lock()
+		// [CONCURRENCY] the gate and the put are one step under run.mu, so a message never lands in a Session that closed.
+		a.run.mu.Lock()
 		put := a.controlGate(false) == sentControl && a.queue.add(queued)
 		if !put && queued.kind == kindSteer && a.controlGate(false) == sentControl {
 			queued.kind = kindFollowUp
 			put = a.queue.add(queued)
 		}
-		a.runMu.Unlock()
+		a.run.mu.Unlock()
 		if !put {
 			rest = append(rest, m)
 		}

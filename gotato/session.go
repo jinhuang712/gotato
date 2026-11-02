@@ -134,7 +134,6 @@ func NewSession(ctx context.Context, options ...SessionOption) (*Session, error)
 		}
 	}
 	a.extensions.report = a.reportExtension
-	a.abortCond = sync.NewCond(&a.abortMu)
 	a.setStatus(SessionStatusCreated)
 	go a.loop()
 	<-a.ready
@@ -178,12 +177,6 @@ type Session struct {
 	// requestID is the caller's request identifier, recorded in RunStarted.
 	requestID string
 
-	// aborts counts the AbortRequested writes in flight, so a Run's RunEnded
-	// is written after them.
-	abortMu   sync.Mutex
-	abortCond *sync.Cond
-	aborts    int
-
 	commands    chan sessionCommand
 	closeSignal chan struct{}
 	closeOnce   sync.Once
@@ -192,37 +185,17 @@ type Session struct {
 	ready       chan struct{}
 	admission   chan struct{}
 	// queue holds the messages that wait for a Run (Steer, FollowUp,
-	// Interrupt, notice); see controlQueue. Lock order: runMu, then its lock.
+	// Interrupt, notice); see controlQueue. Lock order: run.mu, then its lock.
 	queue *controlQueue
 
-	// intrMu guards the cancellation of the model call in flight
-	// (callCancel), which an Interrupt triggers.
-	intrMu     sync.Mutex
-	callCancel context.CancelFunc
-
 	closeRequested atomic.Bool
-	inRun          atomic.Bool
 	status         atomic.Uint32
 
 	stateMu     sync.Mutex
 	stateChange chan struct{}
 
-	runMu        sync.Mutex
-	currentRunID RunID
-	currentTurn  TurnNumber
-	runEnding    bool
-	// runOpen says the Run's span is open: its run_started is being written or
-	// is written, and its run_ended is not. Only writeEvents changes it, under
-	// emitMu and runMu both. abortBeforeStart records an Abort that came
-	// before; the write of run_started adds the abort_requested.
-	runOpen          bool
-	abortBeforeStart bool
-	// runKeeps says the ending Run leaves its queues for the host
-	// (WithQueueHandoff), so a message taken in meanwhile is kept, not dropped.
-	runKeeps       bool
-	currentRunStop context.CancelFunc
-	// endingHook, for tests, runs when a Run has begun to write its end.
-	endingHook func()
+	// run is the Run in flight.
+	run sessionRun
 }
 
 // sessionCommandKind says which Run a sessionCommand starts.

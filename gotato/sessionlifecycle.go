@@ -11,50 +11,36 @@ func (a *Session) Abort() { a.abort() }
 
 // abort cancels the Run in flight, if any, and reports whether there was one.
 func (a *Session) abort() bool {
-	a.runMu.Lock()
-	stop := a.currentRunStop
-	if stop == nil || a.runEnding {
+	a.run.mu.Lock()
+	stop := a.run.stop
+	if stop == nil || a.run.ending {
 		// No Run, or one that is writing its end: an abort_requested after
 		// run_ended would say the Abort came after the Run.
-		a.runMu.Unlock()
+		a.run.mu.Unlock()
 		return false
 	}
-	if !a.runOpen {
+	if !a.run.open {
 		// The Run's run_started is not written yet, and an abort_requested
 		// before it would name a Run that has not begun: the Run only stops,
 		// and the write of run_started adds the Event (see openSpan).
-		a.abortBeforeStart = true
-		a.runMu.Unlock()
+		a.run.abortBeforeStart = true
+		a.run.mu.Unlock()
 		stop()
 		return true
 	}
 	// The Run stops at once; the Event is written beside it, and the Run's
 	// last write waits for it. It is counted while the Run cannot yet be
 	// ending.
-	a.abortMu.Lock()
-	a.aborts++
-	a.abortMu.Unlock()
-	a.runMu.Unlock()
+	a.run.aborts.Add(1)
+	a.run.mu.Unlock()
 	go func() {
+		defer a.run.aborts.Done()
 		ctx, cancel := finalContext(context.Background())
 		defer cancel()
 		_ = a.writeNow(ctx, AbortRequested{Header: a.nowHeader()})
-		a.abortMu.Lock()
-		a.aborts--
-		a.abortCond.Broadcast()
-		a.abortMu.Unlock()
 	}()
 	stop()
 	return true
-}
-
-// waitForAborts blocks until every AbortRequested write has finished.
-func (a *Session) waitForAborts() {
-	a.abortMu.Lock()
-	for a.aborts > 0 {
-		a.abortCond.Wait()
-	}
-	a.abortMu.Unlock()
 }
 
 // admissionError is the error for an operation on a Session that is closing

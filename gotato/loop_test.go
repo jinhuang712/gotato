@@ -214,7 +214,7 @@ func TestAbortAfterTheRunBeganToEndStoresNothing(t *testing.T) {
 		t.Fatal(err)
 	}
 	defer func() { _ = s.Close(context.Background()) }()
-	s.endingHook = s.Abort
+	s.run.endingHook = s.Abort
 	if _, err := s.Prompt(context.Background(), UserMessage("go")); err != nil {
 		t.Fatal(err)
 	}
@@ -345,7 +345,7 @@ func TestSteerAfterRunEndedHasNoRun(t *testing.T) {
 		}
 		rec := recordAll(t, s)
 		done := make(chan struct{})
-		s.endingHook = func() { go func() { _ = s.Steer(context.Background(), UserMessage("late")); close(done) }() }
+		s.run.endingHook = func() { go func() { _ = s.Steer(context.Background(), UserMessage("late")); close(done) }() }
 		if _, err := s.Prompt(context.Background(), UserMessage("go")); err != nil {
 			t.Fatal(err)
 		}

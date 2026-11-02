@@ -39,9 +39,9 @@ func (a *Session) nowHeader() Header {
 // runHeader returns the Header of an Event that the Session goroutine stages
 // in the Run in flight.
 func (a *Session) runHeader() Header {
-	a.runMu.Lock()
-	defer a.runMu.Unlock()
-	return NewHeader(a.id, a.currentRunID, a.currentTurn)
+	a.run.mu.Lock()
+	defer a.run.mu.Unlock()
+	return NewHeader(a.id, a.run.id, a.run.turn)
 }
 
 // stage queues stored Events of the step in progress. They ride the write of
@@ -126,22 +126,22 @@ func (a *Session) writeEvents(ctx context.Context, events []Event) ([]Event, *Ru
 // events hold its run_started, and returns the Events to write. An Abort that
 // came before the span opened is written right after run_started, in the same
 // write.
-// [CONCURRENCY] caller holds events.mu; the span opens and abortBeforeStart is read in one runMu step, so an Abort either sees the span open or is written here.
+// [CONCURRENCY] caller holds events.mu; the span opens and abortBeforeStart is read in one run.mu step, so an Abort either sees the span open or is written here.
 func (a *Session) openSpan(events []Event) []Event {
-	a.runMu.Lock()
-	defer a.runMu.Unlock()
+	a.run.mu.Lock()
+	defer a.run.mu.Unlock()
 	out := make([]Event, 0, len(events)+1)
 	for _, event := range events {
-		if event.Head().RunID == "" && a.runOpen {
-			run, turn := a.currentRunID, a.currentTurn
+		if event.Head().RunID == "" && a.run.open {
+			run, turn := a.run.id, a.run.turn
 			event = withHeader(event, func(h *Header) { h.RunID, h.Turn = run, turn })
 		}
 		out = append(out, event)
 		if event.Kind() == EventKindRunStarted {
-			a.runOpen = true
-			if a.abortBeforeStart {
-				a.abortBeforeStart = false
-				out = append(out, AbortRequested{Header: NewHeader(a.id, a.currentRunID, 0)})
+			a.run.open = true
+			if a.run.abortBeforeStart {
+				a.run.abortBeforeStart = false
+				out = append(out, AbortRequested{Header: NewHeader(a.id, a.run.id, 0)})
 			}
 		}
 	}
@@ -154,9 +154,9 @@ func (a *Session) openSpan(events []Event) []Event {
 func (a *Session) closeSpan(events []Event) {
 	for _, event := range events {
 		if event.Kind() == EventKindRunEnded {
-			a.runMu.Lock()
-			a.runOpen = false
-			a.runMu.Unlock()
+			a.run.mu.Lock()
+			a.run.open = false
+			a.run.mu.Unlock()
 			return
 		}
 	}
@@ -179,7 +179,7 @@ func (a *Session) deltaHeader(runID RunID, turn TurnNumber) Header {
 // reportExtension stores an ExtensionFailed Event for an advisory extension
 // that failed during a Run, on the Session goroutine.
 func (a *Session) reportExtension(stage string, failure *RuntimeError) {
-	if !a.inRun.Load() {
+	if !a.run.inRun.Load() {
 		return
 	}
 	a.stage(ExtensionFailed{Header: a.runHeader(), Stage: stage, Code: failure.Code})

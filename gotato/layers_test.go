@@ -67,6 +67,7 @@ var fileLayer = map[string]int{
 	"reply.go":            layerSession,
 	"request.go":          layerSession,
 	"session.go":          layerSession,
+	"sessionrun.go":       layerSession,
 	"sessionlifecycle.go": layerSession,
 	"sessionoptions.go":   layerSession,
 	"spill.go":            layerSession,

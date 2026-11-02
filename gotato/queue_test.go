@@ -16,7 +16,7 @@ func TestTakeQueuedKeepsAcceptanceOrderAcrossQueues(t *testing.T) {
 	}
 	defer func() { _ = first.Close(context.Background()) }()
 	// Accepted after the Run's last point of taking messages.
-	first.endingHook = func() {
+	first.run.endingHook = func() {
 		for _, send := range []func(context.Context, Message) error{first.FollowUp, first.Steer, first.FollowUp} {
 			if err := send(context.Background(), UserMessage("m")); err != nil {
 				t.Error(err)
