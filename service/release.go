@@ -75,7 +75,7 @@ func (r *Runner) repairReleases() {
 // a Session with a Run on it is not waited for and stays marked. It reports
 // whether the Session needs no more attempts.
 func (r *Runner) repairRelease(ctx context.Context, sessionID string) bool {
-	record, err := session.Open(ctx, r.store, sessionID)
+	record, err := session.Open(ctx, r.store.Records, sessionID)
 	if err != nil {
 		// A Session that is gone has nothing to release.
 		return errors.Is(err, session.ErrNotFound)

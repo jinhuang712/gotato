@@ -23,11 +23,6 @@ func AbortRun(id gotato.RunID) AbortOption {
 	return func(c *abortConfig) { c.runID = id }
 }
 
-// ListOption configures Sessions. It has no option yet.
-type ListOption func(*listConfig)
-
-type listConfig struct{}
-
 // EventsOption configures Runner.Events. It has no option yet.
 type EventsOption func(*eventsConfig)
 

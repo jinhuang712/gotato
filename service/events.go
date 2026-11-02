@@ -33,7 +33,7 @@ func (r *Runner) acquireFeed(key feedKey, agent string) *gotato.Feed {
 	defer r.feedsMu.Unlock()
 	entry := r.feeds[key]
 	if entry == nil {
-		feed := gotato.NewFeed(storeSource{store: r.store, id: key.id})
+		feed := gotato.NewFeed(storeSource{store: r.store.Records, id: key.id})
 		feed.MirrorTo(r.instanceFeed)
 		entry = &sessionFeed{feed: feed}
 		r.feeds[key] = entry
@@ -99,7 +99,7 @@ func (r *Runner) notice(event gotato.Event, agent string) {
 // storeSource reads a Session's stored Events again from the store, for a
 // subscriber that fell behind or that starts after a number.
 type storeSource struct {
-	store session.Store
+	store session.Records
 	id    string
 }
 

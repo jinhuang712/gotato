@@ -12,8 +12,8 @@ import (
 // (SpilledResult, SegmentSource) keeps the epoch, so that a Record deleted and
 // created again under the same ID is not read as the one the reference meant.
 // It is false when there is no Record under id. An empty epoch is a reference
-// that has none, and any Record under id is then the same. A log that is not a
-// Store is asked for the Record's first Entry, and when that was removed, or
+// that has none, and any Record under id is then the same. A log that is not
+// Records is asked for the Record's first Entry, and when that was removed, or
 // holds no epoch, the answer is false.
 func SameRecord(ctx context.Context, log EntryLog, id, epoch string) (bool, error) {
 	if epoch == "" {
@@ -26,9 +26,9 @@ func SameRecord(ctx context.Context, log EntryLog, id, epoch string) (bool, erro
 		if errors.Is(err, ErrNotFound) {
 			return false, nil
 		}
-		return err == nil && loaded.Info.RecordEpoch == epoch, err
+		return err == nil && loaded.Header.Epoch == epoch, err
 	}
-	// [CONTRACT] an EntryLog that is not a Store has no Load; the exported seam is asked for the first Entry.
+	// [CONTRACT] an EntryLog that is not Records has no Load; the exported seam is asked for the first Entry.
 	entries, err := log.Log(ctx, id, 0, 1)
 	if errors.Is(err, ErrNotFound) {
 		return false, nil

@@ -32,7 +32,7 @@ func TestRunDisposesOfTheLiveSession(t *testing.T) {
 	if runner.ActiveRuns() != 0 {
 		t.Fatalf("active runs after completion = %d", runner.ActiveRuns())
 	}
-	s, err := session.View(ctx, store, first.SessionID)
+	s, err := session.View(ctx, store.Records, first.SessionID)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -52,7 +52,7 @@ func TestRunDisposesOfTheLiveSession(t *testing.T) {
 	if runs := s.Runs(); len(runs) != 1 {
 		t.Fatalf("stale handle should not see the second run: %d", len(runs))
 	}
-	fresh, _ := session.View(ctx, store, first.SessionID)
+	fresh, _ := session.View(ctx, store.Records, first.SessionID)
 	if len(fresh.Runs()) != 2 {
 		t.Fatalf("store has %d runs, want 2", len(fresh.Runs()))
 	}
@@ -96,7 +96,7 @@ func TestSpecsToolsAndSessionOverrides(t *testing.T) {
 			t.Fatalf("a request carries a panel: %+v", message)
 		}
 	}
-	stored, _ := session.View(ctx, store, s.ID())
+	stored, _ := session.View(ctx, store.Records, s.ID())
 	if len(stored.Messages()) != 4 {
 		t.Fatalf("stored %d messages, want 4", len(stored.Messages()))
 	}
@@ -148,7 +148,7 @@ func TestStreamRunInspectCompactFork(t *testing.T) {
 	if err != nil || child.ParentID() != result.SessionID || child.Len() != 8 || len(child.Segments()) != 1 {
 		t.Fatalf("fork = %v err=%v", child, err)
 	}
-	if _, err := session.View(ctx, store, child.ID()); err != nil {
+	if _, err := session.View(ctx, store.Records, child.ID()); err != nil {
 		t.Fatal("fork not saved")
 	}
 	if _, err := runner.Inspect(ctx, "missing", service.InspectConfig{}); !errors.Is(err, session.ErrNotFound) {
@@ -171,7 +171,7 @@ func TestAutoCompactFromSpecAndSession(t *testing.T) {
 	if !last.Compacted {
 		t.Fatalf("spec compaction never triggered: %+v", last)
 	}
-	s, _ := session.View(ctx, store, last.SessionID)
+	s, _ := session.View(ctx, store.Records, last.SessionID)
 	if len(s.Compactions()) == 0 {
 		t.Fatal("no compaction recorded")
 	}
@@ -195,7 +195,7 @@ func TestCallerCancelReportsCanceled(t *testing.T) {
 	if result.Result.Status != gotato.RunStatusCanceled {
 		t.Fatalf("caller cancel status = %q err=%v, want canceled", result.Result.Status, result.Result.Error)
 	}
-	stored, err := session.View(context.Background(), store, result.SessionID)
+	stored, err := session.View(context.Background(), store.Records, result.SessionID)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -208,7 +208,7 @@ func TestCallerCancelReportsCanceled(t *testing.T) {
 
 // countingStore wraps a Store and counts its loads.
 type countingStore struct {
-	session.Store
+	parts
 	mu   sync.Mutex
 	gets int
 }
@@ -217,12 +217,12 @@ func (s *countingStore) Load(ctx context.Context, id string) (session.Loaded, er
 	s.mu.Lock()
 	s.gets++
 	s.mu.Unlock()
-	return s.Store.Load(ctx, id)
+	return s.parts.Load(ctx, id)
 }
 
 func TestRunLoadsTheSessionOnce(t *testing.T) {
-	store := &countingStore{Store: session.NewMemoryStore()}
-	runner, err := service.New(service.Config{Store: store, Agents: []service.Agent{{Name: "echo", Model: testkit.EchoModel{}}}})
+	store := &countingStore{parts: partsOf(memStore())}
+	runner, err := service.New(service.Config{Store: asStore(store), Agents: []service.Agent{{Name: "echo", Model: testkit.EchoModel{}}}})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -274,7 +274,7 @@ func TestCanceledRunKeepsItsRunID(t *testing.T) {
 	if result.Result.Status != gotato.RunStatusCanceled || result.Result.RunID != runID || result.Result.Metrics.Turns != 1 {
 		t.Fatalf("canceled result = %+v, want status canceled, RunID %s, one Turn", result.Result, runID)
 	}
-	saved, err := session.View(ctx, store, s.ID())
+	saved, err := session.View(ctx, store.Records, s.ID())
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -297,7 +297,7 @@ func TestRunUpdateSetsMetadataUnlessSkipSave(t *testing.T) {
 	if _, err := runner.Run(ctx, service.RunRequest{SessionID: s.ID(), Prompt: "hi", Update: map[string]string{"team": "billing"}, SkipSave: true}); err != nil {
 		t.Fatal(err)
 	}
-	stored, err := session.View(ctx, store, s.ID())
+	stored, err := session.View(ctx, store.Records, s.ID())
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -318,7 +318,7 @@ func TestRunRefusedForItsAgentDoesNotApplyTheUpdate(t *testing.T) {
 	if !errors.Is(err, service.ErrUnknownAgent) {
 		t.Fatalf("err = %v, want ErrUnknownAgent", err)
 	}
-	stored, err := session.View(ctx, store, s.ID())
+	stored, err := session.View(ctx, store.Records, s.ID())
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -360,7 +360,7 @@ func TestStreamRunAdmittedCallsAdmittedWithANilSink(t *testing.T) {
 // Store can run its next message.
 func ExampleRunner_Run() {
 	runner, err := service.New(service.Config{
-		Store:  session.NewMemoryStore(), // session.NewFileStore(dir), or your own session.Store
+		Store:  memStore(), // session.NewFileStore(dir), or your own session.Store
 		Agents: []service.Agent{{Name: "default", Model: testkit.EchoModel{}}},
 	})
 	if err != nil {
@@ -404,7 +404,7 @@ func thinkingReply(text string) testkit.Script {
 
 func storedReasoning(t *testing.T, store session.Store, id string) int {
 	t.Helper()
-	s, err := session.Open(context.Background(), store, id)
+	s, err := session.Open(context.Background(), store.Records, id)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -546,7 +546,7 @@ func TestAnAgentTurnsTheModelsRecapOnAndItAsksOnTheNextCallsContext(t *testing.T
 	if sent[0].CacheKey == "" || sent[0].CacheKey != before.Request.CacheKey {
 		t.Errorf("cache key = %q, want %q", sent[0].CacheKey, before.Request.CacheKey)
 	}
-	record, err := session.View(ctx, store, id)
+	record, err := session.View(ctx, store.Records, id)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -585,7 +585,7 @@ func TestACompactionPastTheCeilingWritesTheRecapWithTheModelWhenTheAgentAsks(t *
 			t.Fatal(err)
 		}
 	}
-	record, err := session.View(ctx, store, last.SessionID)
+	record, err := session.View(ctx, store.Records, last.SessionID)
 	if err != nil || len(record.Compactions()) == 0 {
 		t.Fatalf("no compaction: %v", err)
 	}
@@ -650,7 +650,7 @@ func TestSkipSaveRunDoesNotUseRecordNumbers(t *testing.T) {
 	if len(stored) == 0 || stored[0].Head().Number != 1 {
 		t.Fatalf("the unsaved Run's first stored Event is numbered %v, want 1: its numbers are not Record positions", numbered(stored))
 	}
-	if after, err := session.StoredEvents(ctx, store, first.SessionID, head, 0); err != nil || len(after) != 0 {
+	if after, err := session.StoredEvents(ctx, store.Records, first.SessionID, head, 0); err != nil || len(after) != 0 {
 		t.Fatalf("the unsaved Run wrote %d Events (%v)", len(after), err)
 	}
 

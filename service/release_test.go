@@ -14,7 +14,7 @@ import (
 // loadCountStore counts the Loads that reach the Store. A repair pass opens
 // each marked Session from the store, so the count says whether a mark stood.
 type loadCountStore struct {
-	session.Store
+	parts
 	loads atomic.Int32
 	hook  func()
 }
@@ -24,15 +24,15 @@ func (s *loadCountStore) Load(ctx context.Context, id string) (session.Loaded, e
 	if s.hook != nil {
 		s.hook()
 	}
-	return s.Store.Load(ctx, id)
+	return s.parts.Load(ctx, id)
 }
 
 // A Run that holds the Session lock may be the one that marked the Session
 // (settle runs inside the lock). The repair pass finds the lock busy and must
 // keep the mark, not forget the Session: the next pass looks at it again.
 func TestRepairKeepsTheMarkOfASessionWhoseRunStillHoldsTheLock(t *testing.T) {
-	store := &loadCountStore{Store: session.NewMemoryStore()}
-	runner, id, hold, done := holdBeforeReleaseOn(t, store)
+	store := &loadCountStore{parts: partsOf(memStore())}
+	runner, id, hold, done := holdBeforeReleaseOn(t, asStore(store))
 	runner.MarkUnreleased(id)
 	runner.RepairReleases()
 	close(hold.proceed)
@@ -49,8 +49,8 @@ func TestRepairKeepsTheMarkOfASessionWhoseRunStillHoldsTheLock(t *testing.T) {
 // A mark set while a repair attempt is under way is a new failure, and the
 // attempt's success must not erase it.
 func TestRepairDoesNotEraseAMarkSetDuringTheAttempt(t *testing.T) {
-	store := &loadCountStore{Store: session.NewMemoryStore()}
-	runner, err := service.New(service.Config{Store: store, Agents: []service.Agent{{Name: "echo", Model: testkit.EchoModel{}}},
+	store := &loadCountStore{parts: partsOf(memStore())}
+	runner, err := service.New(service.Config{Store: asStore(store), Agents: []service.Agent{{Name: "echo", Model: testkit.EchoModel{}}},
 		Liveness: service.Liveness{TTL: time.Minute}})
 	if err != nil {
 		t.Fatal(err)
@@ -80,8 +80,8 @@ func TestRepairDoesNotEraseAMarkSetDuringTheAttempt(t *testing.T) {
 // A release that finds the Session gone is not ours to repair: nothing is
 // marked, so the next repair pass opens nothing from the store.
 func TestAReleaseThatLostTheRecordIsNotMarkedForRepair(t *testing.T) {
-	store := &loadCountStore{Store: session.NewMemoryStore()}
-	runner, id, hold, done := holdBeforeReleaseOn(t, store)
+	store := &loadCountStore{parts: partsOf(memStore())}
+	runner, id, hold, done := holdBeforeReleaseOn(t, asStore(store))
 	if err := store.Delete(context.Background(), id); err != nil {
 		t.Fatal(err)
 	}
@@ -97,12 +97,12 @@ func TestAReleaseThatLostTheRecordIsNotMarkedForRepair(t *testing.T) {
 // lostAckStore applies an Append and then reports it failed, as a store does
 // when the write lands and its answer is lost.
 type lostAckStore struct {
-	session.Store
+	parts
 	armed atomic.Bool
 }
 
-func (s *lostAckStore) Append(ctx context.Context, id string, after uint64, entries []session.Entry, summary session.RecordInfo) error {
-	err := s.Store.Append(ctx, id, after, entries, summary)
+func (s *lostAckStore) Append(ctx context.Context, id string, after uint64, entries []session.Entry, summary session.Header) error {
+	err := s.parts.Append(ctx, id, after, entries, summary)
 	if err == nil && s.armed.Load() {
 		return errConnReset
 	}
@@ -113,8 +113,8 @@ func (s *lostAckStore) Append(ctx context.Context, id string, after uint64, entr
 // the repair pass must give it back, or the Session stays busy for good.
 func TestAClaimThatLandedWithNoWriterIsGivenBackByTheRepair(t *testing.T) {
 	ctx := context.Background()
-	store := &lostAckStore{Store: session.NewMemoryStore()}
-	a := instanceRunner(t, store, "instance-a", testkit.EchoModel{}, steadyLiveness)
+	store := &lostAckStore{parts: partsOf(memStore())}
+	a := instanceRunner(t, asStore(store), "instance-a", testkit.EchoModel{}, steadyLiveness)
 	s, err := a.CreateSession(ctx, "echo", nil)
 	if err != nil {
 		t.Fatal(err)
@@ -129,7 +129,7 @@ func TestAClaimThatLandedWithNoWriterIsGivenBackByTheRepair(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if loaded.Info.Busy || loaded.Info.Running != "" {
-		t.Fatalf("the Session is still held after the repair: %+v", loaded.Info)
+	if stateOf(loaded).Busy || stateOf(loaded).Running != "" {
+		t.Fatalf("the Session is still held after the repair: %+v", loaded.Header.Info)
 	}
 }

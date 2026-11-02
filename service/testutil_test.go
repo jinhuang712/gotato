@@ -19,7 +19,7 @@ import (
 
 func newRunner(t *testing.T, specs ...service.Agent) (*service.Runner, session.Store) {
 	t.Helper()
-	store := session.NewMemoryStore()
+	store := memStore()
 	if len(specs) == 0 {
 		specs = []service.Agent{{Name: "echo", Model: testkit.EchoModel{}, ModelName: "echo"}}
 	}
@@ -68,7 +68,7 @@ var errConnReset = errors.New("connection reset")
 // faultStore fails the store calls a test names with a raw error, and passes
 // the others through. A test turns a call on and off while Runs go on.
 type faultStore struct {
-	session.Store
+	parts
 	mu   sync.Mutex
 	down map[string]bool
 }
@@ -94,49 +94,49 @@ func (s *faultStore) Load(ctx context.Context, id string) (session.Loaded, error
 	if s.failing("Load") {
 		return session.Loaded{}, errConnReset
 	}
-	return s.Store.Load(ctx, id)
+	return s.parts.Load(ctx, id)
 }
 
-func (s *faultStore) Create(ctx context.Context, id string, entries []session.Entry, summary session.RecordInfo) error {
+func (s *faultStore) Create(ctx context.Context, id string, entries []session.Entry, summary session.Header) error {
 	if s.failing("Create") {
 		return errConnReset
 	}
-	return s.Store.Create(ctx, id, entries, summary)
+	return s.parts.Create(ctx, id, entries, summary)
 }
 
-func (s *faultStore) Append(ctx context.Context, id string, after uint64, entries []session.Entry, summary session.RecordInfo) error {
+func (s *faultStore) Append(ctx context.Context, id string, after uint64, entries []session.Entry, summary session.Header) error {
 	if s.failing("Append") {
 		return errConnReset
 	}
-	return s.Store.Append(ctx, id, after, entries, summary)
+	return s.parts.Append(ctx, id, after, entries, summary)
 }
 
 func (s *faultStore) Beat(ctx context.Context, row session.InstanceRow, ttl time.Duration) error {
 	if s.failing("Beat") {
 		return errConnReset
 	}
-	return s.Store.Beat(ctx, row, ttl)
+	return s.parts.Beat(ctx, row, ttl)
 }
 
 func (s *faultStore) Delete(ctx context.Context, id string) error {
 	if s.failing("Delete") {
 		return errConnReset
 	}
-	return s.Store.Delete(ctx, id)
+	return s.parts.Delete(ctx, id)
 }
 
 func (s *faultStore) Log(ctx context.Context, id string, after uint64, limit int) ([]session.Entry, error) {
 	if s.failing("Log") {
 		return nil, errConnReset
 	}
-	return s.Store.Log(ctx, id, after, limit)
+	return s.parts.Log(ctx, id, after, limit)
 }
 
 func (s *faultStore) Instance(ctx context.Context, id string) (session.InstanceState, error) {
 	if s.failing("Instance") {
 		return session.InstanceState{}, errConnReset
 	}
-	return s.Store.Instance(ctx, id)
+	return s.parts.Instance(ctx, id)
 }
 
 // watchedStore tells a test what a stream's catch-up has read, so the test
@@ -145,14 +145,14 @@ func (s *faultStore) Instance(ctx context.Context, id string) (session.InstanceS
 // Load that checks the Record's epoch, then a Log read that returns nothing,
 // after which the stream is live.
 type watchedStore struct {
-	session.Store
+	parts
 	batches    atomic.Int64 // Log reads that returned Entries
 	emptyReads atomic.Int64 // Log reads that returned none
 	verifies   atomic.Int64 // Loads since the last batch
 }
 
 func (w *watchedStore) Log(ctx context.Context, id string, after uint64, limit int) ([]session.Entry, error) {
-	entries, err := w.Store.Log(ctx, id, after, limit)
+	entries, err := w.parts.Log(ctx, id, after, limit)
 	if err == nil {
 		if len(entries) == 0 {
 			w.emptyReads.Add(1)
@@ -165,7 +165,7 @@ func (w *watchedStore) Log(ctx context.Context, id string, after uint64, limit i
 }
 
 func (w *watchedStore) Load(ctx context.Context, id string) (session.Loaded, error) {
-	loaded, err := w.Store.Load(ctx, id)
+	loaded, err := w.parts.Load(ctx, id)
 	w.verifies.Add(1)
 	return loaded, err
 }
@@ -226,7 +226,7 @@ func waitChan(t *testing.T, what string, ch <-chan struct{}) {
 // kindGate blocks, once per kind, the first Append that carries an Entry of
 // that kind, until the test lets it go.
 type kindGate struct {
-	session.Store
+	parts
 	mu    sync.Mutex
 	holds map[gotato.EventKind]*hold
 }
@@ -234,14 +234,14 @@ type kindGate struct {
 type hold struct{ entered, proceed chan struct{} }
 
 func newKindGate(store session.Store, kinds ...gotato.EventKind) *kindGate {
-	g := &kindGate{Store: store, holds: map[gotato.EventKind]*hold{}}
+	g := &kindGate{parts: partsOf(store), holds: map[gotato.EventKind]*hold{}}
 	for _, k := range kinds {
 		g.holds[k] = &hold{entered: make(chan struct{}), proceed: make(chan struct{})}
 	}
 	return g
 }
 
-func (s *kindGate) Append(ctx context.Context, id string, after uint64, entries []session.Entry, info session.RecordInfo) error {
+func (s *kindGate) Append(ctx context.Context, id string, after uint64, entries []session.Entry, info session.Header) error {
 	var hit *hold
 	s.mu.Lock()
 	for _, e := range entries {
@@ -256,7 +256,7 @@ func (s *kindGate) Append(ctx context.Context, id string, after uint64, entries 
 		close(hit.entered)
 		<-hit.proceed
 	}
-	return s.Store.Append(ctx, id, after, entries, info)
+	return s.parts.Append(ctx, id, after, entries, info)
 }
 
 type filesToolSet struct{}
@@ -366,7 +366,7 @@ func (c *fakeClock) Advance(d time.Duration) {
 
 // tallyStore counts the reads and writes of a Store.
 type tallyStore struct {
-	session.Store
+	parts
 	mu      sync.Mutex
 	loads   int
 	appends int
@@ -380,10 +380,10 @@ func (s *tallyStore) Load(ctx context.Context, id string) (session.Loaded, error
 	s.mu.Lock()
 	s.loads++
 	s.mu.Unlock()
-	return s.Store.Load(ctx, id)
+	return s.parts.Load(ctx, id)
 }
 
-func (s *tallyStore) Append(ctx context.Context, id string, after uint64, entries []session.Entry, summary session.RecordInfo) error {
+func (s *tallyStore) Append(ctx context.Context, id string, after uint64, entries []session.Entry, summary session.Header) error {
 	s.mu.Lock()
 	s.appends++
 	fail := false
@@ -399,7 +399,7 @@ func (s *tallyStore) Append(ctx context.Context, id string, after uint64, entrie
 	if fail {
 		return errors.New("the store could not write the checkpoint")
 	}
-	err := s.Store.Append(ctx, id, after, entries, summary)
+	err := s.parts.Append(ctx, id, after, entries, summary)
 	if errors.Is(err, session.ErrConflict) {
 		s.mu.Lock()
 		s.conflicts++
@@ -437,7 +437,7 @@ func runOn(t *testing.T, runner *service.Runner, id, prompt string) service.RunR
 
 func storedKinds(t *testing.T, store session.Store, id string) []gotato.EventKind {
 	t.Helper()
-	events, err := session.StoredEvents(context.Background(), store, id, 0, 0)
+	events, err := session.StoredEvents(context.Background(), store.Records, id, 0, 0)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -519,7 +519,7 @@ func (m *gatedEcho) Config() gotato.ModelConfig { return gotato.ModelConfig{} }
 func sharedStores(t *testing.T, kind string) func() session.Store {
 	t.Helper()
 	if kind == "memory" {
-		backing := session.NewMemoryStore()
+		backing := memStore()
 		return func() session.Store { return backing }
 	}
 	dir := t.TempDir()
@@ -528,7 +528,7 @@ func sharedStores(t *testing.T, kind string) func() session.Store {
 		if err != nil {
 			t.Fatal(err)
 		}
-		return store
+		return asStore(store)
 	}
 }
 
@@ -537,7 +537,7 @@ func sharedStores(t *testing.T, kind string) func() session.Store {
 func checkReleased(t *testing.T, store session.Store, id, instance string) {
 	t.Helper()
 	ctx := context.Background()
-	entries, err := store.Log(ctx, id, 0, 0)
+	entries, err := store.Records.Log(ctx, id, 0, 0)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -553,8 +553,8 @@ func checkReleased(t *testing.T, store session.Store, id, instance string) {
 	if runEnd.Seq == 0 || release.Seq < runEnd.Seq || !isInstance(release.Instance, instance) {
 		t.Fatalf("Session %s: run_ended at %d, release at %d by %q; want a release by %s after the Run", id, runEnd.Seq, release.Seq, release.Instance, instance)
 	}
-	if loaded, err := store.Load(ctx, id); err != nil || loaded.Info.Busy || loaded.Info.Running != "" {
-		t.Fatalf("Session %s summary = %+v, %v; want idle", id, loaded.Info, err)
+	if loaded, err := store.Records.Load(ctx, id); err != nil || stateOf(loaded).Busy || stateOf(loaded).Running != "" {
+		t.Fatalf("Session %s summary = %+v, %v; want idle", id, loaded.Header.Info, err)
 	}
 }
 
@@ -609,29 +609,29 @@ func (m *gateModel) Config() gotato.ModelConfig { return gotato.ModelConfig{} }
 
 // killableStore stops every write and renewal once its instance is killed.
 type killableStore struct {
-	session.Store
+	parts
 	dead atomic.Bool
 }
 
-func (s *killableStore) Create(ctx context.Context, id string, entries []session.Entry, summary session.RecordInfo) error {
+func (s *killableStore) Create(ctx context.Context, id string, entries []session.Entry, summary session.Header) error {
 	if s.dead.Load() {
 		return errKilled
 	}
-	return s.Store.Create(ctx, id, entries, summary)
+	return s.parts.Create(ctx, id, entries, summary)
 }
 
-func (s *killableStore) Append(ctx context.Context, id string, after uint64, entries []session.Entry, summary session.RecordInfo) error {
+func (s *killableStore) Append(ctx context.Context, id string, after uint64, entries []session.Entry, summary session.Header) error {
 	if s.dead.Load() {
 		return errKilled
 	}
-	return s.Store.Append(ctx, id, after, entries, summary)
+	return s.parts.Append(ctx, id, after, entries, summary)
 }
 
 func (s *killableStore) Beat(ctx context.Context, row session.InstanceRow, ttl time.Duration) error {
 	if s.dead.Load() {
 		return errKilled
 	}
-	return s.Store.Beat(ctx, row, ttl)
+	return s.parts.Beat(ctx, row, ttl)
 }
 
 // ownerModel answers "<instance>: <prompt>", after checking in the store
@@ -652,7 +652,7 @@ func (m ownerModel) Stream(ctx context.Context, request gotato.ModelRequest) (go
 	m.calls.Add(1)
 	prompt := gotato.TextOf(request.Messages[len(request.Messages)-1])
 	id, _, _ := strings.Cut(prompt, "/")
-	stored, err := session.Open(ctx, m.store, id)
+	stored, err := session.Open(ctx, m.store.Records, id)
 	if err != nil {
 		return nil, err
 	}
@@ -943,7 +943,7 @@ func numbered(events []gotato.Event) []string {
 
 // failingSaveStore wraps a Store and fails the write that ends a Run.
 type failingSaveStore struct {
-	session.Store
+	parts
 	mu    sync.Mutex
 	saves int
 	// failFinal fails the write that ends a Run: the one holding run_ended.
@@ -967,18 +967,18 @@ func (s *failingSaveStore) fail(entries []session.Entry) bool {
 	return false
 }
 
-func (s *failingSaveStore) Create(ctx context.Context, id string, entries []session.Entry, summary session.RecordInfo) error {
+func (s *failingSaveStore) Create(ctx context.Context, id string, entries []session.Entry, summary session.Header) error {
 	if s.fail(entries) {
 		return errors.New("store: disk full")
 	}
-	return s.Store.Create(ctx, id, entries, summary)
+	return s.parts.Create(ctx, id, entries, summary)
 }
 
-func (s *failingSaveStore) Append(ctx context.Context, id string, after uint64, entries []session.Entry, summary session.RecordInfo) error {
+func (s *failingSaveStore) Append(ctx context.Context, id string, after uint64, entries []session.Entry, summary session.Header) error {
 	if s.fail(entries) {
 		return errors.New("store: disk full")
 	}
-	return s.Store.Append(ctx, id, after, entries, summary)
+	return s.parts.Append(ctx, id, after, entries, summary)
 }
 
 const agentRecap = "## What happened\n- the user asked three things\n## Key facts\n- order 42 is shipped\n"

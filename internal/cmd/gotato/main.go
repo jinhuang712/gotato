@@ -228,14 +228,35 @@ func (c *cli) store() (session.Store, string, error) {
 		} else {
 			userHome, err := os.UserHomeDir()
 			if err != nil {
-				return nil, "", err
+				return session.Store{}, "", err
 			}
 			dir = filepath.Join(userHome, ".gotato", "sessions")
 		}
 	}
 	store, err := session.NewFileStore(dir)
 	if err != nil {
-		return nil, dir, err
+		return session.Store{}, dir, err
 	}
-	return store, dir, nil
+	return session.Store{Records: store, Liveness: store}, dir, nil
+}
+
+// listAll reads every page of the store's listing.
+func listAll(ctx context.Context, store session.Store) ([]session.RecordInfo, error) {
+	lister, ok := store.Records.(session.Lister)
+	if !ok {
+		return nil, errors.New("the store does not list Sessions")
+	}
+	var all []session.RecordInfo
+	var q session.ListQuery
+	for {
+		page, err := lister.List(ctx, q)
+		if err != nil {
+			return nil, err
+		}
+		all = append(all, page.Infos...)
+		if page.Next == "" {
+			return all, nil
+		}
+		q.Cursor = page.Next
+	}
 }

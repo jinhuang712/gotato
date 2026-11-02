@@ -24,7 +24,7 @@
 //	GET    /readyz                          readiness: 200, or 503 while draining {ok, draining, active_runs, active_sessions}
 //	GET    /v1/agents                       200 {agents: [name], max_effect: {name: effect}}
 //	POST   /v1/sessions                     {agent?, id?, metadata?}      → 201 session summary; 409 if id exists
-//	GET    /v1/sessions                     → 200 [summary]
+//	GET    /v1/sessions?limit=N&cursor=C    → 200 {sessions: [listing columns], next?}; 400 not_supported when the store does not list
 //	GET    /v1/sessions/{id}                → 200 session document
 //	DELETE /v1/sessions/{id}                → 200 {id, deleted}
 //	POST   /v1/sessions/{id}/fork           → 201 summary of the fork

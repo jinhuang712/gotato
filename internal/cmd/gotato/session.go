@@ -220,7 +220,7 @@ func (c *cli) sessionList(args []string) int {
 	if err != nil {
 		return c.failErr(err)
 	}
-	list, err := store.List(ctx)
+	list, err := listAll(ctx, store)
 	if err != nil {
 		return c.failErr(err)
 	}
@@ -256,7 +256,7 @@ func (c *cli) loadSession(args []string, name string) (*session.Record, context.
 		cancel()
 		return nil, nil, nil, c.failErr(err)
 	}
-	s, err := session.View(ctx, store, positionals[0])
+	s, err := session.View(ctx, store.Records, positionals[0])
 	if err != nil {
 		cancel()
 		return nil, nil, nil, c.failErr(err)

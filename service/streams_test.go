@@ -25,19 +25,19 @@ func TestStreamSessionGoesOnAfterANumber(t *testing.T) {
 		t.Fatal(err)
 	}
 	id := first.SessionID
-	loaded, err := store.Load(ctx, id)
+	loaded, err := store.Records.Load(ctx, id)
 	if err != nil {
 		t.Fatal(err)
 	}
-	head := loaded.Head
+	head := loaded.Seq
 
 	stream, err := runner.StreamSession(ctx, id, service.StreamFrom{After: 3})
 	if err != nil {
 		t.Fatal(err)
 	}
 	defer func() { _ = stream.Close() }()
-	if stream.RecordEpoch == "" || stream.RecordEpoch != first.RecordEpoch || stream.RecordEpoch != loaded.Info.RecordEpoch {
-		t.Fatalf("stream epoch %q, the Run's %q, the store's %q", stream.RecordEpoch, first.RecordEpoch, loaded.Info.RecordEpoch)
+	if stream.RecordEpoch == "" || stream.RecordEpoch != first.RecordEpoch || stream.RecordEpoch != loaded.Header.Epoch {
+		t.Fatalf("stream epoch %q, the Run's %q, the store's %q", stream.RecordEpoch, first.RecordEpoch, loaded.Header.Epoch)
 	}
 	if stream.Head != head {
 		t.Fatalf("stream head = %d, want %d", stream.Head, head)
@@ -71,7 +71,7 @@ func TestStreamSessionRefusesAPositionItCannotResume(t *testing.T) {
 		t.Fatal(err)
 	}
 	id := first.SessionID
-	loaded, _ := store.Load(ctx, id)
+	loaded, _ := store.Records.Load(ctx, id)
 
 	if _, err := runner.StreamSession(ctx, id, service.StreamFrom{After: 2, RecordEpoch: first.RecordEpoch}); err != nil {
 		t.Fatalf("the right epoch: %v", err)
@@ -82,7 +82,7 @@ func TestStreamSessionRefusesAPositionItCannotResume(t *testing.T) {
 		t.Fatalf("a wrong epoch: %v, want ErrCannotResume", err)
 	}
 	// A position the Record has not reached.
-	if _, err := runner.StreamSession(ctx, id, service.StreamFrom{After: loaded.Head + 1}); !errors.Is(err, service.ErrCannotResume) {
+	if _, err := runner.StreamSession(ctx, id, service.StreamFrom{After: loaded.Seq + 1}); !errors.Is(err, service.ErrCannotResume) {
 		t.Fatalf("a position past the head: %v, want ErrCannotResume", err)
 	}
 	// A Session that does not exist.
@@ -112,7 +112,7 @@ func TestStreamSessionRefusesAPositionItCannotResume(t *testing.T) {
 // A stream on an Instance that is not the Session's writer still follows the
 // Record: the Events another Instance writes reach it.
 func TestStreamSessionFollowsAnotherInstancesWrites(t *testing.T) {
-	store := session.NewMemoryStore()
+	store := memStore()
 	build := func(name string) *service.Runner {
 		runner, err := service.New(service.Config{
 			Store: store, Instance: name, StreamPoll: 10 * time.Millisecond,
@@ -138,9 +138,9 @@ func TestStreamSessionFollowsAnotherInstancesWrites(t *testing.T) {
 	if _, err := writer.Run(ctx, service.RunRequest{SessionID: created.ID(), Prompt: "hi"}); err != nil {
 		t.Fatal(err)
 	}
-	loaded, _ := store.Load(ctx, created.ID())
-	got := readNumbers(t, stream, int(loaded.Head)-1)
-	if want := consecutive(2, int(loaded.Head)-1); !equalNumbers(got, want) {
+	loaded, _ := store.Records.Load(ctx, created.ID())
+	got := readNumbers(t, stream, int(loaded.Seq)-1)
+	if want := consecutive(2, int(loaded.Seq)-1); !equalNumbers(got, want) {
 		t.Fatalf("the reader saw %v, want %v", got, want)
 	}
 }
@@ -244,7 +244,7 @@ func replyOf(ctx context.Context, sub gotato.Subscription) (string, error) {
 func TestSessionStreamSnippetReadsTheFinalReply(t *testing.T) {
 	ctx := context.Background()
 	runner, err := service.New(service.Config{
-		Store:  session.NewMemoryStore(),
+		Store:  memStore(),
 		Agents: []service.Agent{{Name: "echo", Model: testkit.NewFakeModel(testkit.Text("hello there"))}},
 	})
 	if err != nil {
@@ -279,20 +279,20 @@ func TestSessionStreamSnippetReadsTheFinalReply(t *testing.T) {
 
 // loadCounter counts Load calls.
 type loadCounter struct {
-	session.Store
+	parts
 	loads atomic.Int64
 }
 
 func (c *loadCounter) Load(ctx context.Context, id string) (session.Loaded, error) {
 	c.loads.Add(1)
-	return c.Store.Load(ctx, id)
+	return c.parts.Load(ctx, id)
 }
 
 // An idle stream costs one Log read per look, and no Load: the epoch is checked
 // only after a read that returned Events.
 func TestIdleStreamDoesNotLoadTheSessionOnEveryLook(t *testing.T) {
-	store := &loadCounter{Store: session.NewMemoryStore()}
-	a := recreatedRunner(t, "a", store, 10*time.Millisecond)
+	store := &loadCounter{parts: partsOf(memStore())}
+	a := recreatedRunner(t, "a", asStore(store), 10*time.Millisecond)
 	ctx := context.Background()
 	first, err := a.Run(ctx, service.RunRequest{Prompt: "one"})
 	if err != nil {
@@ -316,10 +316,10 @@ func TestIdleStreamDoesNotLoadTheSessionOnEveryLook(t *testing.T) {
 // a stream never misses a stored Event, whoever wrote it.
 func TestSessionStreamHasNoGapAfterAnotherInstanceWrote(t *testing.T) {
 	ctx := context.Background()
-	store := &watchedStore{Store: session.NewMemoryStore()}
+	store := &watchedStore{parts: partsOf(memStore())}
 	liveness := steadyLiveness
-	a := instanceRunner(t, store, "a", testkit.EchoModel{}, liveness)
-	b := instanceRunner(t, store, "b", testkit.EchoModel{}, liveness)
+	a := instanceRunner(t, asStore(store), "a", testkit.EchoModel{}, liveness)
+	b := instanceRunner(t, asStore(store), "b", testkit.EchoModel{}, liveness)
 	s, err := a.CreateSession(ctx, "echo", nil)
 	if err != nil {
 		t.Fatal(err)
@@ -374,7 +374,7 @@ func TestSessionStreamHasNoGapAfterAnotherInstanceWrote(t *testing.T) {
 func TestOpenStreamEndsWhenItsSessionIsCreatedAgain(t *testing.T) {
 	for _, where := range []string{"on the same instance", "on another instance"} {
 		t.Run(where, func(t *testing.T) {
-			store := session.NewMemoryStore()
+			store := memStore()
 			build := func(name string) *service.Runner {
 				runner, err := service.New(service.Config{
 					Store: store, Instance: name, StreamPoll: 10 * time.Millisecond,
@@ -436,14 +436,14 @@ func TestOpenStreamEndsWhenItsSessionIsCreatedAgain(t *testing.T) {
 // gatedLog holds the next Log call, once armed, until it is released, and says
 // when the call has started.
 type gatedLog struct {
-	session.Store
+	parts
 	armed   atomic.Bool
 	entered chan struct{}
 	release chan struct{}
 }
 
 func newGatedLog(store session.Store) *gatedLog {
-	return &gatedLog{Store: store, entered: make(chan struct{}, 4), release: make(chan struct{})}
+	return &gatedLog{parts: partsOf(store), entered: make(chan struct{}, 4), release: make(chan struct{})}
 }
 
 func (g *gatedLog) Log(ctx context.Context, id string, after uint64, limit int) ([]session.Entry, error) {
@@ -455,7 +455,7 @@ func (g *gatedLog) Log(ctx context.Context, id string, after uint64, limit int) 
 			return nil, ctx.Err()
 		}
 	}
-	return g.Store.Log(ctx, id, after, limit)
+	return g.parts.Log(ctx, id, after, limit)
 }
 
 // recreate deletes a Session and creates it again under its ID, and runs it
@@ -480,7 +480,7 @@ func recreate(t *testing.T, runner *service.Runner, id string) {
 // Runs come to the instance that holds the stream, before any look in the
 // store: opening the new Record ends the stream.
 func TestStreamEndsWhenThisInstanceOpensARecordCreatedAgainElsewhere(t *testing.T) {
-	store := session.NewMemoryStore()
+	store := memStore()
 	a, b := recreatedRunner(t, "a", store, -1), recreatedRunner(t, "b", store, -1)
 	ctx := context.Background()
 	first, err := a.Run(ctx, service.RunRequest{Prompt: "one"})
@@ -510,9 +510,9 @@ func TestStreamEndsWhenThisInstanceOpensARecordCreatedAgainElsewhere(t *testing.
 // (b) The Record is created again while the stream's look is under way: what
 // the look read is checked after the read, so none of it is delivered.
 func TestStreamChecksTheEpochAfterTheReadNotBefore(t *testing.T) {
-	store := session.NewMemoryStore()
+	store := memStore()
 	gate := newGatedLog(store)
-	a, b := recreatedRunner(t, "a", gate, 10*time.Millisecond), recreatedRunner(t, "b", store, -1)
+	a, b := recreatedRunner(t, "a", asStore(gate), 10*time.Millisecond), recreatedRunner(t, "b", store, -1)
 	ctx := context.Background()
 	first, err := a.Run(ctx, service.RunRequest{Prompt: "one"})
 	if err != nil {
@@ -540,9 +540,9 @@ func TestStreamChecksTheEpochAfterTheReadNotBefore(t *testing.T) {
 // the read, as a look's is, so none of it is delivered. (A cut on this
 // instance is TestACutStreamEndsAtOnce.)
 func TestFirstCatchUpChecksTheEpochAfterItsRead(t *testing.T) {
-	store := session.NewMemoryStore()
+	store := memStore()
 	gate := newGatedLog(store)
-	a, b := recreatedRunner(t, "a", gate, -1), recreatedRunner(t, "b", store, -1)
+	a, b := recreatedRunner(t, "a", asStore(gate), -1), recreatedRunner(t, "b", store, -1)
 	ctx := context.Background()
 	first, err := a.Run(ctx, service.RunRequest{Prompt: "one"})
 	if err != nil {
@@ -571,7 +571,7 @@ func TestFirstCatchUpChecksTheEpochAfterItsRead(t *testing.T) {
 
 // (d) The Go API's StreamSession ends the same way.
 func TestStreamSessionEndsWhenTheSessionIsCreatedAgain(t *testing.T) {
-	store := session.NewMemoryStore()
+	store := memStore()
 	a := recreatedRunner(t, "a", store, -1)
 	ctx := context.Background()
 	first, err := a.Run(ctx, service.RunRequest{Prompt: "one"})

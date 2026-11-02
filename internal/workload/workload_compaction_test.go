@@ -104,7 +104,7 @@ func playLongAcross(t *testing.T, store session.Store, task reftasks.Task, after
 // merged and merged away alike: the bytes a request may carry as a Segment's.
 func segmentTexts(t *testing.T, store session.Store, id string) map[string]bool {
 	t.Helper()
-	events, err := session.StoredEvents(context.Background(), store, id, 0, 0)
+	events, err := session.StoredEvents(context.Background(), store.Records, id, 0, 0)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -159,9 +159,9 @@ func TestRequestOnlyGrowsAtItsEndAcrossCompactions(t *testing.T) {
 	for _, recap := range []bool{false, true} {
 		t.Run(fmt.Sprintf("recap=%t", recap), func(t *testing.T) {
 			task := reftasks.LongSession(compactingTurns, 10, 4096, 32_000, recap)
-			store := session.NewMemoryStore()
+			store := memStore()
 			id, sent := playLongAcross(t, store, task, nil)
-			final, err := session.Open(context.Background(), store, id)
+			final, err := session.Open(context.Background(), store.Records, id)
 			if err != nil {
 				t.Fatal(err)
 			}
@@ -268,7 +268,7 @@ func TestSameRecordSameRequestAcrossCompactions(t *testing.T) {
 	for _, recap := range []bool{false, true} {
 		t.Run(fmt.Sprintf("recap=%t", recap), func(t *testing.T) {
 			task := reftasks.LongSession(compactingTurns, 10, 4096, 32_000, recap)
-			store := session.NewMemoryStore()
+			store := memStore()
 			model := windowedLogging{inner: task.Model, window: task.Window, log: &requestLog{}}
 			compared := 0
 			check := func(runner *service.Runner, id string) {
@@ -294,7 +294,7 @@ func TestSameRecordSameRequestAcrossCompactions(t *testing.T) {
 				compared++
 			}
 			id, _ := playLongAcross(t, store, task, check)
-			final, err := session.Open(context.Background(), store, id)
+			final, err := session.Open(context.Background(), store.Records, id)
 			if err != nil {
 				t.Fatal(err)
 			}
@@ -551,7 +551,7 @@ func TestWireRequestOnlyGrowsAtItsEndAcrossCompactions(t *testing.T) {
 	for _, recap := range []bool{false, true} {
 		t.Run(fmt.Sprintf("recap=%t", recap), func(t *testing.T) {
 			task := reftasks.LongSession(compactingTurns, 10, 4096, 32_000, recap)
-			store := session.NewMemoryStore()
+			store := memStore()
 			id, sent := playLongAcross(t, store, task, nil)
 			segments := segmentTexts(t, store, id)
 			var requests []gotato.ModelRequest

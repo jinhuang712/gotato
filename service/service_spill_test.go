@@ -18,7 +18,7 @@ import (
 // spilled results. The bodies stay in the parent's log, so the ref names it.
 func TestForkKeepsSpilledResultsReadable(t *testing.T) {
 	ctx := context.Background()
-	store := session.NewMemoryStore()
+	store := memStore()
 	tool, err := gotato.NewFuncTool("large", "large result", func(context.Context, struct{}) (string, error) {
 		return strings.Repeat("payload\n", 10000), nil
 	})
@@ -51,7 +51,7 @@ func TestForkKeepsSpilledResultsReadable(t *testing.T) {
 		if got := refs[calls[0]].SessionID; got != gotato.SessionID(out.SessionID) {
 			t.Fatalf("%s: ref names %q, want the Session that wrote the body", name, got)
 		}
-		body, pruned, err := record.SpilledBody(ctx, store, refs[calls[0]])
+		body, pruned, err := record.SpilledBody(ctx, store.Records, refs[calls[0]])
 		if err != nil || pruned || len(body) != 80000 {
 			t.Fatalf("%s: body bytes=%d pruned=%v err=%v", name, len(body), pruned, err)
 		}
@@ -70,7 +70,7 @@ func TestForkKeepsSpilledResultsReadable(t *testing.T) {
 		t.Fatal(err)
 	}
 	calls, refs := child.SpilledResults()
-	_, pruned, err := child.SpilledBody(ctx, store, refs[calls[0]])
+	_, pruned, err := child.SpilledBody(ctx, store.Records, refs[calls[0]])
 	if err == nil && !pruned {
 		t.Fatal("body still readable after the parent was deleted")
 	}
@@ -88,7 +88,7 @@ func TestForkReadsASpilledResultInAnInheritedSegment(t *testing.T) {
 		testkit.ToolCalls(gotato.ToolCall{ID: "read-1", ToolID: "read_result", Arguments: []byte(`{"ref":"result:big-1"}`)}), testkit.Text("read"), // fork Run
 	)
 	runner, err := service.New(service.Config{
-		Store:  session.NewMemoryStore(),
+		Store:  memStore(),
 		Agents: []service.Agent{{Name: "a", Model: model, Tools: []gotato.Tool{testkit.NewFakeTool("orders.export", body)}}},
 	})
 	if err != nil {
@@ -128,7 +128,7 @@ func TestForkReadsASpilledResultInAnInheritedSegment(t *testing.T) {
 // same request as the one that ran.
 func TestARunnerSpillsALargeResultAndReadsItBack(t *testing.T) {
 	ctx := context.Background()
-	store := session.NewMemoryStore()
+	store := memStore()
 	body := strings.Repeat("order-88501,paid,41.20,some more text on the line\n", 21000)
 	model := testkit.NewFakeModel(
 		testkit.ToolCalls(gotato.ToolCall{ID: "big-1", ToolID: "orders.export", Arguments: []byte(`{}`)}), testkit.Text("exported"), // Run 1
@@ -182,7 +182,7 @@ func TestARunnerSpillsALargeResultAndReadsItBack(t *testing.T) {
 
 // An Agent with no tool is offered no read_result: there is nothing to spill.
 func TestAnAgentWithNoToolIsOfferedNoReadResult(t *testing.T) {
-	runner, err := service.New(service.Config{Store: session.NewMemoryStore(), Agents: []service.Agent{{Name: "a", Model: testkit.NewFakeModel(testkit.Text("hi"))}}})
+	runner, err := service.New(service.Config{Store: memStore(), Agents: []service.Agent{{Name: "a", Model: testkit.NewFakeModel(testkit.Text("hi"))}}})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -213,7 +213,7 @@ func TestAToolSetOnlyAgentIsOfferedReadResult(t *testing.T) {
 		testkit.ToolCalls(gotato.ToolCall{ID: "big-1", ToolID: "orders.export", Arguments: []byte(`{}`)}), testkit.Text("exported"),
 	)
 	runner, err := service.New(service.Config{
-		Store:  session.NewMemoryStore(),
+		Store:  memStore(),
 		Agents: []service.Agent{{Name: "a", Model: model, Options: []gotato.SessionOption{gotato.WithActiveToolSet(bigToolSet{body})}}},
 	})
 	if err != nil {
@@ -281,7 +281,7 @@ func inspectJSON(t *testing.T, runner *service.Runner, id string) (string, []str
 // builds the same request.
 func TestReadSegmentIsOfferedAndEveryInstanceOffersTheSameTools(t *testing.T) {
 	ctx := context.Background()
-	store := session.NewMemoryStore()
+	store := memStore()
 	readCall := testkit.ToolCalls(gotato.ToolCall{ID: "read-1", ToolID: "read_segment", Arguments: []byte(`{"segment":1}`)})
 	model := testkit.NewFakeModel(
 		load("files.read"), testkit.ToolCalls(gotato.ToolCall{ID: "files-1", ToolID: "files.read", Arguments: []byte(`{}`)}), testkit.Text("opened"), // Run 1
@@ -322,7 +322,7 @@ func TestReadSegmentIsOfferedAndEveryInstanceOffersTheSameTools(t *testing.T) {
 	if _, err := runner.Run(ctx, service.RunRequest{SessionID: id, Prompt: "what did I open first?"}); err != nil {
 		t.Fatal(err)
 	}
-	record, err := session.View(ctx, store, id)
+	record, err := session.View(ctx, store.Records, id)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -345,7 +345,7 @@ func TestReadSegmentIsOfferedAndEveryInstanceOffersTheSameTools(t *testing.T) {
 	if closed, err = runner.Compact(ctx, id, modelctx.CompactConfig{CompactPolicy: modelctx.CompactPolicy{SegmentBudgetTokens: 1}}); err != nil || !closed.Replaced || closed.Merge == nil || !closed.Merge.Merged {
 		t.Fatalf("compact = %+v, %v", closed, err)
 	}
-	if record, err = session.View(ctx, store, id); err != nil {
+	if record, err = session.View(ctx, store.Records, id); err != nil {
 		t.Fatal(err)
 	}
 	if segments := record.Segments(); len(segments) != 1 || len(segments[0].Merged) < 2 {
@@ -360,7 +360,7 @@ func TestReadSegmentIsOfferedAndEveryInstanceOffersTheSameTools(t *testing.T) {
 	if gotRequest != wantRequest || !slices.Equal(gotTools, wantTools) || !slices.Contains(gotTools, "read_segment") {
 		t.Fatalf("another instance builds another request after the merge:\n got %s\nwant %s", gotRequest, wantRequest)
 	}
-	viewed, err := session.View(ctx, store, id)
+	viewed, err := session.View(ctx, store.Records, id)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -376,7 +376,7 @@ func TestReadSegmentIsOfferedAndEveryInstanceOffersTheSameTools(t *testing.T) {
 	if gotRequest != wantRequest || !slices.Equal(gotTools, wantTools) || !slices.Contains(gotTools, "git.log") {
 		t.Fatalf("another instance builds another request between two Checkpoints:\n got %s\nwant %s", gotRequest, wantRequest)
 	}
-	if viewed, err = session.View(ctx, store, id); err != nil {
+	if viewed, err = session.View(ctx, store.Records, id); err != nil {
 		t.Fatal(err)
 	}
 	if got := viewed.LoadedTools(); !slices.Equal(got, append(wantSets, "git.log")) {

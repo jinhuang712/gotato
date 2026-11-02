@@ -2,15 +2,14 @@ package session
 
 import (
 	"context"
-	"maps"
-	"slices"
 	"sync"
 	"time"
 )
 
 // MemoryStore keeps Records and Liveness rows in memory. It is the store for
 // library use and tests; nothing about the runtime requires anything more
-// durable.
+// durable. It is Records, Liveness and Lister, and a Store takes it for
+// each: Store{Records: m, Liveness: m}.
 type MemoryStore struct {
 	mu        sync.Mutex
 	records   map[string]*memoryRecord
@@ -20,7 +19,7 @@ type MemoryStore struct {
 
 type memoryRecord struct {
 	entries []Entry
-	summary RecordInfo
+	header  Header
 }
 
 type memoryInstance struct {
@@ -28,20 +27,48 @@ type memoryInstance struct {
 	expires time.Time
 }
 
-// NewMemoryStore creates an empty MemoryStore.
-func NewMemoryStore() *MemoryStore {
-	return &MemoryStore{records: map[string]*memoryRecord{}, instances: map[string]memoryInstance{}, now: time.Now}
+// StoreOption configures NewMemoryStore and NewFileStore.
+type StoreOption func(*storeConfig)
+
+type storeConfig struct {
+	now func() time.Time
 }
 
-// Create implements Store.
-func (m *MemoryStore) Create(ctx context.Context, id string, entries []Entry, summary RecordInfo) error {
+// WithClock sets the clock that times Liveness rows, in place of the
+// machine's. A test that moves a clock by hand moves the time a row expires by,
+// so it never sleeps to see one expire.
+func WithClock(now func() time.Time) StoreOption {
+	return func(c *storeConfig) { c.now = now }
+}
+
+func newStoreConfig(options []StoreOption) storeConfig {
+	config := storeConfig{now: time.Now}
+	for _, option := range options {
+		if option != nil {
+			option(&config)
+		}
+	}
+	if config.now == nil {
+		config.now = time.Now
+	}
+	return config
+}
+
+// NewMemoryStore creates an empty MemoryStore.
+func NewMemoryStore(options ...StoreOption) *MemoryStore {
+	config := newStoreConfig(options)
+	return &MemoryStore{records: map[string]*memoryRecord{}, instances: map[string]memoryInstance{}, now: config.now}
+}
+
+// Create implements Records.
+func (m *MemoryStore) Create(ctx context.Context, id string, entries []Entry, h Header) error {
 	if err := ctx.Err(); err != nil {
 		return err
 	}
-	if err := checkID(id); err != nil {
+	if err := CheckID(id); err != nil {
 		return err
 	}
-	if err := checkBatch(0, entries, summary); err != nil {
+	if err := CheckBatch(0, entries, h); err != nil {
 		return err
 	}
 	m.mu.Lock()
@@ -49,19 +76,19 @@ func (m *MemoryStore) Create(ctx context.Context, id string, entries []Entry, su
 	if _, ok := m.records[id]; ok {
 		return ErrExists
 	}
-	m.records[id] = &memoryRecord{entries: cloneEntries(entries), summary: cloneInfo(summary)}
+	m.records[id] = &memoryRecord{entries: cloneEntries(entries), header: cloneHeader(h)}
 	return nil
 }
 
-// Append implements Store.
-func (m *MemoryStore) Append(ctx context.Context, id string, after uint64, entries []Entry, summary RecordInfo) error {
+// Append implements Records.
+func (m *MemoryStore) Append(ctx context.Context, id string, after uint64, entries []Entry, h Header) error {
 	if err := ctx.Err(); err != nil {
 		return err
 	}
-	if err := checkID(id); err != nil {
+	if err := CheckID(id); err != nil {
 		return err
 	}
-	if err := checkBatch(after, entries, summary); err != nil {
+	if err := CheckBatch(after, entries, h); err != nil {
 		return err
 	}
 	m.mu.Lock()
@@ -70,23 +97,23 @@ func (m *MemoryStore) Append(ctx context.Context, id string, after uint64, entri
 	if !ok {
 		return ErrNotFound
 	}
-	if record.summary.RecordEpoch != summary.RecordEpoch {
+	if record.header.Epoch != h.Epoch {
 		return ErrNotFound
 	}
 	if uint64(len(record.entries)) != after {
 		return ErrConflict
 	}
 	record.entries = append(record.entries, cloneEntries(entries)...)
-	record.summary = cloneInfo(summary)
+	record.header = cloneHeader(h)
 	return nil
 }
 
-// Load implements Store.
+// Load implements Records.
 func (m *MemoryStore) Load(ctx context.Context, id string) (Loaded, error) {
 	if err := ctx.Err(); err != nil {
 		return Loaded{}, err
 	}
-	if err := checkID(id); err != nil {
+	if err := CheckID(id); err != nil {
 		return Loaded{}, err
 	}
 	m.mu.Lock()
@@ -95,16 +122,16 @@ func (m *MemoryStore) Load(ctx context.Context, id string) (Loaded, error) {
 	if !ok {
 		return Loaded{}, ErrNotFound
 	}
-	facts, segments := loadedFrom(record.entries)
-	return Loaded{Facts: cloneEntries(facts), Segments: cloneEntries(segments), Head: uint64(len(record.entries)), Info: cloneInfo(record.summary)}, nil
+	entries, segments := loadedFrom(record.entries, record.header.LogFrom)
+	return Loaded{Entries: cloneEntries(entries), Segments: cloneEntries(segments), Seq: uint64(len(record.entries)), Header: cloneHeader(record.header)}, nil
 }
 
-// Log implements Store.
+// Log implements Records.
 func (m *MemoryStore) Log(ctx context.Context, id string, after uint64, limit int) ([]Entry, error) {
 	if err := ctx.Err(); err != nil {
 		return nil, err
 	}
-	if err := checkID(id); err != nil {
+	if err := CheckID(id); err != nil {
 		return nil, err
 	}
 	m.mu.Lock()
@@ -123,27 +150,27 @@ func (m *MemoryStore) Log(ctx context.Context, id string, after uint64, limit in
 	return cloneEntries(rest), nil
 }
 
-// List implements Store.
-func (m *MemoryStore) List(ctx context.Context) ([]RecordInfo, error) {
+// List implements Lister: a page of the Records, the most recently updated
+// first, 100 when the query names no Limit.
+func (m *MemoryStore) List(ctx context.Context, q ListQuery) (ListPage, error) {
 	if err := ctx.Err(); err != nil {
-		return nil, err
+		return ListPage{}, err
 	}
 	m.mu.Lock()
-	out := make([]RecordInfo, 0, len(m.records))
+	infos := make([]RecordInfo, 0, len(m.records))
 	for _, record := range m.records {
-		out = append(out, cloneInfo(record.summary))
+		infos = append(infos, cloneInfo(record.header.Info))
 	}
 	m.mu.Unlock()
-	sortInfos(out)
-	return out, nil
+	return pageOf(infos, q)
 }
 
-// Delete implements Store.
+// Delete implements Records.
 func (m *MemoryStore) Delete(ctx context.Context, id string) error {
 	if err := ctx.Err(); err != nil {
 		return err
 	}
-	if err := checkID(id); err != nil {
+	if err := CheckID(id); err != nil {
 		return err
 	}
 	m.mu.Lock()
@@ -155,12 +182,12 @@ func (m *MemoryStore) Delete(ctx context.Context, id string) error {
 	return nil
 }
 
-// Beat implements Store.
+// Beat implements Liveness.
 func (m *MemoryStore) Beat(ctx context.Context, row InstanceRow, ttl time.Duration) error {
 	if err := ctx.Err(); err != nil {
 		return err
 	}
-	if err := checkID(row.ID); err != nil {
+	if err := CheckID(row.ID); err != nil {
 		return err
 	}
 	m.mu.Lock()
@@ -177,7 +204,7 @@ func (m *MemoryStore) Beat(ctx context.Context, row InstanceRow, ttl time.Durati
 	return nil
 }
 
-// Instance implements Store.
+// Instance implements Liveness.
 func (m *MemoryStore) Instance(ctx context.Context, id string) (InstanceState, error) {
 	if err := ctx.Err(); err != nil {
 		return InstanceState{}, err
@@ -191,12 +218,8 @@ func (m *MemoryStore) Instance(ctx context.Context, id string) (InstanceState, e
 	return InstanceState{ID: id, Alive: m.now().Before(current.expires), Draining: current.row.Draining, Address: current.row.Address}, nil
 }
 
-func cloneInfo(summary RecordInfo) RecordInfo {
-	out := summary
-	if summary.Metadata != nil {
-		out.Metadata = make(map[string]string, len(summary.Metadata))
-		maps.Copy(out.Metadata, summary.Metadata)
-	}
-	out.Notices = slices.Clone(summary.Notices)
-	return out
-}
+var (
+	_ Records  = (*MemoryStore)(nil)
+	_ Lister   = (*MemoryStore)(nil)
+	_ Liveness = (*MemoryStore)(nil)
+)

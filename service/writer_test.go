@@ -21,7 +21,7 @@ var fastLiveness = service.Liveness{TTL: 150 * time.Millisecond, Wait: 3 * time.
 
 func TestIdleSessionMovesToAnyInstance(t *testing.T) {
 	ctx := context.Background()
-	store := session.NewMemoryStore()
+	store := memStore()
 	a := instanceRunner(t, store, "instance-a", testkit.EchoModel{}, steadyLiveness)
 	b := instanceRunner(t, store, "instance-b", testkit.EchoModel{}, steadyLiveness)
 	s, err := a.CreateSession(ctx, "echo", nil)
@@ -52,7 +52,7 @@ func TestIdleSessionMovesToAnyInstance(t *testing.T) {
 
 func TestBusyElsewhereWaitsThenRefuses(t *testing.T) {
 	ctx := context.Background()
-	store := session.NewMemoryStore()
+	store := memStore()
 	held := &gateModel{gate: make(chan struct{}), started: make(chan struct{})}
 	a := instanceRunner(t, store, "instance-a", held, steadyLiveness)
 	b := instanceRunner(t, store, "instance-b", testkit.EchoModel{}, service.Liveness{TTL: steadyLiveness.TTL, Wait: 200 * time.Millisecond})
@@ -108,7 +108,7 @@ func TestBusyElsewhereWaitsThenRefuses(t *testing.T) {
 // pausableStore stops renewing Liveness rows while paused, as a frozen or
 // cut-off instance would.
 type pausableStore struct {
-	session.Store
+	parts
 	paused atomic.Bool
 }
 
@@ -116,15 +116,15 @@ func (s *pausableStore) Beat(ctx context.Context, row session.InstanceRow, ttl t
 	if s.paused.Load() {
 		return errors.New("store unreachable")
 	}
-	return s.Store.Beat(ctx, row, ttl)
+	return s.parts.Beat(ctx, row, ttl)
 }
 
 func TestLapsedHeartbeatFencesLateWrites(t *testing.T) {
 	ctx := context.Background()
-	backing := session.NewMemoryStore()
-	paused := &pausableStore{Store: backing}
+	backing := memStore()
+	paused := &pausableStore{parts: partsOf(backing)}
 	model := testkit.NewFakeModel(testkit.Text("hi"))
-	a := instanceRunner(t, paused, "instance-a", model, fastLiveness)
+	a := instanceRunner(t, asStore(paused), "instance-a", model, fastLiveness)
 	s, err := a.CreateSession(ctx, "echo", nil)
 	if err != nil {
 		t.Fatal(err)
@@ -160,7 +160,7 @@ func TestManyInstancesOneWriter(t *testing.T) {
 			ctx := context.Background()
 			var open func() session.Store
 			if kind == "memory" {
-				backing := session.NewMemoryStore()
+				backing := memStore()
 				open = func() session.Store { return backing }
 			} else {
 				dir := t.TempDir()
@@ -169,7 +169,7 @@ func TestManyInstancesOneWriter(t *testing.T) {
 					if err != nil {
 						t.Fatal(err)
 					}
-					return store
+					return asStore(store)
 				}
 			}
 			var violations, calls atomic.Int64
@@ -177,7 +177,7 @@ func TestManyInstancesOneWriter(t *testing.T) {
 			runners := make([]*service.Runner, instances)
 			stores := make([]*killableStore, instances)
 			for i := range instances {
-				stores[i] = &killableStore{Store: open()}
+				stores[i] = &killableStore{parts: partsOf(open())}
 				model := ownerModel{instance: fmt.Sprintf("instance-%d", i), store: open(), dead: &stores[i].dead, violations: &violations, calls: &calls}
 				// Only the instance that is killed has a row that must expire;
 				// the others must not lapse on a late renewal.
@@ -185,7 +185,7 @@ func TestManyInstancesOneWriter(t *testing.T) {
 				if i == instances-1 {
 					liveness = fastLiveness
 				}
-				runners[i] = instanceRunner(t, stores[i], model.instance, model, liveness)
+				runners[i] = instanceRunner(t, asStore(stores[i]), model.instance, model, liveness)
 			}
 			var ids []string
 			for range 2 {
@@ -245,7 +245,7 @@ func TestManyInstancesOneWriter(t *testing.T) {
 			}
 			seen := map[string]int{}
 			for _, id := range ids {
-				view, err := session.View(ctx, open(), id)
+				view, err := session.View(ctx, open().Records, id)
 				if err != nil {
 					t.Fatal(err)
 				}
@@ -283,7 +283,7 @@ func TestManyInstancesOneWriter(t *testing.T) {
 // writes nothing, so its row never comes back.
 func TestClosedRunnerNeverBeatsAgain(t *testing.T) {
 	ctx := context.Background()
-	store := session.NewMemoryStore()
+	store := memStore()
 	a := instanceRunner(t, store, "instance-a", testkit.EchoModel{}, steadyLiveness)
 	s, err := a.CreateSession(ctx, "echo", nil)
 	if err != nil {
@@ -298,7 +298,7 @@ func TestClosedRunnerNeverBeatsAgain(t *testing.T) {
 	if _, err := a.CreateSessionExclusive(ctx, "echo", "after-close", nil); err == nil || errors.Is(err, service.ErrSessionExists) {
 		t.Fatalf("a closed Runner creating a Session = %v, want a refusal that is not ErrSessionExists", err)
 	}
-	if state, err := store.Instance(ctx, a.Instance()); err != nil || state.Alive {
+	if state, err := store.Liveness.Instance(ctx, a.Instance()); err != nil || state.Alive {
 		t.Fatalf("instance-a after Close and a late write = %+v, %v; want not alive", state, err)
 	}
 	if err := a.Close(ctx); err != nil {
@@ -353,7 +353,7 @@ func TestTwoInstancesOpenOneIdleSessionAtOnce(t *testing.T) {
 			if len(failed) > 0 {
 				t.Fatalf("%d of %d Runs failed, first: %v", len(failed), 2*kind.rounds, failed[0])
 			}
-			view, err := session.View(ctx, open(), s.ID())
+			view, err := session.View(ctx, open().Records, s.ID())
 			if err != nil {
 				t.Fatal(err)
 			}
@@ -368,7 +368,7 @@ func TestTwoInstancesOpenOneIdleSessionAtOnce(t *testing.T) {
 // it, fails and writes nothing into the new Record.
 func TestRunOfADeletedSessionNeverWritesToTheSessionCreatedAgain(t *testing.T) {
 	ctx := context.Background()
-	store := session.NewMemoryStore()
+	store := memStore()
 	held := &gateModel{gate: make(chan struct{}), started: make(chan struct{})}
 	a := instanceRunner(t, store, "instance-a", held, steadyLiveness)
 	s, err := a.CreateSession(ctx, "echo", nil)
@@ -381,34 +381,34 @@ func TestRunOfADeletedSessionNeverWritesToTheSessionCreatedAgain(t *testing.T) {
 		done <- err
 	}()
 	<-held.started
-	old, err := store.Load(ctx, s.ID())
+	old, err := store.Records.Load(ctx, s.ID())
 	if err != nil {
 		t.Fatal(err)
 	}
 
 	// Another process deletes the Record and creates it again, as long as the
 	// old one is now.
-	if err := store.Delete(ctx, s.ID()); err != nil {
+	if err := store.Records.Delete(ctx, s.ID()); err != nil {
 		t.Fatal(err)
 	}
-	fresh, err := session.CreateWriter(ctx, store, session.New(session.WithID(s.ID())), "other", session.WithIdle())
+	fresh, err := session.CreateWriter(ctx, store.Records, session.New(session.WithID(s.ID())), "other", session.WithIdle())
 	if err != nil {
 		t.Fatal(err)
 	}
 	for {
-		loaded, err := store.Load(ctx, s.ID())
+		loaded, err := store.Records.Load(ctx, s.ID())
 		if err != nil {
 			t.Fatal(err)
 		}
-		if loaded.Head >= old.Head {
-			if loaded.Head != old.Head {
-				t.Skipf("the new Record cannot be made exactly %d long", old.Head)
+		if loaded.Seq >= old.Seq {
+			if loaded.Seq != old.Seq {
+				t.Skipf("the new Record cannot be made exactly %d long", old.Seq)
 			}
 			break
 		}
 		commit(t, fresh, gotato.UserMessage("x"))
 	}
-	before, err := store.Log(ctx, s.ID(), 0, 0)
+	before, err := store.Records.Log(ctx, s.ID(), 0, 0)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -417,13 +417,13 @@ func TestRunOfADeletedSessionNeverWritesToTheSessionCreatedAgain(t *testing.T) {
 	if err := <-done; err == nil {
 		t.Fatal("the Run of the deleted Session succeeded")
 	}
-	after, err := store.Log(ctx, s.ID(), 0, 0)
+	after, err := store.Records.Log(ctx, s.ID(), 0, 0)
 	if err != nil || len(after) != len(before) {
 		t.Fatalf("the new Record holds %d Entries after the Run (%v), want %d", len(after), err, len(before))
 	}
-	loaded, err := store.Load(ctx, s.ID())
-	if err != nil || loaded.Info.RecordEpoch != fresh.Record().RecordEpoch() {
-		t.Fatalf("the new Record's epoch = %q (%v), want %q", loaded.Info.RecordEpoch, err, fresh.Record().RecordEpoch())
+	loaded, err := store.Records.Load(ctx, s.ID())
+	if err != nil || loaded.Header.Epoch != fresh.Record().RecordEpoch() {
+		t.Fatalf("the new Record's epoch = %q (%v), want %q", loaded.Header.Epoch, err, fresh.Record().RecordEpoch())
 	}
 }
 
@@ -441,7 +441,7 @@ func commit(t *testing.T, w *session.Writer, message gotato.Message) {
 // the Run's own Events; a Run on an existing Session claims it again (idle),
 // and the end of that Run writes session_released.
 func TestRunWritesClaimAndRelease(t *testing.T) {
-	store := session.NewMemoryStore()
+	store := memStore()
 	a := instanceRunner(t, store, "instance-a", testkit.EchoModel{}, steadyLiveness)
 	ctx := context.Background()
 	first, err := a.Run(ctx, service.RunRequest{Prompt: "hi"})
@@ -500,7 +500,7 @@ func TestRunWritesClaimAndRelease(t *testing.T) {
 // Another Instance that takes over an idle Session writes session_claimed at
 // the next Epoch and names the Instance it took the Session from.
 func TestTakeoverWritesClaimWithNextEpochAndFrom(t *testing.T) {
-	store := session.NewMemoryStore()
+	store := memStore()
 	a := instanceRunner(t, store, "instance-a", testkit.EchoModel{}, steadyLiveness)
 	b := instanceRunner(t, store, "instance-b", testkit.EchoModel{}, steadyLiveness)
 	ctx := context.Background()
@@ -526,7 +526,7 @@ func TestTakeoverWritesClaimWithNextEpochAndFrom(t *testing.T) {
 // deadHolders makes an Instance see every other Instance as not alive, as if
 // their Liveness rows had expired, so it takes over a Session that is busy.
 type deadHolders struct {
-	session.Store
+	parts
 	self string
 }
 
@@ -534,7 +534,7 @@ func (s deadHolders) Instance(ctx context.Context, id string) (session.InstanceS
 	if !isInstance(id, s.self) {
 		return session.InstanceState{ID: id}, nil
 	}
-	return s.Store.Instance(ctx, id)
+	return s.parts.Instance(ctx, id)
 }
 
 // A write the store refuses because another Instance took the Claim is
@@ -542,10 +542,10 @@ func (s deadHolders) Instance(ctx context.Context, id string) (session.InstanceS
 // nothing more.
 func TestFencedWritePublishesSessionFenced(t *testing.T) {
 	ctx := context.Background()
-	backing := session.NewMemoryStore()
+	backing := memStore()
 	held := &gateModel{gate: make(chan struct{}), started: make(chan struct{})}
 	a := instanceRunner(t, backing, "instance-a", held, steadyLiveness)
-	b := instanceRunner(t, deadHolders{Store: backing, self: "instance-b"}, "instance-b", testkit.EchoModel{}, steadyLiveness)
+	b := instanceRunner(t, asStore(deadHolders{parts: partsOf(backing), self: "instance-b"}), "instance-b", testkit.EchoModel{}, steadyLiveness)
 	fenced := instanceRecorder(t, a, gotato.SubscribeFilter(func(event gotato.Event) bool {
 		return event.Kind() == gotato.EventKindSessionFenced
 	}))
@@ -590,9 +590,9 @@ func TestFencedWritePublishesSessionFenced(t *testing.T) {
 // writes are then refused.
 func TestLapsedLivenessPublishesOnce(t *testing.T) {
 	ctx := context.Background()
-	backing := session.NewMemoryStore()
-	paused := &pausableStore{Store: backing}
-	a := instanceRunner(t, paused, "instance-a", testkit.EchoModel{}, fastLiveness)
+	backing := memStore()
+	paused := &pausableStore{parts: partsOf(backing)}
+	a := instanceRunner(t, asStore(paused), "instance-a", testkit.EchoModel{}, fastLiveness)
 	lapsed := instanceRecorder(t, a, gotato.SubscribeFilter(func(event gotato.Event) bool {
 		return event.Kind() == gotato.EventKindLivenessLapsed
 	}))

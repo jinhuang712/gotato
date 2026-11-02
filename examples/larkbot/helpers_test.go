@@ -83,6 +83,18 @@ func waitFor(t *testing.T, what string, cond func() bool) {
 	}
 }
 
+// storeParts is what a MemoryStore or a FileStore is: both halves of a Store.
+type storeParts interface {
+	session.Records
+	session.Liveness
+}
+
+// memStore is a Store of one MemoryStore.
+func memStore() session.Store {
+	m := session.NewMemoryStore()
+	return session.Store{Records: m, Liveness: m}
+}
+
 // instance is one in-process bot: a Runner on the shared store, its handler on an httptest server.
 type instance struct {
 	runner *service.Runner
@@ -103,18 +115,18 @@ func (w testWriter) Write(p []byte) (int, error) {
 	return len(p), nil
 }
 
-func newInstance(t *testing.T, store session.Store, name string, model *testkit.FuncModel) *instance {
+func newInstance(t *testing.T, store storeParts, name string, model *testkit.FuncModel) *instance {
 	t.Helper()
 	return newInstanceWith(t, store, name, model, nil)
 }
 
 // newInstanceWith lets a test wrap the instance's HTTP handler.
-func newInstanceWith(t *testing.T, store session.Store, name string, model *testkit.FuncModel, wrap func(http.Handler) http.Handler) *instance {
+func newInstanceWith(t *testing.T, store storeParts, name string, model *testkit.FuncModel, wrap func(http.Handler) http.Handler) *instance {
 	t.Helper()
 	srv := httptest.NewUnstartedServer(nil)
 	t.Cleanup(srv.Close)
 	runner, err := service.New(service.Config{
-		Store: store, Instance: name, Address: "http://" + srv.Listener.Addr().String(),
+		Store: session.Store{Records: store, Liveness: store}, Instance: name, Address: "http://" + srv.Listener.Addr().String(),
 		Agents: []service.Agent{{Name: "fake", Model: model, ModelName: "fake"}},
 	})
 	if err != nil {

@@ -1,6 +1,7 @@
 package session
 
 import (
+	"encoding/json"
 	"time"
 
 	"github.com/jinhuang712/gotato/gotato"
@@ -14,6 +15,16 @@ var (
 	LayerOf     = layerOf
 	ReadSpilled = readSpilled
 )
+
+// RecordState is recordState: what a Header's State holds.
+type RecordState = recordState
+
+// DecodeState decodes the State of h.
+func DecodeState(h Header) (RecordState, error) {
+	var state recordState
+	err := json.Unmarshal(h.State, &state)
+	return state, err
+}
 
 // CloseSegment is Record.closeSegment.
 func (s *Record) CloseSegment(segment gotato.Segment) (gotato.Segment, error) {
@@ -68,8 +79,8 @@ func WithEventLimit(limit int) RecordOption {
 	}
 }
 
-// WithClock overrides the Record's clock.
-func WithClock(now func() time.Time) RecordOption { return func(s *Record) { s.now = now } }
+// WithRecordClock overrides the Record's clock.
+func WithRecordClock(now func() time.Time) RecordOption { return func(s *Record) { s.now = now } }
 
 // Checkpoint is Record.checkpoint.
 func (s *Record) Checkpoint(why gotato.CompactionWhy, messages []gotato.Message, compaction *gotato.Compaction) {

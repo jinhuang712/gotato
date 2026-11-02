@@ -19,7 +19,7 @@ type InspectConfig struct {
 // compacts the Session first. config overrides the Session's stored settings.
 // The Session is not changed.
 func (r *Runner) Inspect(ctx context.Context, sessionID string, config InspectConfig) (modelctx.Report, error) {
-	s, err := session.Open(ctx, r.store, sessionID)
+	s, err := session.Open(ctx, r.store.Records, sessionID)
 	if err != nil {
 		return modelctx.Report{}, storeFailureOf(ctx, err, true)
 	}

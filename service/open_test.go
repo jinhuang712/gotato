@@ -21,7 +21,7 @@ import (
 // A Run on a Session that is active already adds no activation, so the limit
 // does not touch it.
 func TestActivationLimitRefusesANewSessionBeforeItRuns(t *testing.T) {
-	store := session.NewMemoryStore()
+	store := memStore()
 	model := &gatedEcho{gate: make(chan struct{}), started: make(chan string, 8)}
 	runner, err := service.New(service.Config{
 		Store:     store,
@@ -39,7 +39,7 @@ func TestActivationLimitRefusesANewSessionBeforeItRuns(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	idleBefore, err := store.Log(ctx, idle.ID(), 0, 0)
+	idleBefore, err := store.Records.Log(ctx, idle.ID(), 0, 0)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -62,7 +62,7 @@ func TestActivationLimitRefusesANewSessionBeforeItRuns(t *testing.T) {
 	if got := runner.ActiveSessions(); got != 2 {
 		t.Fatalf("ActiveSessions = %d, want 2", got)
 	}
-	sessionsBefore, err := store.List(ctx)
+	sessionsBefore, err := listAll(ctx, store)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -112,14 +112,14 @@ func TestActivationLimitRefusesANewSessionBeforeItRuns(t *testing.T) {
 		t.Fatalf("the model was called for %q after the limit was reached", prompt)
 	default:
 	}
-	sessionsAfter, err := store.List(ctx)
+	sessionsAfter, err := listAll(ctx, store)
 	if err != nil {
 		t.Fatal(err)
 	}
 	if len(sessionsAfter) != len(sessionsBefore) {
 		t.Fatalf("sessions in the store: %d before the refusals, %d after", len(sessionsBefore), len(sessionsAfter))
 	}
-	idleAfter, err := store.Log(ctx, idle.ID(), 0, 0)
+	idleAfter, err := store.Records.Log(ctx, idle.ID(), 0, 0)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -134,7 +134,11 @@ func TestActivationLimitRefusesANewSessionBeforeItRuns(t *testing.T) {
 	// busy policy, which rejects it as busy, not as overloaded.
 	var active string
 	for _, summary := range sessionsBefore {
-		if summary.Busy {
+		loaded, err := store.Records.Load(ctx, summary.ID)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if stateOf(loaded).Busy {
 			active = summary.ID
 			break
 		}
@@ -185,7 +189,7 @@ func TestActivationLimitIsOffByDefault(t *testing.T) {
 // A negative limit is a mistake, not "off".
 func TestActivationLimitMustNotBeNegative(t *testing.T) {
 	_, err := service.New(service.Config{
-		Store:     session.NewMemoryStore(),
+		Store:     memStore(),
 		Agents:    []service.Agent{{Name: "echo", Model: testkit.EchoModel{}}},
 		Admission: service.Admission{MaxActiveSessions: -1},
 	})
@@ -196,26 +200,26 @@ func TestActivationLimitMustNotBeNegative(t *testing.T) {
 
 // gatedCreate holds every Create until its gate opens.
 type gatedCreate struct {
-	session.Store
+	parts
 	gate chan struct{}
 }
 
-func (s *gatedCreate) Create(ctx context.Context, id string, entries []session.Entry, summary session.RecordInfo) error {
+func (s *gatedCreate) Create(ctx context.Context, id string, entries []session.Entry, summary session.Header) error {
 	select {
 	case <-s.gate:
 	case <-ctx.Done():
 		return ctx.Err()
 	}
-	return s.Store.Create(ctx, id, entries, summary)
+	return s.parts.Create(ctx, id, entries, summary)
 }
 
 // A burst of Runs that each create a Session cannot go past the limit while
 // the first one is still writing its Session: the Runs have no ID yet, but
 // each is a Session of its own.
 func TestActivationLimitHoldsForABurstOfCreatingRuns(t *testing.T) {
-	store := &gatedCreate{Store: session.NewMemoryStore(), gate: make(chan struct{})}
+	store := &gatedCreate{parts: partsOf(memStore()), gate: make(chan struct{})}
 	runner, err := service.New(service.Config{
-		Store:     store,
+		Store:     asStore(store),
 		Agents:    []service.Agent{{Name: "echo", Model: testkit.EchoModel{}}},
 		Admission: service.Admission{MaxActiveSessions: 1},
 	})
@@ -252,5 +256,41 @@ func TestActivationLimitHoldsForABurstOfCreatingRuns(t *testing.T) {
 	wg.Wait()
 	if err := <-errs; err != nil {
 		t.Fatalf("the admitted Run: %v", err)
+	}
+}
+
+// Runner.Sessions pages through the Sessions, and is not_supported over
+// Records that do not list.
+func TestRunnerSessionsPagesAndNeedsALister(t *testing.T) {
+	ctx := context.Background()
+	runner, _ := newRunner(t)
+	for range 3 {
+		if _, err := runner.CreateSession(ctx, "", nil); err != nil {
+			t.Fatal(err)
+		}
+	}
+	first, err := runner.Sessions(ctx, session.ListQuery{Limit: 2})
+	if err != nil || len(first.Infos) != 2 || first.Next == "" {
+		t.Fatalf("first page = %+v, %v; want 2 Sessions and a Next", first, err)
+	}
+	rest, err := runner.Sessions(ctx, session.ListQuery{Limit: 2, Cursor: first.Next})
+	if err != nil || len(rest.Infos) != 1 || rest.Next != "" {
+		t.Fatalf("second page = %+v, %v; want the last Session", rest, err)
+	}
+	if _, err := runner.Sessions(ctx, session.ListQuery{Cursor: "nonsense"}); !gotato.IsCode(err, gotato.CodeInvalidArgument) {
+		t.Fatalf("a cursor the store did not make = %v, want invalid_argument", err)
+	}
+
+	m := session.NewMemoryStore()
+	hidden, err := service.New(service.Config{
+		Store:  session.Store{Records: struct{ session.Records }{m}, Liveness: m},
+		Agents: []service.Agent{{Name: "echo", Model: testkit.EchoModel{}}},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = hidden.Close(ctx) })
+	if _, err := hidden.Sessions(ctx, session.ListQuery{}); !gotato.IsCode(err, gotato.CodeNotSupported) {
+		t.Fatalf("Sessions over Records that do not list = %v, want not_supported", err)
 	}
 }

@@ -35,7 +35,7 @@ Gotato is a minimal, synchronous Go library. An **Agent** is a definition (model
 - On shutdown: `Drain`, then `Shutdown` the HTTP server, then `Runner.Close`.
 - Errors are `*gotato.RuntimeError` with a code. `gotato.NotRun(err)` means nothing happened, so resend elsewhere; `gotato.Retryable(err)` means it ran and a later retry may work. HTTP carries both as `Gotato-Not-Run` and `Gotato-Retryable`.
 - Forwarding between pods is off; `httpapi.WithForwarding(client, allow)` needs an allow function for writer addresses.
-- Run `storetest.Run` on any Store you write.
+- Run `storetest.RunRecords` and `storetest.RunLiveness` on any Records and Liveness you write (and `storetest.RunLister` on a Lister).
 
 ## Smallest working program
 

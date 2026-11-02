@@ -45,11 +45,11 @@ func (c *cli) cmdDoctor(args []string) int {
 		add(doctorCheck{Name: "store", OK: false, Detail: err.Error()})
 	} else {
 		probe := session.New()
-		if _, err := session.CreateWriter(ctx, rt.store, probe, rt.runner.Instance()); err != nil {
+		if _, err := session.CreateWriter(ctx, rt.store.Records, probe, rt.runner.Instance()); err != nil {
 			add(doctorCheck{Name: "store", OK: false, Detail: rt.storeDir + ": not writable: " + err.Error()})
-		} else if err := rt.store.Delete(ctx, probe.ID()); err != nil {
+		} else if err := rt.store.Records.Delete(ctx, probe.ID()); err != nil {
 			add(doctorCheck{Name: "store", OK: false, Detail: rt.storeDir + ": probe cleanup failed: " + err.Error()})
-		} else if list, err := rt.store.List(ctx); err != nil {
+		} else if list, err := listAll(ctx, rt.store); err != nil {
 			add(doctorCheck{Name: "store", OK: false, Detail: rt.storeDir + ": cannot list sessions: " + err.Error()})
 		} else {
 			add(doctorCheck{Name: "store", OK: true, Detail: fmt.Sprintf("%s (%d sessions)", rt.storeDir, len(list))})

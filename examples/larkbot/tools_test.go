@@ -35,7 +35,7 @@ func TestParseTools(t *testing.T) {
 }
 
 // runner builds a Runner with the scripted model over the tools, on store, as one bot instance would.
-func scriptedRunner(t *testing.T, store session.Store, instance, kinds, mcpURL string, with ...func(*service.Agent)) *service.Runner {
+func scriptedRunner(t *testing.T, store storeParts, instance, kinds, mcpURL string, with ...func(*service.Agent)) *service.Runner {
 	t.Helper()
 	agent, err := buildAgent("echo")
 	if err != nil {
@@ -56,7 +56,7 @@ func scriptedRunner(t *testing.T, store session.Store, instance, kinds, mcpURL s
 	if closeTools != nil {
 		t.Cleanup(func() { _ = closeTools() })
 	}
-	runner, err := service.New(service.Config{Store: store, Agents: []service.Agent{agent}, Instance: instance})
+	runner, err := service.New(service.Config{Store: session.Store{Records: store, Liveness: store}, Agents: []service.Agent{agent}, Instance: instance})
 	if err != nil {
 		t.Fatal(err)
 	}

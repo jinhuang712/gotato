@@ -33,7 +33,7 @@ func startHeld(t *testing.T) *handoffRig {
 func startHeldAgent(t *testing.T, agent service.Agent) *handoffRig {
 	t.Helper()
 	runner, err := service.New(service.Config{
-		Store:  session.NewMemoryStore(),
+		Store:  memStore(),
 		Agents: []service.Agent{agent},
 	})
 	if err != nil {
@@ -244,7 +244,7 @@ func TestSendDoesNotSpinOnALiveSessionThatRefuses(t *testing.T) {
 
 // loadFails is a Store whose Load fails once armed.
 type loadFails struct {
-	session.Store
+	parts
 	armed atomic.Bool
 }
 
@@ -252,16 +252,16 @@ func (s *loadFails) Load(ctx context.Context, id string) (session.Loaded, error)
 	if s.armed.Load() {
 		return session.Loaded{}, errors.New("store down")
 	}
-	return s.Store.Load(ctx, id)
+	return s.parts.Load(ctx, id)
 }
 
 // A following Run that cannot open the Session drops each message it was to
 // take, with run_failed, on the Instance's stream; nothing can be written to the
 // Record. A Run that follows without failing drops nothing (the tests above).
 func TestAFollowingRunThatFailsDropsItsMessages(t *testing.T) {
-	store := &loadFails{Store: session.NewMemoryStore()}
+	store := &loadFails{parts: partsOf(memStore())}
 	runner, err := service.New(service.Config{
-		Store:  store,
+		Store:  asStore(store),
 		Agents: []service.Agent{{Name: "echo", Model: testkit.EchoModel{}, Warm: service.WarmPolicy{TTL: -1}}},
 	})
 	if err != nil {
@@ -385,7 +385,7 @@ func TestAFollowingRunThatCannotCommitItsFirstMessageDropsIt(t *testing.T) {
 // message any more and still holds the Session.
 func holdBeforeRelease(t *testing.T) (runner *service.Runner, id string, hold *holdAtTheEnd, done chan service.RunResponse) {
 	t.Helper()
-	return holdBeforeReleaseOn(t, session.NewMemoryStore())
+	return holdBeforeReleaseOn(t, memStore())
 }
 
 // A message that arrives after run_ended and before the Run releases the
@@ -460,7 +460,7 @@ func TestAStopAndANoticeWhileARunIsEnding(t *testing.T) {
 // is never cleared by rearm, so the call succeeds and cancels the Run that
 // follows with the messages the first one left.
 func TestAbortOfSettledRunMustNotStopTheFollowOnRun(t *testing.T) {
-	store := newKindGate(session.NewMemoryStore(), gotato.EventKindSessionReleased)
+	store := newKindGate(memStore(), gotato.EventKindSessionReleased)
 	releaseHold := store.holds[gotato.EventKindSessionReleased]
 	inFirst, failFirst := make(chan struct{}), make(chan struct{})
 	inSecond, leaveSecond := make(chan struct{}), make(chan struct{})
@@ -479,7 +479,7 @@ func TestAbortOfSettledRunMustNotStopTheFollowOnRun(t *testing.T) {
 			return nil, ctx.Err()
 		}
 	})
-	runner := newRunnerOn(t, store, service.Agent{Name: "a", Model: model, Warm: service.WarmPolicy{TTL: -1}})
+	runner := newRunnerOn(t, asStore(store), service.Agent{Name: "a", Model: model, Warm: service.WarmPolicy{TTL: -1}})
 	ctx, cancel := context.WithTimeout(context.Background(), 20*time.Second)
 	defer cancel()
 	s, err := runner.CreateSession(ctx, "a", nil)

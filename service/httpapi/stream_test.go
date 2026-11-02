@@ -8,7 +8,6 @@ import (
 
 	"github.com/jinhuang712/gotato/service"
 	"github.com/jinhuang712/gotato/service/httpapi"
-	"github.com/jinhuang712/gotato/session"
 	"github.com/jinhuang712/gotato/testkit"
 )
 
@@ -48,7 +47,7 @@ func TestRunStreamAnswersRefusalsAsRunDoes(t *testing.T) {
 
 	t.Run("busy here", func(t *testing.T) {
 		g := newGate()
-		in := newInstance(t, session.NewMemoryStore(), "a", g, false)
+		in := newInstance(t, memStore(), "a", g, false)
 		id, wait := running(t, in, g)
 		same(t, in, id, http.StatusConflict)
 		close(g.release)
@@ -56,7 +55,7 @@ func TestRunStreamAnswersRefusalsAsRunDoes(t *testing.T) {
 	})
 	t.Run("held on another instance", func(t *testing.T) {
 		g := newGate()
-		store := session.NewMemoryStore()
+		store := memStore()
 		a := newInstance(t, store, "a", g, false)
 		b := newInstance(t, store, "b", testkit.NewFakeModel(testkit.Text("x")), false)
 		id, wait := running(t, a, g)
@@ -65,11 +64,11 @@ func TestRunStreamAnswersRefusalsAsRunDoes(t *testing.T) {
 		wait()
 	})
 	t.Run("missing session", func(t *testing.T) {
-		in := newInstance(t, session.NewMemoryStore(), "a", testkit.NewFakeModel(testkit.Text("x")), false)
+		in := newInstance(t, memStore(), "a", testkit.NewFakeModel(testkit.Text("x")), false)
 		same(t, in, "nope", http.StatusNotFound)
 	})
 	t.Run("unknown agent", func(t *testing.T) {
-		store := session.NewMemoryStore()
+		store := memStore()
 		a := newInstance(t, store, "a", testkit.NewFakeModel(testkit.Text("x")), false)
 		s, err := a.runner.CreateSession(t.Context(), "echo", nil)
 		if err != nil {

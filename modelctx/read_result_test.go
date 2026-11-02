@@ -19,13 +19,13 @@ import (
 // countingStore counts the reads of the log, to tell a body read from the
 // store from one served by the live Record.
 type countingStore struct {
-	session.Store
+	session.Records
 	logs atomic.Int64
 }
 
 func (s *countingStore) Log(ctx context.Context, id string, after uint64, limit int) ([]session.Entry, error) {
 	s.logs.Add(1)
-	return s.Store.Log(ctx, id, after, limit)
+	return s.Records.Log(ctx, id, after, limit)
 }
 
 // spillFixture is a stored Session whose Runs call a tool that returns body.
@@ -37,7 +37,7 @@ type spillFixture struct {
 
 func newSpillFixture(t *testing.T, id string) *spillFixture {
 	t.Helper()
-	store := &countingStore{Store: session.NewMemoryStore()}
+	store := &countingStore{Records: session.NewMemoryStore()}
 	writer, err := session.CreateWriter(context.Background(), store, session.New(session.WithID(id)), "instance-a")
 	if err != nil {
 		t.Fatal(err)
@@ -143,7 +143,7 @@ func TestALargeToolResultIsSpilledAndReadInPages(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	for _, entry := range loaded.Facts {
+	for _, entry := range loaded.Entries {
 		if entry.Kind == gotato.EventKindToolResultSpilled || len(entry.Data) > 64<<10 {
 			t.Fatalf("a load read entry %d (%s, %d bytes)", entry.Seq, entry.Kind, len(entry.Data))
 		}

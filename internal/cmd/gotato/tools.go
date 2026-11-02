@@ -96,7 +96,7 @@ func (c *cli) listTools(ctx context.Context, rt *cliRuntime, flags modelFlags, s
 	// the first registered agent when there is no session. Mirror that here so
 	// the listing reports the agent that actually selected the surface.
 	if agent == "" && sessionID != "" {
-		s, err := session.Open(ctx, rt.store, sessionID)
+		s, err := session.Open(ctx, rt.store.Records, sessionID)
 		if err != nil {
 			return toolListing{}, err
 		}

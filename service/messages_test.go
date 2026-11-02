@@ -10,7 +10,6 @@ import (
 
 	"github.com/jinhuang712/gotato/gotato"
 	"github.com/jinhuang712/gotato/service"
-	"github.com/jinhuang712/gotato/session"
 	"github.com/jinhuang712/gotato/testkit"
 )
 
@@ -55,7 +54,7 @@ func messageKinds(t *testing.T, runner *service.Runner, id string) []string {
 func TestSteerReachesTheRunAtItsNextTurn(t *testing.T) {
 	ctx := context.Background()
 	model := newStagedModel(false, "first", "second")
-	runner := messageRunner(t, session.NewMemoryStore(), "instance-a", "", model)
+	runner := messageRunner(t, memStore(), "instance-a", "", model)
 	s, _ := runner.CreateSession(ctx, "echo", nil)
 
 	done := startRun(t, runner, s.ID(), "hello")
@@ -84,7 +83,7 @@ func TestSteerReachesTheRunAtItsNextTurn(t *testing.T) {
 func TestFollowUpKeepsTheRunGoingWhereItWouldSettle(t *testing.T) {
 	ctx := context.Background()
 	model := newStagedModel(false, "first", "second")
-	runner := messageRunner(t, session.NewMemoryStore(), "instance-a", "", model)
+	runner := messageRunner(t, memStore(), "instance-a", "", model)
 	s, _ := runner.CreateSession(ctx, "echo", nil)
 
 	done := startRun(t, runner, s.ID(), "hello")
@@ -110,7 +109,7 @@ func TestFollowUpKeepsTheRunGoingWhereItWouldSettle(t *testing.T) {
 func TestInterruptCutsTheModelCallAndStartsTheNextTurn(t *testing.T) {
 	ctx := context.Background()
 	model := newStagedModel(true, "", "B done")
-	runner := messageRunner(t, session.NewMemoryStore(), "instance-a", "", model)
+	runner := messageRunner(t, memStore(), "instance-a", "", model)
 	s, _ := runner.CreateSession(ctx, "echo", nil)
 
 	done := startRun(t, runner, s.ID(), "do A")
@@ -139,7 +138,7 @@ func TestInterruptCutsTheModelCallAndStartsTheNextTurn(t *testing.T) {
 func TestStopCancelsTheRunAndKeepsWhatItCommitted(t *testing.T) {
 	ctx := context.Background()
 	model := newStagedModel(true)
-	runner := messageRunner(t, session.NewMemoryStore(), "instance-a", "", model)
+	runner := messageRunner(t, memStore(), "instance-a", "", model)
 	s, _ := runner.CreateSession(ctx, "echo", nil)
 
 	done := make(chan service.RunResponse, 1)
@@ -172,7 +171,7 @@ func TestAMessageAfterTheRunStartsANewRun(t *testing.T) {
 	model := newStagedModel(false, "first", "second")
 	close(model.release[0])
 	close(model.release[1])
-	runner := messageRunner(t, session.NewMemoryStore(), "instance-a", "", model)
+	runner := messageRunner(t, memStore(), "instance-a", "", model)
 	s, _ := runner.CreateSession(ctx, "echo", nil)
 	if _, err := runner.Run(ctx, service.RunRequest{SessionID: s.ID(), Prompt: "hello"}); err != nil {
 		t.Fatal(err)
@@ -190,7 +189,7 @@ func TestAMessageAfterTheRunStartsANewRun(t *testing.T) {
 
 func TestSendRefusesWhatItCannotUse(t *testing.T) {
 	ctx := context.Background()
-	runner := messageRunner(t, session.NewMemoryStore(), "instance-a", "", testkit.EchoModel{})
+	runner := messageRunner(t, memStore(), "instance-a", "", testkit.EchoModel{})
 	s, _ := runner.CreateSession(ctx, "echo", nil)
 	for name, request := range map[string]service.MessageRequest{
 		"no session": {Text: "hi"},
@@ -209,7 +208,7 @@ func TestSendRefusesWhatItCannotUse(t *testing.T) {
 
 func TestAMessageForARunOnAnotherInstanceIsNotWriter(t *testing.T) {
 	ctx := context.Background()
-	store := session.NewMemoryStore()
+	store := memStore()
 	model := newStagedModel(false, "first", "taken over")
 	a := messageRunner(t, store, "instance-a", "http://instance-a.example:8080", model)
 	b := messageRunner(t, store, "instance-b", "http://instance-b.example:8080", testkit.EchoModel{})
@@ -258,7 +257,7 @@ func TestAMessageForARunOnAnotherInstanceIsNotWriter(t *testing.T) {
 
 func TestNotWriterWithoutAnAdvertisedAddress(t *testing.T) {
 	ctx := context.Background()
-	store := session.NewMemoryStore()
+	store := memStore()
 	model := newStagedModel(false, "first")
 	a := messageRunner(t, store, "instance-a", "", model)
 	b := messageRunner(t, store, "instance-b", "", testkit.EchoModel{})
@@ -290,7 +289,7 @@ func TestNotWriterWithoutAnAdvertisedAddress(t *testing.T) {
 func TestMessageEventsReachTheInstanceStream(t *testing.T) {
 	ctx := context.Background()
 	model := newStagedModel(false, "first", "second")
-	runner := messageRunner(t, session.NewMemoryStore(), "instance-a", "", model)
+	runner := messageRunner(t, memStore(), "instance-a", "", model)
 	s, _ := runner.CreateSession(ctx, "echo", nil)
 	sub, err := runner.SubscribeInstance(ctx)
 	if err != nil {
@@ -321,7 +320,7 @@ func TestMessageEventsReachTheInstanceStream(t *testing.T) {
 // each ends as committed or dropped, also when it arrives as the Run ends.
 func TestEveryQueuedMessageIsCommittedOrDropped(t *testing.T) {
 	ctx := context.Background()
-	runner := messageRunner(t, session.NewMemoryStore(), "instance-a", "", testkit.EchoModel{})
+	runner := messageRunner(t, memStore(), "instance-a", "", testkit.EchoModel{})
 	for i := range 30 {
 		s, _ := runner.CreateSession(ctx, "echo", nil)
 		done := startRun(t, runner, s.ID(), "hello")
@@ -372,7 +371,7 @@ func TestEveryQueuedMessageIsCommittedOrDropped(t *testing.T) {
 // is draining) carries no Run in its result.
 func TestSendRefusedBeforeItRanHasNoRun(t *testing.T) {
 	runner, err := service.New(service.Config{
-		Store:  session.NewMemoryStore(),
+		Store:  memStore(),
 		Agents: []service.Agent{{Name: "echo", Model: testkit.EchoModel{}}},
 	})
 	if err != nil {
@@ -420,7 +419,7 @@ func runIDOf(t *testing.T, runner *service.Runner, sessionID string) gotato.RunI
 // leaves the Run that follows alone.
 func TestAbortSessionNamesARun(t *testing.T) {
 	ctx := context.Background()
-	store := session.NewMemoryStore()
+	store := memStore()
 	model := testkit.NewFakeModel(testkit.Text("first"), testkit.Text("second"))
 	a := instanceRunner(t, store, "instance-a", model, steadyLiveness)
 	s, err := a.CreateSession(ctx, "echo", nil)
@@ -480,7 +479,7 @@ func TestAbortSessionNamesARun(t *testing.T) {
 // echoed in the response, for a Run and for a message that starts one.
 func TestRequestIDIsRecordedAndEchoed(t *testing.T) {
 	ctx := context.Background()
-	a := instanceRunner(t, session.NewMemoryStore(), "instance-a", testkit.EchoModel{}, steadyLiveness)
+	a := instanceRunner(t, memStore(), "instance-a", testkit.EchoModel{}, steadyLiveness)
 	response, err := a.Run(ctx, service.RunRequest{Prompt: "hi", RequestID: "req-1"})
 	if err != nil {
 		t.Fatal(err)
@@ -521,7 +520,7 @@ func TestRequestIDIsRecordedAndEchoed(t *testing.T) {
 // A Session ID that is taken has a code of its own.
 func TestSessionExistsHasItsOwnCode(t *testing.T) {
 	ctx := context.Background()
-	a := instanceRunner(t, session.NewMemoryStore(), "instance-a", testkit.EchoModel{}, steadyLiveness)
+	a := instanceRunner(t, memStore(), "instance-a", testkit.EchoModel{}, steadyLiveness)
 	if _, err := a.CreateSessionExclusive(ctx, "echo", "taken", nil); err != nil {
 		t.Fatal(err)
 	}
@@ -544,7 +543,7 @@ func TestSessionExistsHasItsOwnCode(t *testing.T) {
 // resolves.
 func TestQueuedMessageOfADeadWriterIsDroppedOnTakeover(t *testing.T) {
 	ctx := context.Background()
-	store := session.NewMemoryStore()
+	store := memStore()
 	block := make(chan struct{})
 	model := testkit.NewFakeModel(testkit.Text("slow"))
 	model.Block = block

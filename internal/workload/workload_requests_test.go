@@ -152,9 +152,9 @@ func TestSameRecordSameRequest(t *testing.T) {
 	ctx := context.Background()
 	for _, task := range reftasks.ReferenceTasks() {
 		t.Run(task.Name, func(t *testing.T) {
-			store := session.NewMemoryStore()
+			store := memStore()
 			id, sent := playAcross(t, store, task, playOptions{})
-			final, err := session.Open(ctx, store, id)
+			final, err := session.Open(ctx, store.Records, id)
 			if err != nil {
 				t.Fatal(err)
 			}
@@ -238,9 +238,9 @@ func TestRequestOnlyGrowsAtItsEnd(t *testing.T) {
 		}
 		for _, task := range reftasks.ReferenceTasks() {
 			t.Run(name+"/"+task.Name, func(t *testing.T) {
-				store := session.NewMemoryStore()
+				store := memStore()
 				id, sent := playAcross(t, store, task, playOptions{reasoning: withReasoning})
-				final, err := session.Open(ctx, store, id)
+				final, err := session.Open(ctx, store.Records, id)
 				if err != nil {
 					t.Fatal(err)
 				}
@@ -437,7 +437,7 @@ func elementsOf(t *testing.T, raw json.RawMessage) []string {
 // requests the catalog is the same, and the loaded Tools are the earlier ones
 // and those the Tool Results between the two list as loaded (checkToolLoading).
 func TestToolSearchRequestOnlyGrowsAtItsEnd(t *testing.T) {
-	_, sent := playAcross(t, session.NewMemoryStore(), reftasks.ToolSearchTask(), playOptions{})
+	_, sent := playAcross(t, memStore(), reftasks.ToolSearchTask(), playOptions{})
 	requests := decodeRequests(t, sent)
 	loads := 0
 	for n := 1; n < len(requests); n++ {
@@ -475,7 +475,7 @@ func TestWireRequestOnlyGrowsAtItsEnd(t *testing.T) {
 		{apiChat, "", "tools", "messages"},
 	}
 	for _, task := range reftasks.ReferenceTasks() {
-		_, sent := playAcross(t, session.NewMemoryStore(), task, playOptions{})
+		_, sent := playAcross(t, memStore(), task, playOptions{})
 		requests := decodeRequests(t, sent)
 		for _, wire := range wires {
 			for _, form := range []gateway.DeferredForm{gateway.DeferredFormNative, gateway.DeferredFormList} {
@@ -526,7 +526,7 @@ func TestWireRequestOnlyGrowsAtItsEnd(t *testing.T) {
 // after Run 5, and returns the Session's ID, the store and the requests.
 func compactingToolSearch(t *testing.T) (session.Store, string, []gotato.ModelRequest) {
 	t.Helper()
-	store := session.NewMemoryStore()
+	store := memStore()
 	id, sent := playAcross(t, store, reftasks.ToolSearchTask(), playOptions{compactAfter: 5})
 	return store, id, decodeRequests(t, sent)
 }
@@ -539,14 +539,14 @@ func compactingToolSearch(t *testing.T) (session.Store, string, []gotato.ModelRe
 func TestToolSearchRequestAcrossACompaction(t *testing.T) {
 	ctx := context.Background()
 	store, id, requests := compactingToolSearch(t)
-	final, err := session.Open(ctx, store, id)
+	final, err := session.Open(ctx, store.Records, id)
 	if err != nil {
 		t.Fatal(err)
 	}
 	if len(final.Compactions()) != 1 {
 		t.Fatalf("%d compactions, want 1", len(final.Compactions()))
 	}
-	events, err := session.StoredEvents(ctx, store, id, 0, 0)
+	events, err := session.StoredEvents(ctx, store.Records, id, 0, 0)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -600,7 +600,7 @@ func TestToolSearchRequestAcrossACompaction(t *testing.T) {
 func TestSameRecordSameRequestAcrossLoadsAndUnloads(t *testing.T) {
 	ctx := context.Background()
 	task := reftasks.ToolSearchTask()
-	store := session.NewMemoryStore()
+	store := memStore()
 	compared, loadedAtRun := 0, []int{}
 	stages := []string{"a", "a", "b", "a"}
 	runner := taskRunner(t, store, task, "a")

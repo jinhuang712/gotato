@@ -79,10 +79,25 @@ func TestTakeoverRebuildsTheCutOffReplyFromItsParts(t *testing.T) {
 	<-sent
 	waitStored(t, store, record.ID(), gotato.EventKindReplyPartKept, 1)
 
-	// The Instance that held the Session stopped: another one takes it over.
-	opened, err := session.OpenWriter(ctx, store, record.ID(), "b")
+	// While the Run is in flight the Header asks a load for the log from the
+	// last Checkpoint (session_created, at 1), and the Run is in the State.
+	inFlight, err := store.Load(ctx, record.ID())
 	if err != nil {
 		t.Fatal(err)
+	}
+	if state := stateOf(t, inFlight); inFlight.Header.LogFrom != 1 || state.Running == "" {
+		t.Fatalf("Header of a Record with a Run in flight: LogFrom %d, Running %q; want 1 and a Run", inFlight.Header.LogFrom, state.Running)
+	}
+
+	// The Instance that held the Session stopped: another one takes it over,
+	// with one Load and no Log: the Load holds the parts.
+	counting := &countingRecords{Records: store}
+	opened, err := session.OpenWriter(ctx, counting, record.ID(), "b")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if loads, logs := counting.counts(); loads != 1 || logs != 0 {
+		t.Fatalf("OpenWriter made %d Loads and %d Logs, want 1 and 0", loads, logs)
 	}
 	cancel()
 	<-done
@@ -149,7 +164,7 @@ func TestUnstoredRecordKeepsNoReplyParts(t *testing.T) {
 }
 
 // countStored counts the stored Events of a kind in a Session's Record.
-func countStored(t *testing.T, store session.Store, id string, kind gotato.EventKind) int {
+func countStored(t *testing.T, store session.Records, id string, kind gotato.EventKind) int {
 	t.Helper()
 	stored, err := session.StoredEvents(context.Background(), store, id, 0, 0)
 	if err != nil {
@@ -167,7 +182,7 @@ func countStored(t *testing.T, store session.Store, id string, kind gotato.Event
 // waitStored waits until the stored Events of a Session hold at least n of a
 // kind. The Session stages its writes, so a test that acts on what the Record
 // holds waits for it instead of guessing a delay.
-func waitStored(t *testing.T, store session.Store, id string, kind gotato.EventKind, n int) {
+func waitStored(t *testing.T, store session.Records, id string, kind gotato.EventKind, n int) {
 	t.Helper()
 	deadline := time.Now().Add(10 * time.Second)
 	for {

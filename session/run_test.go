@@ -33,9 +33,17 @@ func TestTakeoverEndsAnInterruptedRun(t *testing.T) {
 	if len(runs) != 1 || runs[0].Status != gotato.RunStatusFailed || runs[0].Error != "interrupted" {
 		t.Fatalf("runs = %+v, want run-1 ended as interrupted", runs)
 	}
-	list, err := store.List(ctx)
-	if err != nil || len(list) != 1 || list[0].Runs != 1 || list[0].Running != "" {
-		t.Fatalf("summary = %+v, %v; want one Run, none running", list, err)
+	page, err := store.List(ctx, session.ListQuery{})
+	if list := page.Infos; err != nil || len(list) != 1 || list[0].Runs != 1 {
+		t.Fatalf("summary = %+v, %v; want one Run", list, err)
+	}
+	loaded, err := store.Load(ctx, id)
+	if err != nil {
+		t.Fatal(err)
+	}
+	state, err := session.DecodeState(loaded.Header)
+	if err != nil || state.Running != "" || state.Runs != 1 || loaded.Header.LogFrom != 0 {
+		t.Fatalf("state = %+v, LogFrom %d, %v; want one Run, none running, no LogFrom", state, loaded.Header.LogFrom, err)
 	}
 }
 
@@ -85,7 +93,7 @@ func TestOpeningAnswersToolCallsLeftWithoutResult(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	for _, entry := range loaded.Facts {
+	for _, entry := range loaded.Entries {
 		if entry.Kind == gotato.EventKindToolResultCommitted && strings.Contains(string(entry.Data), "repair-") {
 			t.Fatalf("a repair was written: %s", entry.Data)
 		}

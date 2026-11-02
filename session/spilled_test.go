@@ -11,7 +11,7 @@ import (
 // spillRecord stores a Record named id whose log holds a tool_result_spilled
 // Entry with body at position padTo. holder, when not nil, is the Message the
 // Record starts with (it carries the reference).
-func spillRecord(t *testing.T, store session.Store, id, body string, holder *gotato.Message, padTo uint64) {
+func spillRecord(t *testing.T, store session.Records, id, body string, holder *gotato.Message, padTo uint64) {
 	t.Helper()
 	ctx := context.Background()
 	options := []session.RecordOption{session.WithID(id)}

@@ -4,7 +4,7 @@ A Session has to outlive its Instance: the process can stop between two Steps, a
 
 ## TL;DR
 - A Record is an append-only log of Entries. Facts rebuild the Session, Log entries only say what happened, and every Entry is also an Event.
-- The Store makes one promise: a batch lands whole, at the position after the head the Writer read, or it is refused. The Record epoch refuses a Writer of a Record that was deleted.
+- The Store is two seams: `Records` makes one promise, a batch lands whole, at the position after the head the Writer read, or it is refused (the Record epoch refuses a Writer of a Record that was deleted), and `Liveness` keeps one row per Instance. Listing is an optional third, `Lister`.
 - A Fork and a spilled result point into a log by position and epoch. They copy no body and never read another Record's future.
 
 ## Facts and log entries
@@ -19,7 +19,7 @@ The Record is one line of Entries numbered from 1, and each Entry is a Fact or a
          └ Checkpoint
 ```
 
-Facts are what a rebuild reads: Messages, Tool calls that started, metadata changes, loaded tools, Segments, Claims and Checkpoints. Log entries tell what happened, for people and telemetry: a Run's start and end, usage, model calls, the parts of a streaming reply. Splitting them keeps a load cheap, because its cost follows the state of the Session and not how chatty its Runs were. One exception: when the last Run never ended, a load also reads the Log entries since the last Checkpoint, to rebuild the reply that was streaming as a Cut-off reply.
+Facts are what a rebuild reads: Messages, Tool calls that started, metadata changes, loaded tools, Segments, Claims and Checkpoints. Log entries tell what happened, for people and telemetry: a Run's start and end, usage, model calls, the parts of a streaming reply. Splitting them keeps a load cheap, because its cost follows the state of the Session and not how chatty its Runs were. One exception: while a Run is in flight the Writer sets `Header.LogFrom` to the last Checkpoint's position, so a load also returns the Log entries from there, to rebuild the reply that was streaming as a Cut-off reply if the Run never ended.
 
 ## What a load reads
 
@@ -30,13 +30,26 @@ A load starts at the last Checkpoint and skips every Entry before it, except the
                    │      │            └── Facts from here on ──┘
                    └──────┴── segment_closed Entries before the Checkpoint
 
- Store.Load  ─▶  Facts     the Facts from the last Checkpoint on (Log entries left out)
-                 Segments  the segment_closed Entries before it
-                 Head      the position of the last Entry
-                 Info      the RecordInfo: counts, usage, the Run in flight, metadata
+ Records.Load  ─▶  Entries   the Facts from the last Checkpoint on, and every Entry from Header.LogFrom
+                   Segments  the segment_closed Entries before it
+                   Seq       the position of the last Entry
+                   Header    the Header of the last write: Epoch, Info, State, LogFrom
 ```
 
-A Checkpoint holds the state of the Facts at one point, so it stands in for everything before it. It names its Segments by number and does not copy them, which is why `Load` hands them back apart. The RecordInfo travels with every write, so `List` never has to read a log. How a compaction writes a Checkpoint is in [compaction.md](compaction.md).
+A Checkpoint holds the state of the Facts at one point, so it stands in for everything before it. It names its Segments by number and does not copy them, which is why `Load` hands them back apart. A load is one read of the Record, so its Entries and its Header always belong together, and a rebuild never has to read the log a second time and settle a disagreement. How a compaction writes a Checkpoint is in [compaction.md](compaction.md).
+
+## The Header
+
+A write passes a `Header` with its Entries, and the store keeps the last one with the Record.
+
+```text
+ Header   Epoch    the Record epoch; the only field a store reads (the fence below)
+          Info     listing columns: ID, parent, times, Messages, Runs, Usage, metadata
+          State    Gotato's bytes: the Run in flight, busy, notices, the last Run end, the base counts
+          LogFrom  from where Load also returns the log Entries; 0 for none
+```
+
+`Info` holds what a service lists and a database may index, and nothing a rebuild needs. `State` is Gotato's own JSON, kept as an Entry's `Data` is, and no store reads it. So a store keeps the Header as it is and returns it from `Load`, and a later field of `Info` or `State` needs no change to an adapter that stores the whole value. Listing is the optional `Lister`, `List(ctx, ListQuery{Limit, Cursor})`, which a caller finds as `store.Records.(session.Lister)`: without it `Runner.Sessions` is `not_supported`, and a page may repeat or skip a Record updated while a caller pages.
 
 ## One write
 
@@ -59,12 +72,12 @@ An Append writes its batch all or nothing, at `after+1` onward, so an adapter ma
 An Append is checked in this order, and the epoch comes before the position.
 
 ```text
- Append(id, after, Entries, RecordInfo)
-   0  RecordInfo names a Record epoch?     no ─▶ invalid_argument
+ Append(id, after, Entries, Header)
+   0  Header names a Record epoch?         no ─▶ invalid_argument
    1  the Record exists?                   no ─▶ ErrNotFound
    2  the Record epoch is the stored one?  no ─▶ ErrNotFound  (deleted and created again)
    3  `after` is the last position?        no ─▶ ErrConflict  (another writer wrote first)
-   4  write the batch, replace the RecordInfo
+   4  write the batch, replace the Header
 ```
 
 Fence 3 is the position. A Claim is an Entry written at the position after the head its Instance read, so a Writer that lost its Claim always writes to a taken position. Fence 2 is the Record epoch, an identity chosen when the Record is created. Without it, a writer of a deleted Record could land at a position that is free again in the new one. The Epoch inside a Claim is another number, and the multi-instance spec covers it. The Record is also the trace of a Session, and this is a promise about Gotato's code and not about the Store: only the Session's Writer appends, and a Tool or the model has no way to write to the Record, but whoever operates the Store can still change or delete a Record, and Entries are not signed.
@@ -104,7 +117,7 @@ A Tool Result over one page is stored whole as an Entry of its own, and the Mess
                               │    call_id, body (412 KiB)    │       preview + ref result:<call_id>
                               ▲                               │       Spilled{seq: 12, bytes}
                               └───────────────────────────────┘ the Message points back by position
- read_result(ref, page) ─▶ Store.Log(after=11, limit=1) ─▶ the body, one page at a time
+ read_result(ref, page) ─▶ Records.Log(after=11, limit=1) ─▶ the body, one page at a time
 ```
 
 The body is written before the Message, so the Message can name its position. A crash between the two leaves a Log entry nobody points to, and nothing else. It is a Log entry, so a load never reads it, and a Session with many large results loads as fast as one with none. The Message is written once and stays small, so the bytes already sent do not change. A fork keeps the parent's Session and epoch in the pointer, so a parent that was deleted and created again reads as pruned and not as another body.

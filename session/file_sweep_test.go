@@ -117,8 +117,8 @@ func TestFileStoreSweepsOldTempFilesOfARecord(t *testing.T) {
 		t.Fatal(err)
 	}
 	loaded, err := other.Load(ctx, "r")
-	if err != nil || loaded.Head != 1 {
-		t.Fatalf("Load = head %d, %v", loaded.Head, err)
+	if err != nil || loaded.Seq != 1 {
+		t.Fatalf("Load = head %d, %v", loaded.Seq, err)
 	}
 	if exists(oldTmp) {
 		t.Error("an old temporary file survived a read of its Record")

@@ -45,7 +45,7 @@ func (hangingStream) Close() error { return nil }
 // A client that disconnects mid-stream still gets its Run settled and saved
 // (GOALS.md G-G02).
 func TestStreamDisconnectSettlesAndSavesTheRun(t *testing.T) {
-	runner, err := service.New(service.Config{Store: session.NewMemoryStore(), Agents: []service.Agent{{Name: "slow", Model: hangingModel{}}}})
+	runner, err := service.New(service.Config{Store: memStore(), Agents: []service.Agent{{Name: "slow", Model: hangingModel{}}}})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -121,7 +121,7 @@ func (m gatedModel) Config() gotato.ModelConfig { return gotato.ModelConfig{} }
 // A Run on a Session that runs on another instance waits, then answers 409
 // with Retry-After.
 func TestBusyOnAnotherInstanceAnswers409WithRetryAfter(t *testing.T) {
-	store := session.NewMemoryStore()
+	store := memStore()
 	held := gatedModel{gate: make(chan struct{}), started: make(chan struct{})}
 	holder, err := service.New(service.Config{Store: store, Instance: "instance-a", Agents: []service.Agent{{Name: "slow", Model: held}}})
 	if err != nil {
@@ -201,7 +201,7 @@ func TestSSEClientThatStopsReadingDoesNotSlowTheRun(t *testing.T) {
 		uses[i] = gotato.ToolCall{ID: gotato.ToolCallID(fmt.Sprintf("call-%d", i)), ToolID: "lookup", Arguments: []byte(`{}`)}
 	}
 	runner, err := service.New(service.Config{
-		Store: session.NewMemoryStore(),
+		Store: memStore(),
 		Agents: []service.Agent{{
 			Name:  "bulk",
 			Model: testkit.NewFakeModel(testkit.ToolCalls(uses...), testkit.Text("done")),
@@ -231,7 +231,7 @@ func TestSSEClientThatStopsReadingDoesNotSlowTheRun(t *testing.T) {
 	var stored []gotato.Event
 	deadline := time.Now().Add(10 * time.Second)
 	for time.Now().Before(deadline) {
-		stored, err = session.StoredEvents(ctx, runner.Store(), s.ID(), 0, 0)
+		stored, err = session.StoredEvents(ctx, runner.Store().Records, s.ID(), 0, 0)
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -322,7 +322,7 @@ func TestStreamingRoutesAnswerCapacityBeforeTheStream(t *testing.T) {
 	model := testkit.NewFakeModel(testkit.Text("done"))
 	model.Block = gate
 	runner, err := service.New(service.Config{
-		Store:     session.NewMemoryStore(),
+		Store:     memStore(),
 		Agents:    []service.Agent{{Name: "gated", Model: model}},
 		Admission: service.Admission{MaxActiveRuns: 1},
 	})
@@ -448,7 +448,7 @@ func TestDrainEndsStreamsInOrder(t *testing.T) {
 	t.Cleanup(openGate)
 	hanging := startedModel{started: make(chan struct{}, 4)}
 	runner, err := service.New(service.Config{
-		Store:  session.NewMemoryStore(),
+		Store:  memStore(),
 		Agents: []service.Agent{{Name: "gated", Model: gated}, {Name: "hanging", Model: hanging}},
 	})
 	if err != nil {
@@ -527,9 +527,9 @@ func TestDrainEndsStreamsInOrder(t *testing.T) {
 		t.Fatalf("retry %q and retry_after_ms in %s differ", reconnect.retry, reconnect.data)
 	}
 	// By then its Session is released.
-	loaded, err := runner.Store().Load(ctx, stopped.ID())
-	if err != nil || loaded.Info.Busy {
-		t.Fatalf("the stopped Run's Session = %+v, %v; want released", loaded.Info, err)
+	loaded, err := runner.Store().Records.Load(ctx, stopped.ID())
+	if err != nil || stateOf(loaded).Busy {
+		t.Fatalf("the stopped Run's Session = %+v, %v; want released", loaded.Header, err)
 	}
 }
 
@@ -650,7 +650,7 @@ func fullServer(t *testing.T) (*httptest.Server, *service.Runner, func()) {
 	model := testkit.NewFakeModel(testkit.Text("done"))
 	model.Block = gate
 	runner, err := service.New(service.Config{
-		Store:     session.NewMemoryStore(),
+		Store:     memStore(),
 		Agents:    []service.Agent{{Name: "gated", Model: model}},
 		Admission: service.Admission{MaxActiveSessions: 1},
 	})
@@ -689,7 +689,7 @@ func fullServer(t *testing.T) (*httptest.Server, *service.Runner, func()) {
 // run.
 func TestActivationLimitAnswers503MarkedNotRun(t *testing.T) {
 	server, runner, _ := fullServer(t)
-	before, _ := runner.Sessions(context.Background())
+	before, _ := runner.Sessions(context.Background(), session.ListQuery{})
 
 	// A stored idle Session is refused; nothing is activated.
 	idle, err := runner.CreateSession(context.Background(), "gated", nil)
@@ -707,9 +707,9 @@ func TestActivationLimitAnswers503MarkedNotRun(t *testing.T) {
 	if err := json.Unmarshal(data, &body); err != nil || body.Code != "overloaded" || !body.NotRun {
 		t.Fatalf("body = %s", data)
 	}
-	after, _ := runner.Sessions(context.Background())
-	if len(after) != len(before)+1 {
-		t.Fatalf("Sessions before %d, after %d: the refusals created one", len(before), len(after))
+	after, _ := runner.Sessions(context.Background(), session.ListQuery{})
+	if len(after.Infos) != len(before.Infos)+1 {
+		t.Fatalf("Sessions before %d, after %d: the refusals created one", len(before.Infos), len(after.Infos))
 	}
 
 	// A streaming request is refused before the stream starts, with the same

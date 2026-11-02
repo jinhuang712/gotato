@@ -42,8 +42,8 @@ func TestFromDocumentGivesTheRecordANewEpoch(t *testing.T) {
 		t.Fatalf("stale writer flush = %v, want ErrNotFound", err)
 	}
 	loaded, err := store.Load(ctx, "x")
-	if err != nil || loaded.Info.Metadata["k"] != "" {
-		t.Fatalf("the re-created Record took the stale write: %+v, %v", loaded.Info, err)
+	if err != nil || loaded.Header.Info.Metadata["k"] != "" {
+		t.Fatalf("the re-created Record took the stale write: %+v, %v", loaded.Header.Info, err)
 	}
 }
 
@@ -55,11 +55,11 @@ type failingStore struct {
 
 var errDisk = errors.New("disk on fire")
 
-func (s failingStore) Create(ctx context.Context, id string, entries []session.Entry, summary session.RecordInfo) error {
+func (s failingStore) Create(ctx context.Context, id string, entries []session.Entry, h session.Header) error {
 	if s.create {
 		return errDisk
 	}
-	return s.MemoryStore.Create(ctx, id, entries, summary)
+	return s.MemoryStore.Create(ctx, id, entries, h)
 }
 
 func (s failingStore) Load(ctx context.Context, id string) (session.Loaded, error) {
@@ -97,25 +97,27 @@ func TestCreateWriterAndOpenWriterClassifyStoreErrors(t *testing.T) {
 	}
 }
 
-// movingStore ends the Run and releases the Session in its Log, before it
-// answers: the Record moves between Load and Log.
+// movingStore ends the Run and releases the Session after its Load has read
+// the Record, before it answers: the Record moves under the Load.
 type movingStore struct {
 	*session.MemoryStore
 	holder *session.Writer
 	moved  bool
 }
 
-func (s *movingStore) Log(ctx context.Context, id string, after uint64, limit int) ([]session.Entry, error) {
-	if !s.moved {
-		s.moved = true
-		if _, err := s.holder.Write(ctx, []gotato.Event{gotato.RunEnded{Header: gotato.NewHeader("", "run-1", 0), Status: gotato.RunStatusCompleted}}); err != nil {
-			return nil, err
-		}
-		if err := s.holder.Release(ctx); err != nil {
-			return nil, err
-		}
+func (s *movingStore) Load(ctx context.Context, id string) (session.Loaded, error) {
+	loaded, err := s.MemoryStore.Load(ctx, id)
+	if err != nil || s.moved {
+		return loaded, err
 	}
-	return s.MemoryStore.Log(ctx, id, after, limit)
+	s.moved = true
+	if _, err := s.holder.Write(ctx, []gotato.Event{gotato.RunEnded{Header: gotato.NewHeader("", "run-1", 0), Status: gotato.RunStatusCompleted}}); err != nil {
+		return session.Loaded{}, err
+	}
+	if err := s.holder.Release(ctx); err != nil {
+		return session.Loaded{}, err
+	}
+	return loaded, nil
 }
 
 func TestOpenWriterOfARecordThatMovedUnderItDoesNotEndARunTwice(t *testing.T) {
@@ -143,6 +145,7 @@ func TestOpenWriterOfARecordThatMovedUnderItDoesNotEndARunTwice(t *testing.T) {
 	if ended != 1 {
 		t.Fatalf("the log has %d run_ended Entries, want 1", ended)
 	}
+	// The claim is written at the position the Load read, which is taken now.
 	if !errors.Is(err, session.ErrConflict) {
 		t.Fatalf("err = %v, want ErrConflict (load again)", err)
 	}
@@ -173,20 +176,30 @@ func TestFileStoreInstanceReadsATornRowAsNotAlive(t *testing.T) {
 	}
 }
 
-// Every store refuses the IDs the FileStore cannot name: 33 CJK characters are
-// 99 bytes, and 297 characters of file name.
-func TestEveryStoreRefusesAnIDWhoseFileNameIsTooLong(t *testing.T) {
+// The file name rule is the FileStore's own: 23 CJK characters are 69 bytes of
+// ID, so CheckID and the MemoryStore keep them, and 207 bytes of file name, so
+// the FileStore refuses them.
+func TestOnlyTheFileStoreRefusesAnIDWhoseFileNameIsTooLong(t *testing.T) {
 	ctx := context.Background()
 	fileStore, err := session.NewFileStore(t.TempDir())
 	if err != nil {
 		t.Fatal(err)
 	}
-	id := strings.Repeat("会", 33)
-	for name, store := range map[string]session.Store{"memory": session.NewMemoryStore(), "file": fileStore} {
-		err := store.Create(ctx, id, []session.Entry{{Seq: 1, Kind: gotato.EventKindSessionCreated, Layer: session.LayerFact, Data: []byte(`{}`)}}, session.RecordInfo{ID: id, RecordEpoch: "e"})
-		if !errors.Is(err, session.ErrInvalidID) {
-			t.Fatalf("%s Create(%d bytes of CJK) = %v, want ErrInvalidID", name, len(id), err)
-		}
+	id := strings.Repeat("会", 23)
+	if err := session.CheckID(id); err != nil {
+		t.Fatalf("CheckID(%d bytes of CJK) = %v, want nil", len(id), err)
+	}
+	create := func(store session.Records) error {
+		return store.Create(ctx, id, []session.Entry{{Seq: 1, Kind: gotato.EventKindSessionCreated, Layer: session.LayerFact, Data: []byte(`{}`)}}, session.Header{Epoch: "e", Info: session.RecordInfo{ID: id}})
+	}
+	if err := create(session.NewMemoryStore()); err != nil {
+		t.Fatalf("MemoryStore Create(%d bytes of CJK) = %v, want nil", len(id), err)
+	}
+	if err := create(fileStore); !errors.Is(err, session.ErrInvalidID) {
+		t.Fatalf("FileStore Create(%d bytes of CJK) = %v, want ErrInvalidID", len(id), err)
+	}
+	if _, err := fileStore.Load(ctx, id); !errors.Is(err, session.ErrInvalidID) {
+		t.Fatalf("FileStore Load = %v, want ErrInvalidID", err)
 	}
 }
 

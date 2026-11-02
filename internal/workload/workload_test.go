@@ -98,7 +98,7 @@ func TestWorkloadOnAFileStore(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	report, err := workload.Run(context.Background(), workload.Config{Store: store}, []reftasks.Task{reftasks.HistoryTask(100)})
+	report, err := workload.Run(context.Background(), workload.Config{Store: session.Store{Records: store, Liveness: store}}, []reftasks.Task{reftasks.HistoryTask(100)})
 	if err != nil {
 		t.Fatal(err)
 	}

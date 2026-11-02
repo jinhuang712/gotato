@@ -13,11 +13,11 @@ import (
 	"github.com/jinhuang712/gotato/gotato"
 )
 
-// fileBatch is one file of a Record: the Entries of one write, and the
-// RecordInfo after it.
+// fileBatch is one file of a Record: the Entries of one write, and the Header
+// after it.
 type fileBatch struct {
-	Entries []Entry    `json:"entries"`
-	Info    RecordInfo `json:"info"`
+	Entries []Entry `json:"entries"`
+	Header  Header  `json:"header"`
 }
 
 const batchNameDigits = 20
@@ -64,7 +64,7 @@ func readBatch(path string) (fileBatch, error) {
 	return batch, nil
 }
 
-// readBatchInfo reads only the RecordInfo of a batch file. The Entries are
+// readBatchInfo reads only the Header's RecordInfo of a batch file. The Entries are
 // scanned for syntax but not decoded, so a listing does not build a large
 // batch's Entries to drop them.
 func readBatchInfo(path string) (RecordInfo, error) {
@@ -73,12 +73,14 @@ func readBatchInfo(path string) (RecordInfo, error) {
 		return RecordInfo{}, err
 	}
 	var batch struct {
-		Info RecordInfo `json:"info"`
+		Header struct {
+			Info RecordInfo `json:"info"`
+		} `json:"header"`
 	}
 	if err := json.Unmarshal(data, &batch); err != nil {
 		return RecordInfo{}, fmt.Errorf("session: %s: %w", filepath.Base(path), err)
 	}
-	return batch.Info, nil
+	return batch.Header.Info, nil
 }
 
 // writeBatch writes one batch at its first position, failing with ErrConflict
@@ -145,7 +147,7 @@ func syncDir(path string) error {
 // batchList returns the directory of a Record's current epoch and the first
 // positions of its writes, in order.
 func (f *FileStore) batchList(id string) (string, []uint64, error) {
-	if err := checkID(id); err != nil {
+	if err := checkFileID(id); err != nil {
 		return "", nil, err
 	}
 	dir, err := f.currentDir(id)

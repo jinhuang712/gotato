@@ -1,14 +1,19 @@
 # Embed Gotato in a service
 
-By the end of this page your service runs agent conversations that survive a restart and can be continued by any pod. You need the [first page](getting-started.md), and a place to keep Sessions: a directory (`session.NewFileStore`), or your own `session.Store`.
+By the end of this page your service runs agent conversations that survive a restart and can be continued by any pod. You need the [first page](getting-started.md), and a place to keep Sessions: a directory (`session.NewFileStore`), or your own `session.Records` and `session.Liveness`, which a `session.Store` holds side by side.
 
 ## The Runner
 
 A `service.Runner` runs Sessions for you. It opens a Session's Record from the store, runs the message, writes every step as it happens, and lets the Session go.
 
 ```go
+// One FileStore is both halves of a Store: Records and Liveness. Your own may be two.
+store, err := session.NewFileStore("/var/lib/myservice/sessions")
+if err != nil {
+    return err
+}
 runner, err := service.New(service.Config{
-    Store:  store, // session.NewFileStore("/var/lib/myservice/sessions"), or your own
+    Store:  session.Store{Records: store, Liveness: store},
     Agents: []service.Agent{{Name: "default", Model: model, Tools: tools}},
 })
 if err != nil {

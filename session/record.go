@@ -93,10 +93,13 @@ type Record struct {
 	// of the last Event numbered, stored or not. logging turns on once the
 	// Record is stored; from then on every change queues its Event in
 	// pending, until a write takes it.
-	head    uint64
-	last    uint64
-	logging bool
-	pending []gotato.Event
+	head uint64
+	last uint64
+	// checkpointSeq is the position of the last Checkpoint written or loaded:
+	// where a load that must read the log starts (Header.LogFrom).
+	checkpointSeq uint64
+	logging       bool
+	pending       []gotato.Event
 	// instance names the Instance whose writes this Record's Entries are,
 	// and claim the Record's writer as its facts last named it.
 	instance string
@@ -107,7 +110,7 @@ type Record struct {
 	running gotato.RunID
 	busy    bool
 	// notices are the notices queued and neither committed nor dropped; the
-	// RecordInfo keeps them, so a Record loaded from its facts knows them too.
+	// Header's State keeps them, so a Record loaded from its facts knows them too.
 	notices []gotato.PendingNotice
 	// queued are the user messages queued (message_queued) and neither
 	// committed nor dropped in the log read since the last Checkpoint. They are
@@ -115,7 +118,7 @@ type Record struct {
 	// dropped by the Writer that takes the Record over (takeOver).
 	queued []gotato.MessageQueued
 	// lastRunEnd is when the last Run that ended did; it is kept in the
-	// RecordInfo, so a Record loaded from its facts knows it too.
+	// Header's State, so a Record loaded from its facts knows it too.
 	lastRunEnd time.Time
 	baseRuns   int
 	// started and openParts hold, while a log is read, the Tool calls that

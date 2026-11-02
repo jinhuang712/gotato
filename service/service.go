@@ -327,8 +327,11 @@ type Runner struct {
 
 // New validates the configuration and creates a Runner.
 func New(cfg Config) (*Runner, error) {
-	if cfg.Store == nil {
-		return nil, errors.New("service: Store is required")
+	if cfg.Store.Records == nil {
+		return nil, errors.New("service: Store.Records is required")
+	}
+	if cfg.Store.Liveness == nil {
+		return nil, errors.New("service: Store.Liveness is required")
 	}
 	if len(cfg.Agents) == 0 {
 		return nil, errors.New("service: at least one Agent is required")
@@ -413,7 +416,7 @@ func (r *Runner) Instance() string { return r.id() }
 // Record reads a Record's whole Record from the store: its facts, Runs,
 // usage and Events. It changes nothing.
 func (r *Runner) Record(ctx context.Context, sessionID string) (*session.Record, error) {
-	record, err := session.View(ctx, r.store, sessionID)
+	record, err := session.View(ctx, r.store.Records, sessionID)
 	return record, storeFailureOf(ctx, err, true)
 }
 
@@ -426,20 +429,22 @@ func (r *Runner) Events(ctx context.Context, sessionID string, opts ...EventsOpt
 			option(&config)
 		}
 	}
-	events, err := session.StoredEvents(ctx, r.store, sessionID, 0, 0)
+	events, err := session.StoredEvents(ctx, r.store.Records, sessionID, 0, 0)
 	return events, storeFailureOf(ctx, err, true)
 }
 
-// Sessions lists the stored Sessions, the most recently updated first.
-func (r *Runner) Sessions(ctx context.Context, opts ...ListOption) ([]session.RecordInfo, error) {
-	var config listConfig
-	for _, option := range opts {
-		if option != nil {
-			option(&config)
-		}
+// Sessions lists the stored Sessions, the most recently updated first, a page
+// at a time: the first for a zero ListQuery, and the next for the Cursor a page
+// names as its Next. A page may repeat or skip a Session updated while a caller
+// pages. It needs a store whose Records is a session.Lister; without one it is
+// not_supported.
+func (r *Runner) Sessions(ctx context.Context, q session.ListQuery) (session.ListPage, error) {
+	lister, ok := r.store.Records.(session.Lister)
+	if !ok {
+		return session.ListPage{}, gotato.ErrorOf(gotato.CodeNotSupported, "service: the store does not list Sessions (its Records is not a session.Lister)")
 	}
-	list, err := r.store.List(ctx)
-	return list, storeFailureOf(ctx, err, true)
+	page, err := lister.List(ctx, q)
+	return page, storeFailureOf(ctx, err, true)
 }
 
 // Agents lists the registered Agent names; the first is the default.

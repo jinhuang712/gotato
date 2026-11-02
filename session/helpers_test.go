@@ -2,6 +2,7 @@ package session_test
 
 import (
 	"context"
+	"sync"
 	"testing"
 	"time"
 
@@ -53,7 +54,7 @@ func kindsOf(events []gotato.Event) []gotato.EventKind {
 	return out
 }
 
-func storedKinds(t *testing.T, store session.Store, id string, after uint64) []gotato.EventKind {
+func storedKinds(t *testing.T, store session.Records, id string, after uint64) []gotato.EventKind {
 	t.Helper()
 	events, err := session.StoredEvents(context.Background(), store, id, after, 0)
 	if err != nil {
@@ -81,13 +82,45 @@ func runSession(t *testing.T, s *session.Record, model gotato.Model, prompt stri
 	return result
 }
 
+// fakeClock is a clock a test moves by hand, for a store that times rows.
+type fakeClock struct {
+	mu sync.Mutex
+	at time.Duration
+}
+
+var fakeStart = time.Date(2026, 10, 17, 0, 0, 0, 0, time.UTC)
+
+func (c *fakeClock) now() time.Time {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	return fakeStart.Add(c.at)
+}
+
+func (c *fakeClock) advance(d time.Duration) {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	c.at += d
+}
+
+// stateOf decodes the State of the Header a Load returned.
+func stateOf(t *testing.T, loaded session.Loaded) session.RecordState {
+	t.Helper()
+	state, err := session.DecodeState(loaded.Header)
+	if err != nil {
+		t.Fatal(err)
+	}
+	return state
+}
+
 func fileEntry(seq uint64, kind gotato.EventKind) session.Entry {
 	return session.Entry{Seq: seq, Kind: kind, Layer: session.LayerFact, Data: []byte(`{}`)}
 }
 
-func fileSummary(seq uint64) session.RecordInfo {
+// fileSummary is the Header of a write that leaves Record "r" at seq: its
+// Info.Messages names the position.
+func fileSummary(seq uint64) session.Header {
 	at := time.Date(2026, 10, 28, 0, 0, 0, 0, time.UTC)
-	return session.RecordInfo{ID: "r", RecordEpoch: "e1", CreatedAt: at, UpdatedAt: at, Seq: seq}
+	return session.Header{Epoch: "e1", Info: session.RecordInfo{ID: "r", CreatedAt: at, UpdatedAt: at, Messages: int(seq)}}
 }
 
 func idMessage(id, role, text string) gotato.Message {
@@ -112,11 +145,38 @@ func rendered(number int, texts ...string) gotato.Segment {
 	return segment
 }
 
-func segmentStores(t *testing.T) map[string]session.Store {
+func segmentStores(t *testing.T) map[string]session.Records {
 	t.Helper()
 	files, err := session.NewFileStore(t.TempDir())
 	if err != nil {
 		t.Fatal(err)
 	}
-	return map[string]session.Store{"memory": session.NewMemoryStore(), "file": files}
+	return map[string]session.Records{"memory": session.NewMemoryStore(), "file": files}
+}
+
+// countingRecords counts the Loads and Logs that reach the Records it wraps.
+type countingRecords struct {
+	session.Records
+	mu          sync.Mutex
+	loads, logs int
+}
+
+func (c *countingRecords) Load(ctx context.Context, id string) (session.Loaded, error) {
+	c.mu.Lock()
+	c.loads++
+	c.mu.Unlock()
+	return c.Records.Load(ctx, id)
+}
+
+func (c *countingRecords) Log(ctx context.Context, id string, after uint64, limit int) ([]session.Entry, error) {
+	c.mu.Lock()
+	c.logs++
+	c.mu.Unlock()
+	return c.Records.Log(ctx, id, after, limit)
+}
+
+func (c *countingRecords) counts() (loads, logs int) {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	return c.loads, c.logs
 }

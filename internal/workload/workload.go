@@ -64,8 +64,8 @@ func Run(ctx context.Context, cfg Config, tasks []reftasks.Task) (Report, error)
 	}
 	cfg.Plays = max(cfg.Plays, 1)
 	cfg.Concurrency = max(cfg.Concurrency, 1)
-	if cfg.Store == nil {
-		cfg.Store = session.NewMemoryStore()
+	if cfg.Store.Records == nil || cfg.Store.Liveness == nil {
+		cfg.Store = memoryStore()
 	}
 	report := Report{Model: cfg.ModelName, Plays: cfg.Plays, Concurrency: cfg.Concurrency}
 	if report.Model == "" && cfg.Model == nil {
@@ -121,7 +121,7 @@ func runTask(ctx context.Context, cfg Config, task reftasks.Task) (TaskReport, e
 	}
 	// The inspector rebuilds each Turn's Transcript in a store of its own and
 	// inspects it with the same Spec.
-	inspectStore := session.NewMemoryStore()
+	inspectStore := memoryStore()
 	inspector, err := service.New(service.Config{Store: inspectStore, Agents: []service.Agent{spec}})
 	if err != nil {
 		return TaskReport{}, err
@@ -306,7 +306,7 @@ func playTask(ctx context.Context, runner *service.Runner, store session.Store, 
 	// The committed tool results add the text of each failure to the
 	// report; the Events have already decided its cause.
 	results := map[gotato.ToolCallID]gotato.ToolResult{}
-	final, err := session.Open(ctx, store, s.ID())
+	final, err := session.Open(ctx, store.Records, s.ID())
 	if err != nil {
 		p.failures = append(p.failures, failure{kind: KindSetup, cause: CauseStore, message: "reading the Session back: " + err.Error()})
 	} else {
@@ -381,12 +381,12 @@ func checkContext(ctx context.Context, inspector *service.Runner, store session.
 			continue
 		}
 		s := session.New(session.WithMetadata(final.Metadata()), session.WithMessages(messages[:b.messages]...), reftasks.WithLoadedToolsOf(messages[:b.messages]))
-		if _, err := session.CreateWriter(ctx, store, s, inspector.Instance()); err != nil {
+		if _, err := session.CreateWriter(ctx, store.Records, s, inspector.Instance()); err != nil {
 			mismatch("saving the Transcript to inspect: " + err.Error())
 			continue
 		}
 		inspection, err := inspector.Inspect(ctx, s.ID(), service.InspectConfig{})
-		_ = store.Delete(ctx, s.ID())
+		_ = store.Records.Delete(ctx, s.ID())
 		switch {
 		case err != nil:
 			mismatch("inspecting: " + err.Error())
@@ -404,4 +404,10 @@ func addUsage(a, b gotato.Usage) gotato.Usage {
 		CacheReadTokens:  a.CacheReadTokens + b.CacheReadTokens,
 		CacheWriteTokens: a.CacheWriteTokens + b.CacheWriteTokens,
 	}
+}
+
+// memoryStore is a Store of one MemoryStore, for a play that was given none.
+func memoryStore() session.Store {
+	m := session.NewMemoryStore()
+	return session.Store{Records: m, Liveness: m}
 }

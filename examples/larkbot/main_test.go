@@ -8,7 +8,6 @@ import (
 	"testing"
 
 	"github.com/jinhuang712/gotato/service"
-	"github.com/jinhuang712/gotato/session"
 )
 
 func TestReadyzFollowsDraining(t *testing.T) {
@@ -33,7 +32,7 @@ func TestCreateExclusiveIsIdempotentByError(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	runner, err := service.New(service.Config{Store: session.NewMemoryStore(), Agents: []service.Agent{agent}})
+	runner, err := service.New(service.Config{Store: memStore(), Agents: []service.Agent{agent}})
 	if err != nil {
 		t.Fatal(err)
 	}

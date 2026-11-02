@@ -16,6 +16,12 @@ import (
 	"github.com/jinhuang712/gotato/session"
 )
 
+// memStore is a Store of one MemoryStore.
+func memStore() session.Store {
+	m := session.NewMemoryStore()
+	return session.Store{Records: m, Liveness: m}
+}
+
 // taskRunner runs a task with a Liveness TTL that a loaded machine does not
 // outrun: a Runner refuses a write once its last renewal is older than 4/5 of
 // the TTL. A test that kills an instance does it through faultStore, which

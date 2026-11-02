@@ -22,7 +22,8 @@ func runOnce(model, prompt string) error {
 	if c, ok := agent.Model.(io.Closer); ok {
 		defer func() { _ = c.Close() }()
 	}
-	runner, err := service.New(service.Config{Store: session.NewMemoryStore(), Agents: []service.Agent{agent}})
+	store := session.NewMemoryStore()
+	runner, err := service.New(service.Config{Store: session.Store{Records: store, Liveness: store}, Agents: []service.Agent{agent}})
 	if err != nil {
 		return err
 	}

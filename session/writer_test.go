@@ -67,14 +67,14 @@ func TestCreateIsBusyUntilReleasedUnlessIdle(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if loaded, err := store.Load(ctx, "busy"); err != nil || !loaded.Info.Busy || loaded.Head != 2 {
-		t.Fatalf("a new Record = %+v, %v; want busy at head 2", loaded.Info, err)
+	if loaded, err := store.Load(ctx, "busy"); err != nil || !stateOf(t, loaded).Busy || loaded.Seq != 2 {
+		t.Fatalf("a new Record = %+v, %v; want busy at head 2", loaded.Header.Info, err)
 	}
 	if err := busy.Release(ctx); err != nil {
 		t.Fatal(err)
 	}
-	if loaded, err := store.Load(ctx, "busy"); err != nil || loaded.Info.Busy || loaded.Head != 3 {
-		t.Fatalf("after Release = %+v, %v; want idle at head 3", loaded.Info, err)
+	if loaded, err := store.Load(ctx, "busy"); err != nil || stateOf(t, loaded).Busy || loaded.Seq != 3 {
+		t.Fatalf("after Release = %+v, %v; want idle at head 3", loaded.Header.Info, err)
 	}
 	if kinds := storedKinds(t, store, "busy", 0); len(kinds) != 3 || kinds[2] != gotato.EventKindSessionReleased {
 		t.Fatalf("entries = %v, want session_created, session_claimed, session_released", kinds)
@@ -84,8 +84,8 @@ func TestCreateIsBusyUntilReleasedUnlessIdle(t *testing.T) {
 	if _, err := session.CreateWriter(ctx, store, session.New(session.WithID("idle")), "instance-a", session.WithIdle(), session.WithPublisher(func(e gotato.Event) { published = append(published, e) })); err != nil {
 		t.Fatal(err)
 	}
-	if loaded, err := store.Load(ctx, "idle"); err != nil || loaded.Info.Busy || loaded.Head != 3 {
-		t.Fatalf("an idle Record = %+v, %v; want idle at head 3", loaded.Info, err)
+	if loaded, err := store.Load(ctx, "idle"); err != nil || stateOf(t, loaded).Busy || loaded.Seq != 3 {
+		t.Fatalf("an idle Record = %+v, %v; want idle at head 3", loaded.Header.Info, err)
 	}
 	if len(published) != 3 || published[2].Kind() != gotato.EventKindSessionReleased || published[2].Head().Number != 3 {
 		t.Fatalf("published = %v, want the three Events of the write, release last", published)
@@ -124,8 +124,8 @@ func TestResumeClaimsAReleasedRecordAgainWhileItsHeadIsCurrent(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if loaded.Head != writer.Record().Head() || loaded.Info.Busy {
-		t.Fatalf("store head %d busy %v, want the copy's head %d, idle", loaded.Head, loaded.Info.Busy, writer.Record().Head())
+	if loaded.Seq != writer.Record().Head() || stateOf(t, loaded).Busy {
+		t.Fatalf("store head %d busy %v, want the copy's head %d, idle", loaded.Seq, stateOf(t, loaded).Busy, writer.Record().Head())
 	}
 
 	other, err := session.OpenWriter(ctx, store, id, "instance-b")
@@ -291,20 +291,20 @@ func TestReleasePublishesSessionReleased(t *testing.T) {
 
 // failingAppend fails every Append once armed.
 type failingAppend struct {
-	session.Store
+	session.Records
 	fail bool
 }
 
-func (s *failingAppend) Append(ctx context.Context, id string, after uint64, entries []session.Entry, summary session.RecordInfo) error {
+func (s *failingAppend) Append(ctx context.Context, id string, after uint64, entries []session.Entry, h session.Header) error {
 	if s.fail {
 		return errors.New("disk full")
 	}
-	return s.Store.Append(ctx, id, after, entries, summary)
+	return s.Records.Append(ctx, id, after, entries, h)
 }
 
 func TestPublisherReceivesNothingOfAFailedWrite(t *testing.T) {
 	ctx := context.Background()
-	store := &failingAppend{Store: session.NewMemoryStore()}
+	store := &failingAppend{Records: session.NewMemoryStore()}
 	var published []gotato.Event
 	writer, err := session.CreateWriter(ctx, store, session.New(), "instance-a", session.WithPublisher(func(e gotato.Event) { published = append(published, e) }))
 	if err != nil {
@@ -399,23 +399,23 @@ func TestReopeningByTheHolderWritesTheClaimAgain(t *testing.T) {
 	if claim := reopened.Record().Claim(); claim != (session.Claim{Instance: "instance-a", Epoch: 1}) {
 		t.Fatalf("claim = %+v, want instance-a still at epoch 1", claim)
 	}
-	events, err := session.StoredEvents(ctx, store, id, before.Head, 0)
-	if err != nil || len(events) != 1 || events[0].Head().Number != before.Head+1 {
-		t.Fatalf("written after the head = %v, %v; want one claim at %d", events, err, before.Head+1)
+	events, err := session.StoredEvents(ctx, store, id, before.Seq, 0)
+	if err != nil || len(events) != 1 || events[0].Head().Number != before.Seq+1 {
+		t.Fatalf("written after the head = %v, %v; want one claim at %d", events, err, before.Seq+1)
 	}
 	claimed, ok := events[0].(gotato.SessionClaimed)
 	if !ok || claimed.Epoch != 1 || claimed.Instance != "instance-a" || claimed.Why != gotato.ClaimWhyIdle {
 		t.Fatalf("event = %+v, want session_claimed, epoch 1, idle", events[0])
 	}
 	after, err := store.Load(ctx, id)
-	if err != nil || !after.Info.Busy {
-		t.Fatalf("summary = %+v, %v; want busy", after.Info, err)
+	if err != nil || !stateOf(t, after).Busy {
+		t.Fatalf("summary = %+v, %v; want busy", after.Header.Info, err)
 	}
 	if err := reopened.Release(ctx); err != nil {
 		t.Fatal(err)
 	}
-	if released, err := store.Load(ctx, id); err != nil || released.Info.Busy {
-		t.Fatalf("summary after Release = %+v, %v; want idle", released.Info, err)
+	if released, err := store.Load(ctx, id); err != nil || stateOf(t, released).Busy {
+		t.Fatalf("summary after Release = %+v, %v; want idle", released.Header.Info, err)
 	}
 	if _, err := session.View(ctx, store, id); err != nil {
 		t.Fatalf("a Record with a repeated claim does not load: %v", err)
@@ -466,13 +466,13 @@ func TestOpeningAnotherInstancesRecordWritesAClaimWithItsReason(t *testing.T) {
 	ctx := context.Background()
 	cases := []struct {
 		name    string
-		prepare func(t *testing.T, store session.Store, id string)
+		prepare func(t *testing.T, store session.Records, id string)
 		options []session.WriterOption
 		why     gotato.ClaimWhy
 	}{
 		{
 			name: "idle",
-			prepare: func(t *testing.T, store session.Store, id string) {
+			prepare: func(t *testing.T, store session.Records, id string) {
 				writer, err := session.OpenWriter(ctx, store, id, "instance-a")
 				if err != nil {
 					t.Fatal(err)
@@ -485,7 +485,7 @@ func TestOpeningAnotherInstancesRecordWritesAClaimWithItsReason(t *testing.T) {
 		},
 		{
 			name: "writer_gone: busy holder",
-			prepare: func(t *testing.T, store session.Store, id string) {
+			prepare: func(t *testing.T, store session.Records, id string) {
 				if _, err := session.OpenWriter(ctx, store, id, "instance-a"); err != nil {
 					t.Fatal(err)
 				}
@@ -494,7 +494,7 @@ func TestOpeningAnotherInstancesRecordWritesAClaimWithItsReason(t *testing.T) {
 		},
 		{
 			name: "writer_gone: a Run that never ended",
-			prepare: func(t *testing.T, store session.Store, id string) {
+			prepare: func(t *testing.T, store session.Records, id string) {
 				writer, err := session.OpenWriter(ctx, store, id, "instance-a")
 				if err != nil {
 					t.Fatal(err)
@@ -510,7 +510,7 @@ func TestOpeningAnotherInstancesRecordWritesAClaimWithItsReason(t *testing.T) {
 		},
 		{
 			name: "waited",
-			prepare: func(t *testing.T, store session.Store, id string) {
+			prepare: func(t *testing.T, store session.Records, id string) {
 				writer, err := session.OpenWriter(ctx, store, id, "instance-a")
 				if err != nil {
 					t.Fatal(err)
@@ -543,7 +543,7 @@ func TestOpeningAnotherInstancesRecordWritesAClaimWithItsReason(t *testing.T) {
 			if claim := second.Record().Claim(); claim != (session.Claim{Instance: "instance-b", Epoch: 2}) {
 				t.Fatalf("claim = %+v, want instance-b at epoch 2", claim)
 			}
-			events, err := session.StoredEvents(ctx, store, id, head.Head, 0)
+			events, err := session.StoredEvents(ctx, store, id, head.Seq, 0)
 			if err != nil || len(events) == 0 {
 				t.Fatalf("written = %v, %v", events, err)
 			}
@@ -551,8 +551,8 @@ func TestOpeningAnotherInstancesRecordWritesAClaimWithItsReason(t *testing.T) {
 			if !ok {
 				t.Fatalf("first Event written = %s, want session_claimed", events[0].Kind())
 			}
-			if claimed.Epoch != 2 || claimed.Instance != "instance-b" || claimed.From != "instance-a" || claimed.Why != tc.why || claimed.Number != head.Head+1 {
-				t.Fatalf("session_claimed = %+v, want epoch 2 from instance-a, why %s at %d", claimed, tc.why, head.Head+1)
+			if claimed.Epoch != 2 || claimed.Instance != "instance-b" || claimed.From != "instance-a" || claimed.Why != tc.why || claimed.Number != head.Seq+1 {
+				t.Fatalf("session_claimed = %+v, want epoch 2 from instance-a, why %s at %d", claimed, tc.why, head.Seq+1)
 			}
 		})
 	}
@@ -562,9 +562,9 @@ func TestOpeningAnotherInstancesRecordWritesAClaimWithItsReason(t *testing.T) {
 // come in between the steps of one.
 type slowStore struct{ *session.MemoryStore }
 
-func (s slowStore) Append(ctx context.Context, id string, after uint64, entries []session.Entry, info session.RecordInfo) error {
+func (s slowStore) Append(ctx context.Context, id string, after uint64, entries []session.Entry, h session.Header) error {
 	time.Sleep(time.Millisecond)
-	return s.MemoryStore.Append(ctx, id, after, entries, info)
+	return s.MemoryStore.Append(ctx, id, after, entries, h)
 }
 
 // Write returns the Events it was given, numbered and stored, while another

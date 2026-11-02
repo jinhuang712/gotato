@@ -2,8 +2,6 @@ package session_test
 
 import (
 	"context"
-	"encoding/json"
-	"strings"
 	"testing"
 	"time"
 
@@ -23,42 +21,78 @@ func TestRecordInfoTimesSurviveASaveAndLoad(t *testing.T) {
 	zone := time.FixedZone("UTC+8", 8*3600)
 	created := time.Date(2026, 10, 17, 9, 30, 15, 123_456_789, zone)
 	updated := created.Add(1500 * time.Millisecond)
-	ended := created.Add(time.Second)
-	info := session.RecordInfo{ID: "r", RecordEpoch: "e1", CreatedAt: created, UpdatedAt: updated, LastRunEnd: ended, Seq: 2}
+	h := session.Header{Epoch: "e1", Info: session.RecordInfo{ID: "r", CreatedAt: created, UpdatedAt: updated}}
 	entries := []session.Entry{
 		{Seq: 1, Kind: gotato.EventKindSessionCreated, Layer: session.LayerFact, Data: []byte(`{}`)},
 		{Seq: 2, Kind: gotato.EventKindMessageCommitted, Layer: session.LayerFact, Data: []byte(`{}`)},
 	}
-	if err := store.Create(ctx, "r", entries, info); err != nil {
+	if err := store.Create(ctx, "r", entries, h); err != nil {
 		t.Fatal(err)
 	}
-	want := info.RecordEpoch
 
 	loaded, err := store.Load(ctx, "r")
 	if err != nil {
 		t.Fatal(err)
 	}
-	listed, err := store.List(ctx)
-	if err != nil || len(listed) != 1 {
-		t.Fatalf("List = %v, %v", listed, err)
+	page, err := store.List(ctx, session.ListQuery{})
+	if err != nil || len(page.Infos) != 1 {
+		t.Fatalf("List = %v, %v", page, err)
 	}
-	for name, got := range map[string]session.RecordInfo{"Load": loaded.Info, "List": listed[0]} {
-		if !got.CreatedAt.Equal(created) || !got.UpdatedAt.Equal(updated) || !got.LastRunEnd.Equal(ended) {
-			t.Errorf("%s: times %v %v %v, want %v %v %v", name, got.CreatedAt, got.UpdatedAt, got.LastRunEnd, created, updated, ended)
-		}
-		if got.RecordEpoch != want {
-			t.Errorf("%s: epoch %q, want %q", name, got.RecordEpoch, want)
+	for name, got := range map[string]session.RecordInfo{"Load": loaded.Header.Info, "List": page.Infos[0]} {
+		if !got.CreatedAt.Equal(created) || !got.UpdatedAt.Equal(updated) {
+			t.Errorf("%s: times %v %v, want %v %v", name, got.CreatedAt, got.UpdatedAt, created, updated)
 		}
 	}
+	if loaded.Header.Epoch != "e1" {
+		t.Errorf("Load: epoch %q, want %q", loaded.Header.Epoch, "e1")
+	}
+}
 
-	// A Record no Run has ended on writes no last_run_end.
-	info.LastRunEnd = time.Time{}
-	data, err := json.Marshal(info)
+// The State of a Writer's write carries the last Run's end, the Run count and
+// the usage, and the Record loaded from it knows them.
+func TestStateTimesSurviveASaveAndLoad(t *testing.T) {
+	ctx := context.Background()
+	store, err := session.NewFileStore(t.TempDir())
 	if err != nil {
 		t.Fatal(err)
 	}
-	if strings.Contains(string(data), "last_run_end") {
-		t.Errorf("a zero LastRunEnd is written: %s", data)
+	w, err := session.CreateWriter(ctx, store, session.New(session.WithID("st")), "a")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := w.Write(ctx, []gotato.Event{
+		gotato.RunStarted{Header: gotato.NewHeader("", "run-1", 0)},
+		gotato.RunEnded{Header: gotato.NewHeader("", "run-1", 0), Status: gotato.RunStatusCompleted, Usage: gotato.Usage{InputTokens: 7}},
+	}); err != nil {
+		t.Fatal(err)
+	}
+	if err := w.Release(ctx); err != nil {
+		t.Fatal(err)
+	}
+	ended := w.Record().LastRunEnd()
+	if ended.IsZero() {
+		t.Fatal("the Record has no last Run end after a Run ended")
+	}
+	loaded, err := store.Load(ctx, "st")
+	if err != nil {
+		t.Fatal(err)
+	}
+	state, err := session.DecodeState(loaded.Header)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !state.LastRunEnd.Equal(ended) || state.Runs != 1 || state.Usage.InputTokens != 7 || state.Running != "" || state.Busy {
+		t.Fatalf("State = %+v, want the last Run end %v, one Run, 7 input tokens, nothing running, not busy", state, ended)
+	}
+	if loaded.Header.Info.Runs != 1 || loaded.Header.Info.Usage.InputTokens != 7 {
+		t.Fatalf("Info = %+v, want the listing columns for one Run and 7 input tokens", loaded.Header.Info)
+	}
+	opened, err := session.Open(ctx, store, "st")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !opened.LastRunEnd().Equal(ended) {
+		t.Fatalf("LastRunEnd of the loaded Record = %v, want %v", opened.LastRunEnd(), ended)
 	}
 }
 
@@ -78,10 +112,10 @@ func TestStoredInfoTimesAreTheRecordsOwn(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if !loaded.Info.CreatedAt.Equal(before.CreatedAt) || !loaded.Info.UpdatedAt.Equal(before.UpdatedAt) {
-		t.Fatalf("stored times %v %v, the Record's %v %v", loaded.Info.CreatedAt, loaded.Info.UpdatedAt, before.CreatedAt, before.UpdatedAt)
+	if !loaded.Header.Info.CreatedAt.Equal(before.CreatedAt) || !loaded.Header.Info.UpdatedAt.Equal(before.UpdatedAt) {
+		t.Fatalf("stored times %v %v, the Record's %v %v", loaded.Header.Info.CreatedAt, loaded.Header.Info.UpdatedAt, before.CreatedAt, before.UpdatedAt)
 	}
-	if loaded.Info.RecordEpoch != before.RecordEpoch {
-		t.Fatalf("epoch %q after the reload, %q before", loaded.Info.RecordEpoch, before.RecordEpoch)
+	if loaded.Header.Epoch != w.Record().RecordEpoch() {
+		t.Fatalf("epoch %q after the reload, %q before", loaded.Header.Epoch, w.Record().RecordEpoch())
 	}
 }

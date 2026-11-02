@@ -64,8 +64,8 @@ func TestOpeningARecordCreatedAgainSendsNoClaimToAnOldStream(t *testing.T) {
 		t.Run(c.name, func(t *testing.T) {
 			// Each try leaked the claim about half the time before the fix.
 			for try := range 20 {
-				store := &watchedStore{Store: session.NewMemoryStore()}
-				a, b := recreatedRunner(t, "a", store, -1), recreatedRunner(t, "b", store, -1)
+				store := &watchedStore{parts: partsOf(memStore())}
+				a, b := recreatedRunner(t, "a", asStore(store), -1), recreatedRunner(t, "b", asStore(store), -1)
 				id := fmt.Sprintf("session-%d", try)
 				shape := func(runner *service.Runner) {
 					if _, err := runner.CreateSessionExclusive(ctx, "echo", id, nil); err != nil {
@@ -89,8 +89,8 @@ func TestOpeningARecordCreatedAgainSendsNoClaimToAnOldStream(t *testing.T) {
 					t.Fatal(err)
 				}
 				shape(b)
-				if again, err := store.Load(ctx, id); err != nil || again.Head != stream.Head {
-					t.Fatalf("the new Record ends at %d (%v), want the old one's %d", again.Head, err, stream.Head)
+				if again, err := store.Records.Load(ctx, id); err != nil || again.Seq != stream.Head {
+					t.Fatalf("the new Record ends at %d (%v), want the old one's %d", again.Seq, err, stream.Head)
 				}
 				c.change(a, id)
 				select {
@@ -134,10 +134,10 @@ func waitEnd(t *testing.T, ended <-chan streamEnd) {
 // not at the old one's. Opening it also ends the old stream, which this
 // instance now knows to be of a Record that was created again.
 func TestNewStreamIsNotHeldBackByAStreamOfTheOldRecord(t *testing.T) {
-	store := &watchedStore{Store: session.NewMemoryStore()}
+	store := &watchedStore{parts: partsOf(memStore())}
 	// No looks: one that fell between the delete and the create would end the
 	// old stream with not found, by chance.
-	a, b := recreatedRunner(t, "a", store, -1), recreatedRunner(t, "b", store, -1)
+	a, b := recreatedRunner(t, "a", asStore(store), -1), recreatedRunner(t, "b", asStore(store), -1)
 	ctx := context.Background()
 	first, err := a.Run(ctx, service.RunRequest{Prompt: "one"})
 	if err != nil {
@@ -155,11 +155,11 @@ func TestNewStreamIsNotHeldBackByAStreamOfTheOldRecord(t *testing.T) {
 	if _, err := a.Run(ctx, service.RunRequest{SessionID: id, Prompt: "two"}); err != nil {
 		t.Fatal(err)
 	}
-	loaded, err := store.Load(ctx, id)
+	loaded, err := store.Records.Load(ctx, id)
 	if err != nil {
 		t.Fatal(err)
 	}
-	oldHead := loaded.Head
+	oldHead := loaded.Seq
 	readNumbers(t, old, int(oldHead))
 	// Wait for the old stream's catch-up to read its last, empty page, so it is live
 	// before the delete: a read during the delete would end it with not found.
@@ -206,14 +206,14 @@ func TestNewStreamIsNotHeldBackByAStreamOfTheOldRecord(t *testing.T) {
 // loadGate holds the next Load, once armed, after the store has answered it,
 // so a caller works with what it read while the store changes.
 type loadGate struct {
-	session.Store
+	parts
 	armed   atomic.Bool
 	loaded  chan struct{}
 	release chan struct{}
 }
 
 func (g *loadGate) Load(ctx context.Context, id string) (session.Loaded, error) {
-	loaded, err := g.Store.Load(ctx, id)
+	loaded, err := g.parts.Load(ctx, id)
 	if g.armed.CompareAndSwap(true, false) {
 		g.loaded <- struct{}{}
 		select {
@@ -253,11 +253,11 @@ func (m *holdOnce) Config() gotato.ModelConfig { return gotato.ModelConfig{} }
 // does not follow the new Record: it is refused, or it ends, and it delivers
 // none of the Run's Events as if they continued the old Record.
 func TestStreamThatReadTheOldRecordDoesNotFollowTheNewOne(t *testing.T) {
-	store := session.NewMemoryStore()
-	gate := &loadGate{Store: store, loaded: make(chan struct{}, 1), release: make(chan struct{})}
+	store := memStore()
+	gate := &loadGate{parts: partsOf(store), loaded: make(chan struct{}, 1), release: make(chan struct{})}
 	model := &holdOnce{inner: testkit.DemoModel{}, started: make(chan struct{}), gate: make(chan struct{})}
 	a, err := service.New(service.Config{
-		Store: gate, Instance: "a", StreamPoll: -1,
+		Store: asStore(gate), Instance: "a", StreamPoll: -1,
 		Agents: []service.Agent{{Name: "echo", Model: model, Tools: []gotato.Tool{testkit.DemoEchoTool()}}},
 	})
 	if err != nil {
@@ -271,7 +271,7 @@ func TestStreamThatReadTheOldRecordDoesNotFollowTheNewOne(t *testing.T) {
 		t.Fatal(err)
 	}
 	id := first.SessionID
-	before, err := store.Load(ctx, id)
+	before, err := store.Records.Load(ctx, id)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -284,7 +284,7 @@ func TestStreamThatReadTheOldRecordDoesNotFollowTheNewOne(t *testing.T) {
 	result := make(chan opened, 1)
 	gate.armed.Store(true)
 	go func() {
-		stream, err := a.StreamSession(ctx, id, service.StreamFrom{After: before.Head})
+		stream, err := a.StreamSession(ctx, id, service.StreamFrom{After: before.Seq})
 		result <- opened{stream, err}
 	}()
 	select {
@@ -312,12 +312,12 @@ func TestStreamThatReadTheOldRecordDoesNotFollowTheNewOne(t *testing.T) {
 	case <-time.After(5 * time.Second):
 		t.Fatal("the Run never called its model")
 	}
-	held, err := store.Load(ctx, id)
+	held, err := store.Records.Load(ctx, id)
 	if err != nil {
 		t.Fatal(err)
 	}
-	if held.Head > before.Head {
-		t.Fatalf("the new Record is at %d while the Run is held, want at most %d", held.Head, before.Head)
+	if held.Seq > before.Seq {
+		t.Fatalf("the new Record is at %d while the Run is held, want at most %d", held.Seq, before.Seq)
 	}
 	close(gate.release)
 	got := <-result
@@ -325,12 +325,12 @@ func TestStreamThatReadTheOldRecordDoesNotFollowTheNewOne(t *testing.T) {
 	if err := <-ran; err != nil {
 		t.Fatal(err)
 	}
-	after, err := store.Load(ctx, id)
+	after, err := store.Records.Load(ctx, id)
 	if err != nil {
 		t.Fatal(err)
 	}
-	if after.Head <= before.Head {
-		t.Fatalf("the new Record ends at %d, want past %d", after.Head, before.Head)
+	if after.Seq <= before.Seq {
+		t.Fatalf("the new Record ends at %d, want past %d", after.Seq, before.Seq)
 	}
 	if got.err != nil {
 		if !errors.Is(got.err, service.ErrCannotResume) {
@@ -345,8 +345,8 @@ func TestStreamThatReadTheOldRecordDoesNotFollowTheNewOne(t *testing.T) {
 // A stream that is cut ends at once: the Events queued for it, which the
 // client has not read, are not delivered after the cut.
 func TestACutStreamEndsAtOnce(t *testing.T) {
-	store := &watchedStore{Store: session.NewMemoryStore()}
-	a := recreatedRunner(t, "a", store, -1)
+	store := &watchedStore{parts: partsOf(memStore())}
+	a := recreatedRunner(t, "a", asStore(store), -1)
 	ctx := context.Background()
 	first, err := a.Run(ctx, service.RunRequest{Prompt: "one"})
 	if err != nil {
@@ -375,10 +375,10 @@ func TestACutStreamEndsAtOnce(t *testing.T) {
 // Record on its instance at once, with cannot_resume, and before any later
 // write of this instance does.
 func TestOpeningAStreamOfARecordCreatedAgainEndsTheOldStreams(t *testing.T) {
-	store := &watchedStore{Store: session.NewMemoryStore()}
+	store := &watchedStore{parts: partsOf(memStore())}
 	// No looks: one that fell between the delete and the create would end the
 	// old stream with not found, by chance.
-	a, b := recreatedRunner(t, "a", store, -1), recreatedRunner(t, "b", store, -1)
+	a, b := recreatedRunner(t, "a", asStore(store), -1), recreatedRunner(t, "b", asStore(store), -1)
 	ctx := context.Background()
 	first, err := a.Run(ctx, service.RunRequest{Prompt: "one"})
 	if err != nil {
@@ -424,14 +424,14 @@ func TestOpeningAStreamOfARecordCreatedAgainEndsTheOldStreams(t *testing.T) {
 // that a call is let go by the test that means it, whichever of the two reaches
 // its wait first: a goroutine that has said it is held may be slow to wait.
 type holdStore struct {
-	session.Store
+	parts
 	armAppend, armLoad         atomic.Bool
 	held                       chan struct{}
 	releaseAppend, releaseLoad chan struct{}
 }
 
 func newHoldStore(store session.Store) *holdStore {
-	return &holdStore{Store: store, held: make(chan struct{}, 4), releaseAppend: make(chan struct{}), releaseLoad: make(chan struct{})}
+	return &holdStore{parts: partsOf(store), held: make(chan struct{}, 4), releaseAppend: make(chan struct{}), releaseLoad: make(chan struct{})}
 }
 
 func (h *holdStore) hold(release <-chan struct{}) {
@@ -439,8 +439,8 @@ func (h *holdStore) hold(release <-chan struct{}) {
 	<-release
 }
 
-func (h *holdStore) Append(ctx context.Context, id string, after uint64, entries []session.Entry, summary session.RecordInfo) error {
-	err := h.Store.Append(ctx, id, after, entries, summary)
+func (h *holdStore) Append(ctx context.Context, id string, after uint64, entries []session.Entry, summary session.Header) error {
+	err := h.parts.Append(ctx, id, after, entries, summary)
 	if err == nil && h.armAppend.CompareAndSwap(true, false) {
 		h.hold(h.releaseAppend)
 	}
@@ -448,7 +448,7 @@ func (h *holdStore) Append(ctx context.Context, id string, after uint64, entries
 }
 
 func (h *holdStore) Load(ctx context.Context, id string) (session.Loaded, error) {
-	loaded, err := h.Store.Load(ctx, id)
+	loaded, err := h.parts.Load(ctx, id)
 	if err == nil && h.armLoad.CompareAndSwap(true, false) {
 		h.hold(h.releaseLoad)
 	}
@@ -459,9 +459,9 @@ func (h *holdStore) Load(ctx context.Context, id string) (session.Loaded, error)
 // and the instance "b" on the same store, and runs a Session once on a.
 func cutRaceRunners(t *testing.T) (a, b *service.Runner, held *holdStore, id string) {
 	t.Helper()
-	held = newHoldStore(session.NewMemoryStore())
-	a = recreatedRunner(t, "a", held, 10*time.Millisecond)
-	b = recreatedRunner(t, "b", held, 10*time.Millisecond)
+	held = newHoldStore(memStore())
+	a = recreatedRunner(t, "a", asStore(held), 10*time.Millisecond)
+	b = recreatedRunner(t, "b", asStore(held), 10*time.Millisecond)
 	first, err := a.Run(context.Background(), service.RunRequest{Prompt: "one"})
 	if err != nil {
 		t.Fatal(err)

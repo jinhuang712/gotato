@@ -270,12 +270,12 @@ func TestAForkReadsItsInheritedSegmentsFromItsParent(t *testing.T) {
 
 // prunedLog is a store whose log lost its first Entries.
 type prunedLog struct {
-	session.Store
+	session.Records
 	through uint64
 }
 
 func (p prunedLog) Log(ctx context.Context, id string, after uint64, limit int) ([]session.Entry, error) {
-	entries, err := p.Store.Log(ctx, id, after, limit)
+	entries, err := p.Records.Log(ctx, id, after, limit)
 	var kept []session.Entry
 	for _, entry := range entries {
 		if entry.Seq > p.through {
@@ -338,7 +338,7 @@ func commitTexts(t *testing.T, w *session.Writer, run string, texts ...string) {
 	}
 }
 
-func readSegmentOf(t *testing.T, record *session.Record, store session.Store, segment int) string {
+func readSegmentOf(t *testing.T, record *session.Record, store session.Records, segment int) string {
 	t.Helper()
 	ctx := context.Background()
 	tools, _ := modelctx.SegmentTools(record, store, modelctx.ReadSegmentConfig{}).Tools(ctx)

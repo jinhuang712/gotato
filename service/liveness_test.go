@@ -20,7 +20,7 @@ import (
 // deadStore is a Store whose process died without Close: after die, its
 // heartbeats reach nothing, and the Liveness row it left is removed.
 type deadStore struct {
-	session.Store
+	parts
 	dead atomic.Bool
 }
 
@@ -28,13 +28,13 @@ func (d *deadStore) Beat(ctx context.Context, row session.InstanceRow, ttl time.
 	if d.dead.Load() {
 		return nil
 	}
-	return d.Store.Beat(ctx, row, ttl)
+	return d.parts.Beat(ctx, row, ttl)
 }
 
 // die ends the Liveness row of instance, as its expiry would.
 func (d *deadStore) die(ctx context.Context, instance string) error {
 	d.dead.Store(true)
-	return d.Store.Beat(ctx, session.InstanceRow{ID: instance}, 0)
+	return d.parts.Beat(ctx, session.InstanceRow{ID: instance}, 0)
 }
 
 // A process that died without Close leaves its Liveness row to expire. The
@@ -42,9 +42,9 @@ func (d *deadStore) die(ctx context.Context, instance string) error {
 // new row and is not refused.
 func TestReusedInstanceLabelAfterExpiredRowWritesFine(t *testing.T) {
 	ctx := context.Background()
-	shared := session.NewMemoryStore()
-	store := &deadStore{Store: shared}
-	old := instanceRunner(t, store, "pod-0", testkit.EchoModel{}, steadyLiveness)
+	shared := memStore()
+	store := &deadStore{parts: partsOf(shared)}
+	old := instanceRunner(t, asStore(store), "pod-0", testkit.EchoModel{}, steadyLiveness)
 	s, err := old.CreateSession(ctx, "echo", nil)
 	if err != nil {
 		t.Fatal(err)
@@ -78,7 +78,7 @@ func TestReusedInstanceLabelAfterExpiredRowWritesFine(t *testing.T) {
 // live writer and is then refused as busy.
 func TestReusedInstanceLabelWhileOldRunIsGoingIsBusy(t *testing.T) {
 	ctx := context.Background()
-	store := session.NewMemoryStore()
+	store := memStore()
 	held := &gateModel{gate: make(chan struct{}), started: make(chan struct{})}
 	old := instanceRunner(t, store, "pod-0", held, steadyLiveness)
 	s, err := old.CreateSession(ctx, "echo", nil)
@@ -118,7 +118,7 @@ func TestReusedInstanceLabelWhileOldRunIsGoingIsBusy(t *testing.T) {
 // process that reuses its label.
 func TestLateCloseOfReusedInstanceLabelKeepsTheNewRow(t *testing.T) {
 	ctx := context.Background()
-	store := session.NewMemoryStore()
+	store := memStore()
 	old := instanceRunner(t, store, "pod-0", testkit.EchoModel{}, steadyLiveness)
 	if _, err := old.CreateSession(ctx, "echo", nil); err != nil {
 		t.Fatal(err)
@@ -130,7 +130,7 @@ func TestLateCloseOfReusedInstanceLabelKeepsTheNewRow(t *testing.T) {
 	if err := old.Close(ctx); err != nil {
 		t.Fatal(err)
 	}
-	if state, err := store.Instance(ctx, restarted.Instance()); err != nil || !state.Alive {
+	if state, err := store.Liveness.Instance(ctx, restarted.Instance()); err != nil || !state.Alive {
 		t.Fatalf("the new process's row after the old Close = %+v, %v; want alive", state, err)
 	}
 	if _, err := restarted.CreateSession(ctx, "echo", nil); err != nil {
@@ -143,9 +143,9 @@ func TestLateCloseOfReusedInstanceLabelKeepsTheNewRow(t *testing.T) {
 // name and write again once the store answers, not fail every Run for good.
 func TestInstanceRecoversWhenTheStoreReturnsAfterTheTTL(t *testing.T) {
 	ctx := context.Background()
-	store := &faultStore{Store: session.NewMemoryStore()}
+	store := &faultStore{parts: partsOf(memStore())}
 	liveness := service.Liveness{TTL: 300 * time.Millisecond, Wait: time.Second}
-	a := instanceRunner(t, store, "instance-a", testkit.EchoModel{}, liveness)
+	a := instanceRunner(t, asStore(store), "instance-a", testkit.EchoModel{}, liveness)
 	s, err := a.CreateSession(ctx, "echo", nil)
 	if err != nil {
 		t.Fatal(err)
@@ -183,7 +183,7 @@ func TestInstanceRecoversWhenTheStoreReturnsAfterTheTTL(t *testing.T) {
 	if a.Instance() == before || !isInstance(a.Instance(), "instance-a") {
 		t.Fatalf("Instance() = %q after recovery (was %q), want a new name with the same label", a.Instance(), before)
 	}
-	state, err := store.Instance(ctx, a.Instance())
+	state, err := store.Liveness.Instance(ctx, a.Instance())
 	if err != nil || !state.Alive {
 		t.Fatalf("the new name's row = %+v, %v; want alive", state, err)
 	}

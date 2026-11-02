@@ -32,7 +32,7 @@ func transcript(t *testing.T, in *instance, id string) string {
 }
 
 func TestMessageIsQueuedForTheRunInFlight(t *testing.T) {
-	store := session.NewMemoryStore()
+	store := memStore()
 	g := newGate()
 	a := newInstance(t, store, "instance-a", g, true)
 	id, wait := running(t, a, g)
@@ -67,7 +67,7 @@ func TestMessageIsQueuedForTheRunInFlight(t *testing.T) {
 }
 
 func TestMessageValidation(t *testing.T) {
-	a := newInstance(t, session.NewMemoryStore(), "instance-a", testkit.EchoModel{}, false)
+	a := newInstance(t, memStore(), "instance-a", testkit.EchoModel{}, false)
 	s, _ := a.runner.CreateSession(context.Background(), "echo", nil)
 	for name, body := range map[string]map[string]string{
 		"bad kind": {"kind": "shout", "text": "hi"},
@@ -84,7 +84,7 @@ func TestMessageValidation(t *testing.T) {
 }
 
 func TestMessageForARunElsewhereAnswersNotWriter(t *testing.T) {
-	store := session.NewMemoryStore()
+	store := memStore()
 	g := newGate()
 	a := newInstance(t, store, "instance-a", g, true)
 	b := newInstance(t, store, "instance-b", testkit.EchoModel{}, true)
@@ -128,7 +128,7 @@ func TestMessageForARunElsewhereAnswersNotWriter(t *testing.T) {
 }
 
 func TestNotWriterNamesNoAddressWhenNoneIsAdvertised(t *testing.T) {
-	store := session.NewMemoryStore()
+	store := memStore()
 	g := newGate()
 	a := newInstance(t, store, "instance-a", g, false)
 	b := newInstance(t, store, "instance-b", testkit.EchoModel{}, false, httpapi.WithForwarding(nil, anyAddress))
@@ -144,7 +144,7 @@ func TestNotWriterNamesNoAddressWhenNoneIsAdvertised(t *testing.T) {
 }
 
 func TestForwardingSendsTheMessageToTheWriter(t *testing.T) {
-	store := session.NewMemoryStore()
+	store := memStore()
 	g := newGate()
 	a := newInstance(t, store, "instance-a", g, true)
 	b := newInstance(t, store, "instance-b", testkit.EchoModel{}, true, httpapi.WithForwarding(nil, anyAddress))
@@ -166,7 +166,7 @@ func TestForwardingSendsTheMessageToTheWriter(t *testing.T) {
 }
 
 func TestForwardingStopsTheRunOnTheWriter(t *testing.T) {
-	store := session.NewMemoryStore()
+	store := memStore()
 	g := newGate()
 	a := newInstance(t, store, "instance-a", g, true)
 	b := newInstance(t, store, "instance-b", testkit.EchoModel{}, true, httpapi.WithForwarding(nil, anyAddress))
@@ -182,7 +182,7 @@ func TestForwardingStopsTheRunOnTheWriter(t *testing.T) {
 }
 
 func TestAForwardedRequestIsNeverForwardedAgain(t *testing.T) {
-	store := session.NewMemoryStore()
+	store := memStore()
 	g := newGate()
 	a := newInstance(t, store, "instance-a", g, true)
 	b := newInstance(t, store, "instance-b", testkit.EchoModel{}, true, httpapi.WithForwarding(nil, anyAddress))
@@ -205,7 +205,7 @@ type cannedTransport func(*http.Request) *http.Response
 func (f cannedTransport) RoundTrip(r *http.Request) (*http.Response, error) { return f(r), nil }
 
 func TestForwardingDoesNotRelayHopByHopHeaders(t *testing.T) {
-	store := session.NewMemoryStore()
+	store := memStore()
 	g := newGate()
 	a := newInstance(t, store, "instance-a", g, true)
 	canned := &http.Client{Transport: cannedTransport(func(r *http.Request) *http.Response {
@@ -235,13 +235,13 @@ func TestForwardingDoesNotRelayHopByHopHeaders(t *testing.T) {
 // releaseGate holds the write that releases the Session, once, so a Run is held
 // after run_ended, when it takes no message and still owns the Session.
 type releaseGate struct {
-	session.Store
+	parts
 	reached chan struct{}
 	proceed chan struct{}
 	once    sync.Once
 }
 
-func (g *releaseGate) Append(ctx context.Context, id string, after uint64, entries []session.Entry, summary session.RecordInfo) error {
+func (g *releaseGate) Append(ctx context.Context, id string, after uint64, entries []session.Entry, summary session.Header) error {
 	for _, entry := range entries {
 		if entry.Kind == "session_released" {
 			g.once.Do(func() {
@@ -250,14 +250,14 @@ func (g *releaseGate) Append(ctx context.Context, id string, after uint64, entri
 			})
 		}
 	}
-	return g.Store.Append(ctx, id, after, entries, summary)
+	return g.parts.Append(ctx, id, after, entries, summary)
 }
 
 // A message posted after run_ended and before the Run releases the Session
 // waits for the release and runs in a following Run, instead of answering busy.
 func TestMessageWhileARunIsEndingRunsInTheNextRun(t *testing.T) {
-	gate := &releaseGate{Store: session.NewMemoryStore(), reached: make(chan struct{}), proceed: make(chan struct{})}
-	a := newInstance(t, gate, "instance-a", testkit.EchoModel{}, false)
+	gate := &releaseGate{parts: partsOf(memStore()), reached: make(chan struct{}), proceed: make(chan struct{})}
+	a := newInstance(t, asStore(gate), "instance-a", testkit.EchoModel{}, false)
 	s, err := a.runner.CreateSession(context.Background(), "echo", nil)
 	if err != nil {
 		t.Fatal(err)
@@ -312,7 +312,7 @@ type noticeAnswer struct {
 // Session's next Run, after its prompt.
 func TestNoticeIsQueuedForTheNextModelCall(t *testing.T) {
 	g := newGate()
-	a := newInstance(t, session.NewMemoryStore(), "instance-a", g, true)
+	a := newInstance(t, memStore(), "instance-a", g, true)
 	id, wait := running(t, a, g)
 
 	resp, body := a.post(t, "/v1/sessions/"+id+"/notices", map[string]string{"kind": "order_update", "text": "Order 42 was delivered."})
@@ -336,7 +336,7 @@ func TestNoticeIsQueuedForTheNextModelCall(t *testing.T) {
 }
 
 func TestNoticeValidation(t *testing.T) {
-	a := newInstance(t, session.NewMemoryStore(), "instance-a", testkit.EchoModel{}, false)
+	a := newInstance(t, memStore(), "instance-a", testkit.EchoModel{}, false)
 	s, _ := a.runner.CreateSession(context.Background(), "echo", nil)
 	for name, body := range map[string]map[string]string{
 		"no kind":       {"text": "hi"},
@@ -355,7 +355,7 @@ func TestNoticeValidation(t *testing.T) {
 }
 
 func TestNoticeForARunElsewhereAnswersNotWriterOrIsForwarded(t *testing.T) {
-	store := session.NewMemoryStore()
+	store := memStore()
 	g := newGate()
 	a := newInstance(t, store, "instance-a", g, true)
 	plain := newInstance(t, store, "instance-b", testkit.EchoModel{}, true)
