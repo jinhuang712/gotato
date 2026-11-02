@@ -98,15 +98,15 @@ func (a *Session) rejectedPlan(index int, call ToolCall, code ErrorCode, message
 // in this Session, and a Tool of a ToolSet that is unavailable now is said to
 // be so; any other name is an unknown tool.
 func (a *Session) unresolvedToolText(id string) string {
-	if set := a.registry.unavailableSet(id); set != "" {
+	if set := a.tools.registry.unavailableSet(id); set != "" {
 		return fmt.Sprintf("%s: tool %q is in ToolSet %q, which is unavailable now; try again in a later Run", CodeToolResolutionFailure, id, set)
 	}
-	if effect, capped := a.registry.cappedEffect(id); capped {
+	if effect, capped := a.tools.registry.cappedEffect(id); capped {
 		if effect == ToolEffectUnspecified {
 			effect = "unspecified, which counts as destructive"
 		}
 		return fmt.Sprintf("%s: tool %q is not allowed in this Session (its effect is %s; the Session's maximum is %s); available tools: %s",
-			CodeToolResolutionFailure, id, effect, a.registry.maxEffect, a.visibleToolIDs())
+			CodeToolResolutionFailure, id, effect, a.tools.registry.maxEffect, a.visibleToolIDs())
 	}
 	return fmt.Sprintf("%s: unknown tool %q; available tools: %s", CodeToolResolutionFailure, id, a.visibleToolIDs())
 }
@@ -114,7 +114,7 @@ func (a *Session) unresolvedToolText(id string) string {
 // visibleToolIDs lists the Tools the Model was shown this Turn, for the
 // message of a call that did not resolve.
 func (a *Session) visibleToolIDs() string {
-	specs := a.registry.visibleSpecs()
+	specs := a.tools.registry.visibleSpecs()
 	ids := make([]string, 0, len(specs))
 	for _, spec := range specs {
 		ids = append(ids, spec.ID)
@@ -392,11 +392,11 @@ func (a *Session) preflightTools(ctx context.Context, runID RunID, turn TurnNumb
 		// schema-invalid arguments) settles as a failed Tool Result the Model
 		// can read and correct; it never ends the Run (GOALS.md G-G04: every
 		// failed tool call returns its reason to the model).
-		entry, found := a.registry.lookup(call.ToolID)
+		entry, found := a.tools.registry.lookup(call.ToolID)
 		if !found {
 			// A catalog Tool the Model has not loaded does not run: it is
 			// loaded now, and the Model calls it again.
-			if status := a.registry.loadable(call.ToolID); status == loadOK || status == loadAlready {
+			if status := a.tools.registry.loadable(call.ToolID); status == loadOK || status == loadAlready {
 				plans = append(plans, a.rejectedPlan(sourceIndex, call, CodeToolNotLoaded, fmt.Sprintf("%s was not loaded, so this call did not run. It is loaded now; call it again.", call.ToolID), call.ToolID))
 				continue
 			}

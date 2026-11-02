@@ -188,8 +188,8 @@ func (a *Session) assembleTurn(ctx context.Context, snapshot ContextSnapshot) (M
 		}
 		built.Messages = transformed
 	}
-	request, _ := AssembleRequest(built, a.registry.visibleSpecs())
-	request.LoadedTools, request.UnloadedTools = a.registry.catalogView()
+	request, _ := AssembleRequest(built, a.tools.registry.visibleSpecs())
+	request.LoadedTools, request.UnloadedTools = a.tools.registry.catalogView()
 	prefix := prefixHash(request)
 	request.Sampling = a.sampling
 	request.CacheKey = a.cacheKey

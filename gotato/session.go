@@ -95,7 +95,7 @@ func NewSession(ctx context.Context, options ...SessionOption) (*Session, error)
 		id:             id,
 		model:          cfg.model,
 		instruction:    cfg.instruction,
-		registry:       registry,
+		tools:          sessionTools{registry: registry},
 		transcript:     cfg.transcript,
 		contextBuilder: cfg.contextBuilder,
 		extensions:     cfg.extensions,
@@ -153,10 +153,10 @@ type Session struct {
 	id          SessionID
 	model       Model
 	instruction string
-	registry    *toolRegistry
-	registryMu  sync.Mutex
-	extensions  extensionSet
-	limits      CoreLimits
+	// tools is the Tool registry, with its own lock (decision 048).
+	tools      sessionTools
+	extensions extensionSet
+	limits     CoreLimits
 	// spillPage is the page size of the Session's ReadBack, the line past which
 	// a Tool Result is spilled; 0 with none, and then nothing is spilled.
 	spillPage int

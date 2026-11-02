@@ -20,9 +20,9 @@ func (a *Session) syncLoadedTools() error {
 	if err != nil {
 		return err
 	}
-	a.registryMu.Lock()
-	defer a.registryMu.Unlock()
-	a.registry.syncLoaded(recorded)
+	a.tools.mu.Lock()
+	defer a.tools.mu.Unlock()
+	a.tools.registry.syncLoaded(recorded)
 	return nil
 }
 
@@ -33,14 +33,14 @@ func (a *Session) syncLoadedTools() error {
 // carries is unloaded with a stored tool_unloaded Event (why: gone), which the
 // Record folds, so every instance that loads the Record offers the same Tools.
 func (a *Session) refreshToolSets(ctx context.Context, header Header) *RuntimeError {
-	if len(a.registry.sets) == 0 {
+	if len(a.tools.registry.sets) == 0 {
 		return nil
 	}
-	results, err := a.registry.resolveAll(ctx)
+	results, err := a.tools.registry.resolveAll(ctx)
 	if err != nil {
 		return asRuntimeError(err)
 	}
-	kept, err := a.registry.screen(a.registry.catalogIDs(results))
+	kept, err := a.tools.registry.screen(a.tools.registry.catalogIDs(results))
 	if err != nil {
 		return asRuntimeError(err)
 	}
@@ -56,9 +56,9 @@ func (a *Session) refreshToolSets(ctx context.Context, header Header) *RuntimeEr
 		}
 		recorded = &ids
 	}
-	a.registryMu.Lock()
-	report := a.registry.apply(results, kept, recorded)
-	a.registryMu.Unlock()
+	a.tools.mu.Lock()
+	report := a.tools.registry.apply(results, kept, recorded)
+	a.tools.mu.Unlock()
 	for _, name := range report.unavailable {
 		a.stage(ExtensionFailed{Header: header, Stage: "toolset:" + name, Code: CodeToolResolutionFailure})
 	}
@@ -74,20 +74,20 @@ func (a *Session) refreshToolSets(ctx context.Context, header Header) *RuntimeEr
 // ToolSources, which leaves the last set in place; filterErr is a failure of
 // the filter.
 func (a *Session) refreshTools(ctx context.Context) (sourceErr, filterErr error) {
-	if !a.registry.hasSources() {
+	if !a.tools.registry.hasSources() {
 		return nil, nil
 	}
-	entries, err := a.registry.collectSources(ctx)
+	entries, err := a.tools.registry.collectSources(ctx)
 	if err != nil {
 		return err, nil
 	}
-	kept, err := a.registry.screen(a.registry.catalogIDs(nil))
+	kept, err := a.tools.registry.screen(a.tools.registry.catalogIDs(nil))
 	if err != nil {
 		return nil, err
 	}
-	a.registryMu.Lock()
-	defer a.registryMu.Unlock()
-	a.registry.refreshSources(entries, kept)
+	a.tools.mu.Lock()
+	defer a.tools.mu.Unlock()
+	a.tools.registry.refreshSources(entries, kept)
 	return nil, nil
 }
 

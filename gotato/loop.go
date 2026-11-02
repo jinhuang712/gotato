@@ -308,12 +308,12 @@ func (st *runState) runToolBatch(turn TurnNumber, assistant Message) (toolOutcom
 			a.stage(ToolResultCommitted{Header: hd(turn), Message: resultMessage.Clone(), CallID: call.ID, Status: toolResult.Status})
 			// A Tool loads as the Tool Result that lists it commits, and its
 			// ToolLoaded goes in the same write, so the Record never says
-			// "Loaded" for a Tool it does not hold as loaded. registryMu
+			// "Loaded" for a Tool it does not hold as loaded. the tools lock
 			// serializes the visibility write with Session.Tools.
 			for _, id := range toolResult.LoadedTools {
-				a.registryMu.Lock()
-				loadedNow := a.registry.load(id)
-				a.registryMu.Unlock()
+				a.tools.mu.Lock()
+				loadedNow := a.tools.registry.load(id)
+				a.tools.mu.Unlock()
 				if loadedNow {
 					a.stage(ToolLoaded{Header: hd(turn), ToolID: id, Why: loadWhy(call, id)})
 				}

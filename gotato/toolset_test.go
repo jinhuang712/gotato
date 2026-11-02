@@ -54,7 +54,7 @@ func TestToolSetConstructionValidation(t *testing.T) {
 	if agent, err := NewSession(context.Background(), WithModel(model), WithActiveToolSet(dup)); err != nil {
 		t.Fatalf("duplicate local Tool name = %v", err)
 	} else {
-		if agent.registry.sets[0].failure == nil {
+		if agent.tools.registry.sets[0].failure == nil {
 			t.Fatal("a ToolSet with a duplicate local Tool name is not marked unavailable")
 		}
 		_ = agent.Close(context.Background())
