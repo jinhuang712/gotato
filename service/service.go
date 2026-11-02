@@ -38,6 +38,7 @@ import (
 	"github.com/jinhuang712/gotato/gotato"
 	"github.com/jinhuang712/gotato/modelctx"
 	"github.com/jinhuang712/gotato/service/internal/clock"
+	"github.com/jinhuang712/gotato/service/internal/warm"
 	"github.com/jinhuang712/gotato/session"
 )
 
@@ -321,15 +322,11 @@ type Runner struct {
 	locks *sessionLocks
 
 	// clock is the one clock of the Runner. warm holds the idle Sessions, each
-	// a cache of a Record and never a lock; warmClosed says the Runner has let
-	// them all go and keeps none (see warm.go).
+	// a cache of a Record and never a lock (see warm.go).
 	clock clock.Clock
 	// hooks are the seams the tests of this package set (export_test.go).
-	hooks      testHooks
-	warmMu     sync.Mutex
-	warm       map[string]*warmEntry
-	warmClosed bool
-	warmSeq    uint64
+	hooks testHooks
+	warm  *warm.Cache
 
 	// unreleased holds the Sessions whose release write failed. The Claim
 	// still names this Instance, so the Session is marked busy under a live
@@ -409,7 +406,6 @@ func New(cfg Config) (*Runner, error) {
 		admission:      cfg.Admission,
 		locks:          newSessionLocks(),
 		clock:          cfg.clock,
-		warm:           map[string]*warmEntry{},
 		feeds:          map[feedKey]*sessionFeed{},
 		handles:        map[string][]*runHandle{},
 	}
@@ -442,6 +438,7 @@ func New(cfg Config) (*Runner, error) {
 	if r.streamPoll == 0 {
 		r.streamPoll = defaultStreamPoll
 	}
+	r.warm = warm.New(r.clock)
 	r.instanceFeed = gotato.NewInstanceFeed()
 	r.idle = sync.NewCond(&r.mu)
 	for _, spec := range cfg.Agents {

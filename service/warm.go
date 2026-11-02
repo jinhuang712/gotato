@@ -2,12 +2,11 @@ package service
 
 import (
 	"context"
-	"sync"
 	"time"
 
 	"github.com/jinhuang712/gotato/gotato"
 	"github.com/jinhuang712/gotato/modelctx"
-	"github.com/jinhuang712/gotato/service/internal/clock"
+	"github.com/jinhuang712/gotato/service/internal/warm"
 	"github.com/jinhuang712/gotato/session"
 )
 
@@ -32,7 +31,7 @@ const (
 //
 // A warm Session is a cache, never a lock: it holds no Claim while it idles,
 // so another Instance can take the Session over, and the copy is dropped. It
-// also counts toward Admission.MaxActiveSessions and is the first thing evicted
+// also counts toward Bounds.MaxActiveSessions and is the first thing evicted
 // at the limit, longest idle first, without a compaction.
 type WarmPolicy struct {
 	// TTL is how long an idle Session stays in memory; the clock starts when
@@ -96,72 +95,18 @@ func (p WarmPolicy) idleSchedule(retention time.Duration) (after time.Duration, 
 	return after, why, true
 }
 
-// warmEntry is the live copy of one idle Session: its Record and the Writer
-// that wrote it, kept in memory after a Run. It holds no Claim.
-type warmEntry struct {
-	id     string
-	agent  string
-	spec   Agent
+// warmCopy is what a warm entry keeps: the Writer that wrote the Session, and
+// the Agent it ran with. It holds no Claim.
+type warmCopy struct {
 	writer *session.Writer
-	timers []clock.Timer
-	// since is when the Session went idle, and seq orders copies that went
-	// idle at the same time; eviction takes the least of them first.
-	since time.Time
-	seq   uint64
-
-	mu sync.Mutex
-	// holds counts the callers about to use the Session, so no idle
-	// compaction starts meanwhile; idle is the idle compaction in progress.
-	holds int
-	idle  *idleRun
-	dead  bool
+	spec   Agent
 }
 
-// idleRun is an idle compaction in progress. A caller that needs the Session
-// cancels it and waits for done.
-type idleRun struct {
-	cancel context.CancelFunc
-	done   chan struct{}
-}
+// copyOf returns the copy a warm entry keeps.
+func copyOf(entry *warm.Entry) *warmCopy { return entry.Value.(*warmCopy) }
 
 // WarmSessions reports the idle Sessions this Instance holds in memory.
-func (r *Runner) WarmSessions() int {
-	r.warmMu.Lock()
-	defer r.warmMu.Unlock()
-	return len(r.warm)
-}
-
-// warmCountLocked tells whether id has a warm copy, and returns the copy to
-// evict: the longest-idle one whose Session has no admitted Run. The caller
-// holds r.mu.
-func (r *Runner) warmCountLocked(id string) (warm bool, victim *warmEntry) {
-	r.warmMu.Lock()
-	defer r.warmMu.Unlock()
-	_, warm = r.warm[id]
-	for _, entry := range r.warm {
-		if len(r.handles[entry.id]) > 0 {
-			continue
-		}
-		if victim == nil || entry.since.Before(victim.since) || (entry.since.Equal(victim.since) && entry.seq < victim.seq) {
-			victim = entry
-		}
-	}
-	return warm, victim
-}
-
-// liveSessionsLocked counts the Sessions this Instance keeps: those with an
-// admitted Run, and the warm ones without. The caller holds r.mu.
-func (r *Runner) liveSessionsLocked() int {
-	n := r.activeSessionsLocked()
-	r.warmMu.Lock()
-	defer r.warmMu.Unlock()
-	for id := range r.warm {
-		if len(r.handles[id]) == 0 {
-			n++
-		}
-	}
-	return n
-}
+func (r *Runner) WarmSessions() int { return r.warm.Len() }
 
 // keepWarm keeps the Session writer wrote, released and healthy, in memory for
 // the Agent's TTL, and arms its timers. A Writer that failed, a draining or
@@ -172,98 +117,30 @@ func (r *Runner) keepWarm(writer *session.Writer, spec Agent) {
 	if ttl < 0 || writer == nil || writer.Failed() != nil {
 		return
 	}
-	entry := &warmEntry{id: writer.ID(), agent: spec.Name, spec: spec, writer: writer, since: r.clock.Now()}
-	r.mu.Lock()
-	draining := r.draining
-	r.mu.Unlock()
-	r.warmMu.Lock()
-	if draining || r.warmClosed {
-		r.warmMu.Unlock()
+	if r.Draining() {
 		return
 	}
-	r.warmSeq++
-	entry.seq = r.warmSeq
-	if old := r.warm[entry.id]; old != nil {
-		old.stopTimers()
+	plan := warm.Plan{TTL: ttl, OnExpire: r.expire}
+	if after, why, on := spec.Warm.idleSchedule(spec.Model.Config().Facts.CacheRetention); on {
+		plan.IdleAfter, plan.OnIdle = after, func(entry *warm.Entry) { r.idleCompact(entry, why) }
 	}
-	r.warm[entry.id] = entry
-	entry.timers = append(entry.timers, r.clock.AfterFunc(ttl, func() { r.expire(entry) }))
-	if after, why, on := spec.Warm.idleSchedule(spec.Model.Config().Facts.CacheRetention); on && after < ttl {
-		entry.timers = append(entry.timers, r.clock.AfterFunc(after, func() { r.idleCompact(entry, why) }))
+	if r.warm.Put(writer.ID(), spec.Name, &warmCopy{writer: writer, spec: spec}, plan) == nil {
+		return
 	}
-	r.warmMu.Unlock()
 	r.trimWarm()
 }
 
 // trimWarm evicts the longest-idle warm Sessions until the Instance holds no
-// more than Admission.MaxWarmSessions. A Session with an admitted Run is never
+// more than Bounds.MaxWarmSessions. A Session with an admitted Run is never
 // the victim.
 func (r *Runner) trimWarm() {
-	limit := r.admission.MaxWarmSessions
-	if limit < 0 {
-		return
-	}
 	for {
-		r.mu.Lock()
-		r.warmMu.Lock()
-		var victim *warmEntry
-		if len(r.warm) > limit {
-			for _, entry := range r.warm {
-				if len(r.handles[entry.id]) > 0 {
-					continue
-				}
-				if victim == nil || entry.since.Before(victim.since) || (entry.since.Equal(victim.since) && entry.seq < victim.seq) {
-					victim = entry
-				}
-			}
-		}
-		r.warmMu.Unlock()
-		r.mu.Unlock()
+		victim := r.victimOverLimit()
 		if victim == nil {
 			return
 		}
 		r.dropEntry(victim, "evicted")
 	}
-}
-
-func (e *warmEntry) stopTimers() {
-	for _, timer := range e.timers {
-		timer.Stop()
-	}
-	e.timers = nil
-}
-
-// takeWarm removes the Session's warm copy from the cache, if there is one,
-// and stops its timers. The caller holds the Session lock, so no idle
-// compaction is running on it.
-func (r *Runner) takeWarm(id string) *warmEntry {
-	r.warmMu.Lock()
-	defer r.warmMu.Unlock()
-	entry := r.warm[id]
-	if entry == nil {
-		return nil
-	}
-	delete(r.warm, id)
-	entry.stopTimers()
-	entry.mu.Lock()
-	entry.dead = true
-	entry.mu.Unlock()
-	return entry
-}
-
-// removeWarm removes entry if it is still the Session's warm copy, and says so.
-func (r *Runner) removeWarm(entry *warmEntry) bool {
-	r.warmMu.Lock()
-	defer r.warmMu.Unlock()
-	if r.warm[entry.id] != entry {
-		return false
-	}
-	delete(r.warm, entry.id)
-	entry.stopTimers()
-	entry.mu.Lock()
-	entry.dead = true
-	entry.mu.Unlock()
-	return true
 }
 
 // unloaded tells the Instance's subscribers that a Session left memory.
@@ -274,49 +151,29 @@ func (r *Runner) unloaded(id, agent, why string) {
 // dropAllWarm lets go of every warm copy, with why, canceling any idle
 // compaction first. An idle copy holds no Claim, so nothing is released.
 func (r *Runner) dropAllWarm(why string) {
-	r.warmMu.Lock()
-	entries := make([]*warmEntry, 0, len(r.warm))
-	for _, entry := range r.warm {
-		entries = append(entries, entry)
-	}
-	r.warmMu.Unlock()
-	for _, entry := range entries {
+	for _, entry := range r.warm.Entries() {
 		r.dropEntry(entry, why)
 	}
 }
 
 // dropEntry cancels entry's idle compaction, waits for it to let go of the
 // Writer, and drops the copy, if it is still the cached one.
-func (r *Runner) dropEntry(entry *warmEntry, why string) {
-	entry.cancelIdle()
-	if r.removeWarm(entry) {
-		r.unloaded(entry.id, entry.agent, why)
+func (r *Runner) dropEntry(entry *warm.Entry, why string) {
+	entry.CancelIdle()
+	if r.warm.Remove(entry) {
+		r.unloaded(entry.ID, entry.Agent, why)
 	}
 }
 
 // expire is the TTL timer: the idle Session leaves memory.
-func (r *Runner) expire(entry *warmEntry) { r.dropEntry(entry, "ttl") }
-
-// cancelIdle cancels the entry's idle compaction and waits until it has let go
-// of the Writer.
-func (e *warmEntry) cancelIdle() {
-	e.mu.Lock()
-	run := e.idle
-	e.mu.Unlock()
-	if run != nil {
-		run.cancel()
-		<-run.done
-	}
-}
+func (r *Runner) expire(entry *warm.Entry) { r.dropEntry(entry, "ttl") }
 
 // holdWarm is called before a caller takes the Session lock. It cancels an
 // idle compaction of the Session, waits for it to finish, and keeps a new one
 // from starting until the returned function is called, so a message that
 // arrives while the Session compacts is served first and never finds it busy.
 func (r *Runner) holdWarm(ctx context.Context, id string) (func(), error) {
-	r.warmMu.Lock()
-	entry := r.warm[id]
-	r.warmMu.Unlock()
+	entry := r.warm.Get(id)
 	if entry == nil {
 		return func() {}, nil
 	}
@@ -325,25 +182,7 @@ func (r *Runner) holdWarm(ctx context.Context, id string) (func(), error) {
 	if err := r.reachStore(ctx, id); err != nil {
 		return nil, err
 	}
-	entry.mu.Lock()
-	entry.holds++
-	run := entry.idle
-	entry.mu.Unlock()
-	unhold := func() {
-		entry.mu.Lock()
-		entry.holds--
-		entry.mu.Unlock()
-	}
-	if run != nil {
-		run.cancel()
-		select {
-		case <-run.done:
-		case <-ctx.Done():
-			unhold()
-			return nil, ctx.Err()
-		}
-	}
-	return unhold, nil
+	return entry.Hold(ctx)
 }
 
 // idleCompact is the warm Session's own timer: it compacts the idle Session
@@ -354,61 +193,36 @@ func (r *Runner) holdWarm(ctx context.Context, id string) (func(), error) {
 // stretch is below the minimum is left alone, with no write. A compaction
 // that cannot be written leaves the copy ahead of the store, so the copy is
 // dropped and the next Run loads the Session again.
-func (r *Runner) idleCompact(entry *warmEntry, why gotato.CompactionWhy) {
-	ctx, cancel := context.WithCancel(context.Background())
-	defer cancel()
-	run := &idleRun{cancel: cancel, done: make(chan struct{})}
-	if !entry.beginIdle(run) {
+func (r *Runner) idleCompact(entry *warm.Entry, why gotato.CompactionWhy) {
+	ctx, end, ok := entry.BeginIdle()
+	if !ok {
 		return
 	}
-	defer entry.endIdle(run)
+	defer end()
 	// Never wait for the Session: whoever holds it is using it.
-	if err := r.locks.acquire(ctx, entry.id, false, nil); err != nil {
+	if err := r.locks.acquire(ctx, entry.ID, false, nil); err != nil {
 		return
 	}
-	defer r.locks.release(entry.id)
+	defer r.locks.release(entry.ID)
 	r.compactIdleLocked(ctx, entry, why)
-}
-
-// beginIdle makes run the entry's idle compaction, unless a caller holds the
-// entry, it is dead, or another idle compaction is going. It reports whether
-// run was installed.
-func (e *warmEntry) beginIdle(run *idleRun) bool {
-	e.mu.Lock()
-	defer e.mu.Unlock()
-	if e.holds > 0 || e.dead || e.idle != nil {
-		return false
-	}
-	e.idle = run
-	return true
-}
-
-// endIdle removes run from the entry and tells whoever waits for it.
-func (e *warmEntry) endIdle(run *idleRun) {
-	e.mu.Lock()
-	e.idle = nil
-	e.mu.Unlock()
-	close(run.done)
 }
 
 // compactIdleLocked is idleCompact once it holds the Session's lock: check
 // that the copy is still the Session's, resume its Writer, compact, release.
-func (r *Runner) compactIdleLocked(ctx context.Context, entry *warmEntry, why gotato.CompactionWhy) {
-	r.warmMu.Lock()
-	current := r.warm[entry.id] == entry
-	r.warmMu.Unlock()
-	if !current || ctx.Err() != nil {
+func (r *Runner) compactIdleLocked(ctx context.Context, entry *warm.Entry, why gotato.CompactionWhy) {
+	if r.warm.Get(entry.ID) != entry || ctx.Err() != nil {
 		return
 	}
-	writer := entry.writer
+	kept := copyOf(entry)
+	writer := kept.writer
 	if stale, err := writer.Stale(ctx); err != nil || stale {
-		if ctx.Err() == nil && r.removeWarm(entry) {
-			r.unloaded(entry.id, entry.agent, "taken_over")
+		if ctx.Err() == nil && r.warm.Remove(entry) {
+			r.unloaded(entry.ID, entry.Agent, "taken_over")
 		}
 		return
 	}
 	record := writer.Record()
-	minTokens := entry.spec.Warm.minTokens()
+	minTokens := kept.spec.Warm.minTokens()
 	if minTokens > 0 && modelctx.EstimateTokens(record.Tail()) < minTokens {
 		return
 	}
@@ -416,26 +230,26 @@ func (r *Runner) compactIdleLocked(ctx context.Context, entry *warmEntry, why go
 		if !lostRace(err) {
 			r.settle(writer, err)
 		}
-		if r.removeWarm(entry) {
+		if r.warm.Remove(entry) {
 			reason := "failed"
 			if lostRace(err) {
 				reason = "taken_over"
 			}
-			r.noteFailure(err, entry.id, entry.agent)
-			r.unloaded(entry.id, entry.agent, reason)
+			r.noteFailure(err, entry.ID, entry.Agent)
+			r.unloaded(entry.ID, entry.Agent, reason)
 		}
 		return
 	}
-	compactOpts := []modelctx.CompactOption{modelctx.WithCompactionWhy(why), modelctx.WithRecapContext(r.recapContext(entry.spec, record))}
+	compactOpts := []modelctx.CompactOption{modelctx.WithCompactionWhy(why), modelctx.WithRecapContext(r.recapContext(kept.spec, record))}
 	// The result needs no report: the compaction's Events say what it did.
-	_, _ = modelctx.Compact(ctx, record, compactorFor(entry.spec), modelctx.CompactConfig{MinTokens: minTokens}, compactOpts...)
+	_, _ = modelctx.Compact(ctx, record, compactorFor(kept.spec), modelctx.CompactConfig{MinTokens: minTokens}, compactOpts...)
 	saveCtx, cancelSave := persistContext(ctx)
 	releaseErr := r.releaseWriter(saveCtx, writer)
 	cancelSave()
 	if releaseErr != nil || writer.Failed() != nil {
-		r.noteFailure(releaseErr, entry.id, entry.agent)
-		if r.removeWarm(entry) {
-			r.unloaded(entry.id, entry.agent, "failed")
+		r.noteFailure(releaseErr, entry.ID, entry.Agent)
+		if r.warm.Remove(entry) {
+			r.unloaded(entry.ID, entry.Agent, "failed")
 		}
 	}
 }

@@ -1,5 +1,31 @@
 package service
 
+import "github.com/jinhuang712/gotato/service/internal/warm"
+
+// busyLocked says a Session has an admitted Run. The caller holds r.mu.
+func (r *Runner) busyLocked(id string) bool { return len(r.handles[id]) > 0 }
+
+// liveSessionsLocked counts the Sessions this Instance keeps: those with an
+// admitted Run, and the warm ones without. The caller holds r.mu.
+func (r *Runner) liveSessionsLocked() int {
+	return r.activeSessionsLocked() + r.warm.Idle(r.busyLocked)
+}
+
+// victimOverLimit returns the warm copy to evict when the Instance holds more
+// than Bounds.MaxWarmSessions, or nil.
+func (r *Runner) victimOverLimit() *warm.Entry {
+	limit := r.admission.MaxWarmSessions
+	if limit < 0 {
+		return nil
+	}
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	if r.warm.Len() <= limit {
+		return nil
+	}
+	return r.warm.Victim(r.busyLocked)
+}
+
 // admit decides whether a Run may start, and registers its handle when it
 // may. A draining Instance refuses first; then a Run that would activate a
 // Session past MaxActiveSessions is refused, because another Instance can
@@ -20,15 +46,15 @@ func (r *Runner) admit(handle *runHandle) error {
 // tryAdmit is one pass of admit under the Runner's lock. When the Run needs
 // room and a warm Session can give it, it returns that Session to evict and
 // registers nothing.
-func (r *Runner) tryAdmit(handle *runHandle) (victim *warmEntry, err error) {
+func (r *Runner) tryAdmit(handle *runHandle) (victim *warm.Entry, err error) {
 	r.mu.Lock()
 	defer r.mu.Unlock()
 	if r.draining {
 		return nil, ErrDraining
 	}
 	if limit := r.admission.MaxActiveSessions; limit > 0 {
-		warm, evictable := r.warmCountLocked(handle.sessionID)
-		if (handle.sessionID == "" || (len(r.handles[handle.sessionID]) == 0 && !warm)) && r.liveSessionsLocked() >= limit {
+		has, evictable := r.warm.Get(handle.sessionID) != nil, r.warm.Victim(r.busyLocked)
+		if (handle.sessionID == "" || (len(r.handles[handle.sessionID]) == 0 && !has)) && r.liveSessionsLocked() >= limit {
 			if evictable == nil {
 				return nil, ErrOverloaded
 			}

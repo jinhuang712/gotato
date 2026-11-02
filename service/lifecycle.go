@@ -86,9 +86,7 @@ func (r *Runner) DeleteSession(ctx context.Context, sessionID string) error {
 		if err := r.checkWriter(ctx, sessionID); err != nil {
 			return err
 		}
-		r.warmMu.Lock()
-		warm := r.warm[sessionID]
-		r.warmMu.Unlock()
+		warm := r.warm.Get(sessionID)
 		// The store's Delete is not conditional, so the Instance that deletes
 		// holds the Claim first. The claim is a conditional write: an Instance
 		// that claims the Session after the look above either wins it, and
@@ -105,7 +103,7 @@ func (r *Runner) DeleteSession(ctx context.Context, sessionID string) error {
 			return storeFailureOf(ctx, err, true)
 		}
 		if warm != nil {
-			r.unloaded(sessionID, warm.agent, "deleted")
+			r.unloaded(sessionID, warm.Agent, "deleted")
 		}
 		r.notice(gotato.SessionDeleted{Header: gotato.NewHeader(gotato.SessionID(sessionID), "", 0)}, "")
 		r.endSessionStreams(sessionID, session.ErrNotFound)

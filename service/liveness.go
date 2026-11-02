@@ -281,9 +281,7 @@ func (r *Runner) Close(ctx context.Context) error {
 	// then io.EOF.
 	defer r.instanceFeed.Close()
 	// Warm Sessions hold no Claim, so letting them go writes nothing.
-	r.warmMu.Lock()
-	r.warmClosed = true
-	r.warmMu.Unlock()
+	r.warm.Close()
 	r.dropAllWarm("closed")
 	r.beat.mu.Lock()
 	started := r.beat.started

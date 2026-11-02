@@ -46,12 +46,10 @@ func (r *Runner) reachStore(ctx context.Context, sessionID string) error {
 // the Session. A Session that is idle, or whose writer is gone, or that does
 // not exist, is for the caller to run, take over, or find missing.
 func (r *Runner) checkWriter(ctx context.Context, sessionID string) error {
-	r.warmMu.Lock()
-	entry := r.warm[sessionID]
-	r.warmMu.Unlock()
+	entry := r.warm.Get(sessionID)
 	if entry != nil {
 		// A warm copy that is current says no other Instance has written since.
-		if stale, err := entry.writer.Stale(ctx); err == nil && !stale {
+		if stale, err := copyOf(entry).writer.Stale(ctx); err == nil && !stale {
 			return nil
 		}
 	}

@@ -127,25 +127,26 @@ func busyElsewhere(retryAfter time.Duration) error {
 // earlier Runs needs to count this Run's writes alone. The Events the claim
 // wrote come back for the caller to publish, as open returns them.
 func (r *Runner) acquire(ctx context.Context, sessionID string) (writer *session.Writer, early []gotato.Event, before *session.WriteStats, err error) {
-	if entry := r.takeWarm(sessionID); entry != nil {
-		w := entry.writer
+	if entry := r.warm.Take(sessionID); entry != nil {
+		kept := copyOf(entry)
+		w := kept.writer
 		stale, staleErr := w.Stale(ctx)
 		switch {
 		case ctx.Err() != nil:
 			// The caller gave up before the copy was judged: the copy is
 			// untouched and still good, so it stays warm for the next Run.
-			r.keepWarm(w, entry.spec)
+			r.keepWarm(w, kept.spec)
 			return nil, nil, nil, ctx.Err()
 		case errors.Is(staleErr, session.ErrNotFound):
 			// The store does not show the Session to this caller: it is
 			// deleted, or the caller is refused. A refused caller must not
 			// drop the owner's copy; the copy ages out by its TTL.
 			// [LIMITATION] a refusal and a delete both read as not found, so a Session deleted elsewhere stays warm until its TTL.
-			r.keepWarm(w, entry.spec)
+			r.keepWarm(w, kept.spec)
 			return nil, nil, nil, storeFailureOf(ctx, notRunIfLapsed(staleErr), true)
 		case staleErr == nil && !stale:
 			if err := r.live(ctx); err != nil {
-				r.unloaded(sessionID, entry.agent, "liveness_lapsed")
+				r.unloaded(sessionID, entry.Agent, "liveness_lapsed")
 				return nil, nil, nil, err
 			}
 			base := w.Stats()
@@ -161,14 +162,14 @@ func (r *Runner) acquire(ctx context.Context, sessionID string) (writer *session
 			if !lostRace(err) {
 				// The claim may have been written, and the Writer stopped.
 				r.settle(w, err)
-				r.noteFailure(err, sessionID, entry.agent)
-				r.unloaded(sessionID, entry.agent, "failed")
+				r.noteFailure(err, sessionID, entry.Agent)
+				r.unloaded(sessionID, entry.Agent, "failed")
 				return nil, nil, nil, err
 			}
 		}
 		// Another Instance wrote the Record, or deleted it, or the copy
 		// could not claim: the copy is of no use.
-		r.unloaded(sessionID, entry.agent, "taken_over")
+		r.unloaded(sessionID, entry.Agent, "taken_over")
 	}
 	writer, early, err = r.open(ctx, sessionID)
 	return writer, early, nil, err
