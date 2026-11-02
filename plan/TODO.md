@@ -8,28 +8,28 @@ Open defects, design decisions and open checks, verified against the code. Plann
 
 ## Integration feedback
 
-From the first real adoption (a Lark bot service running on several pods), each checked against the code on 2026-10-29. Evidence, verdicts and wording of the fixes are in [INTEGRATION-FEEDBACK.md](INTEGRATION-FEEDBACK.md); `D-NNN` is its entry number. Remove an item here in the commit that resolves it.
+Findings from real use, each checked against the code (first pass on 2026-10-29). Evidence, verdicts and wording of the fixes are in [INTEGRATION-FEEDBACK.md](INTEGRATION-FEEDBACK.md); `D-NNN` is its entry number. Remove an item here in the commit that resolves it.
 
 - [ ] **D-004 · An MCP server without annotations hides every tool under `WithMaxEffect`.** Add `WithDefaultEffect` or `WithToolEffectFunc`; state the consequence in FEATURES.md.
 - [ ] **D-002 · `adapter/mcp` cannot filter or rename tools.** Add `WithToolFilter` and `WithToolRename`.
 - [ ] **D-006 · `examples/larkbot` has no streaming card, and nothing says deltas are visible only on the writer Instance.** Add both; a writer switch needs the card's id in Session metadata.
 - [ ] **D-007 · `larkbot` does not de-duplicate across pods.** Copy the README note into the two guides; pass `message_id` as `RequestID`.
 - [ ] **D-018 · A folded tool called before it is loaded costs a round.** Reword the "also found, not loaded" line as an instruction; decide whether a read-only tool is loaded and run on the refusal; document `WithActiveToolSet` against fold.
-- [ ] **D-019 · No cache gain on the chat wire through a self-hosted gateway.** Document how to get one (inject at the gateway, or `anthropic-messages` with `provider: anthropic`); parse `cache_read_input_tokens` and `cache_creation_input_tokens` on chat.
+- [ ] **D-019 · No cache gain on the chat wire on an endpoint that is not a provider's own address.** Document how to get one (add it at the endpoint, or `anthropic-messages` with `provider: anthropic`); parse `cache_read_input_tokens` and `cache_creation_input_tokens` on chat.
 - [ ] **D-020 · Nothing warns that compaction is off when the context window is unknown.** Warn once at 0, show `ceiling=0` in `inspect`, an optional read of the window from a gateway, a loud line in FEATURES.md and the example config.
 - [ ] **D-021 · `adapter/mcp` tools are not `Sequential`; raising `MaxParallelTools` runs write tools in parallel.** Document it with an example; an optional adapter switch.
 - [ ] **D-022 · No guide for asking a person before a tool runs.** Add one to `guides/extension-points.md` with the limits of `Before`; add `SessionID` to `ToolUse`.
 - [ ] **D-024 · No helper for a Turn or tool-call cap.** Add `MaxTurns` and `MaxToolCalls` as `TurnStopper` helpers; check whether a `TurnStopper` can send a Notice first.
 - [ ] **D-025 · Tool arguments are base64 in a Record.** Keep `[]byte`; add an optional `arguments` JSON field to `tool_started`; document the form.
 - [ ] **D-026 · A failure's reason is only readable from text.** Add `Code` to `ToolResult` and `ToolEnded`.
-- [ ] **D-027 · The time of a Run is the model's (81% to 99%), not the tools'.** Measured downstream on 8 Runs. Say in FEATURES.md that parallel tools save about 5% and a cache is a matter of cost; reword the "not loaded" line first (D-018); reopen the Turn cap decision (D-024). Ask why the same output took twice as long on 10-29.
-- [ ] **D-028 · The "ask a person" guide has a worked example downstream.** Use it in `guides/extension-points.md` (D-022): fail closed with `Block:true`, an approver list, a card cap, a remembered refusal, a longer total timeout. Say the card path is unchecked against a live chat.
-- [ ] **D-029 · A name prefix is a guess about Effect.** Say so in the MCP section of FEATURES.md; recommend `destructive` by default plus an exact list; use the downstream 5-server cut as a test of filter and rename.
+- [ ] **D-027 · The time of a Run is the model's (81% to 99%), not the tools'.** Measured on 8 Runs of a real service built on Gotato. Say in FEATURES.md that parallel tools save about 5% and a cache is a matter of cost; reword the "not loaded" line first (D-018); reopen the Turn cap decision (D-024).
+- [ ] **D-028 · The "ask a person" guide has a worked example.** Use it in `guides/extension-points.md` (D-022): fail closed with `Block:true`, an approver list, a card cap, a remembered refusal, a longer total timeout. Say the card path is unchecked against a live chat.
+- [ ] **D-029 · A name prefix is a guess about Effect.** Say so in the MCP section of FEATURES.md; recommend `destructive` by default plus an exact list; use an endpoint that shows several servers as a test of filter and rename.
 - [ ] **D-030 · Retrying a `NotRun` after a back-off is a plain answer to `not_writer` for one replica.** One paragraph and its limit in the multi-instance guide.
 - [ ] **D-031 · Lark pitfalls (card size, inline code, `*` across a colour tag, thread key, recall permission).** A list in `examples/larkbot/README.md`.
 - [ ] **D-032 · A tool cannot learn who asked, except through a `ctx` value set before `Runner.Run` (works, undocumented).** Document the route and pin it with a test; decide whether a per-Run field should reach `ToolUse`.
-- [ ] **D-033 · Follow-up to D-027.** The slow Run overlapped another team's calls on the same shared model (a correlation only), and input length does add about +2 s of first-token time over 44k tokens, so D-019 stays a latency item until measured. Ask the gateway owners for a per-key split and queueing.
-- [ ] **D-034 · A long Run never compacted mid-Run because the downstream window was 0 (their setting).** Confirmed. No core change; it is another reason for D-020's warning.
+- [ ] **D-033 · Follow-up to D-027.** Input length does add about +2 s of first-token time over 44k tokens, so D-019 stays a latency item until measured.
+- [ ] **D-034 · A long Run never compacted mid-Run because the model window was left unset.** Confirmed. No core change; it is another reason for D-020's warning.
 - [ ] **D-035 · `compaction_ended` carries no ceiling or window; `context_built` has no per-part size.** Add the ceiling and window first, then an estimate per part. Compatible.
 - [ ] **D-036 · Decide whether to clear old Tool Results in the middle of a Run.** Write the decision first; check whether the compaction ceiling already answers it.
 - [ ] **D-037 · `search_tools` with `toolset` returns a whole ToolSet (up to 30 KB measured), uncapped and not spilled.** By design; say so in FEATURES.md and the tool-search guide, and name `queries` and `names` as the cheap forms. `loaded_tools` in the result is Record-only on the chat wire.
@@ -39,7 +39,7 @@ From the first real adoption (a Lark bot service running on several pods), each 
 - [ ] **Model profile: describe a model apart from its connection, with the window stated (draft [042](decisions/042-a-models-profile-is-its-own-value-apart-from-the-connection.md)).** Answers D-020 and D-034 at the root; no pool, no routing.
 - [ ] **D-005 · Cost: documentation only, or a hook?** `Usage` has no price. Either state in FEATURES.md that a team converts `Usage` itself (with an example), or add a price table or an `Event` hook.
 - [ ] **D-019 · Should the chat wire send `cache_control`?** Today it sends none, and `provider: anthropic` does not change that on chat. Either keep it a gateway matter and document it, or add the field.
-- [ ] **D-010 · Reasoning effort through a self-hosted gateway.** The chat and anthropic wires refuse it. Either document `provider` for such a host, or add a pass-through extra body field.
+- [ ] **D-010 · Reasoning effort on an endpoint that is not a provider's own address.** The chat and anthropic wires refuse it. Either document `provider` for such an endpoint, or add a pass-through extra body field.
 
 ## Open checks
 

@@ -92,7 +92,7 @@ A service checks itself over HTTP.
 
 The repo has more than one module: the root, and nested ones such as `adapter/mcp` (tags like `adapter/mcp/v0.3.0`).
 
-1. **Push the nested-module tags first, or together with the root tag.** A root tag pushed 20 seconds ahead of `adapter/mcp/v0.2.0` led to "found, but does not contain package" for a downstream team.
+1. **Push the nested-module tags first, or together with the root tag.** A root tag pushed 20 seconds ahead of `adapter/mcp/v0.2.0` led to "found, but does not contain package" for a caller.
 2. **Warm the proxy** with a `.info` request for each tag, for example `curl https://proxy.golang.org/github.com/<owner>/gotato/adapter/mcp/@v/v0.3.0.info`.
 3. **Check from a clean module cache.** In a new module, with `GOMODCACHE` set to a temporary directory, run `go get` for the root and for each nested module at the new tag. Announce the release only when this passes.
 4. **Expect lag.** A new nested tag can take minutes, sometimes about an hour, to appear on proxy.golang.org.

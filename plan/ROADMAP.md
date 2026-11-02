@@ -1,7 +1,7 @@
 <!-- what-we-build: draft, waits for the maintainer's approval -->
 # Gotato — Roadmap
 
-What comes next, and how we know it is done. The roadmap adds no new feature. It schedules what [GOALS.md](GOALS.md) measures, what [FEATURES.md](../FEATURES.md) marks as planned (⬜) or names as a gap (🚧), and what the first real adoption reported in [INTEGRATION-FEEDBACK.md](INTEGRATION-FEEDBACK.md). The principles are in [DESIGNS.md](../DESIGNS.md), the forks already decided are in [decisions](decisions/README.md), and terms are in [GLOSSARY.md](../GLOSSARY.md).
+What comes next, and how we know it is done. The roadmap adds no new feature. It schedules what [GOALS.md](GOALS.md) measures, what [FEATURES.md](../FEATURES.md) marks as planned (⬜) or names as a gap (🚧), and what real use reported in [INTEGRATION-FEEDBACK.md](INTEGRATION-FEEDBACK.md). The principles are in [DESIGNS.md](../DESIGNS.md), the forks already decided are in [decisions](decisions/README.md), and terms are in [GLOSSARY.md](../GLOSSARY.md).
 
 0.2.0 is released (`v0.2.0` and `adapter/mcp/v0.2.0`). [CHANGELOG.md](../CHANGELOG.md) already lists breaking changes under Unreleased, so the next release is named **0.3.0**. It is built in three rounds. Each round merges and is checked on its own. No step has a date.
 
