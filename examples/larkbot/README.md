@@ -7,11 +7,11 @@ A Lark chat bot built on [Gotato](../../README.md), and a local cluster to try i
 - **Many instances behind a chat platform.** Lark delivers each event to one random instance of the app. A message for a thread can land on an instance that is not running that thread's Run.
 - **`not_writer` forwarding.** That instance's `Runner.Send` answers `not_writer` with the writer's address, and the bot posts the message there as a `follow_up`.
 - **Ordered retry.** A message that was known not to have run (`not_writer`, `busy`, `draining`, a forward that could not connect) is sent again with backoff, in order per Session.
-- **Cards.** Every reply is a Lark interactive card whose footer names the instance that answered.
+- **Cards.** Every reply is a Lark interactive card whose footer names the instance that answered. For a Run the bot starts, the card is posted at once and updated while the model writes (a streaming card, see below).
 - **Warm Sessions.** One Gotato Session per message thread. A new message starts a Session; a reply continues the Session of its thread. Any instance can pick a Session up from the shared store.
 - **Tools in a multi-instance service.** An MCP server and tool search, each checked across a takeover or a restart.
 
-What it is not: a product. It has no users, no persona beyond one constant, no idempotency across instances, and no real model. Replace what you need.
+What it is not: a product. It has no users, no persona beyond one constant, no de-duplication across instances, and no real model. Replace what you need.
 
 ## How it works
 
@@ -21,17 +21,36 @@ The diagram shows one message through the bot.
 Lark ──(long connection, im.message.receive_v1)──► onMessage ──ack at once──► goroutine
                                                                                 │
                               runner.CreateSessionExclusive (chat_id, thread in metadata)
-                              runner.Send(SessionID, follow_up, text)
+                              idle Session:  post a card, runner.StreamRun (text_delta -> update the card)
+                              busy Session:  runner.Send(SessionID, follow_up, text)   (queues, or answers not_writer)
                                                                                 ▼
 Lark ◄── reply to the user's message ◄── replyLoop ◄── runner.SubscribeInstance (reply_ended, run_ended)
 ```
 
 - The thread key is the event's `root_id` if set, else `parent_id` if set, else the message's own `message_id`. The Session ID is `lark-<thread key>` (a hash when the key has unusual characters). The Session's metadata keeps `lark.chat_id` and `lark.thread`, so any instance can find the chat and the message to reply to.
-- The reply is read from the Instance's Event stream, not from `Send`'s return: a message sent while a Run is going is queued into that Run, and the Run's `run_ended` tells the bot to answer.
+- The reply of a Run that was not streamed is read from the Instance's Event stream, not from `Send`'s return: a message sent while a Run is going is queued into that Run, and the Run's `run_ended` tells the bot to answer.
 - A reply posted by an instance that did not see the Lark message (the writer, after a forward) replies to the thread's root message.
 - Non-text messages and the bot's own messages are ignored.
 - The persona is one constant, `instruction` in `main.go`. Replace it with your own.
 - User-visible strings (the busy notice) are constants in `bot.go`.
+
+## A streaming card
+
+The streaming card is `streamRun` in `stream.go`. For a message that finds the Session idle, the bot:
+
+1. reads the Session's Record: if any Instance holds it, a Run is going, so it uses `Runner.Send` as before (that queues the text, or answers `not_writer` and the bot forwards);
+2. posts a card (`...`) as a reply to the user's message, and starts the Run with `Runner.StreamRun`, with the Lark `message_id` as `RequestID` and the card's own id in `Update` (Session metadata `lark.card`);
+3. in the sink, buffers `text_delta` and updates the card (Lark's patch-message API) at most every 500 ms (`bot.streamEvery`, shortened in tests); a new reply (`reply_started`) clears the buffer, since a reply that ends in tool calls is a draft;
+4. when the Run settles, sets the card to the Run's `FinalText` (or a notice when it did not complete). It reads the Run's response, not Events, so a skipped delta cannot leave the card half written, and `replyLoop` does not post that Run a second time;
+5. if the start is refused (another message won the race, or another pod writes the Session), recalls the card and falls back to `Send`.
+
+What it does not do:
+
+- A message queued into a Run that is going has no deltas and no card of its own: the Run's card ends with the Run's final reply, and a message left over for a Run that follows is answered by a new card after that Run (the old path, from `run_ended`).
+- The card id is stored in the Session metadata so that another pod could edit the card, but this bot does not read it back: a Run another pod finishes (after a takeover) is answered with a new card.
+- A Session that a dead pod still holds is not idle to the bot, so the takeover Run goes through `Send` and is not streamed.
+- The Record is read in full for each message to find out whether the Session is idle. A real service would keep that fact cheaper.
+- Updates stop while the model is silent, and the last update is at most 500 ms behind the text. Lark limits how often one message can be edited; keep the interval above it.
 
 ## Run it locally with no secrets
 
@@ -102,7 +121,9 @@ A message is sent again only when it is known not to have run:
 
 Each retry calls `Runner.Send` again, so it finds out who the writer is anew: when a killed writer's Liveness row expires, this instance takes the Session over and starts the Run. The wait starts at 250 ms and doubles to 2 s, within `-retry-budget`. A failure after the connection was made may have been accepted, so it is not retried: it is logged as `delivery unknown`, and the user gets the busy notice. The retry runs in the message's own goroutine, so the Lark event is acknowledged at once; a later message of the same Session waits for an earlier one that is retrying, so order is kept.
 
-Duplicates are left to you. Each instance keeps an in-memory set of message IDs and drops a repeat it has seen; a repeat that lands on another instance is handled as new. Marking an ID before the work loses the message if the instance dies in between, and marking it after lets two instances race, so the choice depends on your service. If you want one, keep the `message_id` in your own shared store.
+Duplicates are left to you. Each instance keeps an in-memory set of message IDs and drops a repeat it has seen; a repeat that lands on another instance is handled as new. This is not de-duplication across pods. Marking an ID before the work loses the message if the instance dies in between, and marking it after lets two instances race, so the choice depends on your service. If you want one, keep the `message_id` in your own shared store.
+
+The bot passes the Lark `message_id` as `RequestID` of the Run a message starts, so a repeat can be found in the Record's `run_started` Event. Gotato does not de-duplicate on it. A message that is queued into a Run, or forwarded to the writer, carries no `RequestID` into a Run of its own (a forward goes through the HTTP message endpoint, which takes only `kind` and `text`).
 
 ## Tools
 

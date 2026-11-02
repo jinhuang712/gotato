@@ -300,11 +300,13 @@ type ToolStarted struct {
 // ToolEnded is published when a Tool ends, with its status and how long it ran.
 type ToolEnded struct {
 	Header
-	CallID    ToolCallID       `json:"call_id"`
-	ToolID    string           `json:"tool_id"`
-	Status    ToolResultStatus `json:"status"`
-	Executed  bool             `json:"executed"`
-	ElapsedMS float64          `json:"elapsed_ms"`
+	CallID ToolCallID       `json:"call_id"`
+	ToolID string           `json:"tool_id"`
+	Status ToolResultStatus `json:"status"`
+	// Code is the Code of the Tool Result when the call failed; see ToolResult.
+	Code      ErrorCode `json:"code,omitempty"`
+	Executed  bool      `json:"executed"`
+	ElapsedMS float64   `json:"elapsed_ms"`
 }
 
 // ToolProgress is published when a Tool reports its own progress. It is sent

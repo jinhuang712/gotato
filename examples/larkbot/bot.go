@@ -25,6 +25,7 @@ import (
 const (
 	metaChatID = "lark.chat_id"
 	metaThread = "lark.thread" // the thread key: a message_id, the root of the reply chain
+	metaCard   = "lark.card"   // the id of the streaming card of the latest Run the bot started (the card's own id)
 )
 
 // target is where a Session's reply goes.
@@ -33,27 +34,62 @@ type target struct{ chatID, messageID string }
 // busyNotice is what the user is told, once, when a message could not be handed to the Run that is going.
 const busyNotice = "I am busy right now, please try again shortly."
 
-// sender posts Lark messages. content is the `content` JSON of an interactive card.
+// sender posts Lark messages. content is the `content` JSON of an interactive
+// card. Reply and Create return the id of the message they made, which Update
+// and Delete take.
 type sender interface {
-	Reply(ctx context.Context, messageID, content string) error
-	Create(ctx context.Context, chatID, content string) error
+	Reply(ctx context.Context, messageID, content string) (string, error)
+	Create(ctx context.Context, chatID, content string) (string, error)
+	Update(ctx context.Context, cardID, content string) error
+	Delete(ctx context.Context, cardID string) error
 }
 
 // larkSender sends through the Lark API.
 type larkSender struct{ api *lark.Client }
 
-func (l larkSender) Reply(ctx context.Context, messageID, content string) error {
+func (l larkSender) Reply(ctx context.Context, messageID, content string) (string, error) {
 	resp, err := l.api.Im.Message.Reply(ctx, larkim.NewReplyMessageReqBuilder().MessageId(messageID).
 		Body(larkim.NewReplyMessageReqBodyBuilder().MsgType("interactive").Content(content).Build()).Build())
+	if err != nil {
+		return "", err
+	}
+	if !resp.Success() {
+		return "", errors.New(resp.Msg)
+	}
+	if resp.Data == nil {
+		return "", nil
+	}
+	return deref(resp.Data.MessageId), nil
+}
+
+func (l larkSender) Create(ctx context.Context, chatID, content string) (string, error) {
+	resp, err := l.api.Im.Message.Create(ctx, larkim.NewCreateMessageReqBuilder().ReceiveIdType("chat_id").
+		Body(larkim.NewCreateMessageReqBodyBuilder().ReceiveId(chatID).MsgType("interactive").Content(content).Build()).Build())
+	if err != nil {
+		return "", err
+	}
+	if !resp.Success() {
+		return "", errors.New(resp.Msg)
+	}
+	if resp.Data == nil {
+		return "", nil
+	}
+	return deref(resp.Data.MessageId), nil
+}
+
+// Update replaces the content of a card the bot posted.
+func (l larkSender) Update(ctx context.Context, cardID, content string) error {
+	resp, err := l.api.Im.Message.Patch(ctx, larkim.NewPatchMessageReqBuilder().MessageId(cardID).
+		Body(larkim.NewPatchMessageReqBodyBuilder().Content(content).Build()).Build())
 	if err == nil && !resp.Success() {
 		err = errors.New(resp.Msg)
 	}
 	return err
 }
 
-func (l larkSender) Create(ctx context.Context, chatID, content string) error {
-	resp, err := l.api.Im.Message.Create(ctx, larkim.NewCreateMessageReqBuilder().ReceiveIdType("chat_id").
-		Body(larkim.NewCreateMessageReqBodyBuilder().ReceiveId(chatID).MsgType("interactive").Content(content).Build()).Build())
+// Delete recalls a message the bot posted.
+func (l larkSender) Delete(ctx context.Context, cardID string) error {
+	resp, err := l.api.Im.Message.Delete(ctx, larkim.NewDeleteMessageReqBuilder().MessageId(cardID).Build())
 	if err == nil && !resp.Success() {
 		err = errors.New(resp.Msg)
 	}
@@ -73,9 +109,12 @@ type bot struct {
 	mu      sync.Mutex
 	targets map[string]target // Session ID -> latest chat and user message (in memory)
 	replies map[gotato.RunID]string
+	cards   map[string]*liveCard // Session ID -> the streaming card of the Run this process started on it (see stream.go)
 	seen    *seenSet
 	gates   map[string]*gate // Session ID -> the messages waiting behind one that retries
 	retry   retryPolicy
+
+	streamEvery time.Duration // the shortest time between two updates of a streaming card; tests shorten it
 
 	ackDelay time.Duration // test only: hold the event's HTTP answer this long, so the sender sees a late ack
 }
@@ -84,7 +123,7 @@ func newBot(runner *service.Runner, send sender, agent, model, label string, log
 	return &bot{runner: runner, send: send, agent: agent, model: model, label: label, log: log,
 		client: &http.Client{Timeout: 10 * time.Minute, // a forward can start a Run and wait for it
 			Transport: &http.Transport{DialContext: (&net.Dialer{Timeout: 3 * time.Second}).DialContext, MaxIdleConnsPerHost: 4}},
-		targets: map[string]target{}, replies: map[gotato.RunID]string{}, seen: newSeenSet(1024),
+		targets: map[string]target{}, replies: map[gotato.RunID]string{}, cards: map[string]*liveCard{}, streamEvery: defaultStreamEvery, seen: newSeenSet(1024),
 		gates: map[string]*gate{}, retry: defaultRetry(defaultRetryBudget)}
 }
 
@@ -232,8 +271,17 @@ func (b *bot) attempt(ctx context.Context, chatID, id, messageID, text string, a
 	// Send queues the text when a Run is going here, and otherwise runs it and
 	// returns when that Run settles.
 	tm := time.AfterFunc(acceptGrace, accepted)
-	res, err := b.runner.Send(ctx, service.MessageRequest{SessionID: id, Kind: service.MessageKindFollowUp, Text: text})
-	tm.Stop()
+	defer tm.Stop()
+	// A Run this process starts streams into a card (stream.go). Anything else
+	// goes to Send, which queues the text into a Run that is going.
+	if ran, err := b.streamRun(ctx, id, messageID, text); ran {
+		if err != nil {
+			return err
+		}
+		b.log.Info("send ran a new run", "chat", chatID, "instance", b.label, "session", id, "message_id", messageID, "streamed", true)
+		return nil
+	}
+	res, err := b.runner.Send(ctx, service.MessageRequest{SessionID: id, Kind: service.MessageKindFollowUp, Text: text, RequestID: messageID})
 	switch {
 	case err == nil && res.Queued:
 		b.log.Info("send queued", "chat", chatID, "instance", b.label, "session", id, "message_id", messageID)
@@ -292,9 +340,9 @@ func (b *bot) notify(ctx context.Context, sessionID, chatID, messageID, text str
 	content := cardContent(b.card(sessionID), text)
 	var err error
 	if messageID != "" {
-		err = b.send.Reply(ctx, messageID, content)
+		_, err = b.send.Reply(ctx, messageID, content)
 	} else {
-		err = b.send.Create(ctx, chatID, content)
+		_, err = b.send.Create(ctx, chatID, content)
 	}
 	if err != nil {
 		b.log.Error("post notice", "session", sessionID, "err", err)
@@ -334,6 +382,9 @@ func (b *bot) replyLoop(ctx context.Context) {
 			text := b.replies[e.RunID]
 			delete(b.replies, e.RunID)
 			b.mu.Unlock()
+			if b.ownsRun(string(e.SessionID), e.RunID) {
+				continue // streamRun finishes the card of a Run it started
+			}
 			b.post(ctx, string(e.SessionID), replyCard(b.card(string(e.SessionID)), e.Status, text))
 		}
 	}
@@ -366,9 +417,9 @@ func (b *bot) post(ctx context.Context, sessionID, content string) {
 	ctx = context.WithoutCancel(ctx)
 	var err error
 	if t.messageID != "" {
-		err = b.send.Reply(ctx, t.messageID, content)
+		_, err = b.send.Reply(ctx, t.messageID, content)
 	} else {
-		err = b.send.Create(ctx, t.chatID, content)
+		_, err = b.send.Create(ctx, t.chatID, content)
 	}
 	if err != nil {
 		b.log.Error("post reply", "session", sessionID, "err", err)

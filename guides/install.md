@@ -1,6 +1,6 @@
 # Install
 
-By the end of this page you have Gotato in your `go.mod`. Pin a release: `v0.2.0` is the first.
+By the end of this page you have Gotato in your `go.mod`. Pin a release: `v0.2.0` is the first. Gotato needs Go 1.24 (1.25 with `adapter/mcp`).
 
 ## The runtime
 

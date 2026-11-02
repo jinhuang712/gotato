@@ -24,6 +24,10 @@ model: your-model
 
 # The model's context window in tokens; compaction takes its default ceiling
 # from it. Default: unset (0, unknown), so there is no default ceiling.
+# OPTIONAL, BUT IT MATTERS: with no window here and no CeilingTokens set on
+# the Agent, compaction runs only after the model refuses a request as too
+# long (and only if overflow_phrases or the built-in 400/413 wording
+# recognises the refusal). Nothing warns you. Set it to compact earlier.
 context_window_tokens: 200000
 
 # Retries after the first attempt, for a call that never got a response, or

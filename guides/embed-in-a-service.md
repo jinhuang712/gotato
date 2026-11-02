@@ -57,7 +57,23 @@ case gotato.Retryable(err):
 }
 ```
 
-`Run` returns a response and an error together. A refusal before the Run started is the zero response and an error marked not run; a response with a `SessionID` is a Run that started and settled, with its status, its final text and its usage, whatever `err` is, so read the response before you return on `err != nil`. Pass `RequestID` on the request to find it in the Record (`run_started`) and in the response; Gotato does not look for a repeat of it.
+`Run` returns a response and an error together. A refusal before the Run started is the zero response and an error marked not run; a response with a `SessionID` is a Run that started and settled, with its status, its final text and its usage, whatever `err` is, so read the response before you return on `err != nil`. Pass `RequestID` on the request to find it in the Record (`run_started`) and in the response; Gotato does not look for a repeat of it. A chat platform delivers an event again when it is not acked in time, so pass its message id as `MessageRequest.RequestID` and a repeat can be found in `run_started`.
+
+## An instruction for one Run
+
+There is no instruction field on a Run, but a Run's `Update` can set the Session's instruction as its first write. It replaces `Agent.Instruction`; it does not add to it. With `SkipSave` it lasts for that Run only, and an empty value falls back to `Agent.Instruction`.
+
+```go
+// Answer this one message in French; the next Run is back on the Agent's instruction.
+out, err := runner.Run(ctx, service.RunRequest{
+    SessionID: id,
+    Prompt:    "what is open today?",
+    Update:    map[string]string{service.MetaInstruction: "Answer in French."}, // "gotato.instruction"
+    SkipSave:  true,
+})
+```
+
+Without `SkipSave` the new instruction is saved with the Session and stays for the Runs after it, until another `Update` changes it. Note that `SkipSave` also saves nothing else of the Run. The test `TestRunUpdateInstructionReplacesTheAgentsForOneRun` in [service/run_instruction_test.go](../service/run_instruction_test.go) pins this.
 
 ## Shutting down
 
@@ -74,3 +90,5 @@ The handler serves the same Runner over HTTP, with a stream for each Run and eac
 ## A chat bot on three pods
 
 [FEATURES.md → Service: many instances](../FEATURES.md#g-f27--service-many-instances-) lists every behavior above. The chat-bot example, which runs three pods on a local cluster through a rolling deploy, a killed writer and a scale-down, is in [`examples/larkbot`](../examples/larkbot/README.md) and described in [Example: a chat bot](example-chat-bot.md).
+
+Known gap: there is no de-duplication across pods. `examples/larkbot` keeps an in-memory set of message IDs on each instance and drops a repeat it has seen; a repeat that lands on another instance is handled as new. Gotato itself does not de-duplicate `RequestID` in 0.2.0, and a message that a Run in flight takes is not in `run_started`: the Record names it by its message ID alone. If you want it, keep the message id in your own shared store.

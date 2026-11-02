@@ -143,7 +143,7 @@ func (t effectTool) Spec() ToolSpec {
 }
 
 // ownResult returns produced with the fields of a ToolResult that Core owns
-// taken from owned: CallID, Executed, Spilled and LoadedTools. A Tool, a
+// taken from owned: CallID, Code, Executed, Spilled and LoadedTools. A Tool, a
 // PostToolUse or a PreToolDecision writes the rest of a result. Only Core's own
 // results list the Tools they loaded: search_tools, and the refusal of a call
 // to a Tool that was not loaded; the caller passes their LoadedTools in owned.
@@ -151,6 +151,7 @@ func (t effectTool) Spec() ToolSpec {
 func ownResult(produced, owned ToolResult) ToolResult {
 	produced.CallID = owned.CallID
 	produced.Executed = owned.Executed
+	produced.Code = owned.Code
 	produced.Spilled = nil
 	if owned.Spilled != nil {
 		spilled := *owned.Spilled
@@ -163,6 +164,9 @@ func ownResult(produced, owned ToolResult) ToolResult {
 // ToolUse is one call as Execute receives it: where in the Run it is, and the
 // Tool's ID and arguments.
 type ToolUse struct {
+	// SessionID is the Session the call belongs to, for a PreToolUse that asks
+	// a person and must know which conversation to ask in.
+	SessionID   SessionID  `json:"session_id,omitempty"`
 	RunID       RunID      `json:"run_id"`
 	Turn        TurnNumber `json:"turn"`
 	CallID      ToolCallID `json:"call_id"`

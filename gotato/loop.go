@@ -255,7 +255,7 @@ func (st *runState) runToolBatch(turn TurnNumber, assistant Message) (toolOutcom
 	for i := range plans {
 		if plans[i].blocked {
 			outcomes[i] = plans[i].result
-			a.stage(ToolEnded{Header: hd(turn), CallID: plans[i].call.ID, ToolID: plans[i].call.ToolID, Status: plans[i].result.Status, Executed: plans[i].result.Executed})
+			a.stage(ToolEnded{Header: hd(turn), CallID: plans[i].call.ID, ToolID: plans[i].call.ToolID, Status: plans[i].result.Status, Code: plans[i].result.Code, Executed: plans[i].result.Executed})
 		}
 	}
 

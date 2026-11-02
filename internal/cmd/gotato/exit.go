@@ -71,6 +71,7 @@ var exitOfCode = map[gotato.ErrorCode]int{
 	gotato.CodeToolResolutionFailure: ExitError,
 	gotato.CodeToolArgumentFailure:   ExitError,
 	gotato.CodeToolExecutionFailure:  ExitError,
+	gotato.CodeToolNotLoaded:         ExitError,
 	gotato.CodeExtensionFailure:      ExitError,
 	gotato.CodeLimitExceeded:         ExitError,
 	gotato.CodeCanceled:              ExitError,

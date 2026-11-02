@@ -76,7 +76,7 @@ func (a *Session) closeOpenCalls(runID RunID, batch *openBatch, cause *RuntimeEr
 // rejectedPlan settles a call the Model got wrong as a failed, unexecuted
 // Tool Result carrying a message the Model can act on. loaded lists the Tools
 // the call loaded, if any.
-func (a *Session) rejectedPlan(index int, call ToolCall, message string, loaded ...string) toolPlan {
+func (a *Session) rejectedPlan(index int, call ToolCall, code ErrorCode, message string, loaded ...string) toolPlan {
 	return toolPlan{
 		index:   index,
 		call:    call,
@@ -86,6 +86,7 @@ func (a *Session) rejectedPlan(index int, call ToolCall, message string, loaded 
 			Status:      ToolResultStatusFailed,
 			Content:     []ContentPart{{Kind: ContentKindText, Text: message}},
 			SafeError:   message,
+			Code:        code,
 			Executed:    false,
 			LoadedTools: loaded,
 		},
@@ -227,7 +228,7 @@ type toolGroupRun struct {
 func (g *toolGroupRun) settle(index int, result ToolResult) {
 	g.outcomes[index] = result
 	call := g.plans[index].call
-	g.a.stage(ToolEnded{Header: NewHeader(g.a.id, g.runID, g.turn), CallID: call.ID, ToolID: call.ToolID, Status: result.Status, Executed: result.Executed, ElapsedMS: millis(time.Since(g.launched))})
+	g.a.stage(ToolEnded{Header: NewHeader(g.a.id, g.runID, g.turn), CallID: call.ID, ToolID: call.ToolID, Status: result.Status, Code: result.Code, Executed: result.Executed, ElapsedMS: millis(time.Since(g.launched))})
 }
 
 // cancelRest settles every call of the group that has no outcome yet as
@@ -330,9 +331,9 @@ func (a *Session) runTool(ctx context.Context, plan toolPlan, signals chan<- too
 	switch {
 	case executed.err != nil && ctx.Err() == nil && errors.Is(toolCtx.Err(), context.DeadlineExceeded):
 		text := fmt.Sprintf("%s: the tool did not finish within ToolCallDeadline (%s); its outcome is unknown", CodeDeadlineExceeded, a.limits.ToolCallDeadline)
-		result = ToolResult{CallID: plan.call.ID, Status: ToolResultStatusFailed, SafeError: text, Executed: true}
+		result = ToolResult{CallID: plan.call.ID, Status: ToolResultStatusFailed, SafeError: text, Code: CodeDeadlineExceeded, Executed: true}
 	case executed.err != nil:
-		result = ToolResult{CallID: plan.call.ID, Status: ToolResultStatusFailed, SafeError: toolErrorText(executed.err), Executed: true}
+		result = ToolResult{CallID: plan.call.ID, Status: ToolResultStatusFailed, SafeError: toolErrorText(executed.err), Code: toolErrorCode(executed.err), Executed: true}
 	default:
 		owned := ToolResult{CallID: plan.call.ID, Executed: true}
 		if _, builtin := plan.tool.(*searchTool); builtin {
@@ -396,19 +397,19 @@ func (a *Session) preflightTools(ctx context.Context, runID RunID, turn TurnNumb
 			// A catalog Tool the Model has not loaded does not run: it is
 			// loaded now, and the Model calls it again.
 			if status := a.registry.loadable(call.ToolID); status == loadOK || status == loadAlready {
-				plans = append(plans, a.rejectedPlan(sourceIndex, call, fmt.Sprintf("%s was not loaded, so this call did not run. It is loaded now; call it again.", call.ToolID), call.ToolID))
+				plans = append(plans, a.rejectedPlan(sourceIndex, call, CodeToolNotLoaded, fmt.Sprintf("%s was not loaded, so this call did not run. It is loaded now; call it again.", call.ToolID), call.ToolID))
 				continue
 			}
-			plans = append(plans, a.rejectedPlan(sourceIndex, call, a.unresolvedToolText(call.ToolID)))
+			plans = append(plans, a.rejectedPlan(sourceIndex, call, CodeToolResolutionFailure, a.unresolvedToolText(call.ToolID)))
 			continue
 		}
 		if !json.Valid(call.Arguments) {
-			plans = append(plans, a.rejectedPlan(sourceIndex, call, fmt.Sprintf("%s: arguments for %s are not valid JSON", CodeToolArgumentFailure, call.ToolID)))
+			plans = append(plans, a.rejectedPlan(sourceIndex, call, CodeToolArgumentFailure, fmt.Sprintf("%s: arguments for %s are not valid JSON", CodeToolArgumentFailure, call.ToolID)))
 			continue
 		}
 		spec := entry.spec
 		if err := validateToolSchema(spec.InputSchema, call.Arguments); err != nil {
-			plans = append(plans, a.rejectedPlan(sourceIndex, call, fmt.Sprintf("%s: %s: %v", CodeToolArgumentFailure, call.ToolID, err)))
+			plans = append(plans, a.rejectedPlan(sourceIndex, call, CodeToolArgumentFailure, fmt.Sprintf("%s: %s: %v", CodeToolArgumentFailure, call.ToolID, err)))
 			continue
 		}
 		plan := toolPlan{
@@ -417,6 +418,7 @@ func (a *Session) preflightTools(ctx context.Context, runID RunID, turn TurnNumb
 			tool:       entry.tool,
 			sequential: spec.Sequential,
 			use: ToolUse{
+				SessionID:   a.id,
 				RunID:       runID,
 				Turn:        turn,
 				CallID:      call.ID,
@@ -469,6 +471,17 @@ func safeError(err error) string {
 		return ""
 	}
 	return err.Error()
+}
+
+// toolErrorCode is the Code of a failed Tool Result for an error a Tool
+// returned: the Code of a RuntimeError it carries, otherwise
+// CodeToolExecutionFailure, the code its text starts with.
+func toolErrorCode(err error) ErrorCode {
+	var re *RuntimeError
+	if errors.As(err, &re) && re != nil && re.Code != "" {
+		return re.Code
+	}
+	return CodeToolExecutionFailure
 }
 
 // toolErrorText is the text of an error a Tool returned, for its failed

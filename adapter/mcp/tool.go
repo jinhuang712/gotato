@@ -22,14 +22,21 @@ type tool struct {
 	spec gotato.ToolSpec
 }
 
-func newTool(set *ToolSet, t *sdk.Tool) *tool {
+// newTool makes the tool for t. name is what the Model sees; the Effect, the
+// schema title and the call to the server keep the server's own t.Name.
+func newTool(set *ToolSet, t *sdk.Tool, name string) *tool {
 	effect, ok := set.cfg.effects[t.Name]
-	if !ok {
+	switch {
+	case ok:
+	case t.Annotations == nil && set.cfg.hasDefaultEffect:
+		effect = set.cfg.defaultEffect
+	default:
 		effect = effectOf(t.Annotations)
 	}
 	return &tool{set: set, name: t.Name, spec: gotato.ToolSpec{
-		ID:           t.Name,
-		Name:         t.Name,
+		ID:           name,
+		Name:         name,
+		Sequential:   set.cfg.sequentialWrites && effect != gotato.ToolEffectRead,
 		Description:  t.Description,
 		InputSchema:  slimSchema(t.Name, t.InputSchema),
 		OutputSchema: slimSchema(t.Name, t.OutputSchema),

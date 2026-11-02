@@ -232,6 +232,10 @@ type chatChunk struct {
 		} `json:"prompt_tokens_details,omitempty"`
 		// PromptCacheHitTokens is DeepSeek's name for cached prompt tokens.
 		PromptCacheHitTokens uint64 `json:"prompt_cache_hit_tokens,omitempty"`
+		// CacheReadInputTokens and CacheCreationInputTokens are Anthropic's
+		// names, passed through by a gateway in front of an Anthropic model.
+		CacheReadInputTokens     uint64 `json:"cache_read_input_tokens,omitempty"`
+		CacheCreationInputTokens uint64 `json:"cache_creation_input_tokens,omitempty"`
 	} `json:"usage"`
 }
 
@@ -319,11 +323,12 @@ func (s *chatStream) processChunk(chunk chatChunk) error {
 	}
 	if chunk.Usage != nil {
 		s.usage = gotato.Usage{InputTokens: chunk.Usage.PromptTokens, OutputTokens: chunk.Usage.CompletionTokens, TotalTokens: chunk.Usage.TotalTokens}
-		cached := chunk.Usage.PromptCacheHitTokens
+		cached := max(chunk.Usage.PromptCacheHitTokens, chunk.Usage.CacheReadInputTokens)
 		if d := chunk.Usage.PromptTokensDetails; d != nil && d.CachedTokens > cached {
 			cached = d.CachedTokens
 		}
 		s.usage.CacheReadTokens = min(cached, s.usage.InputTokens)
+		s.usage.CacheWriteTokens = min(chunk.Usage.CacheCreationInputTokens, s.usage.InputTokens-s.usage.CacheReadTokens)
 		s.queue = append(s.queue, gotato.ModelEvent{Kind: gotato.ModelEventKindUsage, Usage: s.usage})
 	}
 	for _, choice := range chunk.Choices {

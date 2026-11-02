@@ -18,6 +18,18 @@ What changed in Gotato, from the user's side. Newest first. A breaking change ca
 - **`search_tools` is a reserved Tool name.** A Tool of your own may not have it as its ID or its `Name`.
   - Before: a root Tool `search_tools` worked while no ToolSet offered a catalog, then failed every Run once one did.
   - After: `NewSession` fails with `invalid_argument`; a `ToolSource` that supplies one keeps its last set, as above.
+- **`inspect` always reports `compact_ceiling_tokens`.** The Report of `modelctx`, the CLI's `context inspect --json` and the HTTP endpoints carry the field with 0 when the ceiling trigger is off (no context window and no `CeilingTokens`), and the text output says `compact_ceiling_tokens 0 (off: compacts only after a refusal as too long)`.
+  - Before: `compact_ceiling_tokens` was left out of the JSON when it was 0, so a program could not tell "off" from "not reported".
+  - After: the key is always there; 0 means off. A consumer that tested for the key to know a ceiling was set should test for a value above 0.
+- **The `search_tools` result names what it did not load as an instruction.** The line for tools that were found but not loaded changed.
+  - Before: `Also found, not loaded: a, b.`
+  - After: `Found but not loaded, so do not call them yet; call search_tools with these names first: a, b.` Anything that matches the old text (a test, a log filter, a parser of the result) breaks.
+- **A failed Tool Result has a `Code`, and there is a new error code `tool_not_loaded`.** `gotato.CodeToolNotLoaded` (`tool_not_loaded`) is the Code of a call to a catalog Tool the Model had not loaded: the call did not run, the Tool is loaded now, and the Model may call it again.
+  - Before: `ErrorCodes()` had no such code, and a failed `ToolResult` and its `tool_ended` had no code: the reason was a prefix of `SafeError`.
+  - After: `ErrorCodes()` lists `tool_not_loaded`, and `ToolResult.Code` and `ToolEnded.Code` (`code` in JSON, left out when empty) hold `tool_resolution_failure`, `tool_argument_failure`, `tool_execution_failure`, `deadline_exceeded` or `tool_not_loaded` on a failed call. A switch over `ErrorCodes()` needs a case for the new code (the CLI exits with the generic error status and the HTTP API answers 500 for it). A result stored before the field existed, and a blocked call, have none.
+- **The chat wire fills `CacheWriteTokens` and reads `cache_read_input_tokens`.** For `openai-chat-completions`, behind a gateway that passes Anthropic's usage fields through.
+  - Before: `CacheWriteTokens` was always 0 on chat and `cache_read_input_tokens` was not read, so those tokens were counted as plain input.
+  - After: `cache_creation_input_tokens` goes into `CacheWriteTokens` (capped at the input that is not a cache read), and `cache_read_input_tokens` into `CacheReadTokens` (the larger of it and the other cache counts, capped at the input). A cost sum over `Usage` changes for such a gateway: price the cache parts at their own rates, as in [FEATURES.md](FEATURES.md).
 
 ### Fixed
 
@@ -62,6 +74,14 @@ What changed in Gotato, from the user's side. Newest first. A breaking change ca
 ### Added
 
 - **`message_dropped` has the why `commit_failed`.** It closes the one message a Run took and could not commit (it would fail again in the next Run); the messages behind it go back to the queue.
+- `adapter/mcp`: `WithDefaultEffect(effect)` sets the Effect of a tool whose server sent no annotations; without it such a tool is `destructive` and `WithMaxEffect` hides it (D-004).
+- `adapter/mcp`: `WithToolFilter(keep)` leaves a tool out, listed in `Skipped()` as `filtered`, and `WithToolRename(rename)` changes the name the Model sees while the Effect option, the filter and the call to the server keep the server's name (D-002).
+- `adapter/mcp`: `WithSequentialWrites()` marks every tool above `read` as `Sequential`; the default is unchanged, so with `MaxParallelTools` above 1 a server's write tools still run in parallel without it (D-021).
+- `Code` on `ToolResult` and `ToolEnded`, and `CodeToolNotLoaded`; the reworded `search_tools` line tells the Model to load first (D-026, D-018). Whether the refused calls drop is measured before D-018 goes further.
+- `ToolUse.SessionID` names the Session of a call, for a `PreToolUse` that asks a person (D-022).
+- `inspect` shows the compaction ceiling always, 0 when off (D-020, the inspect part; the warning is not part of this line).
+- `gateway`: the chat wire reads `cache_read_input_tokens` and `cache_creation_input_tokens` (D-019).
+- `examples/larkbot`: a streaming card, and the Lark `message_id` as the `RequestID` (D-006, D-007).
 
 ## 0.2.0 — 2026-10-29
 
