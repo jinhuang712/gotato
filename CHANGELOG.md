@@ -73,6 +73,7 @@ What changed in Gotato, from the user's side. Newest first. A breaking change ca
 
 ### Added
 
+- `gateway`: `ModelProfile` (name, `Window`, provider, cache retention, overflow phrases, deferred form, `NoDropBlock`), `Connection` (the connection fields of `Config`), `NewWithProfile(connection, profile)` and `ProfileSet` (`Get`, `New`), so what a model is lives apart from how to reach it (D-042). The window must be stated, with `WindowTokens(n)` or `WindowUnknown()`; a profile with the zero `Window` is refused. `New(Config)` is unchanged and its window stays optional.
 - **`message_dropped` has the why `commit_failed`.** It closes the one message a Run took and could not commit (it would fail again in the next Run); the messages behind it go back to the queue.
 - `adapter/mcp`: `WithDefaultEffect(effect)` sets the Effect of a tool whose server sent no annotations; without it such a tool is `destructive` and `WithMaxEffect` hides it (D-004).
 - `adapter/mcp`: `WithToolFilter(keep)` leaves a tool out, listed in `Skipped()` as `filtered`, and `WithToolRename(rename)` changes the name the Model sees while the Effect option, the filter and the call to the server keep the server's name (D-002).
