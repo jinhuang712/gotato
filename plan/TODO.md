@@ -14,17 +14,13 @@ Findings from real use, each checked against the code (first pass on 2026-10-29)
 - [ ] **D-020 · Nothing warns that compaction is off when the context window is unknown.** `inspect` shows the ceiling and the documentation is loud; the "warn once" is dropped and replaced by draft decision 042.
 - [ ] **D-024 · No helper for a Turn or tool-call cap.** Add `MaxTurns` and `MaxToolCalls` as `TurnStopper` helpers; check whether a `TurnStopper` can send a Notice first.
 - [ ] **D-025 · Tool arguments are base64 in a Record.** Keep `[]byte`; add an optional `arguments` JSON field to `tool_started`; document the form.
-- [ ] **D-027 · The time of a Run is the model's (81% to 99%), not the tools'.** Measured on 8 Runs of a real service built on Gotato. Say in FEATURES.md that parallel tools save about 5% and a cache is a matter of cost; reword the "not loaded" line first (D-018); reopen the Turn cap decision (D-024).
-- [ ] **D-029 · A name prefix is a guess about Effect.** Say so in the MCP section of FEATURES.md; recommend `destructive` by default plus an exact list; use an endpoint that shows several servers as a test of filter and rename.
-- [ ] **D-030 · Retrying a `NotRun` after a back-off is a plain answer to `not_writer` for one replica.** One paragraph and its limit in the multi-instance guide.
-- [ ] **D-032 · A tool cannot learn who asked, except through a `ctx` value set before `Runner.Run` (works, undocumented).** Document the route and pin it with a test; decide whether a per-Run field should reach `ToolUse`.
+- [ ] **D-032 · Decide whether a per-Run value should reach `ToolUse`, besides the documented `ctx` route.** The `ctx` route is documented and pinned by a test.
 - [ ] **D-033 · Follow-up to D-027.** Input length does add about +2 s of first-token time over 44k tokens, so D-019 stays a latency item until measured.
 - [ ] **D-034 · A long Run never compacted mid-Run because the model window was left unset.** Confirmed. No core change; it is another reason for D-020's warning.
 - [ ] **D-038 · A compaction ceiling is a hard failure line, and a low one ends Runs.** Document it in the compaction section with the rule of thumb for how low is too low (mark it a guess); decide whether a team-set ceiling below the window should end a Run or only compact.
-- [ ] **D-039 · After a compaction a loaded tool the Session never called is unloaded, and its first call fails once.** One sentence in the compaction and tool-search sections; check the `tool_unloaded` Events if a tool that had been called was unloaded.
+- [ ] **D-039 · After a compaction a loaded tool the Session never called is unloaded, and its first call fails once.** Confirmed by measurement, expected. One sentence in the compaction and tool-search sections; running the call on the spot is the second half of D-018.
 - [ ] **D-035 · `compaction_ended` shows no window and hides a ceiling of 0; `context_built` has no per-part size.** Needs a decision first: carrying the two numbers to the Checkpoint changes the arguments of three public `Record` methods. Then an estimate per part.
 - [ ] **D-036 · Decide whether to clear old Tool Results in the middle of a Run.** Write the decision first; check whether the compaction ceiling already answers it.
-- [ ] **D-037 · `search_tools` with `toolset` returns a whole ToolSet (up to 30 KB measured), uncapped and not spilled.** By design; say so in FEATURES.md and the tool-search guide, and name `queries` and `names` as the cheap forms. `loaded_tools` in the result is Record-only on the chat wire.
 
 ## Decisions
 

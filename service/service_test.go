@@ -503,6 +503,65 @@ func TestACallersShorterDeadlineOverridesTheDefault(t *testing.T) {
 	}
 }
 
+type askerKey struct{}
+
+// askerProbe is a PreToolUse Extension that records the asker a caller put
+// into the ctx of Runner.Run; the Tool of the test records it too.
+type askerProbe struct {
+	mu     sync.Mutex
+	before []string
+	exec   []string
+}
+
+func (p *askerProbe) Before(ctx context.Context, _ gotato.ToolUse) (gotato.PreToolDecision, error) {
+	who, _ := ctx.Value(askerKey{}).(string)
+	p.mu.Lock()
+	defer p.mu.Unlock()
+	p.before = append(p.before, who)
+	return gotato.PreToolDecision{}, nil
+}
+
+// A value a caller puts into the ctx of Run reaches a PreToolUse extension and
+// a Tool in that Run, and a later Run of the same Session sees its own caller's.
+func TestAValueInTheCallersCtxReachesBeforeAndExecute(t *testing.T) {
+	probe := &askerProbe{}
+	tool, err := gotato.NewFuncTool("whoami", "reports the asker", func(ctx context.Context, _ struct{}) (string, error) {
+		who, _ := ctx.Value(askerKey{}).(string)
+		probe.mu.Lock()
+		defer probe.mu.Unlock()
+		probe.exec = append(probe.exec, who)
+		return who, nil
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	call := func(id string) testkit.Script {
+		return testkit.ToolCalls(gotato.ToolCall{ID: gotato.ToolCallID(id), ToolID: "whoami", Arguments: []byte(`{}`)})
+	}
+	runner, _ := newRunner(t, service.Agent{
+		Name:    "asker",
+		Model:   testkit.NewFakeModel(call("c1"), testkit.Text("one"), call("c2"), testkit.Text("two")),
+		Tools:   []gotato.Tool{tool},
+		Options: []gotato.SessionOption{gotato.WithExtension(probe)},
+	})
+	first, err := runner.Run(context.WithValue(context.Background(), askerKey{}, "ann"), service.RunRequest{Prompt: "go"})
+	if err != nil || first.Result.Status != gotato.RunStatusCompleted {
+		t.Fatalf("first Run = %+v, %v", first.Result, err)
+	}
+	second, err := runner.Run(context.WithValue(context.Background(), askerKey{}, "bob"), service.RunRequest{SessionID: first.SessionID, Prompt: "again"})
+	if err != nil || second.Result.Status != gotato.RunStatusCompleted {
+		t.Fatalf("second Run = %+v, %v", second.Result, err)
+	}
+	probe.mu.Lock()
+	defer probe.mu.Unlock()
+	if got := strings.Join(probe.before, ","); got != "ann,bob" {
+		t.Fatalf("Before saw %q, want ann,bob", got)
+	}
+	if got := strings.Join(probe.exec, ","); got != "ann,bob" {
+		t.Fatalf("Execute saw %q, want ann,bob", got)
+	}
+}
+
 // A Run that outlasts its deadline settles as deadline_exceeded.
 func TestARunPastItsRunTimeoutSettlesAsDeadlineExceeded(t *testing.T) {
 	model := testkit.NewFuncModel(func(ctx context.Context, _ gotato.ModelRequest) (testkit.Script, error) {

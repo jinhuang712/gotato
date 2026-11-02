@@ -36,6 +36,7 @@ next message for S ──► pod B: opens S from the store, takes it over, goes 
 ```
 
 - **One writer.** While a Run is going on pod A, a message for the same Session that reaches pod B is not run there: pod B says `not_writer` and names pod A. You send it to pod A, or turn on forwarding in the HTTP endpoint.
+- **Waiting for the writer** is a plain answer to `not_writer` for one replica: retry the `NotRun` after a back-off until the writer finishes, then pod B takes the Session over. The limit: a long Run holds the second message that long. It was not tried with several instances writing one Session. Gotato does not forward by itself, since it builds no infrastructure ([Decision 024](../plan/decisions/024-gotato-builds-no-infrastructure.md)).
 - **Taking over.** Pod B takes the Session over when pod A's Run has ended, or pod A is gone.
 - **Mid-Run messages.** A message sent to a Session while it runs can steer the Run or wait for the next turn. `runner.Send` is the call; [FEATURES.md → Steering a Run](../FEATURES.md#g-f26--steering-a-run-) has the rules.
 

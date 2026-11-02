@@ -173,6 +173,7 @@ func (s TicketTools) Tools(context.Context) ([]gotato.Tool, error) {
   | `gotato.WithToolSet(set)` (the default) | the set's description and its Tool names; it loads the ones it needs with `search_tools` | a set of a dozen Tools |
   | `gotato.WithFoldedToolSet(set)` | the description and a count; it lists the Tools, then loads them | a large set, such as a big MCP server |
 
+- **`search_tools` with `toolset` is the dear form.** It lists every tool of a folded set with its description. The list is not capped, and a result under one page is not spilled, so it stays in every later request. `queries` and `names` are the cheap forms. `loaded_tools` in the result is for the wires with native deferred loading and is only stored in the Record on the chat wire.
 - **`Tools` runs on `ctx`,** may fail, and must be deterministic. A failure marks the set unavailable and does not stop the Session.
 - **A set whose Tools change between Turns** is a `ToolSource`, installed with `gotato.WithToolSource`; see [the extension points](extension-points.md).
 - **For an MCP server** you do not write the set: `adapter/mcp` supplies it. See [Install](install.md).
