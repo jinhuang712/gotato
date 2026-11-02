@@ -45,8 +45,8 @@ func (m *callModel) calls() int {
 // editableTranscript is a Transcript a TurnPreparer can rewrite.
 type editableTranscript struct{ messages []Message }
 
-func (t *editableTranscript) Len() int            { return len(t.messages) }
-func (t *editableTranscript) Messages() []Message { return t.messages }
+func (t *editableTranscript) Len() int                   { return len(t.messages) }
+func (t *editableTranscript) Messages() []Message        { return t.messages }
 func (t *editableTranscript) Capabilities() Capabilities { return Capabilities{} }
 func (t *editableTranscript) Append(message Message) error {
 	t.messages = append(t.messages, message)
