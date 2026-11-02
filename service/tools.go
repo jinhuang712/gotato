@@ -80,20 +80,24 @@ func (t *sessionTools) Tools(ctx context.Context) ([]gotato.Tool, error) {
 	// read_result is offered whenever the Agent has a tool, its own or a
 	// ToolSet's, so the tool list does not change on the Turn a result is
 	// first spilled.
-	if t.results != nil && (len(tools) > 0 || t.hasToolSets.Load()) && failure == nil {
+	var segmentTools []gotato.Tool
+	if t.segments != nil && failure == nil {
+		supplied, err := t.segments.Tools(ctx)
+		if err != nil {
+			return nil, err
+		}
+		segmentTools = supplied
+	}
+	// It is also offered whenever read_segment is: a Segment's refs to its
+	// messages and results are read with it.
+	if t.results != nil && (len(tools) > 0 || t.hasToolSets.Load() || len(segmentTools) > 0) && failure == nil {
 		supplied, err := t.results.Tools(ctx)
 		if err != nil {
 			return nil, err
 		}
 		add(supplied)
 	}
-	if t.segments != nil && failure == nil {
-		supplied, err := t.segments.Tools(ctx)
-		if err != nil {
-			return nil, err
-		}
-		add(supplied)
-	}
+	add(segmentTools)
 	if failure != nil {
 		return nil, failure
 	}

@@ -93,7 +93,9 @@ func buildSegment(number int, closed []gotato.Message, recap string, settings Se
 	items := collect(closed, settings, number, position)
 	limitLines(items, orDefault(settings.ToolLines, defaultToolLines))
 	for _, it := range items {
-		segment.ToolCalls = append(segment.ToolCalls, it.lines...)
+		for _, line := range it.lines {
+			segment.ToolCalls = append(segment.ToolCalls, line.ToolCallLine)
+		}
 	}
 
 	var out messageList
@@ -157,7 +159,7 @@ func headerText(number int, hasRecap bool) string {
 	if hasRecap {
 		upTo = fmt.Sprintf("The messages up to recap %d are word for word", number)
 	}
-	return fmt.Sprintf("Segment %d. %s; reasoning,\nintermediate steps and tool results were left out. read_segment(%d) returns\nthe segment in full.", number, upTo, number)
+	return fmt.Sprintf("Segment %d. %s; reasoning,\nintermediate steps and tool results were left out. read_segment(%d) returns\nthe segment in full; read_result(ref) returns one tool result or message by its ref.", number, upTo, number)
 }
 
 // collect walks the closed Messages in order and returns what a Segment keeps
@@ -174,7 +176,7 @@ func collect(closed []gotato.Message, settings SegmentSettings, number int, posi
 	limit := orDefault(settings.MessageTokens, defaultMessageTokens)
 
 	var items []item
-	var pending []gotato.ToolCallLine
+	var pending []callLine
 	flush := func() {
 		if len(pending) > 0 {
 			items = append(items, item{isCalls: true, lines: pending})
@@ -186,7 +188,7 @@ func collect(closed []gotato.Message, settings SegmentSettings, number int, posi
 		case gotato.RoleUser:
 			flush()
 			if parts := keptParts(message.Parts, limit, number); len(parts) > 0 {
-				items = append(items, item{role: gotato.RoleUser, parts: parts})
+				items = append(items, item{role: gotato.RoleUser, parts: append(parts, refPartOf(number, message.ID)...)})
 			}
 		case gotato.RoleNotice:
 			// Gotato's own notices mattered only at the time: the Recap covers
@@ -212,16 +214,21 @@ func collect(closed []gotato.Message, settings SegmentSettings, number int, posi
 						line.Code = string(r.Status)
 					}
 				}
-				if n := len(pending); n > 0 && sameCall(pending[n-1], line) {
+				var refs []string
+				if text.RefSafe(string(call.ID)) {
+					refs = []string{text.SpillRef(string(call.ID))}
+				}
+				if n := len(pending); n > 0 && sameCall(pending[n-1].ToolCallLine, line) {
 					pending[n-1].Count = max(pending[n-1].Count, 1) + 1
+					pending[n-1].refs = append(pending[n-1].refs, refs...)
 					continue
 				}
-				pending = append(pending, line)
+				pending = append(pending, callLine{ToolCallLine: line, refs: refs})
 			}
 			if final[i] {
 				flush()
 				if parts := keptParts(message.Parts, limit, number); len(parts) > 0 {
-					items = append(items, item{role: gotato.RoleAssistant, parts: parts})
+					items = append(items, item{role: gotato.RoleAssistant, parts: append(parts, refPartOf(number, message.ID)...)})
 				}
 			}
 		}

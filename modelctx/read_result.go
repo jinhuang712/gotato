@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"slices"
 	"strings"
 
 	"github.com/jinhuang712/gotato/gotato"
@@ -52,7 +53,7 @@ func (r resultTools) Tools(context.Context) ([]gotato.Tool, error) {
 
 // readResultInput is the input of read_result.
 type readResultInput struct {
-	Ref  string `json:"ref" description:"the ref of the result, as in result:call_9a2, from the line that says the result was cut"`
+	Ref  string `json:"ref" description:"a ref from the conversation: result:call_9a2 for a tool result, from a tool call line or from the line that says a result was cut; msg:<id> for a message a segment kept"`
 	Page int    `json:"page,omitempty" description:"the page to read, from 1; a long result is read page by page"`
 }
 
@@ -68,8 +69,8 @@ type readResultInput struct {
 // goes into a request.
 func ReadResultTool(record *session.Record, log session.EntryLog, opts ReadResultConfig) gotato.Tool {
 	tool, err := gotato.NewFuncTool(ReadResultID,
-		"Returns the rest of a tool result that was cut, page by page. "+
-			"Use it with the ref in the line that says a result was cut, such as result:call_9a2.",
+		"Returns the full text of one tool result or one message by its ref, such as result:call_9a2 or msg:m12, page by page. "+
+			"Use it with a ref in a segment's tool call line or after a message, or with the ref in the line that says a result was cut.",
 		func(ctx context.Context, in readResultInput) (string, error) {
 			return readResult(ctx, record, log, opts, in)
 		})
@@ -80,9 +81,14 @@ func ReadResultTool(record *session.Record, log session.EntryLog, opts ReadResul
 }
 
 func readResult(ctx context.Context, record *session.Record, log session.EntryLog, opts ReadResultConfig, in readResultInput) (string, error) {
+	if id, ok := text.IDOfMessageRef(in.Ref); ok {
+		return readFromRecord(ctx, record, log, opts, in.Page, text.MessageRef(id), func(m gotato.Message) bool {
+			return m.ID == gotato.MessageID(id) && m.ToolResult == nil && (m.Role == gotato.RoleUser || m.Role == gotato.RoleAssistant)
+		})
+	}
 	callID, ok := text.CallOfRef(in.Ref)
 	if !ok {
-		return "", readErrorf("%q is not a ref of a result; a ref looks like %s<call_id>%s", in.Ref, text.SpillRefPrefix, listRefs(record))
+		return "", readErrorf("%q is not a ref of a result or a message; a ref looks like %s<call_id> or %s<message_id>%s", in.Ref, text.SpillRefPrefix, text.MessageRefPrefix, listRefs(record))
 	}
 	call := gotato.ToolCallID(callID)
 	_, byCall := record.SpilledResults()
@@ -97,7 +103,11 @@ func readResult(ctx context.Context, record *session.Record, log session.EntryLo
 		}
 	}
 	if !found {
-		return "", readErrorf("there is no spilled result %s in this conversation%s", text.SpillRef(string(call)), listRefs(record))
+		// A result under one page is not spilled: it is read from the Record
+		// like a message.
+		return readFromRecord(ctx, record, log, opts, in.Page, text.SpillRef(string(call)), func(m gotato.Message) bool {
+			return m.ToolResult != nil && m.ToolResult.CallID == call
+		})
 	}
 	body, pruned, err := record.SpilledBody(ctx, log, spilled)
 	if errors.Is(err, session.ErrNotFound) {
@@ -110,15 +120,20 @@ func readResult(ctx context.Context, record *session.Record, log session.EntryLo
 		return fmt.Sprintf("The body of %s was removed from the Record, so only the preview that stayed in the conversation is left.", text.SpillRef(string(call))), nil
 	}
 
-	page := max(in.Page, 1)
+	return readPage("Result", text.SpillRef(string(call)), body, opts, in.Page)
+}
+
+// readPage returns one page of body, with the line that says which page it is
+// and how to read the next.
+func readPage(kind, ref, body string, opts ReadResultConfig, page int) (string, error) {
+	page = max(page, 1)
 	limit := opts.pageBytes()
 	pages := text.Paginate(text.SplitLines(body, limit), limit)
-	ref := text.SpillRef(string(call))
 	if page > len(pages) {
 		return "", readErrorf("%s has %d pages; there is no page %d", ref, len(pages), page)
 	}
 	var b strings.Builder
-	fmt.Fprintf(&b, "Result %s, %d bytes. Page %d of %d.\n", ref, len(body), page, len(pages))
+	fmt.Fprintf(&b, "%s %s, %d bytes. Page %d of %d.\n", kind, ref, len(body), page, len(pages))
 	b.WriteString(strings.Join(pages[page-1], "\n"))
 	if page < len(pages) {
 		fmt.Fprintf(&b, "\nMore: %s(ref=%q, page=%d).", ReadResultID, ref, page+1)
@@ -126,6 +141,71 @@ func readResult(ctx context.Context, record *session.Record, log session.EntryLo
 		fmt.Fprintf(&b, "\nEnd of %s.", ref)
 	}
 	return b.String(), nil
+}
+
+// readFromRecord reads a Tool Result that was not spilled, or a Message, from
+// the Record: first from what the Context holds, then from the Entries each
+// Segment closed over, newest Segment first. A reference into Entries that a
+// team pruned reads as removed.
+func readFromRecord(ctx context.Context, record *session.Record, log session.EntryLog, opts ReadResultConfig, page int, ref string, match func(gotato.Message) bool) (string, error) {
+	found, gap, err := findOriginal(ctx, record, log, match)
+	if err != nil {
+		return "", readErrorf("%s could not be read", ref)
+	}
+	if found == nil {
+		if gap {
+			return fmt.Sprintf("%s was removed from the Record, so only what the conversation keeps of it is left.", ref), nil
+		}
+		return "", readErrorf("there is nothing in this conversation with the ref %s%s", ref, listRefs(record))
+	}
+	if found.ToolResult != nil {
+		return readPage("Result", ref, toolResultText(*found), opts, page)
+	}
+	var parts []string
+	for _, part := range found.Parts {
+		if t := textOfPart(part); t != "" {
+			parts = append(parts, t)
+		}
+	}
+	return readPage("Message ("+string(found.Role)+")", ref, strings.Join(parts, "\n"), opts, page)
+}
+
+// findOriginal looks for the latest Message that match accepts: in the
+// Context, which holds the tail, and then in the Entries of each Segment
+// (CommittedMessages), newest first. gap is true when some of those Entries
+// are gone or were not recorded, so an absent Message may have been in them.
+func findOriginal(ctx context.Context, record *session.Record, log session.EntryLog, match func(gotato.Message) bool) (found *gotato.Message, gap bool, err error) {
+	for _, message := range slices.Backward(record.Messages()) {
+		if match(message) {
+			return &message, false, nil
+		}
+	}
+	refs, _ := refsOf(record.Segments())
+	for _, ref := range slices.Backward(refs) {
+		id := record.ID()
+		if ref.source.SessionID != "" {
+			id = string(ref.source.SessionID)
+		}
+		same, err := session.SameRecord(ctx, log, id, ref.source.RecordEpoch)
+		if err != nil {
+			return nil, false, err
+		}
+		if !same {
+			gap = true
+			continue
+		}
+		messages, complete, err := session.CommittedMessages(ctx, log, id, ref.source.FromNumber, ref.source.ToNumber)
+		if err != nil {
+			return nil, false, err
+		}
+		gap = gap || !complete
+		for _, message := range slices.Backward(messages) {
+			if match(message) {
+				return &message, false, nil
+			}
+		}
+	}
+	return nil, gap, nil
 }
 
 // listRefs says which results the Context holds, for an error that names a

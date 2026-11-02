@@ -239,23 +239,7 @@ func renderOriginals(messages []gotato.Message, maxLine int) []string {
 				label += " " + oneLine(string(result.Status))
 			}
 			label += "]"
-			var text []string
-			for _, part := range result.Content {
-				if t := textOfPart(part); t != "" {
-					text = append(text, t)
-				}
-			}
-			if len(result.Content) == 0 {
-				for _, part := range message.Parts {
-					if t := textOfPart(part); t != "" {
-						text = append(text, t)
-					}
-				}
-			}
-			if result.SafeError != "" {
-				text = append(text, result.SafeError)
-			}
-			emit(label, strings.Join(text, "\n"))
+			emit(label, toolResultText(message))
 		default:
 			for _, part := range message.Parts {
 				text := textOfPart(part)
@@ -274,6 +258,32 @@ func renderOriginals(messages []gotato.Message, maxLine int) []string {
 		}
 	}
 	return lines
+}
+
+// toolResultText is the text of a Tool Result Message: its content, or its
+// Parts when it has no content, and the error text a failed call left.
+func toolResultText(message gotato.Message) string {
+	result := message.ToolResult
+	if result == nil {
+		return ""
+	}
+	var text []string
+	for _, part := range result.Content {
+		if t := textOfPart(part); t != "" {
+			text = append(text, t)
+		}
+	}
+	if len(result.Content) == 0 {
+		for _, part := range message.Parts {
+			if t := textOfPart(part); t != "" {
+				text = append(text, t)
+			}
+		}
+	}
+	if result.SafeError != "" {
+		text = append(text, result.SafeError)
+	}
+	return strings.Join(text, "\n")
 }
 
 // toolLabel is how a tool is named after a prefix: its ID with the text kept

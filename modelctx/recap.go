@@ -228,8 +228,11 @@ func mergeRecapAsk(request MergeRequest) string {
 conversation, segments %[1]s, and your recap takes their place. The user's
 messages, your final replies and the tool results of those segments stay in
 the record, and read_segment(n) returns segment n in full, for n in %[1]s.
-Only your recap is kept in this conversation, so it must carry what a later
-question needs.
+The recaps may carry refs, such as result:call_9a2 for a tool result or msg:m12
+for a message; read_result(ref) returns the original of one. Keep a ref next to
+what you state from it, exactly as written, and do not invent one. Only your
+recap is kept in this conversation, so it must carry what a later question
+needs.
 
 Write in the conversation's language, as short bullet points, under these
 headings. Leave out a heading that has nothing under it.
@@ -256,6 +259,10 @@ Start with the first heading.
 		if recap == "" {
 			name += ", no recap: its conversation and tool calls"
 			recap = mergeDigest([]gotato.Segment{segment}, loc)
+		} else if refs := digestRefs(segment, ""); refs != "" {
+			// The refs of what the recap stands for, so the model can keep them
+			// next to what it states.
+			recap += "\n" + strings.TrimSpace(refs)
 		}
 		fmt.Fprintf(&b, "\n--- recap of %s ---\n%s\n--- end ---\n", name, recap)
 	}

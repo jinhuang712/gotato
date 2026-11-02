@@ -55,16 +55,16 @@ func TestToolCallLinesCutArgumentsCollapseRepeatsAndCountPastTheCap(t *testing.T
 	if len(calls) != 3 {
 		t.Fatalf("lines = %q", calls)
 	}
-	if !strings.HasSuffix(calls[0], "…\"} → ok") && !strings.Contains(calls[0], "…") {
+	if !strings.HasSuffix(calls[0], "…\"} → ok [result:c1]") && !strings.Contains(calls[0], "…") {
 		t.Errorf("long arguments were not cut: %q", calls[0])
 	}
-	if args := strings.TrimSuffix(strings.TrimPrefix(calls[0], "10:02 db.q "), " → ok"); utf8.RuneCountInString(args) != 201 || !utf8.ValidString(args) {
+	if args := strings.TrimSuffix(strings.TrimPrefix(calls[0], "10:02 db.q "), " → ok [result:c1]"); utf8.RuneCountInString(args) != 201 || !utf8.ValidString(args) {
 		t.Errorf("arguments = %d runes, want 200 and an ellipsis: %q", utf8.RuneCountInString(args), args)
 	}
-	if calls[1] != "10:03 db.r {} → ok ×3" {
+	if calls[1] != "10:03 db.r {} → ok ×3 [result:c2 result:c3 result:c4]" {
 		t.Errorf("repeats = %q", calls[1])
 	}
-	if calls[2] != `10:04 db.r {"x":1} → error blocked` {
+	if calls[2] != `10:04 db.r {"x":1} → error blocked [result:c5]` {
 		t.Errorf("failed call = %q", calls[2])
 	}
 

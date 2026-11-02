@@ -2,6 +2,8 @@ package modelctx
 
 import (
 	"fmt"
+	"regexp"
+	"slices"
 	"sort"
 	"strings"
 	"time"
@@ -65,7 +67,8 @@ func digestLine(segment gotato.Segment, loc *time.Location) string {
 	}
 	line := "- " + label + span + ":"
 	if len(segment.Merged) > 0 {
-		return line + " " + clip(withoutHeading(segment.Recap), digestMergedChars)
+		shown := clip(withoutHeading(segment.Recap), digestMergedChars)
+		return line + " " + shown + digestRefs(segment, shown)
 	}
 	if users := userTexts(segment); len(users) > 0 {
 		shown := users[:min(len(users), digestUsersPerSeg)]
@@ -85,7 +88,7 @@ func digestLine(segment gotato.Segment, loc *time.Location) string {
 	if recap := withoutHeading(segment.Recap); recap != "" {
 		line += " Its recap: " + clip(recap, digestRecapChars)
 	}
-	return line
+	return line + digestRefs(segment, "")
 }
 
 // userTexts returns the user's own words in a Segment, one per Message: its
@@ -140,6 +143,81 @@ func toolCounts(lines []gotato.ToolCallLine) string {
 		parts = append(parts, "…")
 	}
 	return fmt.Sprintf("%d tool calls: %s", total, strings.Join(parts, ", "))
+}
+
+// The refs a digest line keeps: at most digestMsgRefs of the Messages a Segment
+// kept and digestResultRefs of its tool results, in the order they come in the
+// Segment. A Segment that has none (one written before refs, or whose calls
+// were counted past the line cap) is named by its number, which read_segment
+// reads.
+const (
+	digestMsgRefs    = 4
+	digestResultRefs = 4
+	// digestMergedRefs is how many refs a digest line takes from the Recap of
+	// a merged Segment that the cut of the line left out.
+	digestMergedRefs = 8
+)
+
+var (
+	// resultRefsInLine matches the refs that end a tool call line, `[result:c1 result:c2]`.
+	resultRefsInLine = regexp.MustCompile(`\[((?:result:[^\s\[\]]+ ?)+)\]$`)
+	// msgRefLine matches the line a Segment writes after a kept Message.
+	msgRefLine = regexp.MustCompile(`^ref (msg:\S+)$`)
+	// anyRef matches a ref wherever a Recap states one.
+	anyRef = regexp.MustCompile(`\b(?:result|msg):[^\s\[\]()"',;<>]+`)
+)
+
+// segmentRefs lists the refs a Segment's own Messages carry, read only from
+// the parts the system wrote (a user's words carry no tag and are never
+// scanned): those of the Messages it kept, and those of its tool results.
+func segmentRefs(segment gotato.Segment) (msgs, results []string) {
+	for _, message := range segment.Messages {
+		for _, part := range message.Parts {
+			switch part.Metadata[gotato.MetaTag] {
+			case gotato.TagSegment:
+				for line := range strings.SplitSeq(part.Text, "\n") {
+					if m := msgRefLine.FindStringSubmatch(line); m != nil {
+						msgs = append(msgs, m[1])
+					}
+				}
+			case gotato.TagToolCalls:
+				for line := range strings.SplitSeq(part.Text, "\n") {
+					if m := resultRefsInLine.FindStringSubmatch(line); m != nil {
+						results = append(results, strings.Fields(m[1])...)
+					}
+				}
+			}
+		}
+	}
+	return msgs, results
+}
+
+// digestRefs writes the refs of a Segment for a digest line, or "". shown is
+// the Recap text of a merged Segment as the line shows it: a merged Segment
+// holds its refs in its Recap, so only those that the cut left out are added.
+func digestRefs(segment gotato.Segment, shown string) string {
+	var refs []string
+	if len(segment.Merged) > 0 {
+		for _, ref := range anyRef.FindAllString(withoutHeading(segment.Recap), -1) {
+			if !strings.Contains(shown, ref) && !slices.Contains(refs, ref) {
+				refs = append(refs, ref)
+			}
+		}
+		if len(refs) > digestMergedRefs {
+			refs = append(refs[:digestMergedRefs], "…")
+		}
+	} else {
+		msgs, results := segmentRefs(segment)
+		refs = append(refs, msgs[:min(len(msgs), digestMsgRefs)]...)
+		refs = append(refs, results[:min(len(results), digestResultRefs)]...)
+		if len(refs) > 0 && (len(msgs) > digestMsgRefs || len(results) > digestResultRefs) {
+			refs = append(refs, "…")
+		}
+	}
+	if len(refs) == 0 {
+		return ""
+	}
+	return " Refs: " + strings.Join(refs, " ") + "."
 }
 
 // clip cuts s at limit characters with an ellipsis.
