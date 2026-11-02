@@ -59,9 +59,9 @@ func (a *Session) InspectContext(ctx context.Context) (ContextInspection, error)
 		return ContextInspection{}, failure
 	}
 	snapshot := ContextSnapshot{
-		SessionID:          a.id,
+		SessionID:          a.def.id,
 		Turn:               1,
-		SystemInstructions: a.instruction,
+		SystemInstructions: a.def.instruction,
 		Messages:           cloneMessages(messages),
 	}
 	built, request, prefix, err := a.assembleTurn(ctx, snapshot)

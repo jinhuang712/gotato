@@ -49,7 +49,7 @@ func (st *runState) currentTurn() TurnNumber {
 	return st.a.run.turn
 }
 
-func (st *runState) header(turn TurnNumber) Header { return NewHeader(st.a.id, st.runID, turn) }
+func (st *runState) header(turn TurnNumber) Header { return NewHeader(st.a.def.id, st.runID, turn) }
 
 // end stores the Run's last Events, RunEnded among them. A Run may not
 // end without exactly one RunEnded, so it is staged even when the Run
@@ -151,10 +151,10 @@ func (st *runState) callModel(turn TurnNumber, runStart int) (assistant Message,
 			return turnBuild{}, failure
 		}
 		snapshot := ContextSnapshot{
-			SessionID:          a.id,
+			SessionID:          a.def.id,
 			RunID:              runID,
 			Turn:               turn,
-			SystemInstructions: a.instruction,
+			SystemInstructions: a.def.instruction,
 			Messages:           cloneMessages(messages),
 		}
 		built, request, prefix, err := a.assembleTurn(runCtx, snapshot)
@@ -276,7 +276,7 @@ func (st *runState) runToolBatch(turn TurnNumber, assistant Message) (toolOutcom
 			toolResult := outcomes[committed]
 			// Post-Tool-Use sees executed, blocked, failed, and canceled
 			// outcomes alike, in reverse installation order.
-			finalized, postErr := a.extensions.afterTool(runCtx, toolResult)
+			finalized, postErr := a.def.extensions.afterTool(runCtx, toolResult)
 			if postErr != nil {
 				return postErr
 			}
@@ -292,7 +292,7 @@ func (st *runState) runToolBatch(turn TurnNumber, assistant Message) (toolOutcom
 			resultMessage := Message{ID: MessageID(nextID("message")), RunID: runID, Role: RoleToolResult, Parts: content, ToolResult: cloneToolResultPtr(toolResult)}
 			// A Result too large for one Message is replaced by one that says
 			// why its output is missing, and the Run goes on.
-			resultMessage, toolResult, commitErr := a.history.commitToolResult(a.limits, resultMessage, toolResult)
+			resultMessage, toolResult, commitErr := a.history.commitToolResult(a.def.limits, resultMessage, toolResult)
 			if commitErr != nil {
 				return asRuntimeError(commitErr)
 			}
@@ -352,8 +352,8 @@ func (st *runState) runToolBatch(turn TurnNumber, assistant Message) (toolOutcom
 
 // stopTurn asks the TurnStoppers whether the Run stops after this Turn.
 func (st *runState) stopTurn(turn TurnNumber, assistant Message, results []ToolResult, reason StopReason) (StopDecision, *RuntimeError) {
-	return st.a.extensions.stopTurn(st.runCtx, TurnSnapshot{
-		SessionID: st.a.id, RunID: st.runID, Turn: turn, Assistant: assistant.Clone(), ToolResults: results, StopReason: reason,
+	return st.a.def.extensions.stopTurn(st.runCtx, TurnSnapshot{
+		SessionID: st.a.def.id, RunID: st.runID, Turn: turn, Assistant: assistant.Clone(), ToolResults: results, StopReason: reason,
 	})
 }
 
@@ -380,7 +380,7 @@ func (a *Session) executeRun(ctx context.Context, prompt *Message) (RunResult, e
 	defer endRun()
 
 	st := &runState{a: a, ctx: ctx, runCtx: runCtx, runID: runID, started: time.Now()}
-	a.stage(RunStarted{Header: st.header(0), RequestID: a.requestID})
+	a.stage(RunStarted{Header: st.header(0), RequestID: a.host.requestID})
 	if startFailure != nil {
 		return st.fail(startFailure)
 	}
@@ -422,9 +422,9 @@ func (a *Session) beginRun(cancel context.CancelFunc) (RunID, func(), *RuntimeEr
 	a.run.mu.Unlock()
 	a.run.inRun.Store(true)
 	var failure *RuntimeError
-	if a.onRunStart != nil {
+	if a.host.onRunStart != nil {
 		// [LIVENESS] a panic in the host's WithRunStart function fails this Run, not the process.
-		if err := callHost("WithRunStart", func() error { a.onRunStart(runID); return nil }); err != nil {
+		if err := callHost("WithRunStart", func() error { a.host.onRunStart(runID); return nil }); err != nil {
 			failure = runtimeError(CodeExtensionFailure, "WithRunStart", PublicText(err, "WithRunStart failed"), err)
 		}
 	}
@@ -597,7 +597,7 @@ func (st *runState) endAnswerTurn(t *turnRun, replyNumber uint64) (bool, RunResu
 	// A Turn cut off at the output limit before any Tool Call is not an
 	// answer: the Model ran out of room, often while reasoning. Within the
 	// configured bound the Run continues instead of settling on it.
-	if assistant.StopReason == StopReasonMaxTokens && st.truncatedContinuations < a.limits.MaxTruncatedContinuations {
+	if assistant.StopReason == StopReasonMaxTokens && st.truncatedContinuations < a.def.limits.MaxTruncatedContinuations {
 		st.truncatedContinuations++
 		// A notice, not a user Message: it starts no Round, so the
 		// reasoning of the cut reply stays in the request.
@@ -646,11 +646,11 @@ type turnBuild struct {
 // prepareTurn gives the TurnPreparers their chance before a model call. It
 // reports whether one rewrote the Transcript.
 func (a *Session) prepareTurn(ctx context.Context, runID RunID, turn TurnNumber, runStart int, request ModelRequest, refusal error) (bool, *RuntimeError) {
-	if len(a.extensions.preparers) == 0 {
+	if len(a.def.extensions.preparers) == 0 {
 		return false, nil
 	}
-	return a.extensions.prepareTurn(ctx, PendingTurn{
-		SessionID:  a.id,
+	return a.def.extensions.prepareTurn(ctx, PendingTurn{
+		SessionID:  a.def.id,
 		RunID:      runID,
 		Turn:       turn,
 		Transcript: a.history.transcript,
@@ -702,7 +702,7 @@ func (a *Session) commitContinuation(ctx context.Context, runID RunID, turn Turn
 		return asRuntimeError(err)
 	}
 	taken.done()
-	a.stage(MessageCommitted{Header: NewHeader(a.id, runID, turn), Message: message.Clone(), Source: source})
+	a.stage(MessageCommitted{Header: NewHeader(a.def.id, runID, turn), Message: message.Clone(), Source: source})
 	return a.flush(ctx)
 }
 
@@ -714,7 +714,7 @@ func (a *Session) dropUncommitted(runID RunID, turn TurnNumber, id MessageID, so
 	if taken == nil {
 		return
 	}
-	a.stage(MessageDropped{Header: NewHeader(a.id, runID, turn), MessageID: id, Source: source, Why: "commit_failed"})
+	a.stage(MessageDropped{Header: NewHeader(a.def.id, runID, turn), MessageID: id, Source: source, Why: "commit_failed"})
 	taken.done()
 }
 
@@ -724,7 +724,7 @@ func (a *Session) dropUncommitted(runID RunID, turn TurnNumber, id MessageID, so
 // inside the next Run.
 func (a *Session) discardControl(runID RunID, turn TurnNumber) {
 	for _, queued := range a.queue.drain(false) {
-		a.stage(MessageDropped{Header: NewHeader(a.id, runID, turn), MessageID: queued.message.ID, Source: queued.source, Why: "run_ended"})
+		a.stage(MessageDropped{Header: NewHeader(a.def.id, runID, turn), MessageID: queued.message.ID, Source: queued.source, Why: "run_ended"})
 	}
 }
 

@@ -129,7 +129,7 @@ func (a *Session) keepsSpilled() (keeps bool, failure *RuntimeError) {
 // returns the result as the Transcript holds it: a preview in place of the
 // text, the Parts that are not text kept as they were, and Spilled set.
 func (a *Session) spill(ctx context.Context, runID RunID, turn TurnNumber, toolID string, result ToolResult) (ToolResult, *RuntimeError) {
-	if a.spillPage < 1 {
+	if a.def.spillPage < 1 {
 		// No ReadBack: nothing would read the body back.
 		return result, nil
 	}
@@ -146,14 +146,14 @@ func (a *Session) spill(ctx context.Context, runID RunID, turn TurnNumber, toolI
 			size += len(part.Text)
 		}
 	}
-	if size <= a.spillPage {
+	if size <= a.def.spillPage {
 		return result, nil
 	}
 	body := spillBody(result.Content)
 	if err := a.flush(ctx); err != nil {
 		return result, err
 	}
-	written, err := a.writeEvents(ctx, []Event{ToolResultSpilled{Header: NewHeader(a.id, runID, turn), CallID: result.CallID, ToolID: toolID, Bytes: len(body), Body: body}})
+	written, err := a.writeEvents(ctx, []Event{ToolResultSpilled{Header: NewHeader(a.def.id, runID, turn), CallID: result.CallID, ToolID: toolID, Bytes: len(body), Body: body}})
 	if err != nil {
 		return result, err
 	}
@@ -168,7 +168,7 @@ func (a *Session) spill(ctx context.Context, runID RunID, turn TurnNumber, toolI
 	if seq == 0 {
 		return result, runtimeError(CodeStoreFailure, "spill", "the Journal did not return the spilled result it wrote", nil)
 	}
-	content := []ContentPart{{Kind: ContentKindText, Text: spillPreview(result.CallID, body, a.spillPage, min(int(a.limits.SpillPreviewBytes), a.spillPage))}}
+	content := []ContentPart{{Kind: ContentKindText, Text: spillPreview(result.CallID, body, a.def.spillPage, min(int(a.def.limits.SpillPreviewBytes), a.def.spillPage))}}
 	for _, part := range result.Content {
 		if part.Kind != ContentKindText {
 			content = append(content, part)

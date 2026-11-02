@@ -151,7 +151,7 @@ func prefixHash(request ModelRequest) string {
 func (a *Session) buildContext(ctx context.Context, snapshot ContextSnapshot) (ModelContext, *RuntimeError) {
 	var built ModelContext
 	if err := guard("ContextBuilder", func() error {
-		result, failure := a.contextBuilder.Build(ctx, snapshot)
+		result, failure := a.def.contextBuilder.Build(ctx, snapshot)
 		built = result
 		return failure
 	}); err != nil {
@@ -178,11 +178,11 @@ func (a *Session) assembleTurn(ctx context.Context, snapshot ContextSnapshot) (M
 	if err != nil {
 		return ModelContext{}, ModelRequest{}, "", err
 	}
-	if !a.extensions.empty() {
+	if !a.def.extensions.empty() {
 		view := snapshot
 		view.SystemInstructions = built.SystemInstructions
 		view.Messages = built.Messages
-		transformed, err := a.extensions.transformContext(ctx, view)
+		transformed, err := a.def.extensions.transformContext(ctx, view)
 		if err != nil {
 			return ModelContext{}, ModelRequest{}, "", err
 		}
@@ -191,8 +191,8 @@ func (a *Session) assembleTurn(ctx context.Context, snapshot ContextSnapshot) (M
 	request, _ := AssembleRequest(built, a.tools.registry.visibleSpecs())
 	request.LoadedTools, request.UnloadedTools = a.tools.registry.catalogView()
 	prefix := prefixHash(request)
-	request.Sampling = a.sampling
-	request.CacheKey = a.cacheKey
+	request.Sampling = a.def.sampling
+	request.CacheKey = a.def.cacheKey
 	return built, request, prefix, nil
 }
 

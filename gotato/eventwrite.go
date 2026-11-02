@@ -33,7 +33,7 @@ type sessionEvents struct {
 // Run and the Turn when it numbers the Event, so an Event of a Run is always
 // between that Run's run_started and run_ended.
 func (a *Session) nowHeader() Header {
-	return NewHeader(a.id, "", 0)
+	return NewHeader(a.def.id, "", 0)
 }
 
 // runHeader returns the Header of an Event that the Session goroutine stages
@@ -41,7 +41,7 @@ func (a *Session) nowHeader() Header {
 func (a *Session) runHeader() Header {
 	a.run.mu.Lock()
 	defer a.run.mu.Unlock()
-	return NewHeader(a.id, a.run.id, a.run.turn)
+	return NewHeader(a.def.id, a.run.id, a.run.turn)
 }
 
 // stage queues stored Events of the step in progress. They ride the write of
@@ -141,7 +141,7 @@ func (a *Session) openSpan(events []Event) []Event {
 			a.run.open = true
 			if a.run.abortBeforeStart {
 				a.run.abortBeforeStart = false
-				out = append(out, AbortRequested{Header: NewHeader(a.id, a.run.id, 0)})
+				out = append(out, AbortRequested{Header: NewHeader(a.def.id, a.run.id, 0)})
 			}
 		}
 	}
@@ -171,7 +171,7 @@ func (a *Session) send(event Event) {
 // deltaHeader is the Header of a delta: the Number is that of the last stored
 // Event, which the delta follows.
 func (a *Session) deltaHeader(runID RunID, turn TurnNumber) Header {
-	header := NewHeader(a.id, runID, turn)
+	header := NewHeader(a.def.id, runID, turn)
 	header.Number = a.events.last.Load()
 	return header
 }

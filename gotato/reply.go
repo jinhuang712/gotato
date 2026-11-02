@@ -26,7 +26,7 @@ func replyBytes(message Message) (text, reasoning uint64) {
 // Usage. After the stream has started, a failure returns what was received as
 // a cut-off reply together with the error.
 func (a *Session) readAssistant(ctx context.Context, runID RunID, turn TurnNumber, assistantID MessageID, request ModelRequest) (Message, Usage, *RuntimeError) {
-	modelCtx, cancel := boundedContext(ctx, a.limits.ModelCallDeadline)
+	modelCtx, cancel := boundedContext(ctx, a.def.limits.ModelCallDeadline)
 	defer cancel()
 	// An Interrupt cancels this call; one that is waiting already does, now.
 	a.run.mu.Lock()
@@ -48,7 +48,7 @@ func (a *Session) readAssistant(ctx context.Context, runID RunID, turn TurnNumbe
 	modelCtx = withRetryReporter(modelCtx, reader.retried)
 	stream, err := a.openStream(modelCtx, request)
 	if err != nil {
-		return Message{}, Usage{}, classifyModelError(err, ctx, modelCtx, a.limits.ModelCallDeadline)
+		return Message{}, Usage{}, classifyModelError(err, ctx, modelCtx, a.def.limits.ModelCallDeadline)
 	}
 	if stream == nil {
 		return Message{}, Usage{}, runtimeError(CodeModelFailure, "Model.Stream", "Model returned a nil stream", nil)
@@ -60,7 +60,7 @@ func (a *Session) readAssistant(ctx context.Context, runID RunID, turn TurnNumbe
 // openStream calls Model.Stream; a panic in it is an error.
 func (a *Session) openStream(ctx context.Context, request ModelRequest) (stream ModelStream, err error) {
 	defer recoverPanic("Model", &err)
-	return a.model.Stream(ctx, request)
+	return a.def.model.Stream(ctx, request)
 }
 
 // closeStream closes a stream, and ignores its error and its panic.
@@ -107,7 +107,7 @@ func (r *assistantReader) read(modelCtx context.Context, stream ModelStream) (Me
 			if errors.Is(recvErr, io.EOF) {
 				return r.broken(runtimeError(CodeModelProtocolFailure, "ModelStream", "stream ended without completion", recvErr))
 			}
-			return r.broken(classifyModelError(recvErr, r.ctx, modelCtx, r.a.limits.ModelCallDeadline))
+			return r.broken(classifyModelError(recvErr, r.ctx, modelCtx, r.a.def.limits.ModelCallDeadline))
 		}
 		if err := r.apply(modelEvent); err != nil {
 			return r.broken(err)
@@ -193,7 +193,7 @@ func (r *assistantReader) apply(modelEvent ModelEvent) *RuntimeError {
 // stops reading and cancels the model call.
 // [LIVENESS] a never-ending reply would grow in memory past MaxMessageBytes.
 func (r *assistantReader) grow(n int) *RuntimeError {
-	if limitExceededUint64(r.a.limits.MaxMessageBytes, r.size+uint64(n)) {
+	if limitExceededUint64(r.a.def.limits.MaxMessageBytes, r.size+uint64(n)) {
 		err := runtimeError(CodeLimitExceeded, "ModelStream", "maximum Message bytes exceeded", nil)
 		err.Details = map[string]string{"limit": limitMessageBytes}
 		return err
@@ -213,7 +213,7 @@ func (r *assistantReader) writePart() *RuntimeError {
 	if size == 0 || (size < replyPartBytes && time.Since(r.partStarted) < replyPartEvery) {
 		return nil
 	}
-	r.a.stage(ReplyPartKept{Header: NewHeader(r.a.id, r.runID, r.turn), MessageID: r.assistant.ID, Text: r.partText.String(), Reasoning: r.partReasoning.String()})
+	r.a.stage(ReplyPartKept{Header: NewHeader(r.a.def.id, r.runID, r.turn), MessageID: r.assistant.ID, Text: r.partText.String(), Reasoning: r.partReasoning.String()})
 	r.resetPart()
 	return r.a.flush(r.ctx)
 }
@@ -228,7 +228,7 @@ func (r *assistantReader) resetPart() {
 // retried handles the Model's report that it sends the request again.
 func (r *assistantReader) retried(retry ModelRetry) {
 	a := r.a
-	retried := ModelRetried{Header: NewHeader(a.id, r.runID, r.turn), Attempt: retry.Attempt, WaitMS: millis(retry.Wait), Error: retry.Error}
+	retried := ModelRetried{Header: NewHeader(a.def.id, r.runID, r.turn), Attempt: retry.Attempt, WaitMS: millis(retry.Wait), Error: retry.Error}
 	if len(r.assistant.Parts) == 0 && len(r.assistant.ToolCalls) == 0 {
 		// A retry before any output falls between steps: it gets a write of
 		// its own.
@@ -241,13 +241,13 @@ func (r *assistantReader) retried(retry ModelRetry) {
 	// own, so a reader that saw model_retried drops the old one.
 	a.stage(retried)
 	if partial := cutOffReply(r.assistant); partial.ID != "" && a.commitMessage(partial) == nil {
-		a.stage(ReplyCutOff{Header: NewHeader(a.id, r.runID, r.turn), Message: partial.Clone(), Cause: CodeModelFailure})
+		a.stage(ReplyCutOff{Header: NewHeader(a.def.id, r.runID, r.turn), Message: partial.Clone(), Cause: CodeModelFailure})
 	}
 	r.assistant = Message{ID: MessageID(nextID("message")), RunID: r.runID, Role: RoleAssistant, Model: r.assistant.Model}
 	r.usage = Usage{}
 	r.size = 0
 	r.resetPart()
-	a.stage(ReplyStarted{Header: NewHeader(a.id, r.runID, r.turn), MessageID: r.assistant.ID})
+	a.stage(ReplyStarted{Header: NewHeader(a.def.id, r.runID, r.turn), MessageID: r.assistant.ID})
 	_ = a.flush(r.ctx)
 }
 

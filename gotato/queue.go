@@ -83,7 +83,7 @@ func (a *Session) enqueueControl(ctx context.Context, message Message, operation
 		_ = a.writeNow(ctx, MessageRejected{Header: a.nowHeader(), MessageID: message.ID, Source: source, Why: why})
 		return err
 	}
-	if err := controlSizeError(a.limits, message, operation); err != nil {
+	if err := controlSizeError(a.def.limits, message, operation); err != nil {
 		return reject("too_large", err)
 	}
 	// The place is reserved before message_queued is written, so a message
@@ -184,7 +184,7 @@ func WithQueueHandoff() SessionOption {
 // keepsQueued says whether a Run that ends with status leaves its queues for
 // the host.
 func (a *Session) keepsQueued(status RunStatus) bool {
-	return a.handoff && (status == RunStatusCompleted || status == RunStatusFailed)
+	return a.host.handoff && (status == RunStatusCompleted || status == RunStatusFailed)
 }
 
 // Queued is a message that waited in a queue when a Run ended.

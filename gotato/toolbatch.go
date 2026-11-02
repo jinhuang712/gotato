@@ -65,10 +65,10 @@ func (a *Session) closeOpenCalls(runID RunID, batch *openBatch, cause *RuntimeEr
 			Executed:  known && outcome.Executed,
 		}
 		message := Message{ID: MessageID(nextID("message")), RunID: runID, Role: RoleToolResult, Parts: cloneParts(result.Content), ToolResult: cloneToolResultPtr(result)}
-		if err := a.history.commit(a.limits, message, false); err != nil {
+		if err := a.history.commit(a.def.limits, message, false); err != nil {
 			break
 		}
-		a.stage(ToolResultCommitted{Header: NewHeader(a.id, runID, batch.turn), Message: message.Clone(), CallID: call.ID, Status: resultStatus})
+		a.stage(ToolResultCommitted{Header: NewHeader(a.def.id, runID, batch.turn), Message: message.Clone(), CallID: call.ID, Status: resultStatus})
 	}
 	*batch = openBatch{}
 }
@@ -139,10 +139,10 @@ type toolSignal struct {
 // parallelWorkers turns the configured bound into a worker count. Zero and one
 // both mean sequential.
 func (a *Session) parallelWorkers() int {
-	if a.limits.MaxParallelTools <= 1 {
+	if a.def.limits.MaxParallelTools <= 1 {
 		return 1
 	}
-	return int(a.limits.MaxParallelTools)
+	return int(a.def.limits.MaxParallelTools)
 }
 
 // groupPlans splits a batch into execution groups. A Tool declared Sequential
@@ -228,7 +228,7 @@ type toolGroupRun struct {
 func (g *toolGroupRun) settle(index int, result ToolResult) {
 	g.outcomes[index] = result
 	call := g.plans[index].call
-	g.a.stage(ToolEnded{Header: NewHeader(g.a.id, g.runID, g.turn), CallID: call.ID, ToolID: call.ToolID, Status: result.Status, Code: result.Code, Executed: result.Executed, ElapsedMS: millis(time.Since(g.launched))})
+	g.a.stage(ToolEnded{Header: NewHeader(g.a.def.id, g.runID, g.turn), CallID: call.ID, ToolID: call.ToolID, Status: result.Status, Code: result.Code, Executed: result.Executed, ElapsedMS: millis(time.Since(g.launched))})
 }
 
 // cancelRest settles every call of the group that has no outcome yet as
@@ -293,7 +293,7 @@ func (g *toolGroupRun) handle(signal toolSignal) {
 // receive. At the call's ToolCallDeadline it stops waiting and reports the
 // call as timed out, with its outcome unknown.
 func (a *Session) runTool(ctx context.Context, plan toolPlan, signals chan<- toolSignal, abandon <-chan struct{}) {
-	toolCtx, toolCancel := boundedContext(ctx, a.limits.ToolCallDeadline)
+	toolCtx, toolCancel := boundedContext(ctx, a.def.limits.ToolCallDeadline)
 	defer toolCancel()
 	progress := newToolProgress(func(text string) {
 		select {
@@ -330,7 +330,7 @@ func (a *Session) runTool(ctx context.Context, plan toolPlan, signals chan<- too
 	var result ToolResult
 	switch {
 	case executed.err != nil && ctx.Err() == nil && errors.Is(toolCtx.Err(), context.DeadlineExceeded):
-		text := fmt.Sprintf("%s: the tool did not finish within ToolCallDeadline (%s); its outcome is unknown", CodeDeadlineExceeded, a.limits.ToolCallDeadline)
+		text := fmt.Sprintf("%s: the tool did not finish within ToolCallDeadline (%s); its outcome is unknown", CodeDeadlineExceeded, a.def.limits.ToolCallDeadline)
 		result = ToolResult{CallID: plan.call.ID, Status: ToolResultStatusFailed, SafeError: text, Code: CodeDeadlineExceeded, Executed: true}
 	case executed.err != nil:
 		result = ToolResult{CallID: plan.call.ID, Status: ToolResultStatusFailed, SafeError: toolErrorText(executed.err), Code: toolErrorCode(executed.err), Executed: true}
@@ -418,7 +418,7 @@ func (a *Session) preflightTools(ctx context.Context, runID RunID, turn TurnNumb
 			tool:       entry.tool,
 			sequential: spec.Sequential,
 			use: ToolUse{
-				SessionID:   a.id,
+				SessionID:   a.def.id,
 				RunID:       runID,
 				Turn:        turn,
 				CallID:      call.ID,
@@ -428,7 +428,7 @@ func (a *Session) preflightTools(ctx context.Context, runID RunID, turn TurnNumb
 				Effect:      spec.Effect,
 			},
 		}
-		decision, preErr := a.extensions.beforeTool(ctx, plan.use)
+		decision, preErr := a.def.extensions.beforeTool(ctx, plan.use)
 		if preErr != nil {
 			return nil, preErr
 		}

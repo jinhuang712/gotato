@@ -101,7 +101,7 @@ func (h *sessionHistory) commitToolResult(limits CoreLimits, message Message, re
 
 // commitMessage commits one Message under the Message and transcript limits.
 func (a *Session) commitMessage(message Message) error {
-	return a.history.commit(a.limits, message, true)
+	return a.history.commit(a.def.limits, message, true)
 }
 
 // measure recomputes the encoded transcript size once per Run so an externally

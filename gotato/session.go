@@ -90,21 +90,14 @@ func NewSession(ctx context.Context, options ...SessionOption) (*Session, error)
 	}
 
 	a := &Session{
-		id:             id,
-		model:          cfg.model,
-		instruction:    cfg.instruction,
-		tools:          sessionTools{registry: registry},
-		history:        sessionHistory{transcript: cfg.transcript},
-		contextBuilder: cfg.contextBuilder,
-		extensions:     cfg.extensions,
-		limits:         cfg.limits,
-		spillPage:      spillPage,
-		sampling:       cfg.sampling,
-		cacheKey:       cfg.cacheKey,
-		queue:          newControlQueue(controlCapacity(cfg.limits.MaxSteerMessages), controlCapacity(cfg.limits.MaxFollowUpMessages), controlCapacity(cfg.limits.MaxNotices)),
-		onRunStart:     cfg.onRunStart,
-		handoff:        cfg.handoff,
-		requestID:      cfg.requestID,
+		def: sessionDef{
+			id: id, model: cfg.model, instruction: cfg.instruction, extensions: cfg.extensions, limits: cfg.limits,
+			spillPage: spillPage, sampling: cfg.sampling, cacheKey: cfg.cacheKey, contextBuilder: cfg.contextBuilder,
+		},
+		tools:   sessionTools{registry: registry},
+		history: sessionHistory{transcript: cfg.transcript},
+		queue:   newControlQueue(controlCapacity(cfg.limits.MaxSteerMessages), controlCapacity(cfg.limits.MaxFollowUpMessages), controlCapacity(cfg.limits.MaxNotices)),
+		host:    sessionHost{onRunStart: cfg.onRunStart, handoff: cfg.handoff, requestID: cfg.requestID},
 	}
 	if caps.Journal != nil {
 		a.events.journal = caps.Journal
@@ -125,7 +118,7 @@ func NewSession(ctx context.Context, options ...SessionOption) (*Session, error)
 			a.events.feed.setSource(caps.Events)
 		}
 	}
-	a.extensions.report = a.reportExtension
+	a.def.extensions.report = a.reportExtension
 	a.life.init()
 	a.life.setStatus(SessionStatusCreated)
 	go a.loop()
@@ -142,43 +135,63 @@ func NewSession(ctx context.Context, options ...SessionOption) (*Session, error)
 // warm in memory between Runs (service.WarmPolicy), and closes it when it
 // leaves memory. The Record stays the truth.
 type Session struct {
+	// def is what the Agent gave, which nothing changes once the Session runs,
+	// so it has no lock.
+	def sessionDef
+	// life is the Session's life: its commands, the admission of a Run, its
+	// status and its close.
+	life sessionLife
+	// run is the Run in flight.
+	run sessionRun
+	// events is the Session's stored Events: the Journal, what is staged, the
+	// numbers and the Feed.
+	events sessionEvents
+	// history is the committed history, such as a session.Record, and its size.
+	history sessionHistory
+	// tools is the Tool registry, with its own lock.
+	tools sessionTools
+	// queue holds the messages that wait for a Run (Steer, FollowUp,
+	// Interrupt, notice); see controlQueue.
+	queue *controlQueue
+	// host is what the host set through options.
+	host sessionHost
+}
+
+// A Session is built from parts that each do one job (decision 048): def, life,
+// run, events, history, tools, queue and host. Four of them have a lock:
+// events.mu, run.mu, the queue's own and tools.mu. The order is events, then
+// run, then queue; tools.mu is taken with none of them held and no host call
+// is made under any. A part is read and tested alone, and the Session calls
+// them in order.
+
+// sessionDef is what the Agent gave the Session: its Model and instruction,
+// the Context builder, the extensions, the limits, and the Sampling and cache
+// key every model call carries. Nothing changes it after NewSession.
+type sessionDef struct {
 	id          SessionID
 	model       Model
 	instruction string
-	// tools is the Tool registry, with its own lock (decision 048).
-	tools      sessionTools
-	extensions extensionSet
-	limits     CoreLimits
+	extensions  extensionSet
+	limits      CoreLimits
 	// spillPage is the page size of the Session's ReadBack, the line past which
 	// a Tool Result is spilled; 0 with none, and then nothing is spilled.
 	spillPage int
 	// sampling is the Session's own override of the Model's default Sampling, and
 	// cacheKey is sent unchanged with every model call.
-	sampling Sampling
-	cacheKey string
-
-	// history is the committed history, such as a session.Record, and its size.
-	history        sessionHistory
+	sampling       Sampling
+	cacheKey       string
 	contextBuilder ContextBuilder
-	// events is the Session's stored Events: the Journal, what is staged, the
-	// numbers and the Feed.
-	events     sessionEvents
+}
+
+// sessionHost is what the host asked of the Session through options.
+type sessionHost struct {
+	// onRunStart is called with the ID of each Run as it starts (WithRunStart).
 	onRunStart func(RunID)
 	// handoff keeps the messages still queued when a Run completes or fails,
 	// for the host to take (TakeQueued); see WithQueueHandoff.
 	handoff bool
 	// requestID is the caller's request identifier, recorded in RunStarted.
 	requestID string
-
-	// life is the Session's life: its commands, the admission of a Run, its
-	// status and its close.
-	life sessionLife
-	// queue holds the messages that wait for a Run (Steer, FollowUp,
-	// Interrupt, notice); see controlQueue. Lock order: run.mu, then its lock.
-	queue *controlQueue
-
-	// run is the Run in flight.
-	run sessionRun
 }
 
 // sessionCommandKind says which Run a sessionCommand starts.
@@ -205,7 +218,7 @@ type promptResponse struct {
 }
 
 // ID is the Session's ID.
-func (a *Session) ID() SessionID { return a.id }
+func (a *Session) ID() SessionID { return a.def.id }
 
 // Status is where the Session is in its life. It reports
 // SessionStatusClosing as soon as Close is requested, until the Session is
