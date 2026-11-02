@@ -36,7 +36,7 @@ func main() {
 		log.Fatal(err)
 	}
 	runner, err := service.New(service.Config{
-		Store: store,
+		Store: session.Store{Records: store, Liveness: store},
 		Agents: []service.Agent{{
 			Name:  "default",
 			Model: testkit.DemoModel{}, // answers "demo response: <text>"; "use-tool" calls demo.echo
@@ -60,7 +60,7 @@ A Session is created first, and a Run is a `POST` to it. Both answer JSON. The U
 
 ```bash
 curl -s -XPOST localhost:8080/v1/sessions -d '{"id":"s1"}'
-# {"id":"s1","record_epoch":"226076f33b4f00ac",...,"messages":0,"runs":0,...} (201)
+# {"id":"s1","record_epoch":"226076f33b4f00ac",...,"messages":0,"runs":0,...} (201): the listing columns and the epoch
 
 curl -s -XPOST localhost:8080/v1/sessions/s1/runs -d '{"prompt":"hello"}'
 # {"session_id":"s1","agent":"default","result":{"run_id":"run-...","status":"completed",...},"final_text":"demo response: hello",...}
@@ -68,6 +68,7 @@ curl -s -XPOST localhost:8080/v1/sessions/s1/runs -d '{"prompt":"hello"}'
 
 - `id` is optional: leave the body as `{}` and Gotato picks one, returned in the body and in the `Session-Id` header.
 - Creating an `id` that is taken answers 409 with the code `already_exists`.
+- `GET /v1/sessions` lists Sessions a page at a time, the most recently updated first: `{"sessions":[...],"next":"..."}`. Send `limit` and, for the next page, `cursor` set to the last `next`; `next` is left out after the last page. It needs a store whose `Records` can list (`session.Lister`; the memory and file stores can), and answers 400 `not_supported` otherwise.
 - The body of a Run is `{"prompt": "..."}` or `{"continue": true}`, with an optional `timeout_ms`. A Run that outlasts it settles as `deadline_exceeded`.
 - The Run holds the request open until it settles. A client that drops the request ends the Run: it settles as `canceled`.
 - Unknown fields in a body are refused with 400, so a typo does not pass quietly.
@@ -112,7 +113,7 @@ curl -s -N localhost:8080/v1/sessions/s1/stream
 # ...
 ```
 
-- To resume, send `Last-Event-ID: 14`, or `?after=14&record_epoch=<epoch>` (the epoch is in the first `stream` event and in every Session summary). A stream asked to resume with the wrong epoch is refused, because the Session was deleted and created again.
+- To resume, send `Last-Event-ID: 14`, or `?after=14&record_epoch=<epoch>` (the epoch is in the first `stream` event and in the summary a create or fork answers). A stream asked to resume with the wrong epoch is refused, because the Session was deleted and created again.
 - A delta is not replayed on resume. The stored `reply_ended` Event holds the whole text, and a client replaces its partial text with it.
 - `GET /v1/sessions/{id}/events?kind=tool_ended` returns the stored Events as JSON Lines, for a tool that reads history rather than watches.
 
@@ -140,7 +141,7 @@ For the Instance to name an address, give each one `service.Config.Address`: whe
 
 ```go
 runner, err := service.New(service.Config{
-	Store:    store,
+	Store:    session.Store{Records: store, Liveness: store},
 	Instance: "pod-a",                 // a label; each start adds a random suffix
 	Address:  "http://10.0.0.7:8080",  // advertised in the Liveness row
 	Agents:   agents,

@@ -118,7 +118,7 @@ When writing or rewriting a project document:
 | a model that replays recorded `ModelEvent`s and fails when exhausted | `testkit.ReplayModel` |
 | a model that answers from the request (shared by agents, racy input order) | `testkit.FuncModel` with `testkit.ToolResults` / `testkit.UserText` |
 | a tool that returns a fixed result / records calls | `testkit.FakeTool` |
-| prove a `session.Store` adapter keeps the store contract | `storetest.Run` in `session/storetest` |
+| prove a `session.Records`, `session.Liveness` or `session.Lister` adapter keeps the store contract | `storetest.RunRecords`, `RunLiveness`, `RunLister` in `session/storetest` |
 | capture every Event of a live Session or a Subscription in order | `testkit.RecordEvents(session)` right after `gotato.NewSession`, or `testkit.RecordSubscription(sub)`; read `Events()`, `Kinds()`, `OfKind(kind)` |
 | a pre-populated Session Record | `testkit.NewRecord("q", "a", ...)` |
 | a provider's wire API and its quirks over HTTP: a refusal as too long (before output and mid-stream), a cut stream, cached tokens, a reasoning replay, a mid-conversation `system`/`developer` message, a slow reply | `fakegateway.New()` in `internal/fakegateway` behind `httptest.NewServer`; quirks by `[quirk:name]` in the last user text or the `X-Fake-Quirk` header; `g.Requests()` records every request; `go run ./internal/fakegateway/cmd/fakegateway` serves it on a port |

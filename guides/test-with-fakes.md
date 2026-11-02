@@ -29,7 +29,7 @@ Pick by what the test needs to show. A `Script` is the sequence of events one mo
 | a tool that returns a fixed result, and records its calls | `testkit.NewFakeTool(id, text)`; read `Calls()` and `Uses()` |
 | every Event of a Session, in order | `testkit.RecordEvents(s)`, or `testkit.RecordSubscription(sub)` |
 | a Session Record that already holds a conversation | `testkit.NewRecord("question", "answer", ...)` |
-| a Store of your own that keeps the contract | `storetest.Run` in `session/storetest` ([Write a Store](write-a-store.md)) |
+| a Store of your own that keeps the contract | `storetest.RunRecords`, `RunLiveness` and `RunLister` in `session/storetest` ([Write a Store](write-a-store.md)) |
 
 - A `FakeModel` repeats its last Script once the list ends, so a loop always finishes. A `ReplayModel` fails instead.
 - A fake never touches the network. A test that needs a provider's wire quirks (a refusal as too long, a cut stream) belongs to the Gotato repository, which has a fake gateway for it under `internal/`; your own tests do not need it.
@@ -228,8 +228,9 @@ A `service.Runner` takes the same fakes as an Agent's `Model`. Test the Runner i
 
 ```go
 func TestRunnerWithoutHTTP(t *testing.T) {
+	memory := session.NewMemoryStore()
 	runner, _ := service.New(service.Config{
-		Store:  session.NewMemoryStore(),
+		Store:  session.Store{Records: memory, Liveness: memory},
 		Agents: []service.Agent{{Name: "default", Model: testkit.EchoModel{}}},
 	})
 	defer runner.Close(context.Background())
@@ -242,8 +243,9 @@ func TestRunnerWithoutHTTP(t *testing.T) {
 
 ```go
 func TestARunOverHTTP(t *testing.T) {
+	memory := session.NewMemoryStore()
 	runner, err := service.New(service.Config{
-		Store:  session.NewMemoryStore(),
+		Store:  session.Store{Records: memory, Liveness: memory},
 		Agents: []service.Agent{{Name: "default", Model: testkit.NewFakeModel(testkit.Text("pong"))}},
 	})
 	if err != nil {

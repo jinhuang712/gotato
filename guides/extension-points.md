@@ -10,7 +10,7 @@ By the end of this page you know which seam of Gotato to reach for when the defa
 |---|---|
 | call my own model or provider | `gotato.Model` |
 | give the agent a capability | `gotato.Tool` (`NewFuncTool`) |
-| save Sessions in my own database | `session.Store` |
+| save Sessions in my own database | `session.Records` and `session.Liveness` |
 | change what the model sees | `gotato.ContextBuilder` |
 | block a tool call, rewrite its result, or cap the Turns | Extension stages `PreToolUse`, `PostToolUse`, `TurnStopper` |
 | bound the load on one pod | `service.Admission` |
@@ -43,7 +43,7 @@ Each row says what you want, the seam that does it, and where it lives. "Tier" t
 |---|---|---|---|
 | call a model of my own, or wrap one (retries, a header, a counter) | `gotato.Model` | `gotato.WithModel`; `service.Agent.Model` | common |
 | give the agent a function to call | `gotato.Tool`, built by `gotato.NewFuncTool` | `gotato.WithTools`; `service.Agent.Tools` | common |
-| keep Sessions in Postgres, Redis or another database | `session.Store` | `service.Config.Store`; prove it with `session/storetest` | common |
+| keep Sessions in Postgres, Redis or another database | `session.Records` and `session.Liveness`, and optionally `session.Lister` | `service.Config.Store` (`session.Store{Records:, Liveness:}`); prove it with `session/storetest` | common |
 | change what the model sees on each Turn (window, selection, a layout of my own) | `gotato.ContextBuilder` | `gotato.WithContextBuilder`; `service.Agent.ContextBuilder` | common |
 | refuse a tool call, or change its result | `gotato.PreToolUse`, `gotato.PostToolUse` | `gotato.WithExtension` | common |
 | stop a Run after N Turns or N calls | `gotato.TurnStopper` | `gotato.WithExtension` | common |
@@ -58,7 +58,7 @@ Each row says what you want, the seam that does it, and where it lives. "Tier" t
 | write the Recap of merged Segments myself | `modelctx.MergeRecapWriter` | the same `CompactPolicy.Recap`; a writer with `WriteMergeRecap` is used for merges | rare |
 | report the window, the cache time or the reasoning rule of a model I wrap | `modelctx.ContextWindower`, `CacheRetainer`, `RoundReasoner`, and `Unwrapper` on the wrapper | found by `modelctx.WindowOf`, `RetentionOf`, `DropsReasoning` | rare |
 | rewrite the Transcript before a model call, such as to compact | `gotato.TurnPreparer` | `gotato.WithExtension` | rare |
-| write a Session's Events to a store of my own | `gotato.Journal` (with `EventSource` and `SpillKeeper` beside it) | a `Transcript` given to `gotato.WithTranscript`; `session.Store` is the usual way | rare |
+| write a Session's Events to a store of my own | `gotato.Journal` (with `EventSource` and `SpillKeeper` beside it) | a `Transcript` given to `gotato.WithTranscript`; `session.Records` is the usual way | rare |
 | let a subscriber catch up from my own log | `gotato.EventSource` | `gotato.NewFeed(source)`, `gotato.WithFeed` | rare |
 
 ## Common seams
@@ -73,7 +73,7 @@ A tool is a `gotato.Tool`. `NewFuncTool` builds one from a Go function, and its 
 
 ### Store
 
-A Store is where Records live. The memory and file stores ship with `session`. For a database of your own, implement `session.Store` and run `storetest.Run` on it; the suite names the rules the Runner relies on.
+A Store is where Records live. The memory and file stores ship with `session`. A `session.Store` is two seams side by side: `Records` (`Create`, `Append`, `Load`, `Log`, `Delete`) and `Liveness` (`Beat`, `Instance`), so they may live in two databases. A `Records` may also be a `session.Lister`, which `Runner.Sessions` and `GET /v1/sessions` need and the runtime does not; without one they answer `not_supported`. For a database of your own, implement them and run `storetest.RunRecords`, `RunLiveness` and, if you list, `RunLister` on it; the suite names the rules the Runner relies on.
 
 ### ContextBuilder
 
@@ -182,8 +182,9 @@ who, _ := ctx.Value(askerKey{}).(string)
 A `ToolSet` is a named group with a description and one source; the model loads its tools one by one with `search_tools`. A `ToolSource` is lower level: one method, `Tools(ctx)`, called at the start of each Turn. Reach for a ToolSource when the set of tools depends on who is asking. Through the Runner, set `service.Agent.ToolSources`:
 
 ```go
+memory := session.NewMemoryStore()
 runner, err := service.New(service.Config{
-	Store: session.NewMemoryStore(),
+	Store: session.Store{Records: memory, Liveness: memory},
 	Agents: []service.Agent{{
 		Name:        "default",
 		Model:       model,

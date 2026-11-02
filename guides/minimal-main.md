@@ -38,14 +38,14 @@ func main() {
 }
 
 func run() error {
-	// The Store is the truth: a directory here, your own session.Store later.
+	// The Store is the truth: a directory here, your own Records and Liveness later.
 	store, err := session.NewFileStore(os.Getenv("SESSIONS_DIR"))
 	if err != nil {
 		return err
 	}
 
 	runner, err := service.New(service.Config{
-		Store: store,
+		Store: session.Store{Records: store, Liveness: store},
 		Agents: []service.Agent{{
 			Name:        "default",
 			Model:       testkit.DemoModel{}, // swap for a gateway model

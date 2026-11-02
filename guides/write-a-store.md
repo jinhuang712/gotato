@@ -1,22 +1,22 @@
 # Write a Store
 
-By the end of this page you have a `session.Store` of your own that passes the conformance suite, `storetest.Run`. You need the [Embed Gotato in a service](embed-in-a-service.md) page, and a database in mind. The adapter below keeps its rows in a map shaped like two SQL tables, so each line says which statement it stands for; the adapter's snippets were compiled and the suite was run against it; the CI and MongoDB sections further down are illustrations that were not compiled or run here.
+By the end of this page you have a `session.Store` of your own that passes the conformance suite, `storetest.RunRecords` and `storetest.RunLiveness`. You need the [Embed Gotato in a service](embed-in-a-service.md) page, and a database in mind. The adapter below keeps its rows in a map shaped like two SQL tables, so each line says which statement it stands for; the adapter's snippets were compiled and the suite was run against it; the CI and MongoDB sections further down are illustrations that were not compiled or run here.
 
 **What is here**
 
 | Group | Item | In one line |
 |---|---|---|
-| **The contract** | [What a Store keeps](#what-a-store-keeps) | Records as append-only logs of Entries, and one Liveness row per Instance. |
-| | [The six rules](#the-six-rules) | The rules an adapter is most likely to miss. |
-| | [What a Store does not do](#what-a-store-does-not-do) | It reads an Entry's Seq, Kind and Layer, and nothing else. |
+| **The contract** | [What a Store is](#what-a-store-is) | Two seams, `Records` and `Liveness`, and an optional `Lister`. |
+| | [The rules](#the-rules) | The rules an adapter is most likely to miss. |
+| | [What a Store does not do](#what-a-store-does-not-do) | It reads an Entry's Seq, Kind and Layer, and the Header's Epoch, and nothing else. |
 | **The adapter** | [Tables and handles](#tables-and-handles) | Two tables, one shared database, many handles. |
 | | [Create and Append](#create-and-append) | A conditional write on `(id, seq)`. |
-| | [Load and Log](#load-and-log) | Facts from the last Checkpoint on, or every Entry. |
-| | [List and Delete](#list-and-delete) | |
+| | [Load and Log](#load-and-log) | Facts from the last Checkpoint, and the log from `LogFrom`, in one read. |
+| | [List and Delete](#list-and-delete) | An optional `Lister`, and `Delete`. |
 | | [Liveness](#liveness) | `Beat` and `Instance`, timed by the Store's clock. |
-| | [Checks every call makes](#checks-every-call-makes) | IDs, batches, and a canceled context. |
-| **The suite** | [Run storetest](#run-storetest) | One test function. |
-| | [No database at hand](#no-database-at-hand) | `storetest.Run` needs no service and no transaction. |
+| | [Checks every call makes](#checks-every-call-makes) | `CheckID`, `CheckBatch`, and a canceled context. |
+| **The suite** | [Run storetest](#run-storetest) | One test function for each seam. |
+| | [No database at hand](#no-database-at-hand) | The suite needs no service and no transaction. |
 | | [Run it in CI](#run-it-in-ci) | A real backing store as a service container. |
 | | [MongoDB](#mongodb) | Unique index, `E11000`, the epoch, and a single-node replica set. |
 | | [When a check fails](#when-a-check-fails) | A failure names the rule. |
@@ -24,40 +24,48 @@ By the end of this page you have a `session.Store` of your own that passes the c
 
 ## The contract
 
-### What a Store keeps
+### What a Store is
 
-A Store keeps two things, and nothing else.
+A `session.Store` is a struct of two seams, `Store{Records: …, Liveness: …}`, so the two may live in different databases. Each is an interface, and a caller finds anything optional by type assertion on the field.
 
-- **Records.** A Record is a Session's append-only log of Entries (see [GLOSSARY.md](../GLOSSARY.md#core)). An Entry is one line: a `Seq` (its position, from 1, with no gap), a `Kind` (the Event kind), a `Layer` (`fact` or `log`), the time, the Instance that wrote it, and its `Data` as JSON. Next to the log the Store keeps a `RecordInfo`, the listing view of the Record (ID, counts, times, metadata), so it can list Sessions without reading their logs.
-- **Liveness rows.** One row per running Instance, renewed on a heartbeat and timed by the Store's clock. When a row expires, every Claim of that Instance ends at once. This is how another Instance knows it may take a Session over.
+- **`Records`** keeps Records: a Record is a Session's append-only log of Entries (see [GLOSSARY.md](../GLOSSARY.md#core)). An Entry is one line: a `Seq` (its position, from 1, with no gap), a `Kind` (the Event kind), a `Layer` (`fact` or `log`), the time, the Instance that wrote it, and its `Data` as JSON. Next to the log the store keeps the `Header` of the last write: the Record's `Epoch`, an `Info` of listing columns (ID, counts, times, metadata), a `State` that is Gotato's own bytes, and `LogFrom`. It has five methods: `Create`, `Append`, `Load`, `Log` and `Delete`. Every write is one conditional write: a batch of Entries goes in all or nothing, and only to positions that are still free. An adapter maps that to an insert on a unique `(session, seq)` key.
+- **`Liveness`** keeps one row per running Instance, renewed on a heartbeat and timed by the store's clock. When a row expires, every Claim of that Instance ends at once. This is how another Instance knows it may take a Session over. It has two methods: `Beat` and `Instance`.
+- **`Lister`** is optional, on `Records`: `List(ctx, ListQuery{Limit, Cursor}) (ListPage{Infos, Next}, error)`. The runtime never lists, so an adapter that does not implement it still runs every Session; only `Runner.Sessions` (and `GET /v1/sessions`) then answers `not_supported`. Write it when your service lists Sessions.
 
-The interface has eight methods for Records (`Create`, `Append`, `Load`, `Log`, `List`, `Delete`) and Liveness (`Beat`, `Instance`). Every write is one conditional write: a batch of Entries goes in all or nothing, and only to positions that are still free. An adapter maps that to an insert on a unique `(session, seq)` key.
-
-### The six rules
+### The rules
 
 These are the rules an adapter is most likely to miss. The suite has a check for each, and its message names the rule.
 
-1. **Load returns facts only, Log returns everything.** `Load` returns the Entries of Layer `fact` from the last Checkpoint on (`Entry.IsCheckpoint`: `session_created` or `compaction_ended`), the `segment_closed` Entries from before it, the head position, and the `RecordInfo`. `Log` returns every Entry, facts and log, in order.
+For `Records`:
+
+1. **Load reads the Record once.** It returns the Entries of Layer `fact` from the last Checkpoint on (`Entry.IsCheckpoint`: `session_created` or `compaction_ended`), plus every Entry, log Entries too, from `Header.LogFrom` when that is not 0; the `segment_closed` Entries from before the Checkpoint, apart; the position of the last Entry (`Loaded.Seq`); and the Header of the last write. All of it comes from one read, so a `Load` that races an `Append` returns the Entries and the Header of the same write. `Log` returns every Entry, facts and log, in order.
 2. **A write continues the log.** The Entries have the Seqs `after+1`, `after+2` and so on, and a Record starts with a Checkpoint at Seq 1. A batch that does not is refused with `invalid_argument`. An `Append` whose `after` is not the Record's last position is refused with `session.ErrConflict`. Of writers racing for one position, exactly one wins.
-3. **The Record epoch is required.** `RecordInfo.RecordEpoch` must be set on `Create` and `Append`; a write without it is `invalid_argument`. `Append` checks it before the position. An epoch that is not the stored Record's is `ErrNotFound`, not `ErrConflict`: the Record was deleted and created again, and the writer belongs to the old one.
+3. **The Record epoch is required.** `Header.Epoch` must be set on `Create` and `Append`; a write without it is `invalid_argument`. `Append` checks it before the position. An epoch that is not the stored Record's is `ErrNotFound`, not `ErrConflict`: the Record was deleted and created again, and the writer belongs to the old one.
 4. **Delete of an unknown Record is `ErrNotFound`,** and so is every later `Append`, `Load` and `Log` of it.
+
+For `Liveness`:
+
 5. **`Beat` keeps an expired row.** The next `Beat` on it returns `session.ErrExpired`, and the row never comes back. Only a `ttl` of 0 removes a row, and a `Beat` with a `ttl` of 0 on a missing row is not an error.
 6. **`Instance` of an unknown ID is not an error.** It is a state that is not alive.
 
+For `Lister`:
+
+7. **A listing is newest first, and a page ends where the next begins.** The most recently updated Record first (ties by ID); `Limit` bounds a page, and `Next` is the cursor of the page after it, empty after the last. Following `Next` reaches every Record that was not updated meanwhile exactly once; one that was may repeat or be skipped.
+
 ### What a Store does not do
 
-- **It reads an Entry's `Seq`, `Kind` and `Layer`, and `IsCheckpoint` to find where a load starts.** The rest of an Entry, and its `Data`, are kept as they are.
-- **It keeps every field.** `RecordInfo`, `Entry` and `InstanceRow` gain fields over time. An adapter that maps them to columns must round-trip every field, also those it was written before; the suite fills each field by reflection and fails an adapter that drops one. Storing the whole value as JSON next to the columns you index keeps a later field for free.
-- **`Store` gains no methods after 0.2.0.** A later capability is an optional interface that a caller finds by type assertion, as `Journal.Durable` is, so an adapter written today keeps compiling.
+- **It reads an Entry's `Seq`, `Kind` and `Layer`, and `IsCheckpoint` to find where a load starts, and the Header's `Epoch` (and `LogFrom`, in `Load`).** The rest of an Entry, its `Data`, the Header's `State` and its `Info` are kept as they are. The store never reads what Gotato's `State` holds.
+- **It keeps every field.** `Header`, `RecordInfo`, `Entry` and `InstanceRow` gain fields over time. An adapter that maps them to columns must round-trip every field, also those it was written before; the suite fills each field by reflection and fails an adapter that drops one. Storing the whole value as JSON next to the columns you index keeps a later field for free.
+- **`Records` gains no methods after 0.3.0.** A later capability is an optional interface that a caller finds by type assertion, as `Lister` is, so an adapter written today keeps compiling. Wrap neither seam in a type that hides what it wraps: a wrapper around a `Records` must pass on `List` if the caller is to find it.
 - **What `Load`, `Log` and `List` return is the caller's to read and the store's to keep.** A caller must not modify it, and an adapter with a cache may return it without a copy. `MemoryStore` returns copies.
 
 ## The adapter
 
-The pieces below are one file, `mystore.go`. It stands for a database with two tables: `sessions` (one row per Record: the ID and its `RecordInfo` as JSON) and `entries` (one row per Entry: `(id, seq)` unique, the Entry as JSON). A real adapter replaces the map and the mutex with a connection pool and transactions; the comments name the statement each step becomes.
+The pieces below are one file, `mystore.go`. It stands for a database with two tables: `sessions` (one row per Record: the ID and its `Header` as JSON) and `entries` (one row per Entry: `(id, seq)` unique, the Entry as JSON). A real adapter replaces the map and the mutex with a connection pool and transactions; the comments name the statement each step becomes.
 
 ### Tables and handles
 
-Every handle must see what the others wrote, as two pods sharing one database do. So the state lives in a `db` that handles share, and a `Store` is one handle.
+Every handle must see what the others wrote, as two pods sharing one database do. So the state lives in a `DB` that handles share, and a `Records` or a `Liveness` is one handle on it.
 
 ```go
 // Package mystore is a Store over a map of JSON rows, shaped like two SQL tables.
@@ -65,6 +73,7 @@ package mystore
 
 import (
 	"context"
+	"encoding/base64"
 	"encoding/json"
 	"sort"
 	"sync"
@@ -74,15 +83,16 @@ import (
 	"github.com/jinhuang712/gotato/session"
 )
 
-// db stands for the database. Every handle shares one, as two pods share a server.
-type db struct {
+// DB stands for the database. Every handle shares one, as two pods share a server.
+type DB struct {
 	mu        sync.Mutex
-	records   map[string]*record // table sessions: id, info (JSON)
+	records   map[string]*record // table sessions: id, header (JSON)
 	instances map[string]instance
+	now       func() time.Time // the database's clock: NOW()
 }
 
 type record struct {
-	info    []byte   // the RecordInfo as JSON
+	header  []byte   // the Header as JSON
 	entries [][]byte // table entries: (id, seq) unique, the Entry as JSON; seq = index+1
 }
 
@@ -91,15 +101,29 @@ type instance struct {
 	expires time.Time
 }
 
-// Store is one handle on a db.
-type Store struct{ db *db }
+// NewDB returns an empty database. now is its clock; nil is the machine's.
+func NewDB(now func() time.Time) *DB {
+	if now == nil {
+		now = time.Now
+	}
+	return &DB{records: map[string]*record{}, instances: map[string]instance{}, now: now}
+}
 
-var _ session.Store = (*Store)(nil)
+// Records and Liveness are two handles on one DB. They could as well be on two.
+type (
+	Records  struct{ db *DB }
+	Liveness struct{ db *DB }
+)
 
-// NewBacking returns a function that opens handles on one new db.
-func NewBacking() func() *Store {
-	shared := &db{records: map[string]*record{}, instances: map[string]instance{}}
-	return func() *Store { return &Store{db: shared} }
+var (
+	_ session.Records  = (*Records)(nil)
+	_ session.Lister   = (*Records)(nil)
+	_ session.Liveness = (*Liveness)(nil)
+)
+
+// Store opens a handle of each kind, as session.Store takes them.
+func (d *DB) Store() session.Store {
+	return session.Store{Records: &Records{db: d}, Liveness: &Liveness{db: d}}
 }
 ```
 
@@ -108,80 +132,84 @@ func NewBacking() func() *Store {
 `Create` inserts a Record whose first Entry is a Checkpoint at Seq 1. `Append` adds Entries after `after`. In SQL, `Append` is one transaction: check the epoch, then insert the rows. The unique `(id, seq)` key is what makes a stale writer lose, so map its violation to `ErrConflict`.
 
 ```go
-func (s *Store) Create(ctx context.Context, id string, entries []session.Entry, info session.RecordInfo) error {
+func (r *Records) Create(ctx context.Context, id string, entries []session.Entry, h session.Header) error {
 	if err := precheck(ctx, id); err != nil {
 		return err
 	}
-	if err := session.CheckBatch(0, entries, info); err != nil {
+	if err := session.CheckBatch(0, entries, h); err != nil {
 		return err
 	}
-	rows, infoJSON, err := encode(entries, info)
+	rows, header, err := encode(entries, h)
 	if err != nil {
 		return err
 	}
-	s.db.mu.Lock()
-	defer s.db.mu.Unlock()
-	if _, ok := s.db.records[id]; ok { // INSERT hit the unique key on id
+	r.db.mu.Lock()
+	defer r.db.mu.Unlock()
+	if _, ok := r.db.records[id]; ok { // INSERT hit the unique key on id
 		return session.ErrExists
 	}
-	s.db.records[id] = &record{info: infoJSON, entries: rows}
+	r.db.records[id] = &record{header: header, entries: rows}
 	return nil
 }
 
-func (s *Store) Append(ctx context.Context, id string, after uint64, entries []session.Entry, info session.RecordInfo) error {
+func (r *Records) Append(ctx context.Context, id string, after uint64, entries []session.Entry, h session.Header) error {
 	if err := precheck(ctx, id); err != nil {
 		return err
 	}
-	if err := session.CheckBatch(after, entries, info); err != nil {
+	if err := session.CheckBatch(after, entries, h); err != nil {
 		return err
 	}
-	rows, infoJSON, err := encode(entries, info)
+	rows, header, err := encode(entries, h)
 	if err != nil {
 		return err
 	}
-	s.db.mu.Lock() // one transaction
-	defer s.db.mu.Unlock()
-	rec, ok := s.db.records[id]
+	r.db.mu.Lock() // one transaction
+	defer r.db.mu.Unlock()
+	rec, ok := r.db.records[id]
 	if !ok {
 		return session.ErrNotFound
 	}
-	var stored session.RecordInfo
-	if err := json.Unmarshal(rec.info, &stored); err != nil {
+	var stored session.Header
+	if err := json.Unmarshal(rec.header, &stored); err != nil {
 		return err
 	}
-	if stored.RecordEpoch != info.RecordEpoch { // the epoch is checked before the position
+	if stored.Epoch != h.Epoch { // the epoch is checked before the position
 		return session.ErrNotFound
 	}
 	if uint64(len(rec.entries)) != after { // the unique (id, seq) key would refuse the insert
 		return session.ErrConflict
 	}
 	rec.entries = append(rec.entries, rows...)
-	rec.info = infoJSON
+	rec.header = header
 	return nil
 }
 ```
 
 - **Order of checks in `Append`.** The epoch is compared before the position, so a writer of a deleted Record gets `ErrNotFound` even when its position would also be wrong.
 - **`Create` of a taken ID is `ErrExists`.** An error other than `ErrExists` leaves the outcome unknown (a write may have been made but not confirmed), and the caller tolerates `ErrExists` on a retry.
-- **A write is all or nothing.** In SQL, the batch and the `RecordInfo` update go in one transaction.
+- **A write is all or nothing.** In SQL, the batch and the Header update go in one transaction.
 
 ### Load and Log
 
-`Load` finds the last Checkpoint, returns the facts from there, and returns the `segment_closed` Entries before it apart. `Log` is `WHERE seq > after ORDER BY seq LIMIT limit`.
+`Load` reads the Record once: it finds the last Checkpoint, returns the facts from there and every Entry from `LogFrom`, returns the `segment_closed` Entries before it apart, and the Header of the last write. `Log` is `WHERE seq > after ORDER BY seq LIMIT limit`.
 
 ```go
-func (s *Store) Load(ctx context.Context, id string) (session.Loaded, error) {
+func (r *Records) Load(ctx context.Context, id string) (session.Loaded, error) {
 	if err := precheck(ctx, id); err != nil {
 		return session.Loaded{}, err
 	}
-	s.db.mu.Lock()
-	defer s.db.mu.Unlock()
-	rec, ok := s.db.records[id]
+	r.db.mu.Lock() // one read: one transaction, or one snapshot
+	defer r.db.mu.Unlock()
+	rec, ok := r.db.records[id]
 	if !ok {
 		return session.Loaded{}, session.ErrNotFound
 	}
 	all, err := decode(rec.entries)
 	if err != nil {
+		return session.Loaded{}, err
+	}
+	var out session.Loaded
+	if err := json.Unmarshal(rec.header, &out.Header); err != nil {
 		return session.Loaded{}, err
 	}
 	start := 0 // the last Checkpoint
@@ -191,31 +219,27 @@ func (s *Store) Load(ctx context.Context, id string) (session.Loaded, error) {
 			break
 		}
 	}
-	var out session.Loaded
 	for _, e := range all[:start] {
 		if e.Kind == gotato.EventKindSegmentClosed {
 			out.Segments = append(out.Segments, e)
 		}
 	}
 	for _, e := range all[start:] {
-		if e.Layer == session.LayerFact {
-			out.Facts = append(out.Facts, e)
+		if e.Layer == session.LayerFact || (out.Header.LogFrom != 0 && e.Seq >= out.Header.LogFrom) {
+			out.Entries = append(out.Entries, e)
 		}
 	}
-	out.Head = uint64(len(all))
-	if err := json.Unmarshal(rec.info, &out.Info); err != nil {
-		return session.Loaded{}, err
-	}
+	out.Seq = uint64(len(all))
 	return out, nil
 }
 
-func (s *Store) Log(ctx context.Context, id string, after uint64, limit int) ([]session.Entry, error) {
+func (r *Records) Log(ctx context.Context, id string, after uint64, limit int) ([]session.Entry, error) {
 	if err := precheck(ctx, id); err != nil {
 		return nil, err
 	}
-	s.db.mu.Lock()
-	defer s.db.mu.Unlock()
-	rec, ok := s.db.records[id]
+	r.db.mu.Lock()
+	defer r.db.mu.Unlock()
+	rec, ok := r.db.records[id]
 	if !ok {
 		return nil, session.ErrNotFound
 	}
@@ -231,90 +255,126 @@ func (s *Store) Log(ctx context.Context, id string, after uint64, limit int) ([]
 ```
 
 - **A `limit` of 0 or less means every Entry.** A caller that needs one Entry or one page passes a limit so that the Record is not read to its end.
-- **A large Entry stays whole** in `Log`, and stays out of `Load` when it is a log Entry. Nothing in the adapter truncates `Data`.
+- **A large Entry stays whole** in `Log`, and stays out of `Load` when it is a log Entry before `LogFrom`. Nothing in the adapter truncates `Data`.
+- **`Load` is one read.** In SQL, take the Header and the Entries in one transaction (or one statement that joins them), so that a write landing between two selects cannot give a Header newer than the Entries. The suite writes while it loads to catch this.
 
 ### List and Delete
 
-`List` returns every Record's `RecordInfo`, the most recently updated first (ties by ID). `Delete` removes the Record and its Entries, and an unknown ID is `ErrNotFound`.
+`List` is the optional `Lister`: a page of Records, the most recently updated first (ties by ID), and a cursor for the page after it. `Delete` removes the Record and its Entries, and an unknown ID is `ErrNotFound`.
 
 ```go
-func (s *Store) List(ctx context.Context) ([]session.RecordInfo, error) {
+// List is a keyset page: ORDER BY updated_at DESC, id, after the cursor, LIMIT n+1.
+func (r *Records) List(ctx context.Context, q session.ListQuery) (session.ListPage, error) {
 	if err := ctx.Err(); err != nil {
-		return nil, err
+		return session.ListPage{}, err
 	}
-	s.db.mu.Lock()
-	defer s.db.mu.Unlock()
-	out := make([]session.RecordInfo, 0, len(s.db.records))
-	for _, rec := range s.db.records {
-		var info session.RecordInfo
-		if err := json.Unmarshal(rec.info, &info); err != nil {
-			return nil, err
+	r.db.mu.Lock()
+	infos := make([]session.RecordInfo, 0, len(r.db.records))
+	for _, rec := range r.db.records {
+		var h session.Header
+		if err := json.Unmarshal(rec.header, &h); err != nil {
+			r.db.mu.Unlock()
+			return session.ListPage{}, err
 		}
-		out = append(out, info)
+		infos = append(infos, h.Info)
 	}
-	sort.Slice(out, func(i, j int) bool { // ORDER BY updated_at DESC, id
-		if out[i].UpdatedAt.Equal(out[j].UpdatedAt) {
-			return out[i].ID < out[j].ID
+	r.db.mu.Unlock()
+	sort.Slice(infos, func(i, j int) bool {
+		if infos[i].UpdatedAt.Equal(infos[j].UpdatedAt) {
+			return infos[i].ID < infos[j].ID
 		}
-		return out[i].UpdatedAt.After(out[j].UpdatedAt)
+		return infos[i].UpdatedAt.After(infos[j].UpdatedAt)
 	})
-	return out, nil
+	if q.Cursor != "" { // the cursor is the last row of the page before: WHERE (updated_at, id) is after it
+		raw, err := base64.RawURLEncoding.DecodeString(q.Cursor)
+		var last session.RecordInfo
+		if err == nil {
+			err = json.Unmarshal(raw, &last)
+		}
+		if err != nil {
+			return session.ListPage{}, gotato.ErrorOf(gotato.CodeInvalidArgument, "mystore: bad cursor")
+		}
+		i := sort.Search(len(infos), func(i int) bool {
+			if infos[i].UpdatedAt.Equal(last.UpdatedAt) {
+				return infos[i].ID > last.ID
+			}
+			return infos[i].UpdatedAt.Before(last.UpdatedAt)
+		})
+		infos = infos[i:]
+	}
+	limit := q.Limit
+	if limit <= 0 {
+		limit = 100 // the store's own page size
+	}
+	page := session.ListPage{Infos: infos}
+	if len(infos) > limit {
+		page.Infos = infos[:limit]
+		raw, err := json.Marshal(page.Infos[limit-1])
+		if err != nil {
+			return session.ListPage{}, err
+		}
+		page.Next = base64.RawURLEncoding.EncodeToString(raw)
+	}
+	return page, nil
 }
 
-func (s *Store) Delete(ctx context.Context, id string) error {
+func (r *Records) Delete(ctx context.Context, id string) error {
 	if err := precheck(ctx, id); err != nil {
 		return err
 	}
-	s.db.mu.Lock()
-	defer s.db.mu.Unlock()
-	if _, ok := s.db.records[id]; !ok {
+	r.db.mu.Lock()
+	defer r.db.mu.Unlock()
+	if _, ok := r.db.records[id]; !ok {
 		return session.ErrNotFound
 	}
-	delete(s.db.records, id)
+	delete(r.db.records, id)
 	return nil
 }
 ```
+
+- **The cursor is yours.** Gotato passes `Next` back as `Cursor` and reads neither; a database makes it from the last row's sort key. A cursor the adapter cannot read is `invalid_argument`.
+- **No filters.** A `ListQuery` has no filter on purpose: each database indexes differently, and a service that needs to find Sessions by owner or state queries its own columns.
 
 ### Liveness
 
 `Beat` renews an Instance's row until `ttl` from now. Time it by the Store's clock: in SQL, the database's `NOW()`, not the clock of the pod that calls, so a pod with a skewed clock cannot keep a dead row alive. The comment marks it, and the suite relies on it.
 
 ```go
-func (s *Store) Beat(ctx context.Context, row session.InstanceRow, ttl time.Duration) error {
+func (l *Liveness) Beat(ctx context.Context, row session.InstanceRow, ttl time.Duration) error {
 	if err := precheck(ctx, row.ID); err != nil {
 		return err
 	}
-	s.db.mu.Lock()
-	defer s.db.mu.Unlock()
+	l.db.mu.Lock()
+	defer l.db.mu.Unlock()
 	if ttl <= 0 { // an Instance ends its row; a missing row is not an error
-		delete(s.db.instances, row.ID)
+		delete(l.db.instances, row.ID)
 		return nil
 	}
-	now := time.Now() // with SQL, the database's NOW(), not this process's clock
-	if cur, ok := s.db.instances[row.ID]; ok && !now.Before(cur.expires) {
+	now := l.db.now() // with SQL, the database's NOW(), not this process's clock
+	if cur, ok := l.db.instances[row.ID]; ok && !now.Before(cur.expires) {
 		return session.ErrExpired // the expired row stays
 	}
-	s.db.instances[row.ID] = instance{row: row, expires: now.Add(ttl)}
+	l.db.instances[row.ID] = instance{row: row, expires: now.Add(ttl)}
 	return nil
 }
 
-func (s *Store) Instance(ctx context.Context, id string) (session.InstanceState, error) {
+func (l *Liveness) Instance(ctx context.Context, id string) (session.InstanceState, error) {
 	if err := ctx.Err(); err != nil {
 		return session.InstanceState{}, err
 	}
-	s.db.mu.Lock()
-	defer s.db.mu.Unlock()
-	cur, ok := s.db.instances[id]
+	l.db.mu.Lock()
+	defer l.db.mu.Unlock()
+	cur, ok := l.db.instances[id]
 	if !ok {
 		return session.InstanceState{ID: id}, nil // unknown is not an error
 	}
-	return session.InstanceState{ID: id, Alive: time.Now().Before(cur.expires), Draining: cur.row.Draining, Address: cur.row.Address}, nil
+	return session.InstanceState{ID: id, Alive: l.db.now().Before(cur.expires), Draining: cur.row.Draining, Address: cur.row.Address}, nil
 }
 ```
 
 ### Checks every call makes
 
-Every method that takes an ID checks it and the context first. The rules themselves are Gotato's: the adapter calls them.
+Every method that takes an ID checks it and the context first. The rules themselves are Gotato's, so the adapter calls them: `session.CheckID` is the ID rule, and `session.CheckBatch` is rules 2 and 3.
 
 ```go
 func precheck(ctx context.Context, id string) error {
@@ -324,7 +384,7 @@ func precheck(ctx context.Context, id string) error {
 	return session.CheckID(id)
 }
 
-func encode(entries []session.Entry, info session.RecordInfo) (rows [][]byte, infoJSON []byte, err error) {
+func encode(entries []session.Entry, h session.Header) (rows [][]byte, header []byte, err error) {
 	for _, e := range entries {
 		b, err := json.Marshal(e)
 		if err != nil {
@@ -332,8 +392,8 @@ func encode(entries []session.Entry, info session.RecordInfo) (rows [][]byte, in
 		}
 		rows = append(rows, b)
 	}
-	infoJSON, err = json.Marshal(info)
-	return rows, infoJSON, err
+	header, err = json.Marshal(h) // the whole Header, so a later field is kept
+	return rows, header, err
 }
 
 func decode(rows [][]byte) ([]session.Entry, error) {
@@ -347,9 +407,7 @@ func decode(rows [][]byte) ([]session.Entry, error) {
 }
 ```
 
-`session.CheckBatch` is rules 2 and 3, and `session.CheckID` is the ID rule below; an adapter calls them and does not copy them.
-
-- **IDs.** Every Store refuses the same IDs, with `session.ErrInvalidID` (code `invalid_argument`): an empty one, one over `session.MaxIDBytes` (100), one that is not valid UTF-8 or has a control character, one with a path separator or `..`, and one that starts with a dot. `session.CheckID` is that rule, so call it and do not copy it. A Store may refuse more IDs, with `ErrInvalidID` too: the `FileStore` refuses one whose file name would be over 200 bytes, a limit that belongs to its files, and an adapter with no files keeps those IDs. The suite checks `CheckID`'s rule.
+- **IDs.** Every Store refuses the same IDs, with `session.ErrInvalidID` (code `invalid_argument`): an empty one, one over `session.MaxIDBytes` (100), one that is not valid UTF-8 or has a control character, one with a path separator or `..`, and one that starts with a dot. `session.CheckID` is that rule, so call it and do not copy it. A Store may refuse more IDs, with `ErrInvalidID` too: the `FileStore` refuses one whose file name would be over 200 bytes, a limit that belongs to its files, and an adapter with no files keeps those IDs (23 CJK characters, say). The suite checks `CheckID`'s rule.
 - **IDs differ by their characters alone.** `Case` and `case` are two Records whatever the collation of your database; so are the two spellings of an accented letter. Use a binary collation on the ID column.
 - **Every call honors `ctx`.** A canceled context stops the call and writes nothing.
 
@@ -357,50 +415,89 @@ func decode(rows [][]byte) ([]session.Entry, error) {
 
 ### Run storetest
 
-`storetest.Run` runs every check as a subtest, each on a new backing store. You give it a function that creates one empty backing store and returns how to open handles on it, and how to clean it up.
+There is one suite for each seam, and each runs every check as a subtest, each on a new backing store. You give it a function that creates one empty backing store and returns how to open handles on it, and how to clean it up. `RunRecords` and `RunLister` take handles of `session.Records`, and `RunLiveness` takes handles of `session.Liveness`; a Store whose two seams live in two databases has two backings. The clock that times a Liveness row is the store's, so give `RunLiveness` a way to move it, `storetest.WithAdvance`, and no check sleeps.
 
 ```go
 package mystore_test
 
 import (
+	"sync"
 	"testing"
+	"time"
 
 	"example.com/yourapp/mystore"
 	"github.com/jinhuang712/gotato/session"
 	"github.com/jinhuang712/gotato/session/storetest"
 )
 
-func TestStore(t *testing.T) {
-	storetest.Run(t, func() (storetest.Open, func(), error) {
-		open := mystore.NewBacking()
-		return func() session.Store { return open() }, nil, nil
+func TestRecords(t *testing.T) {
+	storetest.RunRecords(t, func() (storetest.Open, func(), error) {
+		db := mystore.NewDB(nil)
+		return func() session.Records { return db.Store().Records }, nil, nil
 	})
+}
+
+// An adapter with a Lister runs its checks on the same backing.
+func TestLister(t *testing.T) {
+	storetest.RunLister(t, func() (storetest.Open, func(), error) {
+		db := mystore.NewDB(nil)
+		return func() session.Records { return db.Store().Records }, nil, nil
+	})
+}
+
+// fakeClock is moved by the suite, so no check sleeps.
+type fakeClock struct {
+	mu  sync.Mutex
+	now time.Time
+}
+
+func (c *fakeClock) Now() time.Time {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	return c.now
+}
+
+func (c *fakeClock) Advance(d time.Duration) {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	c.now = c.now.Add(d)
+}
+
+func TestLiveness(t *testing.T) {
+	clock := &fakeClock{now: time.Date(2026, 11, 2, 9, 0, 0, 0, time.UTC)}
+	storetest.RunLiveness(t, func() (storetest.OpenLiveness, func(), error) {
+		db := mystore.NewDB(clock.Now)
+		return func() session.Liveness { return db.Store().Liveness }, nil, nil
+	}, storetest.WithAdvance(clock.Advance))
 }
 ```
 
 - **`Open` returns a new handle on the same backing store each time it is called.** Two handles are two Instances sharing one database; the suite uses them to prove that one sees what the other wrote and that racing writers lose.
-- **For a real database,** create a schema (or a database) in the first function and drop it in the cleanup function. The suite makes one backing store per check, 30 in one run.
-- **`storetest.Check(ctx, backing)`** does the same without `testing` and returns the problems, for a tool that checks a store at startup.
+- **For a real database,** create a schema (or a database) in the first function and drop it in the cleanup function. The suite makes one backing store per check: 26 for `RunRecords`, 5 for `RunLister` and 7 for `RunLiveness` today.
+- **`storetest.CheckRecords`, `CheckLister` and `CheckLiveness(ctx, backing)`** do the same without `testing` and return the problems, for a tool that checks a store at startup.
+- **Without `WithAdvance`,** `RunLiveness` sleeps past a short ttl, which works when the store's clock is the machine's and fails when it is a fake one you did not give it.
 
 `go test -race -v` lists what the suite checks:
 
 ```text
---- PASS: TestStore/Create_then_Load_returns_the_facts_and_Log_returns_every_Entry
---- PASS: TestStore/Create_of_a_taken_ID_is_ErrExists
---- PASS: TestStore/Append_adds_Entries_after_the_head,_seen_by_Log_and_Load
---- PASS: TestStore/a_stale_writer_is_refused_with_ErrConflict_and_writes_nothing
---- PASS: TestStore/of_writers_racing_for_one_position,_exactly_one_wins
---- PASS: TestStore/Beat_creates_a_Liveness_row_that_Instance_returns,_and_ttl_0_ends_it
---- PASS: TestStore/an_expired_Liveness_row_is_not_alive,_and_Beat_on_it_is_ErrExpired
---- PASS: TestStore/every_field_of_RecordInfo,_Entry_and_InstanceRow_is_kept
+--- PASS: TestRecords/Create_then_Load_returns_the_facts_and_Log_returns_every_Entry
+--- PASS: TestRecords/Create_of_a_taken_ID_is_ErrExists
+--- PASS: TestRecords/Load_returns_every_Entry_from_the_Header's_LogFrom,_each_once,_and_LogFrom_is_the_last_write's
+--- PASS: TestRecords/a_Load_racing_Appends_reads_the_Record_in_one_read
+--- PASS: TestRecords/a_stale_writer_is_refused_with_ErrConflict_and_writes_nothing
+--- PASS: TestRecords/of_writers_racing_for_one_position,_exactly_one_wins
+--- PASS: TestRecords/every_field_of_Header,_RecordInfo_and_Entry_is_kept
+--- PASS: TestLister/List_pages_by_Limit_and_Cursor,_every_Record_once
+--- PASS: TestLiveness/an_expired_Liveness_row_is_not_alive,_and_Beat_on_it_is_ErrExpired
+--- PASS: TestLiveness/every_field_of_InstanceRow_is_kept
 ...
 ```
 
 ### No database at hand
 
-The suite needs no external service and no transaction. `session.NewMemoryStore`, `session.NewFileStore` and the `mystore` above all pass it ([`TestMemoryStoreConformance` and `TestFileStoreConformance`](../session/file_test.go) run it on the first two), so you can write the adapter's tests against a map or a directory first and point the same function at a real database later. To check a store outside `go test`, for example at startup, call `storetest.Check`.
+The suite needs no external service and no transaction. `session.NewMemoryStore`, `session.NewFileStore` and the `mystore` above all pass it ([`TestMemoryStoreConformance` and `TestFileStoreConformance`](../session/file_test.go) run it on the first two), so you can write the adapter's tests against a map or a directory first and point the same function at a real database later. To check a store outside `go test`, for example at startup, call `storetest.CheckRecords`.
 
-What the contract asks of a backing store is one conditional write: a single-document atomic write, plus a unique `(id, seq)` key, is enough. A multi-document transaction is a cost of one design (entries and head in separate documents or rows), not a Gotato rule. If your database cannot take a transaction, choose a layout that does not need one.
+What the contract asks of a backing store is one conditional write: a single-document atomic write, plus a unique `(id, seq)` key, is enough. A multi-document transaction is a cost of one design (entries and head in separate documents or rows), not a Gotato rule. If your database cannot take a transaction, choose a layout that does not need one; `Load` is the one read that must not tear, so a layout with the Header apart from the Entries reads both in one snapshot.
 
 ### Run it in CI
 
@@ -430,32 +527,32 @@ jobs:
 ```
 
 ```go
-func TestStore(t *testing.T) {
+func TestRecords(t *testing.T) {
 	dsn := os.Getenv("STORE_TEST_DSN")
 	if dsn == "" {
 		t.Skip("STORE_TEST_DSN is not set")
 	}
-	storetest.Run(t, func() (storetest.Open, func(), error) {
+	storetest.RunRecords(t, func() (storetest.Open, func(), error) {
 		db, drop, err := newSchema(dsn) // your helper: a new schema or database per call
 		if err != nil {
 			return nil, nil, err
 		}
-		return func() session.Store { return mystore.New(db) }, drop, nil
+		return func() session.Records { return mystore.NewRecords(db) }, drop, nil
 	})
 }
 ```
 
-Swap the image for yours. The function runs once per check, so make creating and dropping a schema cheap. For a database that needs a replica set, see the next section.
+Swap the image for yours, and add the same for `RunLiveness` and `RunLister`. The function runs once per check, so make creating and dropping a schema cheap. For a database that needs a replica set, see the next section.
 
 ### MongoDB
 
 Mongo adapters meet the same rules as any other, in Mongo's terms.
 
 - **Unique index on `(id, seq)`** in the entries collection. A write of a position that is taken fails with a duplicate-key error, code 11000 (`E11000`). Map that, and only that, to `session.ErrConflict` (in the Go driver, `mongo.IsDuplicateKeyError`). On `Create`, a duplicate `_id` in the head document is `session.ErrExists`.
-- **The epoch goes in the head document's filter.** Update the head with a filter on the ID and `RecordInfo.RecordEpoch`, and on the head position when you use it as the guard. When it matches nothing, read the head document: a missing one, or one with another epoch, is `session.ErrNotFound`; any other is `session.ErrConflict`. The epoch is judged before the position (rule 3); the suite has a check for each order (`Append by a writer of another epoch is ErrNotFound before its position is checked`).
+- **The epoch goes in the head document's filter.** Update the head with a filter on the ID and `Header.Epoch`, and on the head position when you use it as the guard. When it matches nothing, read the head document: a missing one, or one with another epoch, is `session.ErrNotFound`; any other is `session.ErrConflict`. The epoch is judged before the position (rule 3); the suite has a check for each order (`Append by a writer of another epoch is ErrNotFound before its position is checked`).
 - **All or nothing needs a transaction, or a head-document CAS.** An `InsertMany` of several entries is not atomic by itself. A multi-document transaction (entries and head in one) needs a replica set, which a standalone `mongod` is not. Without a transaction, make the head document the guard: move its head position by compare-and-set first, then write the entries, and design what a reader sees if the process dies in between. The suite does not kill a process between two writes, so it cannot tell you that part is right.
 
-**A single-node replica set without Docker.** *Reported from real use, not run in this repository.* A Mongo Store passed all 30 `storetest.Run` subtests, also with `-race -count=5`, on a single-node replica set started in user space with MongoDB 8.0: no Docker and no package manager.
+**A single-node replica set without Docker.** *Reported from real use, not run in this repository.* A Mongo Store passed all 30 subtests of the suite as it was then (one `storetest.Run`, before it was split into `RunRecords`, `RunLiveness` and `RunLister`), also with `-race -count=5`, on a single-node replica set started in user space with MongoDB 8.0: no Docker and no package manager.
 
 1. Download the official MongoDB 8.0 Community Server tarball for your platform from mongodb.com and unpack it in a directory you own.
 2. Start `mongod` from it with `--replSet <name>`, a `--dbpath` you own and a `--port` that is free (add `--bind_ip 127.0.0.1`).
@@ -469,9 +566,9 @@ Not covered by that run: a set of several nodes, a transaction retried after a f
 A failure message names the rule that broke. If the adapter above returned `ErrNotFound` where it returns `ErrConflict` (a unique-key violation mapped to the wrong error), the suite says:
 
 ```text
---- FAIL: TestStore/a_stale_writer_is_refused_with_ErrConflict_and_writes_nothing
+--- FAIL: TestRecords/a_stale_writer_is_refused_with_ErrConflict_and_writes_nothing
     storetest.go:76: an Append for a position another writer already wrote returned not_found: session: not found, want ErrConflict: a position is written once
---- FAIL: TestStore/of_writers_racing_for_one_position,_exactly_one_wins
+--- FAIL: TestRecords/of_writers_racing_for_one_position,_exactly_one_wins
     storetest.go:76: writer 0 that lost the race for position 4 returned not_found: session: not found, want ErrConflict
 ```
 
