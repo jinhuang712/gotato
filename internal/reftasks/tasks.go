@@ -2,6 +2,7 @@ package reftasks
 
 import (
 	"github.com/jinhuang712/gotato/gotato"
+	"github.com/jinhuang712/gotato/service"
 )
 
 // Task is one task of the reference workload that GOALS.md measures: the
@@ -20,9 +21,9 @@ type Task struct {
 	Prompts []string
 	// Tools are the Tools the Agent offers. They keep no state.
 	Tools []gotato.Tool
-	// Options are added to the Agent after its Tools, such as the ToolSets of
-	// the tool_search task. They keep no state.
-	Options []gotato.SessionOption
+	// ToolSets are the ToolSets the Agent installs, such as the ones of the
+	// tool_search task. They keep no state.
+	ToolSets []service.ToolSet
 	// Model plays the task. It keeps no state and no copy of the requests,
 	// so one value serves concurrent plays.
 	Model gotato.Model

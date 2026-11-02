@@ -100,7 +100,7 @@ func (c *cli) listTools(ctx context.Context, rt *cliRuntime, flags modelFlags, s
 		if err != nil {
 			return toolListing{}, err
 		}
-		agent, _ = s.Get(service.MetaAgent)
+		agent, _ = s.Get(agentKey)
 	}
 	if agent == "" {
 		if names := rt.runner.Agents(); len(names) > 0 {

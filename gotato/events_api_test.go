@@ -229,6 +229,7 @@ func (j *gatedJournal) Messages() []gotato.Message {
 	defer j.mu.Unlock()
 	return append([]gotato.Message(nil), j.messages...)
 }
+func (j *gatedJournal) Capabilities() gotato.Capabilities { return gotato.Capabilities{Journal: j} }
 func (j *gatedJournal) Append(m gotato.Message) error {
 	j.mu.Lock()
 	defer j.mu.Unlock()

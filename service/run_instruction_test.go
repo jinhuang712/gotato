@@ -2,49 +2,55 @@ package service_test
 
 import (
 	"context"
+	"errors"
 	"testing"
 
+	"github.com/jinhuang712/gotato/gotato"
 	"github.com/jinhuang712/gotato/service"
+	"github.com/jinhuang712/gotato/session"
 	"github.com/jinhuang712/gotato/testkit"
 )
 
-// Update {"gotato.instruction": ...} sets the instruction of a Run: it replaces
-// Agent.Instruction (it does not append), SkipSave makes it last for that Run
-// alone, and an empty value falls back to Agent.Instruction.
-func TestRunUpdateInstructionReplacesTheAgentsForOneRun(t *testing.T) {
-	model := testkit.NewFakeModel(testkit.Text("1"), testkit.Text("2"), testkit.Text("3"), testkit.Text("4"), testkit.Text("5"))
-	runner, _ := newRunner(t, service.Agent{Name: "bot", Model: model, Instruction: "agent instruction"})
+// An Agent's instruction comes from its definition alone. A request that sets
+// {"gotato.instruction": ...} is refused before its Run starts, whether it
+// creates a Session or updates one, saved or not; another instruction is another
+// Agent, chosen by RunRequest.Agent.
+func TestAnInstructionInMetadataIsRefusedAndAnotherAgentIsTheWay(t *testing.T) {
+	model := testkit.NewFakeModel(testkit.Text("1"), testkit.Text("2"), testkit.Text("3"))
+	runner, store := newRunner(t,
+		service.Agent{Name: "bot", Model: model, Instruction: "agent instruction"},
+		service.Agent{Name: "french", Model: model, Instruction: "answer in French"},
+	)
 	ctx := context.Background()
-	s, err := runner.CreateSession(ctx, "bot", nil)
-	if err != nil {
-		t.Fatal(err)
-	}
-	run := func(update map[string]string, skipSave bool) string {
-		t.Helper()
-		if _, err := runner.Run(ctx, service.RunRequest{SessionID: s.ID(), Prompt: "hi", Update: update, SkipSave: skipSave}); err != nil {
-			t.Fatal(err)
+	id := plant(t, store, session.WithMetadata(map[string]string{metaAgentKey: "bot"}))
+	before := storedMetadata(t, store, id)
+
+	for _, request := range []service.RunRequest{
+		{SessionID: id, Prompt: "hi", Update: map[string]string{metaInstructionKey: "answer in French"}},
+		{SessionID: id, Prompt: "hi", Update: map[string]string{metaInstructionKey: "answer in French"}, SkipSave: true},
+		{SessionID: id, Prompt: "hi", Update: map[string]string{metaInstructionKey: ""}},
+		{Prompt: "hi", Metadata: map[string]string{metaInstructionKey: "answer in French"}},
+	} {
+		if _, err := runner.Run(ctx, request); !errors.Is(err, service.ErrReservedKey) || !gotato.NotRun(err) {
+			t.Fatalf("Run(%+v) = %v, want ErrReservedKey, not run", request, err)
 		}
-		request, _ := model.LastRequest()
-		return request.SystemInstructions
+	}
+	if got := model.Requests(); len(got) != 0 {
+		t.Fatalf("a refused request reached the Model %d times", len(got))
+	}
+	if after := storedMetadata(t, store, id); !equalMetadata(before, after) {
+		t.Fatalf("a refused request changed the Session's metadata: %v -> %v", before, after)
+	}
+	if list, err := listAll(ctx, store); err != nil || len(list) != 1 {
+		t.Fatalf("a refused request left %d Sessions (err=%v), want only the planted one", len(list), err)
 	}
 
-	// A one-Run instruction replaces the Agent's; nothing is appended.
-	if got := run(map[string]string{service.MetaInstruction: "answer in French"}, true); got != "answer in French" {
-		t.Fatalf("instruction with Update and SkipSave = %q, want it to replace the Agent's", got)
+	// Another instruction is another Agent.
+	if _, err := runner.Run(ctx, service.RunRequest{SessionID: id, Agent: "french", Prompt: "hi"}); err != nil {
+		t.Fatal(err)
 	}
-	// SkipSave did not store it: the next Run is back on the Agent's.
-	if got := run(nil, false); got != "agent instruction" {
-		t.Fatalf("instruction after a SkipSave Run = %q, want the Agent's", got)
-	}
-	// Without SkipSave it is stored and lasts.
-	if got := run(map[string]string{service.MetaInstruction: "be brief"}, false); got != "be brief" {
-		t.Fatalf("instruction with Update = %q", got)
-	}
-	if got := run(nil, false); got != "be brief" {
-		t.Fatalf("stored instruction on the next Run = %q, want it kept", got)
-	}
-	// An empty value falls back to the Agent's.
-	if got := run(map[string]string{service.MetaInstruction: ""}, false); got != "agent instruction" {
-		t.Fatalf("instruction with an empty value = %q, want the Agent's", got)
+	request, _ := model.LastRequest()
+	if request.SystemInstructions != "answer in French" {
+		t.Fatalf("instruction = %q, want the Agent's", request.SystemInstructions)
 	}
 }

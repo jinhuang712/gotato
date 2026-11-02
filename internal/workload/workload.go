@@ -109,7 +109,7 @@ func runTask(ctx context.Context, cfg Config, task reftasks.Task) (TaskReport, e
 		ModelName:   cfg.ModelName,
 		Instruction: task.Instruction,
 		Tools:       task.Tools,
-		Options:     task.Options,
+		ToolSets:    task.ToolSets,
 		Limits:      task.Limits,
 	}
 	if task.Recap {
@@ -208,12 +208,12 @@ type build struct {
 
 func playTask(ctx context.Context, runner *service.Runner, store session.Store, task reftasks.Task) play {
 	p := play{stats: &stats{}}
-	s, err := runner.CreateSession(ctx, task.Name, nil, session.WithMessages(task.History...))
+	s, err := runner.CreateSession(ctx, service.CreateSessionRequest{Agent: task.Name, Messages: task.History})
 	if err != nil {
 		p.failures = append(p.failures, failure{kind: KindSetup, cause: CauseStore, message: err.Error()})
 		return p
 	}
-	p.sessionID = s.ID()
+	p.sessionID = s.ID
 
 	// Every number about a Run comes from its Events, as a team would
 	// compute it from its own telemetry. The model's time runs from a Turn's
@@ -229,7 +229,7 @@ func playTask(ctx context.Context, runner *service.Runner, store session.Store, 
 	storeEvents, err := runner.SubscribeInstance(ctx, gotato.SubscribeFilter(func(event gotato.Event) bool {
 		switch event.(type) {
 		case gotato.SessionLoaded, gotato.SessionSaved:
-			return event.Head().SessionID == gotato.SessionID(s.ID())
+			return event.Head().SessionID == gotato.SessionID(s.ID)
 		}
 		return false
 	}))
@@ -241,7 +241,7 @@ func playTask(ctx context.Context, runner *service.Runner, store session.Store, 
 	for _, prompt := range task.Prompts {
 		started := time.Now()
 		requested, streaming := false, false
-		result, err := runner.StreamRun(ctx, service.RunRequest{SessionID: s.ID(), Prompt: prompt}, func(event gotato.Event) error {
+		result, err := runner.StreamRun(ctx, service.RunRequest{SessionID: s.ID, Prompt: prompt}, func(event gotato.Event) error {
 			switch e := event.(type) {
 			case gotato.TurnStarted:
 				p.turns++
@@ -306,7 +306,7 @@ func playTask(ctx context.Context, runner *service.Runner, store session.Store, 
 	// The committed tool results add the text of each failure to the
 	// report; the Events have already decided its cause.
 	results := map[gotato.ToolCallID]gotato.ToolResult{}
-	final, err := session.Open(ctx, store.Records, s.ID())
+	final, err := session.Open(ctx, store.Records, s.ID)
 	if err != nil {
 		p.failures = append(p.failures, failure{kind: KindSetup, cause: CauseStore, message: "reading the Session back: " + err.Error()})
 	} else {

@@ -445,7 +445,7 @@ func (r *Runner) compactIdleLocked(ctx context.Context, entry *warmEntry, why go
 		}
 		return
 	}
-	opts := compactOptionsFor(entry.spec, record, modelctx.CompactConfig{MinTokens: minTokens})
+	opts := compactOptionsFor(entry.spec, modelctx.CompactConfig{MinTokens: minTokens})
 	compactOpts := []modelctx.CompactOption{modelctx.WithCompactionWhy(why)}
 	if opts.Recap != nil {
 		compactOpts = append(compactOpts, modelctx.WithRecapContext(r.recapContext(entry.spec, record)))

@@ -6,7 +6,6 @@ import (
 	"slices"
 	"sort"
 	"strings"
-	"sync/atomic"
 
 	"github.com/jinhuang712/gotato/gotato"
 	"github.com/jinhuang712/gotato/modelctx"
@@ -28,9 +27,6 @@ type sessionTools struct {
 	// results gives the built-in read_result tool to a Session whose Agent
 	// has any tool; nil for a surface that is not a Session's.
 	results gotato.ToolSource
-	// hasToolSets is set once the live Session is built and has a ToolSet,
-	// whose Tools can spill a result like any other.
-	hasToolSets atomic.Bool
 }
 
 // segmentTools is the ToolSource that offers read_segment for a Session of the
@@ -90,7 +86,7 @@ func (t *sessionTools) Tools(ctx context.Context) ([]gotato.Tool, error) {
 	}
 	// It is also offered whenever read_segment is: a Segment's refs to its
 	// messages and results are read with it.
-	if t.results != nil && (len(tools) > 0 || t.hasToolSets.Load() || len(segmentTools) > 0) && failure == nil {
+	if t.results != nil && (len(tools) > 0 || len(t.spec.ToolSets) > 0 || len(segmentTools) > 0) && failure == nil {
 		supplied, err := t.results.Tools(ctx)
 		if err != nil {
 			return nil, err
@@ -129,7 +125,7 @@ func (t *sessionTools) active(id string) bool {
 	if t.session == nil {
 		return true
 	}
-	value, _ := t.session.Get(MetaToolPrefix + id)
+	value, _ := t.session.Get(metaToolPrefix + id)
 	return value != "inactive"
 }
 
@@ -145,7 +141,7 @@ func (r *Runner) Tools(ctx context.Context, agent, sessionID string) ([]ToolEntr
 			return nil, storeFailureOf(ctx, err, true)
 		}
 		if agent == "" {
-			agent, _ = s.Get(MetaAgent)
+			agent, _ = s.Get(metaAgent)
 		}
 	}
 	spec, ok := r.Agent(agent)
@@ -176,8 +172,7 @@ func (r *Runner) Tools(ctx context.Context, agent, sessionID string) ([]ToolEntr
 		entries = append(entries, ToolEntry{Spec: spec, Active: filter.active(spec.ID)})
 	}
 	if s != nil {
-		// A Session's ToolSets live in the Agent's Options, so the live Session
-		// says what they hold: every tool of every ToolSet, loaded or not,
+		// The live Session says what the Agent's ToolSets hold: every tool of every ToolSet, loaded or not,
 		// switched off or not, and search_tools, whose description is the catalog.
 		toolCtx, cancel := r.toolSetContext(ctx)
 		defer cancel()
@@ -231,7 +226,7 @@ func (r *Runner) SetToolActive(ctx context.Context, sessionID, toolID string, ac
 	if err != nil {
 		return ToolEntry{}, storeFailureOf(ctx, err, true)
 	}
-	agent, _ := read.Get(MetaAgent)
+	agent, _ := read.Get(metaAgent)
 	spec, ok := r.Agent(agent)
 	if !ok {
 		return ToolEntry{}, ErrUnknownAgent
@@ -268,12 +263,12 @@ func (r *Runner) SetToolActive(ctx context.Context, sessionID, toolID string, ac
 			return err
 		}
 		s := writer.Record()
-		held, _ := s.Get(MetaAgent)
+		held, _ := s.Get(metaAgent)
 		r.publishOpened(writer, early, held)
 		if active {
-			s.Set(MetaToolPrefix+toolID, "")
+			s.Set(metaToolPrefix+toolID, "")
 		} else {
-			s.Set(MetaToolPrefix+toolID, "inactive")
+			s.Set(metaToolPrefix+toolID, "inactive")
 		}
 		err = r.releaseWriter(ctx, writer)
 		if err == nil {

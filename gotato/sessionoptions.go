@@ -25,6 +25,23 @@ type sessionConfig struct {
 	onRunStart     func(RunID)
 	handoff        bool
 	requestID      string
+	// given holds the single-valued options already applied, so one given twice
+	// is refused (once).
+	given map[string]bool
+}
+
+// once records that a single-valued option was given, and refuses it the second
+// time: a Session has one value of it, and the later one would otherwise
+// replace the earlier in silence (decision 047).
+func (c *sessionConfig) once(option string) error {
+	if c.given[option] {
+		return runtimeError(CodeInvalidArgument, option, option+" was given twice; a Session has one", nil)
+	}
+	if c.given == nil {
+		c.given = map[string]bool{}
+	}
+	c.given[option] = true
+	return nil
 }
 
 // WithFeed has the Session publish its Events to feed instead of a Feed of
@@ -34,6 +51,9 @@ type sessionConfig struct {
 // catches up.
 func WithFeed(feed *Feed) SessionOption {
 	return func(c *sessionConfig) error {
+		if err := c.once("WithFeed"); err != nil {
+			return err
+		}
 		if feed == nil {
 			return runtimeError(CodeInvalidArgument, "WithFeed", "feed is nil", nil)
 		}
@@ -46,20 +66,35 @@ func WithFeed(feed *Feed) SessionOption {
 // Session run. Every RunStarted of the Session carries it. The runtime records
 // it and does nothing else with it: it does not look for a repeated one.
 func WithRequestID(id string) SessionOption {
-	return func(c *sessionConfig) error { c.requestID = id; return nil }
+	return func(c *sessionConfig) error {
+		if err := c.once("WithRequestID"); err != nil {
+			return err
+		}
+		c.requestID = id
+		return nil
+	}
 }
 
 // WithRunStart calls fn on the Session's goroutine with each Run's ID, as the
 // Run starts and before its first Event. fn must not block. A host uses it
 // to find the Run it started.
 func WithRunStart(fn func(RunID)) SessionOption {
-	return func(c *sessionConfig) error { c.onRunStart = fn; return nil }
+	return func(c *sessionConfig) error {
+		if err := c.once("WithRunStart"); err != nil {
+			return err
+		}
+		c.onRunStart = fn
+		return nil
+	}
 }
 
 // WithModel sets the Model the Session calls. NewSession fails when none is
 // set.
 func WithModel(model Model) SessionOption {
 	return func(c *sessionConfig) error {
+		if err := c.once("WithModel"); err != nil {
+			return err
+		}
 		if model == nil {
 			return runtimeError(CodeInvalidArgument, "WithModel", "model is nil", nil)
 		}
@@ -71,7 +106,13 @@ func WithModel(model Model) SessionOption {
 // WithInstruction sets the system instructions the Session sends with every
 // model call, before the ContextBuilder sees them.
 func WithInstruction(instruction string) SessionOption {
-	return func(c *sessionConfig) error { c.instruction = instruction; return nil }
+	return func(c *sessionConfig) error {
+		if err := c.once("WithInstruction"); err != nil {
+			return err
+		}
+		c.instruction = instruction
+		return nil
+	}
 }
 
 // WithSampling sets the sampling and reasoning hints the Session sends on
@@ -80,6 +121,9 @@ func WithInstruction(instruction string) SessionOption {
 // unset keeps the default. Provider adapters map the fields they support.
 func WithSampling(options Sampling) SessionOption {
 	return func(c *sessionConfig) error {
+		if err := c.once("WithSampling"); err != nil {
+			return err
+		}
 		if options.Temperature != nil {
 			temperature := *options.Temperature
 			// NaN fails the first comparison; negative and infinite are out of range.
@@ -99,7 +143,13 @@ func WithSampling(options Sampling) SessionOption {
 // so the provider serves its Turns from one prompt cache. It never changes the
 // prompt.
 func WithCacheKey(key string) SessionOption {
-	return func(c *sessionConfig) error { c.cacheKey = key; return nil }
+	return func(c *sessionConfig) error {
+		if err := c.once("WithCacheKey"); err != nil {
+			return err
+		}
+		c.cacheKey = key
+		return nil
+	}
 }
 
 // WithMaxEffect caps the Effect of the Tools the Session offers. A Tool above
@@ -110,6 +160,9 @@ func WithCacheKey(key string) SessionOption {
 // no cap, which is the default.
 func WithMaxEffect(effect ToolEffect) SessionOption {
 	return func(c *sessionConfig) error {
+		if err := c.once("WithMaxEffect"); err != nil {
+			return err
+		}
 		if !effect.Valid() {
 			return runtimeError(CodeInvalidArgument, "WithMaxEffect", "unknown Effect "+string(effect), nil)
 		}
@@ -139,6 +192,9 @@ func WithTools(tools ...Tool) SessionOption {
 // negative ModelCallDeadline or ToolCallDeadline means no deadline.
 func WithLimits(limits CoreLimits) SessionOption {
 	return func(c *sessionConfig) error {
+		if err := c.once("WithLimits"); err != nil {
+			return err
+		}
 		c.limits = limits
 		return nil
 	}
@@ -148,6 +204,9 @@ func WithLimits(limits CoreLimits) SessionOption {
 // Model's Context for each Turn. The default is FullHistoryContext.
 func WithContextBuilder(builder ContextBuilder) SessionOption {
 	return func(c *sessionConfig) error {
+		if err := c.once("WithContextBuilder"); err != nil {
+			return err
+		}
 		if builder == nil {
 			return runtimeError(CodeInvalidArgument, "WithContextBuilder", "builder is nil", nil)
 		}
@@ -241,6 +300,9 @@ func withToolSet(set ToolSet, mode installMode) SessionOption {
 // NewSession or the Run with CodeExtensionFailure.
 func WithToolFilter(keep func(toolID string) bool) SessionOption {
 	return func(c *sessionConfig) error {
+		if err := c.once("WithToolFilter"); err != nil {
+			return err
+		}
 		c.toolFilter = keep
 		return nil
 	}
@@ -249,22 +311,21 @@ func WithToolFilter(keep func(toolID string) bool) SessionOption {
 // WithTranscript makes the Session commit to an external Transcript, such as
 // the session.Record it is loaded from, instead of a private in-memory one.
 //
-// A Transcript may have optional capabilities, each found by a type assertion
-// on the value given here, so a wrapper must forward them all (embedding the
-// concrete type does; embedding the Transcript interface does not):
-//
-//	ID() string                 the Session takes the Record's ID
-//	Journal                     Events are stored, numbered by the Record
-//	Durable() bool              (of the Journal) whether they survive the process
-//	SpillKeeper                 a large Tool Result is spilled, and read back
-//	EventSource                 a Subscription catches up from the Record
-//	LoadedToolSource            Tools a Run loaded are restored
-//
-// Without a Journal the Session numbers its Events in memory and stores none
-// (service.Runner does this on purpose for a Run that is not saved), so a
-// wrapper that hides Write makes the Session non-durable without an error.
+// A Transcript declares what it can do in Capabilities (the ID the Session
+// takes, a Journal that stores and numbers Events, whether they are durable,
+// whether a large Tool Result is spilled, an EventSource a Subscription
+// catches up from, and a LoadedToolSource that restores loaded Tools). A
+// wrapper that embeds the concrete type forwards it; any other writes the
+// declaration in code, so one that forgets a capability says so. NewSession
+// refuses a Transcript that declares Durable without a Journal, Events and
+// Loaded. A Session whose Transcript has no Journal stores nothing and numbers
+// its Events in memory (service.Runner does this on purpose for a Run that is
+// not saved).
 func WithTranscript(transcript Transcript) SessionOption {
 	return func(c *sessionConfig) error {
+		if err := c.once("WithTranscript"); err != nil {
+			return err
+		}
 		if transcript == nil {
 			return runtimeError(CodeInvalidArgument, "WithTranscript", "transcript is nil", nil)
 		}

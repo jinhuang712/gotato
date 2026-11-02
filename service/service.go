@@ -63,17 +63,23 @@ const DefaultDrainTimeout = 10 * time.Second
 // for ToolSets when Config.ToolSetTimeout says nothing.
 const DefaultToolSetTimeout = 10 * time.Second
 
-// Session metadata keys the service reads. They are ordinary application
-// metadata from the runtime's point of view and may be set by any client.
+// ReservedPrefix starts every Session metadata key the Runner owns. A caller
+// that sets a key with this prefix (CreateSession, RunRequest.Metadata,
+// RunRequest.Update, or the HTTP API) is refused with ErrReservedKey before
+// anything is written: nothing under it is a setting a client may choose. The
+// Agent changes only by RunRequest.Agent, a Tool is switched only by
+// SetToolActive, and the prompt cache key only by Fork.
+const ReservedPrefix = "gotato."
+
+// The Session metadata keys the Runner writes and reads, all under
+// ReservedPrefix. A client reads them from a Record's metadata; none can set one.
 const (
-	MetaAgent          = "gotato.agent"           // Agent name used for this Session
-	MetaInstruction    = "gotato.instruction"     // overrides Agent.Instruction
-	MetaCompactCeiling = "gotato.compact_ceiling" // estimated-token budget for auto compaction
-	MetaModel          = "gotato.model"           // informational: model name last used
-	MetaCacheKey       = "gotato.cache_key"       // the prompt cache key; a fork keeps its parent's
-	// MetaToolPrefix + <tool id> = "inactive" hides one of the Agent's Tools
+	metaAgent    = ReservedPrefix + "agent"     // Agent name used for this Session
+	metaModel    = ReservedPrefix + "model"     // informational: model name last used
+	metaCacheKey = ReservedPrefix + "cache_key" // the prompt cache key; a fork keeps its parent's
+	// metaToolPrefix + <tool id> = "inactive" hides one of the Agent's Tools
 	// from the Model for this Session. Tool activation is Session state.
-	MetaToolPrefix = "gotato.tool."
+	metaToolPrefix = ReservedPrefix + "tool."
 )
 
 // ToolEntry describes one Tool of an Agent as seen by a Session.
@@ -89,18 +95,53 @@ type ToolEntry struct {
 	Unavailable bool            `json:"unavailable,omitempty"`
 }
 
-// Agent is a named, reusable definition: the model, instruction, tools and
-// limits its Sessions run. The Runner builds a live Session from it for each
-// Run. Sharing a Model client between Agents and Runs is expected; nothing
-// here is mutable Run state.
+// ToolSetMode says how the Model sees one of an Agent's ToolSets. The zero
+// value is ToolSetListed.
+type ToolSetMode string
+
+// The ways a ToolSet is installed.
+const (
+	// ToolSetListed: the catalog lists the ToolSet's description and all its
+	// Tool names, and the Model loads the Tools it needs with search_tools.
+	ToolSetListed ToolSetMode = "listed"
+	// ToolSetFolded: the catalog shows only the description and a count; the
+	// Model lists the Tools with the toolset parameter of search_tools, then
+	// loads by name.
+	ToolSetFolded ToolSetMode = "folded"
+	// ToolSetActive: every Tool is visible always, as if it were a base Tool,
+	// never in the catalog and never unloaded.
+	ToolSetActive ToolSetMode = "active"
+)
+
+// valid reports whether the mode is one of the three, or empty (listed).
+func (m ToolSetMode) valid() bool {
+	switch m {
+	case "", ToolSetListed, ToolSetFolded, ToolSetActive:
+		return true
+	}
+	return false
+}
+
+// ToolSet is a gotato.ToolSet an Agent installs, with how the Model sees it.
+type ToolSet struct {
+	Set  gotato.ToolSet
+	Mode ToolSetMode
+}
+
+// Agent is a named, reusable definition: the model, instruction, tools, cap
+// and limits its Sessions run. The Runner builds a live Session from it for each
+// Run, and builds every gotato.SessionOption itself: nothing an Agent holds is
+// a function that runs after the Runner's own options, so an Agent cannot
+// replace the Writer, the cap or a Tool a Session switched off. A Session has
+// no instruction or ceiling of its own; another one is another Agent.
+// Sharing a Model client between Agents and Runs is expected; nothing here is
+// mutable Run state.
 //
 // Three fields give an Agent its Tools; each has one job:
 //   - Tools: Go Tools (gotato.NewFuncTool and the like), fixed for the
 //     Agent's life.
-//   - Options: a gotato.ToolSet, such as an MCP server's, goes in with
-//     gotato.WithToolSet, WithActiveToolSet or WithFoldedToolSet. The three
-//     differ in how the Model sees the set (listed, always visible, or
-//     folded behind search_tools).
+//   - ToolSets: a gotato.ToolSet, such as an MCP server's, and how the Model
+//     sees it (listed, always visible, or folded behind search_tools).
 //   - ToolSources: Tools that change between Turns, asked again at the
 //     start of each Turn. A ToolSet is not a ToolSources entry.
 type Agent struct {
@@ -110,16 +151,28 @@ type Agent struct {
 	Instruction string
 	// Tools are Go Tools, the same for every Turn.
 	Tools []gotato.Tool
+	// ToolSets are the ToolSets the Agent installs, each with a Mode. A Tool of
+	// one is under MaxEffect like any other.
+	ToolSets []ToolSet
 	// ToolSources supply Tools that change between Turns (gotato.ToolSource).
 	// Tools, ToolSources, read_result and read_segment are one ToolSource to
 	// the Session: a Tool ID that two of them supply fails it whole, as any
-	// bad Tool does (gotato.Tool). To attach a ToolSet, use Options with gotato.WithToolSet,
-	// gotato.WithActiveToolSet or gotato.WithFoldedToolSet instead.
+	// bad Tool does (gotato.Tool). A ToolSet goes in ToolSets instead.
 	ToolSources []gotato.ToolSource
+	// ToolSearcher replaces the built-in search of search_tools
+	// (gotato.ToolSearcher). Nil keeps the built-in one.
+	ToolSearcher gotato.ToolSearcher
 	// MaxEffect is the highest Effect a Tool of this Agent may have. A Tool
 	// above it is hidden from the model and from Runner.Tools, and no Session
 	// can switch it on. Empty means no cap (gotato.WithMaxEffect).
 	MaxEffect gotato.ToolEffect
+	// Sampling is the sampling and reasoning hints sent on every model call
+	// of the Agent's Sessions, over the Model's own defaults
+	// (gotato.WithSampling).
+	Sampling gotato.Sampling
+	// Extensions are installed after the Runner's own, in this order
+	// (gotato.WithExtension).
+	Extensions []any
 	// ContextBuilder defaults to gotato.FullHistoryContext().
 	ContextBuilder gotato.ContextBuilder
 	Limits         *gotato.CoreLimits
@@ -132,8 +185,8 @@ type Agent struct {
 	// Compact says when the Agent's Sessions compact by themselves: past the
 	// ceiling, which is the Model's window less a reserve unless CeilingTokens sets
 	// one (a negative CeilingTokens turns it off), and once when the provider refuses
-	// a request as too long. A Session may override the ceiling through
-	// MetaCompactCeiling.
+	// a request as too long. The ceiling is the Agent's alone: no Session
+	// overrides it.
 	Compact modelctx.CompactPolicy
 	// Warm says how long the Agent's idle Sessions stay in memory after a
 	// Run, and whether they are compacted while they idle. The zero value is
@@ -145,11 +198,6 @@ type Agent struct {
 	// a negative value turns the notice off. The time is shown
 	// in the zone of Compact.Location, UTC when it is nil.
 	TimeAwayAfter time.Duration
-	// Options are appended verbatim for anything the fields above do not
-	// cover. They are where a gotato.ToolSet is attached: gotato.WithToolSet,
-	// gotato.WithActiveToolSet or gotato.WithFoldedToolSet (an MCP server's
-	// tools arrive this way).
-	Options []gotato.SessionOption
 }
 
 // QueuePolicy decides what happens when a Session is busy.
@@ -397,6 +445,19 @@ func New(cfg Config) (*Runner, error) {
 		if !spec.MaxEffect.Valid() {
 			return nil, fmt.Errorf("service: Agent %q has unknown MaxEffect %q", name, spec.MaxEffect)
 		}
+		for i, set := range spec.ToolSets {
+			if set.Set == nil {
+				return nil, fmt.Errorf("service: Agent %q has a nil ToolSet at ToolSets[%d]", name, i)
+			}
+			if !set.Mode.valid() {
+				return nil, fmt.Errorf("service: Agent %q has unknown ToolSet Mode %q", name, set.Mode)
+			}
+		}
+		for i, extension := range spec.Extensions {
+			if extension == nil {
+				return nil, fmt.Errorf("service: Agent %q has a nil Extension at Extensions[%d]", name, i)
+			}
+		}
 		spec.Name = name
 		r.agents[name] = spec
 		r.order = append(r.order, name)
@@ -404,20 +465,21 @@ func New(cfg Config) (*Runner, error) {
 	return r, nil
 }
 
-// Store returns the Session store.
-func (r *Runner) Store() session.Store { return r.store }
-
 // Instance returns the name this Runner writes its Claims with: Config.Instance
 // and a random suffix, or a generated name when none was set. It is new for
 // each start, and new again when the Runner took a new name after its Liveness
 // row expired (see Lapsed).
 func (r *Runner) Instance() string { return r.id() }
 
-// Record reads a Record's whole Record from the store: its facts, Runs,
-// usage and Events. It changes nothing.
-func (r *Runner) Record(ctx context.Context, sessionID string) (*session.Record, error) {
+// Record reads a Session's whole Record from the store, as a Document: its
+// facts, Runs, usage and Events. It is a copy and changes nothing: a Set on what
+// it returns would be stored nowhere, so it has none.
+func (r *Runner) Record(ctx context.Context, sessionID string) (session.Document, error) {
 	record, err := session.View(ctx, r.store.Records, sessionID)
-	return record, storeFailureOf(ctx, err, true)
+	if err != nil {
+		return session.Document{}, storeFailureOf(ctx, err, true)
+	}
+	return record.Snapshot(), nil
 }
 
 // Events reads a Session's stored Events from the store: every Entry of its

@@ -172,7 +172,13 @@ func (a *Session) dropAfterQueued(id MessageID, source MessageSource, why string
 // DropQueued, after every Run; Close drops what is left (message_dropped,
 // session_closed).
 func WithQueueHandoff() SessionOption {
-	return func(c *sessionConfig) error { c.handoff = true; return nil }
+	return func(c *sessionConfig) error {
+		if err := c.once("WithQueueHandoff"); err != nil {
+			return err
+		}
+		c.handoff = true
+		return nil
+	}
 }
 
 // keepsQueued says whether a Run that ends with status leaves its queues for

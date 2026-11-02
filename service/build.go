@@ -10,12 +10,13 @@ import (
 	"github.com/jinhuang712/gotato/session"
 )
 
-// buildSession builds the live Session for one Run from its Agent and its
-// Record's own settings. override replaces the Session's instruction for an
-// inspection; a Run passes none. With a writer, the writer is its Transcript,
-// so every step of a Run is written as it happens; without one the Record is,
-// and keeps the Session's Events in memory. extra options come after the
-// Agent's own.
+// buildSession builds the live Session for one Run from its Agent: every
+// SessionOption is the Runner's, built from the Agent's typed fields and the
+// Record's tool switches. override replaces the instruction for an inspection
+// only; a Run passes none. With a writer, the writer is its Transcript, so every
+// step of a Run is written as it happens; without one the Record is, and keeps
+// the Session's Events in memory. extra options come after the Agent's own, and
+// NewSession refuses one that repeats a single-valued option.
 func (r *Runner) buildSession(ctx context.Context, spec Agent, s *session.Record, writer *session.Writer, override InspectConfig, extra ...gotato.SessionOption) (*gotato.Session, *modelctx.AutoCompactor, error) {
 	// Without a writer nothing is stored: the live Session numbers its Events
 	// on its own stream, and does not use the Record's numbers, which are
@@ -25,9 +26,6 @@ func (r *Runner) buildSession(ctx context.Context, spec Agent, s *session.Record
 		transcript = writer
 	}
 	instruction := spec.Instruction
-	if stored, ok := s.Get(MetaInstruction); ok && stored != "" {
-		instruction = stored
-	}
 	if override.Instruction != "" {
 		instruction = override.Instruction
 	}
@@ -37,15 +35,32 @@ func (r *Runner) buildSession(ctx context.Context, spec Agent, s *session.Record
 	}
 	// Every Run has its Session compacted when the provider refuses a request
 	// as too long, and past the ceiling when there is one.
-	auto := modelctx.AutoCompact(s, compactPolicyFor(spec, s))
+	auto := modelctx.AutoCompact(s, compactPolicyFor(spec))
 	options := []gotato.SessionOption{
 		gotato.WithModel(spec.Model),
 		gotato.WithInstruction(instruction),
 		gotato.WithTranscript(transcript),
 		gotato.WithContextBuilder(builder),
 		gotato.WithCacheKey(sessionCacheKey(s)),
+		gotato.WithSampling(spec.Sampling),
 	}
 	options = append(options, gotato.WithExtension(auto))
+	for _, extension := range spec.Extensions {
+		options = append(options, gotato.WithExtension(extension))
+	}
+	for _, set := range spec.ToolSets {
+		switch set.Mode {
+		case ToolSetFolded:
+			options = append(options, gotato.WithFoldedToolSet(set.Set))
+		case ToolSetActive:
+			options = append(options, gotato.WithActiveToolSet(set.Set))
+		default:
+			options = append(options, gotato.WithToolSet(set.Set))
+		}
+	}
+	if spec.ToolSearcher != nil {
+		options = append(options, gotato.WithToolSearcher(spec.ToolSearcher))
+	}
 	source := &sessionTools{spec: spec, session: s, segments: r.segmentTools(spec, s), results: r.resultTools(s)}
 	options = append(options, gotato.WithToolSource(source),
 		// A Tool switched off for the Session is never in the catalog, found or loaded.
@@ -56,16 +71,11 @@ func (r *Runner) buildSession(ctx context.Context, spec Agent, s *session.Record
 	if spec.Limits != nil {
 		options = append(options, gotato.WithLimits(*spec.Limits))
 	}
-	options = append(options, spec.Options...)
 	options = append(options, extra...)
 	agent, err := gotato.NewSession(ctx, options...)
 	if err != nil {
 		return nil, nil, err
 	}
-	// The Agent's ToolSets are in its Options, so only the live Session knows
-	// it has any. The flag is read at the next refresh of the tool list, which
-	// comes before the first request of a Run or an inspection.
-	source.hasToolSets.Store(len(agent.ToolSets()) > 0)
 	return agent, auto, nil
 }
 
@@ -79,26 +89,30 @@ func (u unjournaled) Messages() []gotato.Message { return u.record.Messages() }
 
 func (u unjournaled) Append(m gotato.Message) error { return u.record.Append(m) }
 
-func (u unjournaled) ID() string { return u.record.ID() }
-
 func (u unjournaled) LoadedTools() []string { return u.record.LoadedTools() }
+
+// Capabilities says what a Run that is not saved has: the Record's ID and
+// loaded Tools, and no Journal, no Events and no spill, so the live Session
+// numbers its Events in memory and stores none.
+func (u unjournaled) Capabilities() gotato.Capabilities {
+	return gotato.Capabilities{ID: u.record.ID(), Loaded: u}
+}
 
 // CacheKey is the ModelRequest.CacheKey the Runner gives every Turn of a
 // Session, so the provider serves a conversation from one prompt cache. It is
 // a hash of the Session ID, because an ID the caller chose may name a user or
 // a tenant, and the key goes to the provider. A Session forked by the Runner
-// keeps its parent's key instead (MetaCacheKey), and an Agent may set another
-// with gotato.WithCacheKey in its Options.
+// keeps its parent's key instead (metaCacheKey).
 func CacheKey(sessionID string) string {
 	sum := sha256.Sum256([]byte(sessionID))
 	return "gotato-" + hex.EncodeToString(sum[:16])
 }
 
 // sessionCacheKey is the cache key a Session's Turns carry: the one in its
-// metadata (MetaCacheKey), which a fork inherits from its parent, or else
+// metadata (metaCacheKey), which a fork inherits from its parent, or else
 // CacheKey of its ID.
 func sessionCacheKey(s *session.Record) string {
-	if key, ok := s.Get(MetaCacheKey); ok && key != "" {
+	if key, ok := s.Get(metaCacheKey); ok && key != "" {
 		return key
 	}
 	return CacheKey(s.ID())

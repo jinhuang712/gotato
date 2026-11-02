@@ -35,14 +35,14 @@ func TestDrainCommitsRunsAndReleasesClaims(t *testing.T) {
 			ids := make([]string, runs)
 			results := make([]chan error, runs)
 			for i := range runs {
-				s, err := a.CreateSession(ctx, "echo", nil)
+				s, err := a.CreateSession(ctx, service.CreateSessionRequest{Agent: "echo"})
 				if err != nil {
 					t.Fatal(err)
 				}
-				ids[i] = s.ID()
+				ids[i] = s.ID
 				results[i] = make(chan error, 1)
 				go func() {
-					result, err := a.Run(ctx, service.RunRequest{SessionID: s.ID(), Prompt: fmt.Sprintf("p%d", i)})
+					result, err := a.Run(ctx, service.RunRequest{SessionID: s.ID, Prompt: fmt.Sprintf("p%d", i)})
 					if err == nil && (result.Result.Status != gotato.RunStatusCompleted || result.Reconnect != nil) {
 						err = fmt.Errorf("result = %+v, want completed and no reconnect", result)
 					}
@@ -76,17 +76,17 @@ func TestDrainCommitsRunsAndReleasesClaims(t *testing.T) {
 			}
 			// Creating or forking a Session writes the store and activates
 			// nothing, so it still works.
-			if _, err := a.CreateSessionExclusive(ctx, "echo", "created-"+kind, nil); err != nil {
+			if _, err := a.CreateSession(ctx, service.CreateSessionRequest{Agent: "echo", ID: "created-" + kind}); err != nil {
 				t.Fatalf("a new Session while draining = %v", err)
 			}
 			if _, err := a.Fork(ctx, ids[0], "forked-"+kind); err != nil {
 				t.Fatalf("a fork while draining = %v", err)
 			}
-			other, err := b.CreateSession(ctx, "echo", nil)
+			other, err := b.CreateSession(ctx, service.CreateSessionRequest{Agent: "echo"})
 			if err != nil {
 				t.Fatal(err)
 			}
-			if _, err := a.Run(ctx, service.RunRequest{SessionID: other.ID(), Prompt: "claim"}); err == nil {
+			if _, err := a.Run(ctx, service.RunRequest{SessionID: other.ID, Prompt: "claim"}); err == nil {
 				t.Fatal("a draining instance claimed a Session another instance holds")
 			}
 			// Another instance waits for a Session the draining one is using,
@@ -155,11 +155,11 @@ func TestDrainDeadlineStopsRunsAndSaysReconnect(t *testing.T) {
 	const runs = 2
 	ids := make([]string, runs)
 	for i := range runs {
-		s, err := a.CreateSession(ctx, "echo", nil)
+		s, err := a.CreateSession(ctx, service.CreateSessionRequest{Agent: "echo"})
 		if err != nil {
 			t.Fatal(err)
 		}
-		ids[i] = s.ID()
+		ids[i] = s.ID
 	}
 	type outcome struct {
 		result   service.RunResponse
@@ -257,14 +257,14 @@ func TestDrainCancelsQueuedRun(t *testing.T) {
 		Admission: service.Admission{Queue: service.QueuePolicyWait, MaxActiveRuns: 4},
 	})
 	ctx := context.Background()
-	s, _ := runner.CreateSession(ctx, "slow", nil)
+	s, _ := runner.CreateSession(ctx, service.CreateSessionRequest{Agent: "slow"})
 
-	go func() { _, _ = runner.Run(ctx, service.RunRequest{SessionID: s.ID(), Prompt: "first"}) }()
+	go func() { _, _ = runner.Run(ctx, service.RunRequest{SessionID: s.ID, Prompt: "first"}) }()
 	waitFor(t, func() bool { return model.Calls() == 1 })
 
 	queued := make(chan service.RunResponse, 1)
 	go func() {
-		result, _ := runner.Run(ctx, service.RunRequest{SessionID: s.ID(), Prompt: "second"})
+		result, _ := runner.Run(ctx, service.RunRequest{SessionID: s.ID, Prompt: "second"})
 		queued <- result
 	}()
 	waitFor(t, func() bool { return runner.ActiveRuns() == 2 })
@@ -301,18 +301,18 @@ func TestDrainMustWaitForACompactionInFlight(t *testing.T) {
 	runner := newRunnerOn(t, asStore(store), service.Agent{Name: "a", Model: testkit.EchoModel{}, Warm: service.WarmPolicy{TTL: -1}})
 	ctx, cancel := context.WithTimeout(context.Background(), 20*time.Second)
 	defer cancel()
-	s, err := runner.CreateSession(ctx, "a", nil)
+	s, err := runner.CreateSession(ctx, service.CreateSessionRequest{Agent: "a"})
 	if err != nil {
 		t.Fatal(err)
 	}
 	for _, p := range []string{"one", "two", "three"} {
-		if _, err := runner.Run(ctx, service.RunRequest{SessionID: s.ID(), Prompt: p}); err != nil {
+		if _, err := runner.Run(ctx, service.RunRequest{SessionID: s.ID, Prompt: p}); err != nil {
 			t.Fatal(err)
 		}
 	}
 	compacted := make(chan error, 1)
 	go func() {
-		_, err := runner.Compact(ctx, s.ID(), modelctx.CompactConfig{KeepMessages: 1})
+		_, err := runner.Compact(ctx, s.ID, modelctx.CompactConfig{KeepMessages: 1})
 		compacted <- err
 	}()
 	waitChan(t, "the compaction's write", hold.entered)
@@ -320,7 +320,7 @@ func TestDrainMustWaitForACompactionInFlight(t *testing.T) {
 	go func() { drained <- runner.Drain(ctx) }()
 	select {
 	case err := <-drained:
-		loaded, loadErr := store.Load(ctx, s.ID())
+		loaded, loadErr := store.Load(ctx, s.ID)
 		t.Errorf("Drain returned (%v) while a compaction still holds the Claim (busy=%v, load error %v)", err, stateOf(loaded).Busy, loadErr)
 	case <-time.After(300 * time.Millisecond):
 	}
@@ -353,7 +353,7 @@ func TestDrainMarksDrainingBeforeTheRowIsWritten(t *testing.T) {
 	store := &slowBeatStore{parts: partsOf(memStore())}
 	a := instanceRunner(t, asStore(store), "instance-a", testkit.EchoModel{}, service.Liveness{TTL: 3 * time.Second, Wait: time.Second})
 	t.Cleanup(func() { store.hold.Store(false) })
-	if _, err := a.CreateSession(ctx, "echo", nil); err != nil {
+	if _, err := a.CreateSession(ctx, service.CreateSessionRequest{Agent: "echo"}); err != nil {
 		t.Fatal(err)
 	}
 	store.hold.Store(true)
@@ -416,14 +416,14 @@ func TestDrainReturnsAfterItsContextEvenForAToolThatIgnoresIt(t *testing.T) {
 func TestCompactRefusesWhileDraining(t *testing.T) {
 	ctx := context.Background()
 	a := instanceRunner(t, memStore(), "instance-a", testkit.EchoModel{}, steadyLiveness)
-	s, err := a.CreateSession(ctx, "echo", nil)
+	s, err := a.CreateSession(ctx, service.CreateSessionRequest{Agent: "echo"})
 	if err != nil {
 		t.Fatal(err)
 	}
 	if err := a.Drain(ctx); err != nil {
 		t.Fatal(err)
 	}
-	_, err = a.Compact(ctx, s.ID(), modelctx.CompactConfig{})
+	_, err = a.Compact(ctx, s.ID, modelctx.CompactConfig{})
 	if !errors.Is(err, service.ErrDraining) || !gotato.NotRun(err) {
 		t.Fatalf("Compact while draining = %v, want ErrDraining, not run", err)
 	}

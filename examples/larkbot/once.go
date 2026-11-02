@@ -32,7 +32,7 @@ func runOnce(model, prompt string) error {
 	defer cancel()
 
 	const id = "once"
-	if _, err := runner.CreateSessionExclusive(ctx, agent.Name, id, nil); err != nil {
+	if _, err := runner.CreateSession(ctx, service.CreateSessionRequest{Agent: agent.Name, ID: id}); err != nil {
 		return err
 	}
 	start := time.Now()

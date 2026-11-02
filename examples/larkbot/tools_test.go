@@ -74,7 +74,7 @@ func lastReply(t *testing.T, r *service.Runner, id, prompt string) string {
 	if err != nil {
 		t.Fatal(err)
 	}
-	msgs := rec.Messages()
+	msgs := rec.Messages
 	return gotato.TextOf(msgs[len(msgs)-1])
 }
 
@@ -86,7 +86,7 @@ func TestScriptExport(t *testing.T) {
 		t.Fatal(err)
 	}
 	a := scriptedRunner(t, store, "pod-a", "export", "")
-	if _, err := a.CreateSessionExclusive(context.Background(), "echo", "s1", nil); err != nil {
+	if _, err := a.CreateSession(context.Background(), service.CreateSessionRequest{Agent: "echo", ID: "s1"}); err != nil {
 		t.Fatal(err)
 	}
 	if got := lastReply(t, a, "s1", "T[a] [script:export]"); got != ansExported {
@@ -103,7 +103,7 @@ func TestScriptMCPCallAndSearch(t *testing.T) {
 	ctx := context.Background()
 
 	active := scriptedRunner(t, session.NewMemoryStore(), "pod-a", "mcp", srv.URL+"/mcp")
-	if _, err := active.CreateSessionExclusive(ctx, "echo", "s1", nil); err != nil {
+	if _, err := active.CreateSession(ctx, service.CreateSessionRequest{Agent: "echo", ID: "s1"}); err != nil {
 		t.Fatal(err)
 	}
 	if got := lastReply(t, active, "s1", "T[a] [script:mcp=10ms]"); got != "mcp-ok: order ord-1: status paid, total 42.50" {
@@ -112,7 +112,7 @@ func TestScriptMCPCallAndSearch(t *testing.T) {
 
 	store := session.NewMemoryStore()
 	first := scriptedRunner(t, store, "pod-a", "mcp-search", srv.URL+"/mcp")
-	if _, err := first.CreateSessionExclusive(ctx, "echo", "s2", nil); err != nil {
+	if _, err := first.CreateSession(ctx, service.CreateSessionRequest{Agent: "echo", ID: "s2"}); err != nil {
 		t.Fatal(err)
 	}
 	if got := lastReply(t, first, "s2", "T[a] [script:loaded]"); got != "loaded: false" {
@@ -184,7 +184,7 @@ func TestScriptCompactionUnloadsAndSegmentIsReadOnAnotherInstance(t *testing.T) 
 	recap := func(a *service.Agent) { a.Compact.Recap = modelctx.TruncateRecap{} }
 	a := scriptedRunner(t, store, "pod-a", "mcp-search", srv.URL+"/mcp", recap)
 	b := scriptedRunner(t, store, "pod-b", "mcp-search", srv.URL+"/mcp", recap)
-	if _, err := a.CreateSessionExclusive(ctx, "echo", "s1", nil); err != nil {
+	if _, err := a.CreateSession(ctx, service.CreateSessionRequest{Agent: "echo", ID: "s1"}); err != nil {
 		t.Fatal(err)
 	}
 	if got := lastReply(t, a, "s1", "T[a] [script:load]"); got != ansLoadDone {
@@ -211,7 +211,7 @@ func TestScriptCompactionUnloadsAndSegmentIsReadOnAnotherInstance(t *testing.T) 
 		t.Fatal(err)
 	}
 	loaded, unloaded := 0, 0
-	for _, ev := range rec.Events() {
+	for _, ev := range rec.Events {
 		if ev.Kind() == gotato.EventKindToolLoaded {
 			loaded++
 		} else if ev.Kind() == gotato.EventKindToolUnloaded {

@@ -114,7 +114,7 @@ func TestContextInspectOverridesTheSession(t *testing.T) {
 	// The Session itself was not rewritten.
 	var doc map[string]any
 	h.mustJSON(h.ok("session", "show", outcome.SessionID, "--json"), &doc)
-	if metadata, _ := doc["metadata"].(map[string]any); metadata[service.MetaInstruction] != nil {
+	if metadata, _ := doc["metadata"].(map[string]any); metadata[agentKey] != "echo" || metadata[service.ReservedPrefix+"instruction"] != nil {
 		t.Fatalf("inspect mutated session metadata: %v", metadata)
 	}
 }

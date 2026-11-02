@@ -23,7 +23,7 @@
 //	GET    /healthz                         liveness: 200 {ok, contract}
 //	GET    /readyz                          readiness: 200, or 503 while draining {ok, draining, active_runs, active_sessions}
 //	GET    /v1/agents                       200 {agents: [name], max_effect: {name: effect}}
-//	POST   /v1/sessions                     {agent?, id?, metadata?}      → 201 session summary; 409 if id exists
+//	POST   /v1/sessions                     {agent?, id?, metadata?}      → 201 session summary; 409 if id exists; 400 for a metadata key under "gotato."
 //	GET    /v1/sessions?limit=N&cursor=C    → 200 {sessions: [listing columns], next?}; 400 not_supported when the store does not list
 //	GET    /v1/sessions/{id}                → 200 session document
 //	DELETE /v1/sessions/{id}                → 200 {id, deleted}

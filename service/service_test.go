@@ -66,18 +66,18 @@ func TestAbortSessionAuthorizesWhileTheRunIsLoading(t *testing.T) {
 		t.Fatal(err)
 	}
 	t.Cleanup(func() { _ = r.Close(ctx) })
-	rec, err := r.CreateSession(ctx, "echo", nil)
+	rec, err := r.CreateSession(ctx, service.CreateSessionRequest{Agent: "echo"})
 	if err != nil {
 		t.Fatal(err)
 	}
 	store.block.Store(true)
 	done := make(chan error, 1)
 	go func() {
-		_, runErr := r.Run(ctx, service.RunRequest{SessionID: rec.ID(), Prompt: "owner request"})
+		_, runErr := r.Run(ctx, service.RunRequest{SessionID: rec.ID, Prompt: "owner request"})
 		done <- runErr
 	}()
 	<-store.entered
-	abortErr := r.AbortSession(context.WithValue(ctx, callerKey{}, "mallory"), rec.ID())
+	abortErr := r.AbortSession(context.WithValue(ctx, callerKey{}, "mallory"), rec.ID)
 	close(store.proceed)
 	if runErr := <-done; runErr != nil {
 		t.Fatalf("the owner's Run was stopped by a refused caller: %v", runErr)
@@ -111,21 +111,21 @@ func (s resolvingSet) Tools(ctx context.Context) ([]gotato.Tool, error) {
 func startResolving(t *testing.T) (*service.Runner, string, context.Context, chan error, resolvingSet) {
 	t.Helper()
 	set := resolvingSet{entered: make(chan context.Context, 1), release: make(chan struct{})}
-	r, err := service.New(service.Config{Store: memStore(), Agents: []service.Agent{{Name: "slow", Model: testkit.EchoModel{}, Options: []gotato.SessionOption{gotato.WithToolSet(set)}}}})
+	r, err := service.New(service.Config{Store: memStore(), Agents: []service.Agent{{Name: "slow", Model: testkit.EchoModel{}, ToolSets: []service.ToolSet{{Set: set}}}}})
 	if err != nil {
 		t.Fatal(err)
 	}
 	t.Cleanup(func() { _ = r.Close(context.Background()) })
-	rec, err := r.CreateSession(context.Background(), "slow", nil)
+	rec, err := r.CreateSession(context.Background(), service.CreateSessionRequest{Agent: "slow"})
 	if err != nil {
 		t.Fatal(err)
 	}
 	done := make(chan error, 1)
 	go func() {
-		_, e := r.Run(context.Background(), service.RunRequest{SessionID: rec.ID(), Prompt: "start"})
+		_, e := r.Run(context.Background(), service.RunRequest{SessionID: rec.ID, Prompt: "start"})
 		done <- e
 	}()
-	return r, rec.ID(), <-set.entered, done, set
+	return r, rec.ID, <-set.entered, done, set
 }
 
 // TestAbortCancelsToolSetResolution: an Abort that arrives while the Run
@@ -415,11 +415,11 @@ func TestForkKeepsTheParentsCacheKey(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	grandchild, err := runner.Fork(ctx, child.ID(), "")
+	grandchild, err := runner.Fork(ctx, child.ID, "")
 	if err != nil {
 		t.Fatal(err)
 	}
-	for _, id := range []string{child.ID(), grandchild.ID()} {
+	for _, id := range []string{child.ID, grandchild.ID} {
 		if _, err := runner.Run(ctx, service.RunRequest{SessionID: id, Prompt: "branch"}); err != nil {
 			t.Fatal(err)
 		}
@@ -432,12 +432,12 @@ func TestForkKeepsTheParentsCacheKey(t *testing.T) {
 			t.Fatalf("request %d cache key = %q, want the parent's %q", i, request.CacheKey, want)
 		}
 	}
-	stored, err := session.View(ctx, store.Records, grandchild.ID())
+	stored, err := session.View(ctx, store.Records, grandchild.ID)
 	if err != nil {
 		t.Fatal(err)
 	}
-	if key, _ := stored.Get(service.MetaCacheKey); key != want {
-		t.Fatalf("stored %s = %q, want %q", service.MetaCacheKey, key, want)
+	if key, _ := stored.Get(metaCacheKeyKey); key != want {
+		t.Fatalf("stored %s = %q, want %q", metaCacheKeyKey, key, want)
 	}
 }
 
@@ -466,7 +466,7 @@ func runDeadline(t *testing.T, ctx context.Context, runTimeout, requestTimeout t
 		Name:       "probe",
 		Model:      testkit.NewFakeModel(testkit.ToolCalls(gotato.ToolCall{ID: "c1", ToolID: "lookup", Arguments: []byte(`{}`)}), testkit.Text("done")),
 		Tools:      []gotato.Tool{testkit.NewFakeTool("lookup", "found")},
-		Options:    []gotato.SessionOption{gotato.WithExtension(probe)},
+		Extensions: []any{probe},
 		RunTimeout: runTimeout,
 	})
 	start := time.Now()
@@ -549,10 +549,10 @@ func TestAValueInTheCallersCtxReachesBeforeAndExecute(t *testing.T) {
 		return testkit.ToolCalls(gotato.ToolCall{ID: gotato.ToolCallID(id), ToolID: "whoami", Arguments: []byte(`{}`)})
 	}
 	runner, _ := newRunner(t, service.Agent{
-		Name:    "asker",
-		Model:   testkit.NewFakeModel(call("c1"), testkit.Text("one"), call("c2"), testkit.Text("two")),
-		Tools:   []gotato.Tool{tool},
-		Options: []gotato.SessionOption{gotato.WithExtension(probe)},
+		Name:       "asker",
+		Model:      testkit.NewFakeModel(call("c1"), testkit.Text("one"), call("c2"), testkit.Text("two")),
+		Tools:      []gotato.Tool{tool},
+		Extensions: []any{probe},
 	})
 	first, err := runner.Run(context.WithValue(context.Background(), askerKey{}, "ann"), service.RunRequest{Prompt: "go"})
 	if err != nil || first.Result.Status != gotato.RunStatusCompleted {
@@ -637,12 +637,12 @@ func TestEveryStepIsStoredBeforeTheNext(t *testing.T) {
 		t.Fatal(err)
 	}
 	ctx := context.Background()
-	s, err := runner.CreateSession(ctx, "lookup", nil)
+	s, err := runner.CreateSession(ctx, service.CreateSessionRequest{Agent: "lookup"})
 	if err != nil {
 		t.Fatal(err)
 	}
-	model.id = s.ID()
-	if _, err := runner.Run(ctx, service.RunRequest{SessionID: s.ID(), Prompt: "find it"}); err != nil {
+	model.id = s.ID
+	if _, err := runner.Run(ctx, service.RunRequest{SessionID: s.ID, Prompt: "find it"}); err != nil {
 		t.Fatal(err)
 	}
 	// Before the second model call, the store held the prompt, the reply
@@ -701,11 +701,11 @@ func TestACrashDuringAToolIsAnsweredOnTheNextRun(t *testing.T) {
 		t.Fatal(err)
 	}
 	ctx := context.Background()
-	s, err := crashing.CreateSession(ctx, "lookup", nil)
+	s, err := crashing.CreateSession(ctx, service.CreateSessionRequest{Agent: "lookup"})
 	if err != nil {
 		t.Fatal(err)
 	}
-	if _, err := crashing.Run(ctx, service.RunRequest{SessionID: s.ID(), Prompt: "find it"}); err == nil {
+	if _, err := crashing.Run(ctx, service.RunRequest{SessionID: s.ID, Prompt: "find it"}); err == nil {
 		t.Fatal("the Run succeeded on a store that stopped writing")
 	}
 
@@ -715,7 +715,7 @@ func TestACrashDuringAToolIsAnsweredOnTheNextRun(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if _, err := next.Run(ctx, service.RunRequest{SessionID: s.ID(), Prompt: "did it work?"}); err != nil {
+	if _, err := next.Run(ctx, service.RunRequest{SessionID: s.ID, Prompt: "did it work?"}); err != nil {
 		t.Fatal(err)
 	}
 	request, _ := model.LastRequest()
@@ -728,11 +728,11 @@ func TestACrashDuringAToolIsAnsweredOnTheNextRun(t *testing.T) {
 	if answer == nil || answer.SafeError != session.StoppedToolResult {
 		t.Fatalf("the next request answered call-1 with %+v, want the stopped answer", answer)
 	}
-	view, err := next.Record(ctx, s.ID())
+	view, err := next.Record(ctx, s.ID)
 	if err != nil {
 		t.Fatal(err)
 	}
-	runs := view.Runs()
+	runs := view.Runs
 	if len(runs) != 2 || runs[0].Error != "interrupted" || runs[1].Status != gotato.RunStatusCompleted {
 		t.Fatalf("runs = %+v, want the crashed Run ended as interrupted", runs)
 	}
@@ -747,22 +747,22 @@ func TestCompactAppendReloadKeepsTheContext(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	s, err := first.CreateSession(ctx, "echo", nil)
+	s, err := first.CreateSession(ctx, service.CreateSessionRequest{Agent: "echo"})
 	if err != nil {
 		t.Fatal(err)
 	}
 	for _, prompt := range []string{"one", "two", "three"} {
-		if _, err := first.Run(ctx, service.RunRequest{SessionID: s.ID(), Prompt: prompt}); err != nil {
+		if _, err := first.Run(ctx, service.RunRequest{SessionID: s.ID, Prompt: prompt}); err != nil {
 			t.Fatal(err)
 		}
 	}
-	if result, err := first.Compact(ctx, s.ID(), modelctx.CompactConfig{KeepMessages: 2}); err != nil || !result.Replaced {
+	if result, err := first.Compact(ctx, s.ID, modelctx.CompactConfig{KeepMessages: 2}); err != nil || !result.Replaced {
 		t.Fatalf("Compact = %+v, %v", result, err)
 	}
-	if _, err := first.Run(ctx, service.RunRequest{SessionID: s.ID(), Prompt: "four"}); err != nil {
+	if _, err := first.Run(ctx, service.RunRequest{SessionID: s.ID, Prompt: "four"}); err != nil {
 		t.Fatal(err)
 	}
-	before, err := first.Inspect(ctx, s.ID(), service.InspectConfig{})
+	before, err := first.Inspect(ctx, s.ID, service.InspectConfig{})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -772,7 +772,7 @@ func TestCompactAppendReloadKeepsTheContext(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	after, err := second.Inspect(ctx, s.ID(), service.InspectConfig{})
+	after, err := second.Inspect(ctx, s.ID, service.InspectConfig{})
 	if err != nil {
 		t.Fatal(err)
 	}

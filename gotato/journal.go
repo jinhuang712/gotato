@@ -7,15 +7,15 @@ import (
 	"time"
 )
 
-// Journal is an optional interface of a Transcript that keeps the Session's
-// stored Events, numbered, as the Entries of its Record. The Session calls
+// Journal is what a Transcript declares in Capabilities when it keeps the
+// Session's stored Events, numbered, as the Entries of its Record. The Session calls
 // Write under its write lock, which numbers the Events in order, so Writes do
 // not overlap, but from any goroutine: the Session's own at the end of each
 // step, after the step's Messages are committed through Append, and the
 // goroutine of a Steer, a Notice or an Abort for an Event of its own. When a
 // step's write fails, the Run fails
 // with its error, and the Events of the step are not sent. session.Record and
-// session.Writer implement it; a Session whose Transcript is not a Journal
+// session.Writer implement it; a Session whose Transcript declares no Journal
 // numbers its Events in memory.
 //
 // Write is called under the Session's write-ordering lock, which numbers the
@@ -54,13 +54,6 @@ var (
 	replyPartEvery = time.Second
 	replyPartBytes = 4096
 )
-
-// Durable is an optional method of a Journal: it says whether the Events it
-// keeps are stored, so they survive the process. A Journal without it is
-// durable. A session.Record that is not stored is not, and a Session over it
-// does not write the parts of a streaming reply, which exist so that a crash
-// loses at most the last of them.
-type durable interface{ Durable() bool }
 
 // memoryJournal numbers the Events of a Session whose Transcript keeps none.
 type memoryJournal struct {

@@ -7,23 +7,24 @@ import (
 	"github.com/jinhuang712/gotato/session"
 )
 
-// InspectConfig overrides Session settings for one inspection without
-// touching the Session. The zero value overrides nothing.
+// InspectConfig overrides what one inspection shows, as a what-if: it changes
+// neither the Session nor its Agent, and nothing a Run uses. The zero value
+// overrides nothing.
 type InspectConfig struct {
 	Instruction string
 }
 
 // Inspect reports the Context a Run against the Session would send now. It
 // builds the live Session a Run would build and asks it, so the report includes the
-// Agent's Options, Tools and model options, and says whether the next Run
-// compacts the Session first. config overrides the Session's stored settings.
-// The Session is not changed.
+// Agent's Extensions, Tools and model options, and says whether the next Run
+// compacts the Session first. config overrides the Agent's instruction for this
+// inspection alone. The Session is not changed.
 func (r *Runner) Inspect(ctx context.Context, sessionID string, config InspectConfig) (modelctx.Report, error) {
 	s, err := session.Open(ctx, r.store.Records, sessionID)
 	if err != nil {
 		return modelctx.Report{}, storeFailureOf(ctx, err, true)
 	}
-	agentName, _ := s.Get(MetaAgent)
+	agentName, _ := s.Get(metaAgent)
 	spec, ok := r.Agent(agentName)
 	if !ok {
 		return modelctx.Report{}, ErrUnknownAgent

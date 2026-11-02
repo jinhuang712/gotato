@@ -43,6 +43,25 @@ type journalTranscript struct {
 	hold      chan struct{}
 	holdKinds map[EventKind]bool
 	writing   chan struct{}
+	// durable makes the Transcript declare a durable Journal, with the Events
+	// and Loaded Tools a store has (both empty here).
+	durable bool
+}
+
+// EventsAfter has nothing to read again: no test subscriber falls behind.
+func (j *journalTranscript) EventsAfter(context.Context, uint64, int) ([]Event, error) {
+	return nil, nil
+}
+
+// LoadedTools lists no loaded Tool.
+func (j *journalTranscript) LoadedTools() []string { return nil }
+
+// Capabilities declares the Journal: the one that writes, not the embedded one.
+func (j *journalTranscript) Capabilities() Capabilities {
+	if j.durable {
+		return Capabilities{Journal: j, Durable: true, Events: j, Loaded: j}
+	}
+	return Capabilities{Journal: j}
 }
 
 func (j *journalTranscript) Write(_ context.Context, events []Event) ([]Event, error) {
@@ -506,6 +525,9 @@ func (t *recordingTranscript) Messages() []Message {
 	defer t.mu.Unlock()
 	return cloneMessages(t.messages)
 }
+
+// Capabilities declares nothing: a recordingTranscript stores no Events.
+func (t *recordingTranscript) Capabilities() Capabilities { return Capabilities{} }
 
 func (t *recordingTranscript) Append(message Message) error {
 	t.mu.Lock()

@@ -233,6 +233,8 @@ func TestAbortAfterTheRunBeganToEndStoresNothing(t *testing.T) {
 // stalledJournal never finishes a write of a queued message until its ctx ends.
 type stalledJournal struct{ journalTranscript }
 
+func (j *stalledJournal) Capabilities() Capabilities { return Capabilities{Journal: j} }
+
 func (j *stalledJournal) Write(ctx context.Context, events []Event) ([]Event, error) {
 	for _, event := range events {
 		if event.Kind() == EventKindMessageQueued {

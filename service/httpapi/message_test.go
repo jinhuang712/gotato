@@ -25,7 +25,7 @@ func transcript(t *testing.T, in *instance, id string) string {
 		t.Fatal(err)
 	}
 	var parts []string
-	for _, m := range record.Messages() {
+	for _, m := range record.Messages {
 		parts = append(parts, string(m.Role)+":"+gotato.TextOf(m))
 	}
 	return strings.Join(parts, "|")
@@ -68,12 +68,12 @@ func TestMessageIsQueuedForTheRunInFlight(t *testing.T) {
 
 func TestMessageValidation(t *testing.T) {
 	a := newInstance(t, memStore(), "instance-a", testkit.EchoModel{}, false)
-	s, _ := a.runner.CreateSession(context.Background(), "echo", nil)
+	s, _ := a.runner.CreateSession(context.Background(), service.CreateSessionRequest{Agent: "echo"})
 	for name, body := range map[string]map[string]string{
 		"bad kind": {"kind": "shout", "text": "hi"},
 		"no text":  {"kind": "steer"},
 	} {
-		resp, out := a.post(t, "/v1/sessions/"+s.ID()+"/messages", body)
+		resp, out := a.post(t, "/v1/sessions/"+s.ID+"/messages", body)
 		if resp.StatusCode != http.StatusBadRequest || resp.Header.Get(httpapi.NotRunHeader) != "true" {
 			t.Fatalf("%s: %d %s, want 400, not run", name, resp.StatusCode, out)
 		}
@@ -122,8 +122,8 @@ func TestMessageForARunElsewhereAnswersNotWriter(t *testing.T) {
 	if resp.StatusCode != http.StatusOK || !strings.Contains(string(body), `"queued":false`) || !strings.Contains(string(body), "echo: next") {
 		t.Fatalf("message with no Run going = %d %s, want 200 with the new Run", resp.StatusCode, body)
 	}
-	if view, _ := b.runner.Record(context.Background(), id); view.Claim().Instance != b.runner.Instance() {
-		t.Fatalf("claim = %+v, want instance-b", view.Claim())
+	if claim := claimOf(t, store, id); claim.Instance != b.runner.Instance() {
+		t.Fatalf("claim = %+v, want instance-b", claim)
 	}
 }
 
@@ -258,12 +258,12 @@ func (g *releaseGate) Append(ctx context.Context, id string, after uint64, entri
 func TestMessageWhileARunIsEndingRunsInTheNextRun(t *testing.T) {
 	gate := &releaseGate{parts: partsOf(memStore()), reached: make(chan struct{}), proceed: make(chan struct{})}
 	a := newInstance(t, asStore(gate), "instance-a", testkit.EchoModel{}, false)
-	s, err := a.runner.CreateSession(context.Background(), "echo", nil)
+	s, err := a.runner.CreateSession(context.Background(), service.CreateSessionRequest{Agent: "echo"})
 	if err != nil {
 		t.Fatal(err)
 	}
 	go func() {
-		_, _ = a.runner.Run(context.Background(), service.RunRequest{SessionID: s.ID(), Prompt: "hello"})
+		_, _ = a.runner.Run(context.Background(), service.RunRequest{SessionID: s.ID, Prompt: "hello"})
 	}()
 	select {
 	case <-gate.reached:
@@ -276,7 +276,7 @@ func TestMessageWhileARunIsEndingRunsInTheNextRun(t *testing.T) {
 	}
 	answered := make(chan answer, 1)
 	go func() {
-		resp, body := a.post(t, "/v1/sessions/"+s.ID()+"/messages", map[string]string{"kind": "follow_up", "text": "again"})
+		resp, body := a.post(t, "/v1/sessions/"+s.ID+"/messages", map[string]string{"kind": "follow_up", "text": "again"})
 		answered <- answer{resp.StatusCode, body}
 	}()
 	select {
@@ -337,14 +337,14 @@ func TestNoticeIsQueuedForTheNextModelCall(t *testing.T) {
 
 func TestNoticeValidation(t *testing.T) {
 	a := newInstance(t, memStore(), "instance-a", testkit.EchoModel{}, false)
-	s, _ := a.runner.CreateSession(context.Background(), "echo", nil)
+	s, _ := a.runner.CreateSession(context.Background(), service.CreateSessionRequest{Agent: "echo"})
 	for name, body := range map[string]map[string]string{
 		"no kind":       {"text": "hi"},
 		"a reserved":    {"kind": "time_away", "text": "hi"},
 		"no text":       {"kind": "k"},
 		"a blank text ": {"kind": "k", "text": "  "},
 	} {
-		resp, out := a.post(t, "/v1/sessions/"+s.ID()+"/notices", body)
+		resp, out := a.post(t, "/v1/sessions/"+s.ID+"/notices", body)
 		if resp.StatusCode != http.StatusBadRequest || resp.Header.Get(httpapi.NotRunHeader) != "true" {
 			t.Fatalf("%s: %d %s, want 400, not run", name, resp.StatusCode, out)
 		}

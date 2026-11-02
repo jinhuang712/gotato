@@ -23,10 +23,13 @@ type RunRequest struct {
 	// no Prompt: a request with both is refused as invalid_argument, since the
 	// Prompt would otherwise be dropped without a word.
 	Continue bool
-	// Metadata is applied to a new Session.
+	// Metadata is applied to a new Session. A key under ReservedPrefix fails
+	// the request with ErrReservedKey before anything is written.
 	Metadata map[string]string
 	// Update sets metadata on the Session before the Run, under its Claim,
-	// as the Run's first write. An empty value deletes a key.
+	// as the Run's first write. An empty value deletes a key. A key under
+	// ReservedPrefix fails the request with ErrReservedKey before anything is
+	// written: the Agent changes by Agent, not by Update.
 	Update map[string]string
 	// SkipSave runs without persisting the Session: a new Session lives only
 	// for this Run, and a changed existing Session, Update included, is left
@@ -208,6 +211,13 @@ func (r *Runner) runWith(ctx context.Context, request RunRequest, stream *runStr
 	}
 	if request.Continue && strings.TrimSpace(request.Prompt) != "" {
 		return RunResponse{}, notRunError(gotato.ErrorOf(gotato.CodeInvalidArgument, "service: continue takes no prompt"))
+	}
+	// [CONTRACT] a key under the Runner's prefix is refused, not dropped or overridden, before the Run is admitted or anything is written.
+	if err := refuseReserved(request.Metadata); err != nil {
+		return RunResponse{}, err
+	}
+	if err := refuseReserved(request.Update); err != nil {
+		return RunResponse{}, err
 	}
 	// [CONTRACT] a client's negative timeout is refused, not read as no bound.
 	if request.Timeout < 0 {

@@ -52,14 +52,14 @@ func TestStreamDisconnectSettlesAndSavesTheRun(t *testing.T) {
 	server := httptest.NewServer(httpapi.New(runner))
 	t.Cleanup(server.Close)
 	ctx := context.Background()
-	s, err := runner.CreateSession(ctx, "slow", nil)
+	s, err := runner.CreateSession(ctx, service.CreateSessionRequest{Agent: "slow"})
 	if err != nil {
 		t.Fatal(err)
 	}
 
 	clientCtx, disconnect := context.WithCancel(ctx)
 	defer disconnect()
-	request, err := http.NewRequestWithContext(clientCtx, http.MethodPost, server.URL+"/v1/sessions/"+s.ID()+"/runs/stream", bytes.NewReader([]byte(`{"prompt":"hello?"}`)))
+	request, err := http.NewRequestWithContext(clientCtx, http.MethodPost, server.URL+"/v1/sessions/"+s.ID+"/runs/stream", bytes.NewReader([]byte(`{"prompt":"hello?"}`)))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -79,16 +79,16 @@ func TestStreamDisconnectSettlesAndSavesTheRun(t *testing.T) {
 
 	deadline := time.Now().Add(5 * time.Second)
 	for {
-		view, err := runner.Record(ctx, s.ID())
+		view, err := runner.Record(ctx, s.ID)
 		if err != nil {
 			t.Fatal(err)
 		}
-		runs := view.Runs()
+		runs := view.Runs
 		if len(runs) == 1 && runs[0].Status != gotato.RunStatusRunning && runner.ActiveRuns() == 0 {
 			if runs[0].Status != gotato.RunStatusCanceled {
 				t.Fatalf("run = %+v, want canceled", runs[0])
 			}
-			if messages := view.Messages(); len(messages) != 1 || gotato.TextOf(messages[0]) != "hello?" {
+			if messages := view.Messages; len(messages) != 1 || gotato.TextOf(messages[0]) != "hello?" {
 				t.Fatalf("messages = %+v, want the prompt kept", messages)
 			}
 			return
@@ -137,20 +137,20 @@ func TestBusyOnAnotherInstanceAnswers409WithRetryAfter(t *testing.T) {
 		_ = other.Close(context.Background())
 	})
 	ctx := context.Background()
-	s, err := holder.CreateSession(ctx, "slow", nil)
+	s, err := holder.CreateSession(ctx, service.CreateSessionRequest{Agent: "slow"})
 	if err != nil {
 		t.Fatal(err)
 	}
 	go func() {
 		runCtx, cancel := context.WithTimeout(ctx, 5*time.Second)
 		defer cancel()
-		_, _ = holder.Run(runCtx, service.RunRequest{SessionID: s.ID(), Prompt: "slow"})
+		_, _ = holder.Run(runCtx, service.RunRequest{SessionID: s.ID, Prompt: "slow"})
 	}()
 	<-held.started
 
 	server := httptest.NewServer(httpapi.New(other))
 	t.Cleanup(server.Close)
-	response, err := http.Post(server.URL+"/v1/sessions/"+s.ID()+"/runs", "application/json", strings.NewReader(`{"prompt":"meanwhile"}`))
+	response, err := http.Post(server.URL+"/v1/sessions/"+s.ID+"/runs", "application/json", strings.NewReader(`{"prompt":"meanwhile"}`))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -212,13 +212,13 @@ func TestSSEClientThatStopsReadingDoesNotSlowTheRun(t *testing.T) {
 		t.Fatal(err)
 	}
 	ctx := context.Background()
-	s, err := runner.CreateSession(ctx, "bulk", nil)
+	s, err := runner.CreateSession(ctx, service.CreateSessionRequest{Agent: "bulk"})
 	if err != nil {
 		t.Fatal(err)
 	}
 
 	w := &stalledWriter{header: http.Header{}, gate: make(chan struct{})}
-	request := httptest.NewRequest(http.MethodPost, "/v1/sessions/"+s.ID()+"/runs/stream", strings.NewReader(`{"prompt":"go"}`))
+	request := httptest.NewRequest(http.MethodPost, "/v1/sessions/"+s.ID+"/runs/stream", strings.NewReader(`{"prompt":"go"}`))
 	request.Header.Set("Content-Type", "application/json")
 	served := make(chan struct{})
 	go func() {
@@ -231,7 +231,7 @@ func TestSSEClientThatStopsReadingDoesNotSlowTheRun(t *testing.T) {
 	var stored []gotato.Event
 	deadline := time.Now().Add(10 * time.Second)
 	for time.Now().Before(deadline) {
-		stored, err = session.StoredEvents(ctx, runner.Store().Records, s.ID(), 0, 0)
+		stored, err = runner.Events(ctx, s.ID)
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -344,11 +344,11 @@ func TestStreamingRoutesAnswerCapacityBeforeTheStream(t *testing.T) {
 		}
 		time.Sleep(5 * time.Millisecond)
 	}
-	fresh, err := runner.CreateSession(context.Background(), "gated", nil)
+	fresh, err := runner.CreateSession(context.Background(), service.CreateSessionRequest{Agent: "gated"})
 	if err != nil {
 		t.Fatal(err)
 	}
-	for _, path := range []string{"/v1/sessions/" + fresh.ID() + "/runs", "/v1/sessions/" + fresh.ID() + "/runs/stream"} {
+	for _, path := range []string{"/v1/sessions/" + fresh.ID + "/runs", "/v1/sessions/" + fresh.ID + "/runs/stream"} {
 		resp, data := send(t, server, http.MethodPost, path, map[string]any{"prompt": "new"}, nil)
 		if resp.StatusCode != http.StatusTooManyRequests || resp.Header.Get(httpapi.NotRunHeader) != "true" {
 			t.Fatalf("%s at capacity = %d %s, mark %q; want 429, marked not run", path, resp.StatusCode, data, resp.Header.Get(httpapi.NotRunHeader))
@@ -447,8 +447,9 @@ func TestDrainEndsStreamsInOrder(t *testing.T) {
 	openGate := sync.OnceFunc(func() { close(gated.gate) })
 	t.Cleanup(openGate)
 	hanging := startedModel{started: make(chan struct{}, 4)}
+	store := memStore()
 	runner, err := service.New(service.Config{
-		Store:  memStore(),
+		Store:  store,
 		Agents: []service.Agent{{Name: "gated", Model: gated}, {Name: "hanging", Model: hanging}},
 	})
 	if err != nil {
@@ -457,16 +458,16 @@ func TestDrainEndsStreamsInOrder(t *testing.T) {
 	server := httptest.NewServer(httpapi.New(runner))
 	t.Cleanup(server.Close)
 	ctx := context.Background()
-	finishing, err := runner.CreateSession(ctx, "gated", nil)
+	finishing, err := runner.CreateSession(ctx, service.CreateSessionRequest{Agent: "gated"})
 	if err != nil {
 		t.Fatal(err)
 	}
-	stopped, err := runner.CreateSession(ctx, "hanging", nil)
+	stopped, err := runner.CreateSession(ctx, service.CreateSessionRequest{Agent: "hanging"})
 	if err != nil {
 		t.Fatal(err)
 	}
-	finished := openStream(t, server, "/v1/sessions/"+finishing.ID()+"/runs/stream", `{"prompt":"finish"}`)
-	cut := openStream(t, server, "/v1/sessions/"+stopped.ID()+"/runs/stream", `{"prompt":"wait"}`)
+	finished := openStream(t, server, "/v1/sessions/"+finishing.ID+"/runs/stream", `{"prompt":"finish"}`)
+	cut := openStream(t, server, "/v1/sessions/"+stopped.ID+"/runs/stream", `{"prompt":"wait"}`)
 	<-gated.started
 	<-hanging.started
 	if status, body := call(t, server, http.MethodGet, "/readyz", nil); status != http.StatusOK {
@@ -490,11 +491,11 @@ func TestDrainEndsStreamsInOrder(t *testing.T) {
 	// A new Run while draining is refused before the stream starts, with the
 	// status a run answers: 503 marked not run, so a load balancer sends it
 	// to another instance. Creating the Session still works while draining.
-	fresh, err := runner.CreateSession(ctx, "gated", nil)
+	fresh, err := runner.CreateSession(ctx, service.CreateSessionRequest{Agent: "gated"})
 	if err != nil {
 		t.Fatal(err)
 	}
-	for _, path := range []string{"/v1/sessions/" + fresh.ID() + "/runs", "/v1/sessions/" + fresh.ID() + "/runs/stream"} {
+	for _, path := range []string{"/v1/sessions/" + fresh.ID + "/runs", "/v1/sessions/" + fresh.ID + "/runs/stream"} {
 		resp, body := send(t, server, http.MethodPost, path, map[string]any{"prompt": "new"}, nil)
 		if resp.StatusCode != http.StatusServiceUnavailable || resp.Header.Get(httpapi.NotRunHeader) != "true" ||
 			!strings.Contains(string(body), `"code":"draining"`) || !strings.Contains(string(body), `"not_run":true`) || !strings.Contains(string(body), `"retryable":true`) {
@@ -527,7 +528,7 @@ func TestDrainEndsStreamsInOrder(t *testing.T) {
 		t.Fatalf("retry %q and retry_after_ms in %s differ", reconnect.retry, reconnect.data)
 	}
 	// By then its Session is released.
-	loaded, err := runner.Store().Records.Load(ctx, stopped.ID())
+	loaded, err := store.Records.Load(ctx, stopped.ID)
 	if err != nil || stateOf(loaded).Busy {
 		t.Fatalf("the stopped Run's Session = %+v, %v; want released", loaded.Header, err)
 	}
@@ -564,46 +565,46 @@ func send(t *testing.T, server *httptest.Server, method, path string, body any, 
 // routed to one instance and served for a Session that belongs to another.
 func TestSessionIDHeaderMustAgreeWithThePath(t *testing.T) {
 	server, runner := newServer(t)
-	created, err := runner.CreateSession(context.Background(), "echo", nil)
+	created, err := runner.CreateSession(context.Background(), service.CreateSessionRequest{Agent: "echo"})
 	if err != nil {
 		t.Fatal(err)
 	}
-	other, err := runner.CreateSession(context.Background(), "echo", nil)
+	other, err := runner.CreateSession(context.Background(), service.CreateSessionRequest{Agent: "echo"})
 	if err != nil {
 		t.Fatal(err)
 	}
 	for _, route := range []struct{ method, path string }{
-		{http.MethodGet, "/v1/sessions/" + created.ID()},
-		{http.MethodGet, "/v1/sessions/" + created.ID() + "/events"},
-		{http.MethodGet, "/v1/sessions/" + created.ID() + "/context"},
-		{http.MethodPost, "/v1/sessions/" + created.ID() + "/runs"},
-		{http.MethodPost, "/v1/sessions/" + created.ID() + "/runs/stream"},
-		{http.MethodPost, "/v1/sessions/" + created.ID() + "/abort"},
-		{http.MethodPost, "/v1/sessions/" + created.ID() + "/fork"},
-		{http.MethodPost, "/v1/sessions/" + created.ID() + "/compact"},
-		{http.MethodDelete, "/v1/sessions/" + created.ID()},
+		{http.MethodGet, "/v1/sessions/" + created.ID},
+		{http.MethodGet, "/v1/sessions/" + created.ID + "/events"},
+		{http.MethodGet, "/v1/sessions/" + created.ID + "/context"},
+		{http.MethodPost, "/v1/sessions/" + created.ID + "/runs"},
+		{http.MethodPost, "/v1/sessions/" + created.ID + "/runs/stream"},
+		{http.MethodPost, "/v1/sessions/" + created.ID + "/abort"},
+		{http.MethodPost, "/v1/sessions/" + created.ID + "/fork"},
+		{http.MethodPost, "/v1/sessions/" + created.ID + "/compact"},
+		{http.MethodDelete, "/v1/sessions/" + created.ID},
 	} {
 		var body any
 		if strings.HasSuffix(route.path, "/runs") || strings.HasSuffix(route.path, "/runs/stream") {
 			body = map[string]any{"prompt": "hi"}
 		}
-		resp, data := send(t, server, route.method, route.path, body, map[string]string{"session-id": other.ID()})
+		resp, data := send(t, server, route.method, route.path, body, map[string]string{"session-id": other.ID})
 		if resp.StatusCode != http.StatusBadRequest || !strings.Contains(string(data), "session-id") {
 			t.Fatalf("%s %s with a header for another Session = %d %s, want 400 naming session-id", route.method, route.path, resp.StatusCode, data)
 		}
 	}
 	// The same ID, in any letter case of the header name, is accepted.
-	resp, data := send(t, server, http.MethodGet, "/v1/sessions/"+created.ID(), nil, map[string]string{"Session-Id": created.ID()})
+	resp, data := send(t, server, http.MethodGet, "/v1/sessions/"+created.ID, nil, map[string]string{"Session-Id": created.ID})
 	if resp.StatusCode != http.StatusOK {
 		t.Fatalf("matching header = %d %s", resp.StatusCode, data)
 	}
 	// An empty header counts as none.
-	resp, data = send(t, server, http.MethodGet, "/v1/sessions/"+created.ID(), nil, map[string]string{"session-id": " "})
+	resp, data = send(t, server, http.MethodGet, "/v1/sessions/"+created.ID, nil, map[string]string{"session-id": " "})
 	if resp.StatusCode != http.StatusOK {
 		t.Fatalf("blank header = %d %s", resp.StatusCode, data)
 	}
 	// The refused request did nothing: the Session still has no Run.
-	if loaded, err := runner.Record(context.Background(), created.ID()); err != nil || len(loaded.Snapshot().Runs) != 0 {
+	if loaded, err := runner.Record(context.Background(), created.ID); err != nil || len(loaded.Runs) != 0 {
 		t.Fatalf("a refused request changed the Session: %v", err)
 	}
 }
@@ -692,11 +693,11 @@ func TestActivationLimitAnswers503MarkedNotRun(t *testing.T) {
 	before, _ := runner.Sessions(context.Background(), session.ListQuery{})
 
 	// A stored idle Session is refused; nothing is activated.
-	idle, err := runner.CreateSession(context.Background(), "gated", nil)
+	idle, err := runner.CreateSession(context.Background(), service.CreateSessionRequest{Agent: "gated"})
 	if err != nil {
 		t.Fatal(err)
 	}
-	resp, data := send(t, server, http.MethodPost, "/v1/sessions/"+idle.ID()+"/runs", map[string]any{"prompt": "wake"}, map[string]string{"session-id": idle.ID()})
+	resp, data := send(t, server, http.MethodPost, "/v1/sessions/"+idle.ID+"/runs", map[string]any{"prompt": "wake"}, map[string]string{"session-id": idle.ID})
 	if resp.StatusCode != http.StatusServiceUnavailable || resp.Header.Get(httpapi.NotRunHeader) != "true" {
 		t.Fatalf("an idle Session on a full instance = %d, header %q: %s", resp.StatusCode, resp.Header.Get(httpapi.NotRunHeader), data)
 	}
@@ -714,7 +715,7 @@ func TestActivationLimitAnswers503MarkedNotRun(t *testing.T) {
 
 	// A streaming request is refused before the stream starts, with the same
 	// 503 and mark, so a load balancer can retry it on another instance.
-	for _, path := range []string{"/v1/sessions/" + idle.ID() + "/runs/stream"} {
+	for _, path := range []string{"/v1/sessions/" + idle.ID + "/runs/stream"} {
 		resp, data = send(t, server, http.MethodPost, path, map[string]any{"prompt": "new"}, nil)
 		if resp.StatusCode != http.StatusServiceUnavailable || resp.Header.Get(httpapi.NotRunHeader) != "true" || !strings.Contains(string(data), `"not_run":true`) {
 			t.Fatalf("a streamed refusal on %s = %d %s, header %q", path, resp.StatusCode, data, resp.Header.Get(httpapi.NotRunHeader))

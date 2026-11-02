@@ -2,7 +2,6 @@ package service
 
 import (
 	"context"
-	"strconv"
 
 	"github.com/jinhuang712/gotato/gotato"
 	"github.com/jinhuang712/gotato/modelctx"
@@ -32,12 +31,12 @@ func (r *Runner) Compact(ctx context.Context, sessionID string, opts modelctx.Co
 		if err != nil {
 			return err
 		}
-		agentName, _ := writer.Record().Get(MetaAgent)
+		agentName, _ := writer.Record().Get(metaAgent)
 		r.publishOpened(writer, early, agentName)
 		spec, known := r.Agent(agentName)
 		var compactOpts []modelctx.CompactOption
 		if known {
-			opts = compactOptionsFor(spec, writer.Record(), opts)
+			opts = compactOptionsFor(spec, opts)
 			if opts.Recap != nil {
 				compactOpts = append(compactOpts, modelctx.WithRecapContext(r.recapContext(spec, writer.Record())))
 			}
@@ -60,8 +59,8 @@ func (r *Runner) Compact(ctx context.Context, sessionID string, opts modelctx.Co
 
 // compactOptionsFor fills what opts leaves unset from the Agent's compaction
 // settings and its Model.
-func compactOptionsFor(spec Agent, record *session.Record, opts modelctx.CompactConfig) modelctx.CompactConfig {
-	policy := compactPolicyFor(spec, record)
+func compactOptionsFor(spec Agent, opts modelctx.CompactConfig) modelctx.CompactConfig {
+	policy := compactPolicyFor(spec)
 	opts.DropReasoning = opts.DropReasoning || policy.DropReasoning
 	if opts.Recap == nil {
 		opts.Recap = policy.Recap
@@ -130,20 +129,15 @@ func (r *Runner) recapContext(spec Agent, record *session.Record) func(context.C
 	}
 }
 
-// compactPolicyFor is the Agent's CompactPolicy with the Model's window and
-// the Session's own ceiling (MetaCompactCeiling) applied.
-func compactPolicyFor(spec Agent, record *session.Record) modelctx.CompactPolicy {
+// compactPolicyFor is the Agent's CompactPolicy with the Model's window
+// applied. The ceiling is the Agent's alone.
+func compactPolicyFor(spec Agent) modelctx.CompactPolicy {
 	policy := spec.Compact
 	facts := spec.Model.Config().Facts
 	policy.Recap = withAgentModel(policy.Recap, spec.Model)
 	policy.DropReasoning = policy.DropReasoning || facts.RoundReasoning
 	if policy.WindowTokens <= 0 {
 		policy.WindowTokens = facts.Window.Tokens()
-	}
-	if raw, ok := record.Get(MetaCompactCeiling); ok {
-		if ceiling, err := strconv.Atoi(raw); err == nil && ceiling > 0 {
-			policy.CeilingTokens = ceiling
-		}
 	}
 	return policy
 }

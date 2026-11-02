@@ -17,6 +17,7 @@ import (
 	"github.com/jinhuang712/gotato/gotato"
 	"github.com/jinhuang712/gotato/service"
 	"github.com/jinhuang712/gotato/service/httpapi"
+	"github.com/jinhuang712/gotato/session"
 	lark "github.com/larksuite/oapi-sdk-go/v3"
 	larkim "github.com/larksuite/oapi-sdk-go/v3/service/im/v1"
 )
@@ -99,12 +100,16 @@ func (l larkSender) Delete(ctx context.Context, cardID string) error {
 // bot connects Lark messages to a Gotato Runner.
 type bot struct {
 	runner *service.Runner
-	send   sender
-	agent  string
-	model  string // shown in the card footer
-	label  string // instance label shown in the card and the logs
-	log    *slog.Logger
-	client *http.Client // forwards a message to the writer's address
+	// records is the store the Runner runs on. The bot reads a Record through it
+	// to see whether a Session is held (idle), which the Runner's own read, a
+	// Document, does not say.
+	records session.Records
+	send    sender
+	agent   string
+	model   string // shown in the card footer
+	label   string // instance label shown in the card and the logs
+	log     *slog.Logger
+	client  *http.Client // forwards a message to the writer's address
 
 	mu      sync.Mutex
 	targets map[string]target // Session ID -> latest chat and user message (in memory)
@@ -119,8 +124,8 @@ type bot struct {
 	ackDelay time.Duration // test only: hold the event's HTTP answer this long, so the sender sees a late ack
 }
 
-func newBot(runner *service.Runner, send sender, agent, model, label string, log *slog.Logger) *bot {
-	return &bot{runner: runner, send: send, agent: agent, model: model, label: label, log: log,
+func newBot(runner *service.Runner, records session.Records, send sender, agent, model, label string, log *slog.Logger) *bot {
+	return &bot{runner: runner, records: records, send: send, agent: agent, model: model, label: label, log: log,
 		client: &http.Client{Timeout: 10 * time.Minute, // a forward can start a Run and wait for it
 			Transport: &http.Transport{DialContext: (&net.Dialer{Timeout: 3 * time.Second}).DialContext, MaxIdleConnsPerHost: 4}},
 		targets: map[string]target{}, replies: map[gotato.RunID]string{}, cards: map[string]*liveCard{}, streamEvery: defaultStreamEvery, seen: newSeenSet(1024),
@@ -184,7 +189,7 @@ func (b *bot) handle(ctx context.Context, chatID, thread, messageID, text string
 	b.targets[id] = target{chatID: chatID, messageID: messageID}
 	b.mu.Unlock()
 
-	_, err := b.runner.CreateSessionExclusive(ctx, b.agent, id, map[string]string{metaChatID: chatID, metaThread: thread})
+	_, err := b.runner.CreateSession(ctx, service.CreateSessionRequest{Agent: b.agent, ID: id, Metadata: map[string]string{metaChatID: chatID, metaThread: thread}})
 	if err != nil && !errors.Is(err, service.ErrSessionExists) {
 		b.log.Error("create session", "session", id, "message_id", messageID, "err", err)
 		return
@@ -403,13 +408,13 @@ func (b *bot) post(ctx context.Context, sessionID, content string) {
 			b.log.Error("read session for chat", "session", sessionID, "err", err)
 			return
 		}
-		chat, _ := rec.Get(metaChatID)
+		chat := rec.Metadata[metaChatID]
 		if chat == "" {
 			b.log.Warn("session has no chat_id", "session", sessionID)
 			return
 		}
 		// lark.thread is a message_id: reply to the thread's root message.
-		thread, _ := rec.Get(metaThread)
+		thread := rec.Metadata[metaThread]
 		t = target{chatID: chat, messageID: thread}
 	}
 	// [LIVENESS] replies and sends outlive the shutdown signal briefly, so they do not use its context.

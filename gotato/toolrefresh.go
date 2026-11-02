@@ -9,11 +9,14 @@ import (
 // the Tools its Segment and kept tail did not call. A Tool of a ToolSet the
 // Agent installed active is never loaded or unloaded.
 func (a *Session) syncLoadedTools() error {
-	source, ok := a.transcript.(LoadedToolSource)
-	if !ok {
+	caps, failure := a.capabilities()
+	if failure != nil {
+		return failure
+	}
+	if caps.Loaded == nil {
 		return nil
 	}
-	recorded, err := loadedTools(source)
+	recorded, err := loadedTools(caps.Loaded)
 	if err != nil {
 		return err
 	}
@@ -42,7 +45,11 @@ func (a *Session) refreshToolSets(ctx context.Context, header Header) *RuntimeEr
 		return asRuntimeError(err)
 	}
 	var recorded *[]string
-	if source, ok := a.transcript.(LoadedToolSource); ok {
+	caps, failure := a.capabilities()
+	if failure != nil {
+		return failure
+	}
+	if source := caps.Loaded; source != nil {
 		ids, err := loadedTools(source)
 		if err != nil {
 			return asRuntimeError(err)

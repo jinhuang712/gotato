@@ -56,11 +56,11 @@ func TestRepairDoesNotEraseAMarkSetDuringTheAttempt(t *testing.T) {
 		t.Fatal(err)
 	}
 	t.Cleanup(func() { _ = runner.Close(context.Background()) })
-	rec, err := runner.CreateSession(context.Background(), "echo", nil)
+	rec, err := runner.CreateSession(context.Background(), service.CreateSessionRequest{Agent: "echo"})
 	if err != nil {
 		t.Fatal(err)
 	}
-	id := rec.ID()
+	id := rec.ID
 	runner.MarkUnreleased(id)
 	armed := true
 	store.hook = func() {
@@ -115,17 +115,17 @@ func TestAClaimThatLandedWithNoWriterIsGivenBackByTheRepair(t *testing.T) {
 	ctx := context.Background()
 	store := &lostAckStore{parts: partsOf(memStore())}
 	a := instanceRunner(t, asStore(store), "instance-a", testkit.EchoModel{}, steadyLiveness)
-	s, err := a.CreateSession(ctx, "echo", nil)
+	s, err := a.CreateSession(ctx, service.CreateSessionRequest{Agent: "echo"})
 	if err != nil {
 		t.Fatal(err)
 	}
 	store.armed.Store(true)
-	if _, err := a.Run(ctx, service.RunRequest{SessionID: s.ID(), Prompt: "go"}); err == nil {
+	if _, err := a.Run(ctx, service.RunRequest{SessionID: s.ID, Prompt: "go"}); err == nil {
 		t.Fatal("the Run succeeded although its claim write reported a failure")
 	}
 	store.armed.Store(false)
 	a.RepairReleases()
-	loaded, err := store.Load(ctx, s.ID())
+	loaded, err := store.Load(ctx, s.ID)
 	if err != nil {
 		t.Fatal(err)
 	}

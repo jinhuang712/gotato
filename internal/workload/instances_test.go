@@ -67,16 +67,16 @@ func reference(t *testing.T, task reftasks.Task) view {
 	store := memStore()
 	runner := taskRunner(t, store, task, "single")
 	ctx := context.Background()
-	s, err := runner.CreateSession(ctx, task.Name, nil, session.WithMessages(task.History...))
+	s, err := runner.CreateSession(ctx, service.CreateSessionRequest{Agent: task.Name, Messages: task.History})
 	if err != nil {
 		t.Fatal(err)
 	}
 	for _, prompt := range task.Prompts {
-		if _, err := runner.Run(ctx, service.RunRequest{SessionID: s.ID(), Prompt: prompt}); err != nil {
+		if _, err := runner.Run(ctx, service.RunRequest{SessionID: s.ID, Prompt: prompt}); err != nil {
 			t.Fatal(err)
 		}
 	}
-	return viewOf(t, store, s.ID())
+	return viewOf(t, store, s.ID)
 }
 
 // watcher follows a Session's stream on one instance, as a client does, and

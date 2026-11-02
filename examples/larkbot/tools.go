@@ -21,8 +21,8 @@ var toolKinds = []string{"export", "mcp", "mcp-search"}
 // toolSpec is -tools, parsed: what the Agent gets on top of its model.
 type toolSpec struct {
 	export    bool   // test only: orders.export, a tool whose result of 1 MB the core spills
-	mcpActive bool   // the MCP server's tools, always visible (WithActiveToolSet)
-	mcpSearch bool   // the MCP server's tools in the catalog, loaded with search_tools (WithToolSet)
+	mcpActive bool   // the MCP server's tools, always visible (service.ToolSetActive)
+	mcpSearch bool   // the MCP server's tools in the catalog, loaded with search_tools (service.ToolSetListed)
 	mcpURL    string // the MCP server's streamable HTTP endpoint
 }
 
@@ -66,9 +66,9 @@ func (t toolSpec) apply(agent *service.Agent, log *slog.Logger) (func() error, e
 	}
 	logged := loggedToolSet{set, log}
 	if t.mcpActive {
-		agent.Options = append(agent.Options, gotato.WithActiveToolSet(logged))
+		agent.ToolSets = append(agent.ToolSets, service.ToolSet{Set: logged, Mode: service.ToolSetActive})
 	} else {
-		agent.Options = append(agent.Options, gotato.WithToolSet(logged))
+		agent.ToolSets = append(agent.ToolSets, service.ToolSet{Set: logged, Mode: service.ToolSetListed})
 	}
 	return set.Close, nil
 }

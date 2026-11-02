@@ -41,11 +41,11 @@ func TestForkTreatsStoreErrorAsFailure(t *testing.T) {
 		t.Fatal(err)
 	}
 	ctx := context.Background()
-	parent, err := runner.CreateSession(ctx, "echo", nil)
+	parent, err := runner.CreateSession(ctx, service.CreateSessionRequest{Agent: "echo"})
 	if err != nil {
 		t.Fatal(err)
 	}
-	if _, err := runner.Fork(ctx, parent.ID(), "child"); !errors.Is(err, getErr) {
+	if _, err := runner.Fork(ctx, parent.ID, "child"); !errors.Is(err, getErr) {
 		t.Fatalf("fork err = %v, want the store error", err)
 	}
 	if _, err := session.View(ctx, backing.Records, "child"); !errors.Is(err, session.ErrNotFound) {
@@ -56,7 +56,7 @@ func TestForkTreatsStoreErrorAsFailure(t *testing.T) {
 func TestForkWithExplicitIDIsExclusive(t *testing.T) {
 	runner, _ := newRunner(t)
 	ctx := context.Background()
-	parent, err := runner.CreateSession(ctx, "echo", nil)
+	parent, err := runner.CreateSession(ctx, service.CreateSessionRequest{Agent: "echo"})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -67,7 +67,7 @@ func TestForkWithExplicitIDIsExclusive(t *testing.T) {
 		wg.Add(1)
 		go func() {
 			defer wg.Done()
-			_, err := runner.Fork(ctx, parent.ID(), "shared-fork")
+			_, err := runner.Fork(ctx, parent.ID, "shared-fork")
 			results <- err
 		}()
 	}
@@ -90,23 +90,23 @@ func TestForkWithExplicitIDIsExclusive(t *testing.T) {
 	}
 }
 
-// A Fork whose ID is taken reports ErrSessionExists, as CreateSessionExclusive
+// A Fork whose ID is taken reports ErrSessionExists, as CreateSession
 // does, and leaves the Session that holds the ID as it was.
 func TestForkWithATakenIDIsErrSessionExists(t *testing.T) {
 	runner, _ := newRunner(t)
 	ctx := context.Background()
-	parent, err := runner.CreateSession(ctx, "echo", nil)
+	parent, err := runner.CreateSession(ctx, service.CreateSessionRequest{Agent: "echo"})
 	if err != nil {
 		t.Fatal(err)
 	}
-	if _, err := runner.Fork(ctx, parent.ID(), "taken"); err != nil {
+	if _, err := runner.Fork(ctx, parent.ID, "taken"); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := runner.Fork(ctx, parent.ID(), "taken"); !errors.Is(err, service.ErrSessionExists) {
+	if _, err := runner.Fork(ctx, parent.ID, "taken"); !errors.Is(err, service.ErrSessionExists) {
 		t.Fatalf("second Fork = %v, want ErrSessionExists", err)
 	}
-	if _, err := runner.CreateSessionExclusive(ctx, "echo", "taken", nil); !errors.Is(err, service.ErrSessionExists) {
-		t.Fatalf("CreateSessionExclusive = %v, want ErrSessionExists", err)
+	if _, err := runner.CreateSession(ctx, service.CreateSessionRequest{Agent: "echo", ID: "taken"}); !errors.Is(err, service.ErrSessionExists) {
+		t.Fatalf("CreateSession with a taken ID = %v, want ErrSessionExists", err)
 	}
 }
 
@@ -133,11 +133,11 @@ func TestStoreErrorsBeforeAnyRunWriteAreClassified(t *testing.T) {
 	newRunner := func(t *testing.T) (*service.Runner, *faultStore, string) {
 		store := &faultStore{parts: partsOf(memStore())}
 		runner := instanceRunner(t, asStore(store), "instance-a", testkit.EchoModel{}, steadyLiveness)
-		s, err := runner.CreateSession(ctx, "echo", nil)
+		s, err := runner.CreateSession(ctx, service.CreateSessionRequest{Agent: "echo"})
 		if err != nil {
 			t.Fatal(err)
 		}
-		return runner, store, s.ID()
+		return runner, store, s.ID
 	}
 
 	t.Run("Load", func(t *testing.T) {
@@ -159,14 +159,14 @@ func TestStoreErrorsBeforeAnyRunWriteAreClassified(t *testing.T) {
 	t.Run("Create", func(t *testing.T) {
 		runner, store, _ := newRunner(t)
 		store.fail("Create", true)
-		_, err := runner.CreateSession(ctx, "echo", nil)
+		_, err := runner.CreateSession(ctx, service.CreateSessionRequest{Agent: "echo"})
 		wantNotRunStoreFailure(t, "CreateSession with Create failing", err)
 	})
 	t.Run("Beat", func(t *testing.T) {
 		store := &faultStore{parts: partsOf(memStore())}
 		runner := instanceRunner(t, asStore(store), "instance-a", testkit.EchoModel{}, steadyLiveness)
 		store.fail("Beat", true)
-		_, err := runner.CreateSession(ctx, "echo", nil)
+		_, err := runner.CreateSession(ctx, service.CreateSessionRequest{Agent: "echo"})
 		wantNotRunStoreFailure(t, "CreateSession with the first Beat failing", err)
 		_, err = runner.Run(ctx, service.RunRequest{Prompt: "hi"})
 		wantNotRunStoreFailure(t, "Run with the first Beat failing", err)
@@ -269,16 +269,16 @@ func TestDeleteSessionDoesNotRemoveARunClaimedAfterTheLook(t *testing.T) {
 	}
 	t.Cleanup(func() { _ = b.Close(context.Background()) })
 
-	s, err := a.CreateSession(ctx, "echo", nil)
+	s, err := a.CreateSession(ctx, service.CreateSessionRequest{Agent: "echo"})
 	if err != nil {
 		t.Fatal(err)
 	}
 	deleted := make(chan error, 1)
-	go func() { deleted <- a.DeleteSession(ctx, s.ID()) }()
+	go func() { deleted <- a.DeleteSession(ctx, s.ID) }()
 	<-gate.entered
 	ran := make(chan error, 1)
 	go func() {
-		_, runErr := b.Run(ctx, service.RunRequest{SessionID: s.ID(), Prompt: "execute"})
+		_, runErr := b.Run(ctx, service.RunRequest{SessionID: s.ID, Prompt: "execute"})
 		ran <- runErr
 	}()
 	<-called
@@ -286,7 +286,7 @@ func TestDeleteSessionDoesNotRemoveARunClaimedAfterTheLook(t *testing.T) {
 	if err := <-deleted; err == nil {
 		t.Fatal("DeleteSession removed a Session another Instance claimed after its look")
 	}
-	if _, err := base.Records.Load(ctx, s.ID()); err != nil {
+	if _, err := base.Records.Load(ctx, s.ID); err != nil {
 		t.Fatalf("the Session is gone: %v", err)
 	}
 	close(finish)
@@ -330,14 +330,14 @@ func TestDeleteSessionRefusesARunOnAnotherInstance(t *testing.T) {
 	model := testkit.NewFakeModel(testkit.Text("slow"))
 	a := instanceRunner(t, store, "instance-a", model, steadyLiveness)
 	b := instanceRunner(t, store, "instance-b", testkit.EchoModel{}, steadyLiveness)
-	s, err := a.CreateSession(ctx, "echo", nil)
+	s, err := a.CreateSession(ctx, service.CreateSessionRequest{Agent: "echo"})
 	if err != nil {
 		t.Fatal(err)
 	}
-	release, result := heldRun(t, a, model, s.ID())
+	release, result := heldRun(t, a, model, s.ID)
 	defer release()
 
-	err = b.DeleteSession(ctx, s.ID())
+	err = b.DeleteSession(ctx, s.ID)
 	if !gotato.IsCode(err, gotato.CodeNotWriter) || !gotato.NotRun(err) {
 		t.Fatalf("DeleteSession of a Session with a Run on another Instance = %v, want not_writer, not run", err)
 	}
@@ -345,11 +345,11 @@ func TestDeleteSessionRefusesARunOnAnotherInstance(t *testing.T) {
 	if err := <-result; err != nil {
 		t.Fatalf("the Run that was not deleted from under it: %v", err)
 	}
-	if _, err := b.Record(ctx, s.ID()); err != nil {
+	if _, err := b.Record(ctx, s.ID); err != nil {
 		t.Fatalf("the Session is gone: %v", err)
 	}
 	// With the Run over, the delete goes through.
-	if err := b.DeleteSession(ctx, s.ID()); err != nil {
+	if err := b.DeleteSession(ctx, s.ID); err != nil {
 		t.Fatalf("DeleteSession of an idle Session: %v", err)
 	}
 }
@@ -362,12 +362,12 @@ func TestRunOfASessionDeletedUnderItIsNotAStoreFailure(t *testing.T) {
 	store := memStore()
 	model := testkit.NewFakeModel(testkit.Text("slow"))
 	a := instanceRunner(t, store, "instance-a", model, steadyLiveness)
-	s, err := a.CreateSession(ctx, "echo", nil)
+	s, err := a.CreateSession(ctx, service.CreateSessionRequest{Agent: "echo"})
 	if err != nil {
 		t.Fatal(err)
 	}
-	release, result := heldRun(t, a, model, s.ID())
-	if err := store.Records.Delete(ctx, s.ID()); err != nil {
+	release, result := heldRun(t, a, model, s.ID)
+	if err := store.Records.Delete(ctx, s.ID); err != nil {
 		t.Fatal(err)
 	}
 	release()
@@ -395,13 +395,13 @@ func TestCompactOfASessionRunningElsewhereAnswersBusy(t *testing.T) {
 	model := testkit.NewFakeModel(testkit.Text("slow"))
 	a := instanceRunner(t, store, "instance-a", model, steadyLiveness)
 	b := instanceRunner(t, store, "instance-b", testkit.EchoModel{}, service.Liveness{TTL: 5 * time.Second, Wait: 200 * time.Millisecond})
-	s, err := a.CreateSession(ctx, "echo", nil)
+	s, err := a.CreateSession(ctx, service.CreateSessionRequest{Agent: "echo"})
 	if err != nil {
 		t.Fatal(err)
 	}
-	release, result := heldRun(t, a, model, s.ID())
+	release, result := heldRun(t, a, model, s.ID)
 	defer release()
-	_, err = b.Compact(ctx, s.ID(), modelctx.CompactConfig{})
+	_, err = b.Compact(ctx, s.ID, modelctx.CompactConfig{})
 	if !gotato.IsCode(err, gotato.CodeBusy) || !gotato.NotRun(err) {
 		t.Fatalf("Compact of a Session with a Run on another Instance = %v, want busy, not run", err)
 	}
@@ -435,13 +435,13 @@ func TestForkMidRunDoesNotCarryAFalseStoppedToolResult(t *testing.T) {
 	}
 	t.Cleanup(func() { _ = a.Close(ctx) })
 	b := instanceRunner(t, store, "instance-b", testkit.EchoModel{}, steadyLiveness)
-	s, err := a.CreateSession(ctx, "echo", nil)
+	s, err := a.CreateSession(ctx, service.CreateSessionRequest{Agent: "echo"})
 	if err != nil {
 		t.Fatal(err)
 	}
 	result := make(chan error, 1)
 	go func() {
-		_, err := a.Run(ctx, service.RunRequest{SessionID: s.ID(), Prompt: "go"})
+		_, err := a.Run(ctx, service.RunRequest{SessionID: s.ID, Prompt: "go"})
 		result <- err
 	}()
 	select {
@@ -449,7 +449,7 @@ func TestForkMidRunDoesNotCarryAFalseStoppedToolResult(t *testing.T) {
 	case <-time.After(10 * time.Second):
 		t.Fatal("the tool did not start")
 	}
-	child, err := b.Fork(ctx, s.ID(), "")
+	child, err := b.Fork(ctx, s.ID, "")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -457,7 +457,11 @@ func TestForkMidRunDoesNotCarryAFalseStoppedToolResult(t *testing.T) {
 	if err := <-result; err != nil {
 		t.Fatal(err)
 	}
-	for _, message := range child.Messages() {
+	forked, err := b.Record(ctx, child.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, message := range forked.Messages {
 		if text := gotato.TextOf(message); len(text) > 0 && containsStopped(text) {
 			t.Fatalf("the Fork carries a false tool result: %q", text)
 		}

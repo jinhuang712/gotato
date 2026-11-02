@@ -29,7 +29,7 @@ func memStore() session.Store {
 func taskRunner(t *testing.T, store session.Store, task reftasks.Task, instance string) *service.Runner {
 	t.Helper()
 	runner, err := service.New(service.Config{Store: store, Instance: instance, Liveness: service.Liveness{TTL: 5 * time.Second, Wait: 2 * time.Second}, Agents: []service.Agent{{
-		Name: task.Name, Model: task.Model, Instruction: task.Instruction, Tools: task.Tools, Options: task.Options, Limits: task.Limits,
+		Name: task.Name, Model: task.Model, Instruction: task.Instruction, Tools: task.Tools, ToolSets: task.ToolSets, Limits: task.Limits,
 	}}})
 	if err != nil {
 		t.Fatal(err)
@@ -41,16 +41,16 @@ func taskRunner(t *testing.T, store session.Store, task reftasks.Task, instance 
 // play runs a task's prompts on a new Session until one fails, and returns
 // the Session's ID.
 func play(ctx context.Context, runner *service.Runner, task reftasks.Task) (string, error) {
-	s, err := runner.CreateSession(ctx, task.Name, nil, session.WithMessages(task.History...))
+	s, err := runner.CreateSession(ctx, service.CreateSessionRequest{Agent: task.Name, Messages: task.History})
 	if err != nil {
 		return "", err
 	}
 	for _, prompt := range task.Prompts {
-		if _, err := runner.Run(ctx, service.RunRequest{SessionID: s.ID(), Prompt: prompt}); err != nil {
-			return s.ID(), err
+		if _, err := runner.Run(ctx, service.RunRequest{SessionID: s.ID, Prompt: prompt}); err != nil {
+			return s.ID, err
 		}
 	}
-	return s.ID(), nil
+	return s.ID, nil
 }
 
 // stored counts the Messages a store holds, leaving out the answers repair
@@ -138,4 +138,21 @@ func stripCacheControl(v any) any {
 		}
 	}
 	return v
+}
+
+// plantRecord stores a Record of the task's Agent that holds messages, with the
+// Tools they loaded and, when cacheKey is not empty, that cache key, as another
+// process or an earlier version would have left it, and returns its ID. It
+// writes through the store: the Runner's own calls refuse the keys it sets.
+func plantRecord(t *testing.T, store session.Store, agent, cacheKey string, messages []gotato.Message) string {
+	t.Helper()
+	metadata := map[string]string{service.ReservedPrefix + "agent": agent}
+	if cacheKey != "" {
+		metadata[service.ReservedPrefix+"cache_key"] = cacheKey
+	}
+	record := session.New(session.WithMetadata(metadata), session.WithMessages(messages...), reftasks.WithLoadedToolsOf(messages))
+	if _, err := session.CreateWriter(context.Background(), store.Records, record, "planter", session.WithIdle()); err != nil {
+		t.Fatal(err)
+	}
+	return record.ID()
 }

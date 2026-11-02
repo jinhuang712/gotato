@@ -6,6 +6,7 @@ import (
 
 	"github.com/jinhuang712/gotato/gotato"
 	"github.com/jinhuang712/gotato/internal/reftasks"
+	"github.com/jinhuang712/gotato/service"
 	"github.com/jinhuang712/gotato/session"
 )
 
@@ -27,7 +28,16 @@ func play(t *testing.T, task reftasks.Task) (*session.Record, []string) {
 	for _, tool := range task.Tools {
 		options = append(options, gotato.WithTools(tool))
 	}
-	options = append(options, task.Options...)
+	for _, set := range task.ToolSets {
+		switch set.Mode {
+		case service.ToolSetFolded:
+			options = append(options, gotato.WithFoldedToolSet(set.Set))
+		case service.ToolSetActive:
+			options = append(options, gotato.WithActiveToolSet(set.Set))
+		default:
+			options = append(options, gotato.WithToolSet(set.Set))
+		}
+	}
 	if task.Limits != nil {
 		options = append(options, gotato.WithLimits(*task.Limits))
 	}

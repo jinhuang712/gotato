@@ -65,21 +65,58 @@ case gotato.Retryable(err):
 
 `Run` returns a response and an error together. A refusal before the Run started is the zero response and an error marked not run; a response with a `SessionID` is a Run that started and settled, with its status, its final text and its usage, whatever `err` is, so read the response before you return on `err != nil`. Pass `RequestID` on the request to find it in the Record (`run_started`) and in the response; Gotato does not look for a repeat of it. A chat platform delivers an event again when it is not acked in time, so pass its message id as `MessageRequest.RequestID` and a repeat can be found in `run_started`.
 
-## An instruction for one Run
+## Another instruction is another Agent
 
-There is no instruction field on a Run, but a Run's `Update` can set the Session's instruction as its first write. It replaces `Agent.Instruction`; it does not add to it. With `SkipSave` it lasts for that Run only, and an empty value falls back to `Agent.Instruction`.
+A Session has no instruction of its own: the instruction, the model, the tools, the Effect cap, the Sampling and the compaction ceiling all come from its Agent. To answer one message in French, or to give one kind of job a tighter cap, register another Agent and name it on the request.
 
 ```go
-// Answer this one message in French; the next Run is back on the Agent's instruction.
-out, err := runner.Run(ctx, service.RunRequest{
-    SessionID: id,
-    Prompt:    "what is open today?",
-    Update:    map[string]string{service.MetaInstruction: "Answer in French."}, // "gotato.instruction"
-    SkipSave:  true,
+runner, err := service.New(service.Config{
+    Store: session.Store{Records: store, Liveness: store},
+    Agents: []service.Agent{
+        {Name: "default", Model: model, Instruction: "You answer questions about open tickets.", Tools: tools},
+        {Name: "french", Model: model, Instruction: "You answer questions about open tickets, in French.", Tools: tools},
+    },
 })
+
+// Answer this message in French. The Session now runs "french", and stays on it
+// until a request names another Agent.
+out, err := runner.Run(ctx, service.RunRequest{SessionID: id, Agent: "french", Prompt: "what is open today?"})
 ```
 
-Without `SkipSave` the new instruction is saved with the Session and stays for the Runs after it, until another `Update` changes it. Note that `SkipSave` also saves nothing else of the Run. The test `TestRunUpdateInstructionReplacesTheAgentsForOneRun` in [service/run_instruction_test.go](../service/run_instruction_test.go) pins this.
+`RunRequest.Agent` is the one way to change a Session's Agent, and it is saved with the Run (`SkipSave` keeps the Session as it was). A job that runs again and again with its own background is its own Agent too.
+
+An Agent holds typed fields and no function that runs on the Session: `Instruction`, `Tools`, `ToolSets` (each with a `Mode`: listed, folded or active), `ToolSources`, `ToolSearcher`, `MaxEffect`, `Sampling`, `Extensions`, `ContextBuilder`, `Limits` and `Compact`. There is no `Agent.Options`: the Runner builds every `gotato.SessionOption` itself, so an Agent cannot replace the Writer or raise its own cap.
+
+### Keys under `gotato.` are the Runner's
+
+Session metadata is yours, except for the keys that start with `service.ReservedPrefix` (`"gotato."`). `CreateSession`, `RunRequest.Metadata` and `RunRequest.Update` refuse such a key with `service.ErrReservedKey` (`invalid_argument`, not run, naming the key) before anything is written, and the HTTP API answers 400. A tool is switched only by `Runner.SetToolActive`, and the cache key only by `Runner.Fork`.
+
+```go
+_, err := runner.Run(ctx, service.RunRequest{
+    SessionID: id,
+    Prompt:    "what is open today?",
+    Update:    map[string]string{"gotato.instruction": "Answer in French."}, // refused
+})
+errors.Is(err, service.ErrReservedKey) // true; gotato.NotRun(err) is true; nothing was written
+```
+
+The tests `TestAnInstructionInMetadataIsRefusedAndAnotherAgentIsTheWay` in [service/run_instruction_test.go](../service/run_instruction_test.go) and `TestAReservedKeyIsRefusedByRunMetadataAndUpdate` in [service/reserved_test.go](../service/reserved_test.go) pin this.
+
+### Values, not handles
+
+`CreateSession` takes one request and `Fork` and `Record` answer values you can keep and read, but not write through:
+
+```go
+info, err := runner.CreateSession(ctx, service.CreateSessionRequest{
+    Agent:    "default",
+    ID:       "ticket-4711",                  // optional; a taken ID is ErrSessionExists
+    Metadata: map[string]string{"owner": "ann"},
+})                                           // info is a session.RecordInfo
+child, err := runner.Fork(ctx, info.ID, "")  // a session.RecordInfo
+doc, err := runner.Record(ctx, info.ID)      // a session.Document: a copy
+```
+
+There is no `Runner.Store()`; keep the `session.Store` you gave to `service.New` if you read Records yourself.
 
 ## Shutting down
 

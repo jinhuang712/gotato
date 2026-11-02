@@ -39,11 +39,12 @@ func TestForkKeepsSpilledResultsReadable(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	grandchild, err := r.Fork(ctx, child.ID(), "")
+	grandchild, err := r.Fork(ctx, child.ID, "")
 	if err != nil {
 		t.Fatal(err)
 	}
-	for name, record := range map[string]*session.Record{"child": child, "grandchild": grandchild} {
+	childRecord := viewOf(t, store, child.ID)
+	for name, record := range map[string]*session.Record{"child": childRecord, "grandchild": viewOf(t, store, grandchild.ID)} {
 		calls, refs := record.SpilledResults()
 		if len(calls) != 1 {
 			t.Fatalf("%s: spilled refs=%v", name, calls)
@@ -57,11 +58,7 @@ func TestForkKeepsSpilledResultsReadable(t *testing.T) {
 		}
 	}
 	// The parent's own Message is unchanged.
-	parent, err := r.Record(ctx, out.SessionID)
-	if err != nil {
-		t.Fatal(err)
-	}
-	pcalls, prefs := parent.SpilledResults()
+	pcalls, prefs := viewOf(t, store, out.SessionID).SpilledResults()
 	if prefs[pcalls[0]].SessionID != "" {
 		t.Fatalf("parent ref names %q", prefs[pcalls[0]].SessionID)
 	}
@@ -69,8 +66,8 @@ func TestForkKeepsSpilledResultsReadable(t *testing.T) {
 	if err := r.DeleteSession(ctx, out.SessionID); err != nil {
 		t.Fatal(err)
 	}
-	calls, refs := child.SpilledResults()
-	_, pruned, err := child.SpilledBody(ctx, store.Records, refs[calls[0]])
+	calls, refs := childRecord.SpilledResults()
+	_, pruned, err := childRecord.SpilledBody(ctx, store.Records, refs[calls[0]])
 	if err == nil && !pruned {
 		t.Fatal("body still readable after the parent was deleted")
 	}
@@ -87,8 +84,9 @@ func TestForkReadsASpilledResultInAnInheritedSegment(t *testing.T) {
 		testkit.Text("second"), // parent Run 2
 		testkit.ToolCalls(gotato.ToolCall{ID: "read-1", ToolID: "read_result", Arguments: []byte(`{"ref":"result:big-1"}`)}), testkit.Text("read"), // fork Run
 	)
+	store := memStore()
 	runner, err := service.New(service.Config{
-		Store:  memStore(),
+		Store:  store,
 		Agents: []service.Agent{{Name: "a", Model: model, Tools: []gotato.Tool{testkit.NewFakeTool("orders.export", body)}}},
 	})
 	if err != nil {
@@ -109,10 +107,11 @@ func TestForkReadsASpilledResultInAnInheritedSegment(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if _, byCall := child.SpilledResults(); len(byCall) != 0 || len(child.Segments()) == 0 {
-		t.Fatalf("the fork should hold the call only inside a Segment: refs %v, %d Segments", byCall, len(child.Segments()))
+	forked := viewOf(t, store, child.ID)
+	if _, byCall := forked.SpilledResults(); len(byCall) != 0 || len(forked.Segments()) == 0 {
+		t.Fatalf("the fork should hold the call only inside a Segment: refs %v, %d Segments", byCall, len(forked.Segments()))
 	}
-	if _, err := runner.Run(ctx, service.RunRequest{SessionID: child.ID(), Prompt: "read it"}); err != nil {
+	if _, err := runner.Run(ctx, service.RunRequest{SessionID: child.ID, Prompt: "read it"}); err != nil {
 		t.Fatal(err)
 	}
 	last := model.Requests()[len(model.Requests())-1]
@@ -214,7 +213,7 @@ func TestAToolSetOnlyAgentIsOfferedReadResult(t *testing.T) {
 	)
 	runner, err := service.New(service.Config{
 		Store:  memStore(),
-		Agents: []service.Agent{{Name: "a", Model: model, Options: []gotato.SessionOption{gotato.WithActiveToolSet(bigToolSet{body})}}},
+		Agents: []service.Agent{{Name: "a", Model: model, ToolSets: []service.ToolSet{{Set: bigToolSet{body}, Mode: service.ToolSetActive}}}},
 	})
 	if err != nil {
 		t.Fatal(err)
@@ -252,8 +251,8 @@ func segmentRunner(t *testing.T, store session.Store, model gotato.Model) *servi
 	t.Helper()
 	runner, err := service.New(service.Config{
 		Store: store,
-		Agents: []service.Agent{{Name: "a", Model: model, Options: []gotato.SessionOption{
-			gotato.WithToolSet(filesToolSet{}), gotato.WithToolSet(gitToolSet{}),
+		Agents: []service.Agent{{Name: "a", Model: model, ToolSets: []service.ToolSet{
+			{Set: filesToolSet{}}, {Set: gitToolSet{}},
 		}}},
 	})
 	if err != nil {
@@ -389,15 +388,15 @@ func TestReadSegmentIsOfferedAndEveryInstanceOffersTheSameTools(t *testing.T) {
 func TestInspectConfigOverridesTheInstructionForOneInspection(t *testing.T) {
 	ctx := context.Background()
 	runner, _ := newRunner(t, service.Agent{Name: "a", Model: testkit.EchoModel{}, Instruction: "spec instruction"})
-	s, err := runner.CreateSession(ctx, "a", nil)
+	s, err := runner.CreateSession(ctx, service.CreateSessionRequest{Agent: "a"})
 	if err != nil {
 		t.Fatal(err)
 	}
-	over, err := runner.Inspect(ctx, s.ID(), service.InspectConfig{Instruction: "once"})
+	over, err := runner.Inspect(ctx, s.ID, service.InspectConfig{Instruction: "once"})
 	if err != nil || over.Request.SystemInstructions != "once" {
 		t.Fatalf("override = %q, %v", over.Request.SystemInstructions, err)
 	}
-	plain, err := runner.Inspect(ctx, s.ID(), service.InspectConfig{})
+	plain, err := runner.Inspect(ctx, s.ID, service.InspectConfig{})
 	if err != nil || plain.Request.SystemInstructions != "spec instruction" {
 		t.Fatalf("plain = %q, %v", plain.Request.SystemInstructions, err)
 	}

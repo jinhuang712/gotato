@@ -35,7 +35,7 @@ func TestTwoInstancesForwardToTheWriter(t *testing.T) {
 
 	ctx := context.Background()
 	id := sessionIDFor(rootMsg)
-	if _, err := a.runner.CreateSessionExclusive(ctx, "fake", id, map[string]string{metaChatID: chat, metaThread: rootMsg}); err != nil {
+	if _, err := a.runner.CreateSession(ctx, service.CreateSessionRequest{Agent: "fake", ID: id, Metadata: map[string]string{metaChatID: chat, metaThread: rootMsg}}); err != nil {
 		t.Fatal(err)
 	}
 	// A's Run starts without A's bot seeing a Lark message, so A has no
@@ -75,7 +75,7 @@ func TestTwoInstancesForwardToTheWriter(t *testing.T) {
 		t.Fatal(err)
 	}
 	var users []string
-	for _, m := range rec.Messages() {
+	for _, m := range rec.Messages {
 		if m.Role == gotato.RoleUser {
 			users = append(users, gotato.TextOf(m))
 		}
@@ -124,7 +124,7 @@ func TestFailedForwardTellsTheUserOnce(t *testing.T) {
 	b.bot.retry = retryPolicy{} // no retry: the failed forward is told at once
 	ctx := context.Background()
 	id := sessionIDFor(rootMsg)
-	if _, err := a.runner.CreateSessionExclusive(ctx, "fake", id, map[string]string{metaChatID: chat, metaThread: rootMsg}); err != nil {
+	if _, err := a.runner.CreateSession(ctx, service.CreateSessionRequest{Agent: "fake", ID: id, Metadata: map[string]string{metaChatID: chat, metaThread: rootMsg}}); err != nil {
 		t.Fatal(err)
 	}
 	go func() { _, _ = a.runner.Run(ctx, service.RunRequest{SessionID: id, Prompt: "first"}) }()
@@ -170,7 +170,7 @@ func newLarkInstance(t *testing.T, store storeParts, name, fakeURL string, model
 	}
 	t.Cleanup(func() { closeRunner(runner) })
 	api := lark.NewClient("fake", "fake", lark.WithOpenBaseUrl(fakeURL))
-	b := newBot(runner, larkSender{api}, "fake", "fake", name, logger(t))
+	b := newBot(runner, store, larkSender{api}, "fake", "fake", name, logger(t))
 	li.runner, li.bot, li.srv = runner, b, srv
 
 	events := larkEventHandler(b)
@@ -227,7 +227,7 @@ func userTexts(t *testing.T, r *service.Runner, id string) []string {
 		t.Fatal(err)
 	}
 	var users []string
-	for _, m := range rec.Messages() {
+	for _, m := range rec.Messages {
 		if m.Role == gotato.RoleUser {
 			users = append(users, gotato.TextOf(m))
 		}

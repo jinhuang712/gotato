@@ -45,7 +45,7 @@ func TestReusedInstanceLabelAfterExpiredRowWritesFine(t *testing.T) {
 	shared := memStore()
 	store := &deadStore{parts: partsOf(shared)}
 	old := instanceRunner(t, asStore(store), "pod-0", testkit.EchoModel{}, steadyLiveness)
-	s, err := old.CreateSession(ctx, "echo", nil)
+	s, err := old.CreateSession(ctx, service.CreateSessionRequest{Agent: "echo"})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -58,17 +58,13 @@ func TestReusedInstanceLabelAfterExpiredRowWritesFine(t *testing.T) {
 	if !isInstance(old.Instance(), "pod-0") || !isInstance(restarted.Instance(), "pod-0") || old.Instance() == restarted.Instance() {
 		t.Fatalf("instances = %q and %q, want pod-0 and a different suffix each", old.Instance(), restarted.Instance())
 	}
-	if _, err := restarted.CreateSession(ctx, "echo", nil); err != nil {
+	if _, err := restarted.CreateSession(ctx, service.CreateSessionRequest{Agent: "echo"}); err != nil {
 		t.Fatalf("a write by a restarted process under the same label = %v, want it to succeed", err)
 	}
-	if _, err := restarted.Run(ctx, service.RunRequest{SessionID: s.ID(), Prompt: "again"}); err != nil {
+	if _, err := restarted.Run(ctx, service.RunRequest{SessionID: s.ID, Prompt: "again"}); err != nil {
 		t.Fatalf("a Run on the old process's Session = %v, want it taken over", err)
 	}
-	view, err := restarted.Record(ctx, s.ID())
-	if err != nil {
-		t.Fatal(err)
-	}
-	if claim := view.Claim(); claim.Instance != restarted.Instance() || claim.Epoch != 2 {
+	if claim := claimOf(t, shared, s.ID); claim.Instance != restarted.Instance() || claim.Epoch != 2 {
 		t.Fatalf("claim = %+v, want the restarted instance at epoch 2", claim)
 	}
 }
@@ -81,31 +77,27 @@ func TestReusedInstanceLabelWhileOldRunIsGoingIsBusy(t *testing.T) {
 	store := memStore()
 	held := &gateModel{gate: make(chan struct{}), started: make(chan struct{})}
 	old := instanceRunner(t, store, "pod-0", held, steadyLiveness)
-	s, err := old.CreateSession(ctx, "echo", nil)
+	s, err := old.CreateSession(ctx, service.CreateSessionRequest{Agent: "echo"})
 	if err != nil {
 		t.Fatal(err)
 	}
 	done := make(chan error, 1)
 	go func() {
-		_, err := old.Run(ctx, service.RunRequest{SessionID: s.ID(), Prompt: "slow"})
+		_, err := old.Run(ctx, service.RunRequest{SessionID: s.ID, Prompt: "slow"})
 		done <- err
 	}()
 	<-held.started
 
 	restarted := instanceRunner(t, store, "pod-0", testkit.EchoModel{}, service.Liveness{TTL: steadyLiveness.TTL, Wait: 200 * time.Millisecond})
 	began := time.Now()
-	_, err = restarted.Run(ctx, service.RunRequest{SessionID: s.ID(), Prompt: "again"})
+	_, err = restarted.Run(ctx, service.RunRequest{SessionID: s.ID, Prompt: "again"})
 	if !errors.Is(err, service.ErrBusy) {
 		t.Fatalf("a Run under the same label while the old Run is going = %v, want ErrBusy", err)
 	}
 	if waited := time.Since(began); waited < 150*time.Millisecond {
 		t.Fatalf("refused after %v, want the wait for the live writer", waited)
 	}
-	view, err := restarted.Record(ctx, s.ID())
-	if err != nil {
-		t.Fatal(err)
-	}
-	if claim := view.Claim(); claim.Instance != old.Instance() || claim.Epoch != 1 {
+	if claim := claimOf(t, store, s.ID); claim.Instance != old.Instance() || claim.Epoch != 1 {
 		t.Fatalf("claim = %+v, want the old instance at its own epoch", claim)
 	}
 	close(held.gate)
@@ -120,11 +112,11 @@ func TestLateCloseOfReusedInstanceLabelKeepsTheNewRow(t *testing.T) {
 	ctx := context.Background()
 	store := memStore()
 	old := instanceRunner(t, store, "pod-0", testkit.EchoModel{}, steadyLiveness)
-	if _, err := old.CreateSession(ctx, "echo", nil); err != nil {
+	if _, err := old.CreateSession(ctx, service.CreateSessionRequest{Agent: "echo"}); err != nil {
 		t.Fatal(err)
 	}
 	restarted := instanceRunner(t, store, "pod-0", testkit.EchoModel{}, steadyLiveness)
-	if _, err := restarted.CreateSession(ctx, "echo", nil); err != nil {
+	if _, err := restarted.CreateSession(ctx, service.CreateSessionRequest{Agent: "echo"}); err != nil {
 		t.Fatal(err)
 	}
 	if err := old.Close(ctx); err != nil {
@@ -133,7 +125,7 @@ func TestLateCloseOfReusedInstanceLabelKeepsTheNewRow(t *testing.T) {
 	if state, err := store.Liveness.Instance(ctx, restarted.Instance()); err != nil || !state.Alive {
 		t.Fatalf("the new process's row after the old Close = %+v, %v; want alive", state, err)
 	}
-	if _, err := restarted.CreateSession(ctx, "echo", nil); err != nil {
+	if _, err := restarted.CreateSession(ctx, service.CreateSessionRequest{Agent: "echo"}); err != nil {
 		t.Fatalf("a write by the new process after the old Close = %v, want it to succeed", err)
 	}
 }
@@ -146,7 +138,7 @@ func TestInstanceRecoversWhenTheStoreReturnsAfterTheTTL(t *testing.T) {
 	store := &faultStore{parts: partsOf(memStore())}
 	liveness := service.Liveness{TTL: 300 * time.Millisecond, Wait: time.Second}
 	a := instanceRunner(t, asStore(store), "instance-a", testkit.EchoModel{}, liveness)
-	s, err := a.CreateSession(ctx, "echo", nil)
+	s, err := a.CreateSession(ctx, service.CreateSessionRequest{Agent: "echo"})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -160,7 +152,7 @@ func TestInstanceRecoversWhenTheStoreReturnsAfterTheTTL(t *testing.T) {
 	if !a.Lapsed() {
 		t.Fatal("the Instance is not Lapsed after its row could not be renewed for two TTLs")
 	}
-	_, err = a.Run(ctx, service.RunRequest{SessionID: s.ID(), Prompt: "during"})
+	_, err = a.Run(ctx, service.RunRequest{SessionID: s.ID, Prompt: "during"})
 	if !gotato.NotRun(err) {
 		t.Fatalf("a Run refused because the row lapsed = %v, want not run", err)
 	}
@@ -168,7 +160,7 @@ func TestInstanceRecoversWhenTheStoreReturnsAfterTheTTL(t *testing.T) {
 	store.fail("Beat", false)
 	deadline := time.Now().Add(5 * time.Second)
 	for {
-		_, err = a.Run(ctx, service.RunRequest{SessionID: s.ID(), Prompt: "after"})
+		_, err = a.Run(ctx, service.RunRequest{SessionID: s.ID, Prompt: "after"})
 		if err == nil {
 			break
 		}
@@ -188,11 +180,7 @@ func TestInstanceRecoversWhenTheStoreReturnsAfterTheTTL(t *testing.T) {
 		t.Fatalf("the new name's row = %+v, %v; want alive", state, err)
 	}
 	// Its Claim is the new name's.
-	record, err := a.Record(ctx, s.ID())
-	if err != nil {
-		t.Fatal(err)
-	}
-	if claim := record.Claim(); claim.Instance != a.Instance() {
+	if claim := claimOf(t, asStore(store), s.ID); claim.Instance != a.Instance() {
 		t.Fatalf("Claim = %+v, want the new name %q", claim, a.Instance())
 	}
 }

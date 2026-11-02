@@ -80,7 +80,7 @@ func TestReplyPartsMergeDeltas(t *testing.T) {
 		events = append(events, ModelEvent{Kind: ModelEventKindTextDelta, Text: delta})
 	}
 	events = append(events, ModelEvent{Kind: ModelEventKindDone, StopReason: StopReasonEndTurn})
-	journal := &journalTranscript{}
+	journal := &journalTranscript{durable: true}
 	session, err := NewSession(context.Background(), WithModel(&testModel{scripts: [][]ModelEvent{events}}), WithTranscript(journal))
 	if err != nil {
 		t.Fatal(err)
@@ -269,6 +269,8 @@ func TestJournalErrorKeepsForeignTextOffMessage(t *testing.T) {
 
 // ctxJournal is a Journal that honors its ctx: a write under an ended ctx fails.
 type ctxJournal struct{ journalTranscript }
+
+func (j *ctxJournal) Capabilities() Capabilities { return Capabilities{Journal: j} }
 
 func (j *ctxJournal) Write(ctx context.Context, events []Event) ([]Event, error) {
 	if err := ctx.Err(); err != nil {

@@ -95,6 +95,8 @@ func TestConcurrentSteersAtTheLimitNeverQueueThenReject(t *testing.T) {
 // fails after the Transcript took the message.
 type failSteerJournal struct{ journalTranscript }
 
+func (j *failSteerJournal) Capabilities() Capabilities { return Capabilities{Journal: j} }
+
 func (j *failSteerJournal) Write(ctx context.Context, events []Event) ([]Event, error) {
 	for _, event := range events {
 		if committed, ok := event.(MessageCommitted); ok && committed.Source == MessageSourceSteer {

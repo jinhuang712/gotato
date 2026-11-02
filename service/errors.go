@@ -3,6 +3,10 @@ package service
 import (
 	"context"
 	"errors"
+	"fmt"
+	"maps"
+	"slices"
+	"strings"
 
 	"github.com/jinhuang712/gotato/gotato"
 )
@@ -25,6 +29,14 @@ var (
 	// ErrUnknownAgent is returned for an unregistered Agent name.
 	// The Run is refused before it starts, so it is not run.
 	ErrUnknownAgent = notRunError(gotato.ErrorOf(gotato.CodeInvalidArgument, "service: unknown agent"))
+
+	// ErrReservedKey is returned when a caller sets a Session metadata key under
+	// ReservedPrefix ("gotato."): CreateSession, RunRequest.Metadata and
+	// RunRequest.Update refuse it before anything is written, as invalid_argument
+	// (HTTP 400), and the error names the key. Those keys are the Runner's: the
+	// Agent changes only by RunRequest.Agent, a Tool is switched only by
+	// SetToolActive, and the cache key only by Fork. Match it with errors.Is.
+	ErrReservedKey = notRunError(gotato.ErrorOf(gotato.CodeInvalidArgument, "service: a metadata key under \"gotato.\" belongs to the Runner"))
 
 	// ErrSessionExists is returned when an explicit Session ID is already taken.
 	// It has its own code, already_exists, so a client can tell "the ID is
@@ -107,4 +119,16 @@ func storeFailureOf(ctx context.Context, err error, notRun bool) error {
 	failure := gotato.ErrorOf(gotato.CodeStoreFailure, "service: the store could not be reached")
 	failure.Operation, failure.Cause, failure.NotRun = "service.Store", err, notRun
 	return failure
+}
+
+// refuseReserved is ErrReservedKey, naming the first key of metadata (in key
+// order) that lies under ReservedPrefix, or nil when none does. Every path that
+// takes a caller's metadata calls it before it writes anything.
+func refuseReserved(metadata map[string]string) error {
+	for _, key := range slices.Sorted(maps.Keys(metadata)) {
+		if strings.HasPrefix(key, ReservedPrefix) {
+			return fmt.Errorf("%w: %q", ErrReservedKey, key)
+		}
+	}
+	return nil
 }

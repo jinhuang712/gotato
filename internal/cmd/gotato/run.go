@@ -21,7 +21,7 @@ func (c *cli) cmdRunArgs(args []string, sessionFromPositional bool) int {
 	var flags modelFlags
 	bindModel(fs, &flags)
 	sessionID := fs.String("session", "", "continue an existing session (default: a new session is created)")
-	compactCeiling := fs.Int("compact-ceiling", 0, "auto-compact the session when its history exceeds this many estimated tokens (stored in the session)")
+	compactCeiling := fs.Int("compact-ceiling", 0, "auto-compact the session when its history exceeds this many estimated tokens (the run uses a variant of the agent with it)")
 	events := fs.String("events", "", "stream runtime events to stdout: jsonl")
 	continueRun := fs.Bool("continue", false, "continue the session without a new prompt")
 	noSave := fs.Bool("no-save", false, "do not write the run's messages to the store")
@@ -50,23 +50,19 @@ func (c *cli) cmdRunArgs(args []string, sessionFromPositional bool) int {
 	// exits 4); store operations around it are not cut short.
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
+	flags.compactCeiling = *compactCeiling
 	rt, err := c.newRuntime(flags)
 	if err != nil {
 		return c.failErr(err)
 	}
-	agent, err := rt.resolveAgent(flags.model, c.getenv)
+	// The instruction and the ceiling belong to an Agent: a flag selects a
+	// variant of it. The Run switches the Session to that Agent as its first
+	// write; with --no-save the Session stays as it was.
+	agent, err := rt.agentFor(ctx, flags, c.getenv, *sessionID)
 	if err != nil {
 		return c.failErr(err)
 	}
-	settings := sessionSettings{instruction: flags.instruction, compactCeiling: *compactCeiling}
 	request := service.RunRequest{SessionID: *sessionID, Agent: agent, Prompt: prompt, Continue: *continueRun, Timeout: c.timeout, SkipSave: *noSave}
-	if *sessionID == "" {
-		request.Metadata = settings.metadata()
-	} else {
-		// The settings change the Session as the Run's first write, under
-		// its Claim; with --no-save they apply to this Run only.
-		request.Update = settings.metadata()
-	}
 	var result service.RunResponse
 	if *events == "jsonl" {
 		result, err = rt.runner.StreamRun(ctx, request, func(event gotato.Event) error { return c.writeJSONL(event) })

@@ -20,11 +20,11 @@ Every tool passes the same gates before it reaches a request; a tool that fails 
  Effect:  read  <  write_local  <  write_external  <  destructive      (no Effect counts as destructive)
 ```
 
-An Effect says what a tool changes. The Agent names the highest Effect its tools may have, and a Session can lower what it offers with a filter but can never raise the cap. A tool above the cap is in no request, no inspected Context and no search index. A model that calls its name anyway gets a failed result that says the Session does not allow it, and the Run goes on. `search_tools` and `read_result` declare `read`, so every cap keeps them. Watch the default: with no cap, every tool runs.
+An Effect says what a tool changes. The Agent names the highest Effect its tools may have, and a Session can lower what it offers with a filter but can never raise the cap. Only the Agent sets the cap: an Agent holds typed fields, not options that run after the Runner's own, so nothing it carries can lift it. A tool above the cap is in no request, no inspected Context and no search index. A model that calls its name anyway gets a failed result that says the Session does not allow it, and the Run goes on. `search_tools` and `read_result` declare `read`, so every cap keeps them. Watch the default: with no cap, every tool runs.
 
 ## The catalog and the three installs
 
-A ToolSet is installed in one of three ways, and the mode sets how much of it the model reads.
+A ToolSet is installed in one of three ways, and the mode sets how much of it the model reads (`WithActiveToolSet`, `WithToolSet` and `WithFoldedToolSet` on a Session; in a service, `Agent.ToolSets` with a `Mode` of active, listed or folded, and the Runner builds the options).
 
 ```text
  install            description of search_tools shows              tools in the request
