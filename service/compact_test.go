@@ -2,6 +2,7 @@ package service_test
 
 import (
 	"context"
+	"errors"
 	"strings"
 	"testing"
 	"time"
@@ -89,5 +90,27 @@ func TestTheModelsWindowGivesTheDefaultCeiling(t *testing.T) {
 	}
 	if report, err = plain.Inspect(ctx, one.SessionID, service.InspectConfig{}); err != nil || report.CompactCeilingTokens != 0 {
 		t.Fatalf("ceiling = %d, %v; want none", report.CompactCeilingTokens, err)
+	}
+}
+
+// A ModelRecap written as a pointer gets the Agent's Model like the value does.
+func TestRunnerCompactFillsTheModelOfAPointerModelRecap(t *testing.T) {
+	recap := &modelctx.ModelRecap{}
+	runner, _ := newRunner(t, service.Agent{Name: "echo", Model: windowedEcho{window: 1 << 20}, Compact: modelctx.CompactPolicy{Recap: recap}})
+	ctx := context.Background()
+	var id string
+	for _, prompt := range []string{"one", "two", "three"} {
+		result, err := runner.Run(ctx, service.RunRequest{SessionID: id, Prompt: prompt})
+		if err != nil {
+			t.Fatal(err)
+		}
+		id = result.SessionID
+	}
+	result, err := runner.Compact(ctx, id, modelctx.CompactConfig{})
+	if errors.Is(err, modelctx.ErrNoRecapModel) {
+		t.Fatalf("compact = %+v, %v: the pointer ModelRecap got no Model", result, err)
+	}
+	if recap.Model != nil {
+		t.Fatal("the caller's ModelRecap was changed")
 	}
 }

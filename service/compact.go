@@ -96,9 +96,18 @@ func cmpPositive(a, b int) int {
 // withAgentModel gives a modelctx.ModelRecap that names no Model the Agent's
 // own, so an Agent turns the model's Recap on with Recap: modelctx.ModelRecap{}.
 func withAgentModel(writer modelctx.RecapWriter, model gotato.Model) modelctx.RecapWriter {
-	if recap, ok := writer.(modelctx.ModelRecap); ok && recap.Model == nil {
-		recap.Model = model
-		return recap
+	switch recap := writer.(type) {
+	case modelctx.ModelRecap:
+		if recap.Model == nil {
+			recap.Model = model
+			return recap
+		}
+	case *modelctx.ModelRecap:
+		if recap != nil && recap.Model == nil {
+			filled := *recap // a copy, so the caller's writer is not changed
+			filled.Model = model
+			return filled
+		}
 	}
 	return writer
 }
