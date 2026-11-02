@@ -17,4 +17,4 @@ A model is described by a `ModelProfile`, a value apart from the connection: its
 - Make the window required in the flat `Config` now: it breaks every caller that has none.
 
 ## Consequences
-Leaving the window out becomes something a team writes down, not something that happens. A team with several models writes each profile once. The cost is a new type and a second way to build a `Client`, with the old form kept until a later release removes it. Open: where "unknown" is spelled; whether a Session can take a profile per Run (not checked: today an Agent holds one `Model`).
+Leaving the window out becomes something a team writes down, not something that happens. A team with several models writes each profile once. The cost is a new type and a second way to build a `Client`, with the old form kept until a later release removes it. The ceiling stays a hard line whoever sets it: a Run still past it after a compaction ends, and a team that wants a cost cap writes its own `TurnStopper` ([038](038-a-limit-guards-a-real-failure.md)). Open: where "unknown" is spelled; whether a Session can take a profile per Run (not checked: today an Agent holds one `Model`).
