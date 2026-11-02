@@ -158,3 +158,29 @@ func TestToolUseNamesItsSession(t *testing.T) {
 		t.Fatalf("ToolUse.SessionID = %q, want %q", got.SessionID, agent.ID())
 	}
 }
+
+// beforeRecorder keeps the ToolUse a PreToolUse was called with.
+type beforeRecorder struct{ got *ToolUse }
+
+func (b beforeRecorder) Before(_ context.Context, use ToolUse) (PreToolDecision, error) {
+	*b.got = use
+	return PreToolDecision{}, nil
+}
+
+// A PreToolUse reads the Session of the call, so a person can be asked in the
+// right conversation.
+func TestPreToolUseSeesTheSessionOfTheCall(t *testing.T) {
+	var got ToolUse
+	var ran ToolUse
+	model := &recordingModel{scripts: [][]ModelEvent{callTool("c1", "use"), finalScript("done")}}
+	agent := newSearchSession(t, model, WithTools(useRecordingTool{got: &ran}), WithExtension(beforeRecorder{got: &got}))
+	if _, err := agent.Prompt(context.Background(), UserMessage("go")); err != nil {
+		t.Fatal(err)
+	}
+	if got.CallID != "c1" {
+		t.Fatalf("Before saw call %q, want c1", got.CallID)
+	}
+	if got.SessionID == "" || got.SessionID != agent.ID() {
+		t.Fatalf("Before: ToolUse.SessionID = %q, want %q", got.SessionID, agent.ID())
+	}
+}
