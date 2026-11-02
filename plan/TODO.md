@@ -38,6 +38,7 @@ From the first real adoption (a Lark bot service running on several pods), each 
 - [ ] **D-034 · A long Run never compacted mid-Run because the downstream window was 0 (their setting).** Confirmed. No core change; it is another reason for D-020's warning.
 - [ ] **D-035 · `compaction_ended` carries no ceiling or window; `context_built` has no per-part size.** Add the ceiling and window first, then an estimate per part. Compatible.
 - [ ] **D-036 · Decide whether to clear old Tool Results in the middle of a Run.** Write the decision first; check whether the compaction ceiling already answers it.
+- [ ] **D-037 · `search_tools` with `toolset` returns a whole ToolSet (up to 30 KB measured), uncapped and not spilled.** By design; say so in FEATURES.md and the tool-search guide, and name `queries` and `names` as the cheap forms. `loaded_tools` in the result is Record-only on the chat wire.
 - [ ] **D-003 · Nothing warns against `http.Client.Timeout` on the MCP transport.** One sentence in the option comment and FEATURES.md.
 - [ ] **D-008 · No Mongo section in `guides/write-a-store.md`.**
 - [ ] **D-011 · `guides/install.md` opens with Go 1.24 only.** Add "1.25 with `adapter/mcp`".
