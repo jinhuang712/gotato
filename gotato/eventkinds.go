@@ -25,9 +25,6 @@ const (
 	EventKindToolResultSpilled   EventKind = "tool_result_spilled"
 	EventKindToolLoaded          EventKind = "tool_loaded"
 	EventKindToolUnloaded        EventKind = "tool_unloaded"
-	EventKindRunRequested        EventKind = "run_requested"
-	EventKindRunWaiting          EventKind = "run_waiting"
-	EventKindRunRejected         EventKind = "run_rejected"
 	EventKindMessageQueued       EventKind = "message_queued"
 	EventKindMessageCommitted    EventKind = "message_committed"
 	EventKindMessageDropped      EventKind = "message_dropped"
@@ -37,8 +34,6 @@ const (
 	EventKindAbortRequested      EventKind = "abort_requested"
 	EventKindSessionClaimed      EventKind = "session_claimed"
 	EventKindSessionReleased     EventKind = "session_released"
-	EventKindSessionFenced       EventKind = "session_fenced"
-	EventKindLivenessLapsed      EventKind = "liveness_lapsed"
 	EventKindSessionCreated      EventKind = "session_created"
 	EventKindMetadataChanged     EventKind = "metadata_changed"
 	EventKindCompactionStarted   EventKind = "compaction_started"
@@ -46,10 +41,6 @@ const (
 	EventKindCompactionFailed    EventKind = "compaction_failed"
 	EventKindSegmentClosed       EventKind = "segment_closed"
 	EventKindSessionUnloaded     EventKind = "session_unloaded"
-	EventKindSessionDeleted      EventKind = "session_deleted"
-	EventKindSessionLoaded       EventKind = "session_loaded"
-	EventKindSessionSaved        EventKind = "session_saved"
-	EventKindStoreWriteFailed    EventKind = "store_write_failed"
 	EventKindExtensionFailed     EventKind = "extension_failed"
 	EventKindEventsSkipped       EventKind = "events_skipped"
 )
@@ -283,42 +274,6 @@ func (e ToolUnloaded) MarshalJSON() ([]byte, error) {
 }
 
 // Kind implements Event.
-func (RunRequested) Kind() EventKind { return EventKindRunRequested }
-
-// Class implements Event.
-func (RunRequested) Class() EventClass { return EventClassInstance }
-
-// MarshalJSON writes the Event as one flat object whose kind names its type.
-func (e RunRequested) MarshalJSON() ([]byte, error) {
-	type plain RunRequested
-	return marshalKind(EventKindRunRequested, plain(e))
-}
-
-// Kind implements Event.
-func (RunWaiting) Kind() EventKind { return EventKindRunWaiting }
-
-// Class implements Event.
-func (RunWaiting) Class() EventClass { return EventClassInstance }
-
-// MarshalJSON writes the Event as one flat object whose kind names its type.
-func (e RunWaiting) MarshalJSON() ([]byte, error) {
-	type plain RunWaiting
-	return marshalKind(EventKindRunWaiting, plain(e))
-}
-
-// Kind implements Event.
-func (RunRejected) Kind() EventKind { return EventKindRunRejected }
-
-// Class implements Event.
-func (RunRejected) Class() EventClass { return EventClassInstance }
-
-// MarshalJSON writes the Event as one flat object whose kind names its type.
-func (e RunRejected) MarshalJSON() ([]byte, error) {
-	type plain RunRejected
-	return marshalKind(EventKindRunRejected, plain(e))
-}
-
-// Kind implements Event.
 func (MessageQueued) Kind() EventKind { return EventKindMessageQueued }
 
 // Class implements Event.
@@ -427,30 +382,6 @@ func (e SessionReleased) MarshalJSON() ([]byte, error) {
 }
 
 // Kind implements Event.
-func (SessionFenced) Kind() EventKind { return EventKindSessionFenced }
-
-// Class implements Event.
-func (SessionFenced) Class() EventClass { return EventClassInstance }
-
-// MarshalJSON writes the Event as one flat object whose kind names its type.
-func (e SessionFenced) MarshalJSON() ([]byte, error) {
-	type plain SessionFenced
-	return marshalKind(EventKindSessionFenced, plain(e))
-}
-
-// Kind implements Event.
-func (LivenessLapsed) Kind() EventKind { return EventKindLivenessLapsed }
-
-// Class implements Event.
-func (LivenessLapsed) Class() EventClass { return EventClassInstance }
-
-// MarshalJSON writes the Event as one flat object whose kind names its type.
-func (e LivenessLapsed) MarshalJSON() ([]byte, error) {
-	type plain LivenessLapsed
-	return marshalKind(EventKindLivenessLapsed, plain(e))
-}
-
-// Kind implements Event.
 func (SessionCreated) Kind() EventKind { return EventKindSessionCreated }
 
 // Class implements Event.
@@ -535,54 +466,6 @@ func (e SessionUnloaded) MarshalJSON() ([]byte, error) {
 }
 
 // Kind implements Event.
-func (SessionDeleted) Kind() EventKind { return EventKindSessionDeleted }
-
-// Class implements Event.
-func (SessionDeleted) Class() EventClass { return EventClassInstance }
-
-// MarshalJSON writes the Event as one flat object whose kind names its type.
-func (e SessionDeleted) MarshalJSON() ([]byte, error) {
-	type plain SessionDeleted
-	return marshalKind(EventKindSessionDeleted, plain(e))
-}
-
-// Kind implements Event.
-func (SessionLoaded) Kind() EventKind { return EventKindSessionLoaded }
-
-// Class implements Event.
-func (SessionLoaded) Class() EventClass { return EventClassInstance }
-
-// MarshalJSON writes the Event as one flat object whose kind names its type.
-func (e SessionLoaded) MarshalJSON() ([]byte, error) {
-	type plain SessionLoaded
-	return marshalKind(EventKindSessionLoaded, plain(e))
-}
-
-// Kind implements Event.
-func (SessionSaved) Kind() EventKind { return EventKindSessionSaved }
-
-// Class implements Event.
-func (SessionSaved) Class() EventClass { return EventClassInstance }
-
-// MarshalJSON writes the Event as one flat object whose kind names its type.
-func (e SessionSaved) MarshalJSON() ([]byte, error) {
-	type plain SessionSaved
-	return marshalKind(EventKindSessionSaved, plain(e))
-}
-
-// Kind implements Event.
-func (StoreWriteFailed) Kind() EventKind { return EventKindStoreWriteFailed }
-
-// Class implements Event.
-func (StoreWriteFailed) Class() EventClass { return EventClassInstance }
-
-// MarshalJSON writes the Event as one flat object whose kind names its type.
-func (e StoreWriteFailed) MarshalJSON() ([]byte, error) {
-	type plain StoreWriteFailed
-	return marshalKind(EventKindStoreWriteFailed, plain(e))
-}
-
-// Kind implements Event.
 func (ExtensionFailed) Kind() EventKind { return EventKindExtensionFailed }
 
 // Class implements Event.
@@ -627,9 +510,6 @@ var eventDecoders = map[EventKind]func([]byte) (Event, error){
 	EventKindToolResultSpilled:   decodeAs[ToolResultSpilled],
 	EventKindToolLoaded:          decodeAs[ToolLoaded],
 	EventKindToolUnloaded:        decodeAs[ToolUnloaded],
-	EventKindRunRequested:        decodeAs[RunRequested],
-	EventKindRunWaiting:          decodeAs[RunWaiting],
-	EventKindRunRejected:         decodeAs[RunRejected],
 	EventKindMessageQueued:       decodeAs[MessageQueued],
 	EventKindMessageCommitted:    decodeAs[MessageCommitted],
 	EventKindMessageDropped:      decodeAs[MessageDropped],
@@ -639,8 +519,6 @@ var eventDecoders = map[EventKind]func([]byte) (Event, error){
 	EventKindAbortRequested:      decodeAs[AbortRequested],
 	EventKindSessionClaimed:      decodeAs[SessionClaimed],
 	EventKindSessionReleased:     decodeAs[SessionReleased],
-	EventKindSessionFenced:       decodeAs[SessionFenced],
-	EventKindLivenessLapsed:      decodeAs[LivenessLapsed],
 	EventKindSessionCreated:      decodeAs[SessionCreated],
 	EventKindMetadataChanged:     decodeAs[MetadataChanged],
 	EventKindCompactionStarted:   decodeAs[CompactionStarted],
@@ -648,10 +526,6 @@ var eventDecoders = map[EventKind]func([]byte) (Event, error){
 	EventKindCompactionFailed:    decodeAs[CompactionFailed],
 	EventKindSegmentClosed:       decodeAs[SegmentClosed],
 	EventKindSessionUnloaded:     decodeAs[SessionUnloaded],
-	EventKindSessionDeleted:      decodeAs[SessionDeleted],
-	EventKindSessionLoaded:       decodeAs[SessionLoaded],
-	EventKindSessionSaved:        decodeAs[SessionSaved],
-	EventKindStoreWriteFailed:    decodeAs[StoreWriteFailed],
 	EventKindExtensionFailed:     decodeAs[ExtensionFailed],
 	EventKindEventsSkipped:       decodeAs[EventsSkipped],
 }

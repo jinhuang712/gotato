@@ -14,18 +14,19 @@ import (
 // A new ErrorCode must be given a status on purpose: this fails until the
 // table maps it.
 func TestEveryErrorCodeHasAnExplicitStatus(t *testing.T) {
-	for _, code := range gotato.ErrorCodes() {
+	all := append(gotato.ErrorCodes(), service.ErrorCodes()...)
+	for _, code := range all {
 		if _, ok := httpapi.StatusByCode[code]; !ok {
 			t.Errorf("error code %q has no HTTP status", code)
 		}
 	}
 	for code := range httpapi.StatusByCode {
 		var listed bool
-		for _, known := range gotato.ErrorCodes() {
+		for _, known := range all {
 			listed = listed || known == code
 		}
 		if !listed {
-			t.Errorf("the status table names %q, which gotato.ErrorCodes does not list", code)
+			t.Errorf("the status table names %q, which neither gotato.ErrorCodes nor service.ErrorCodes lists", code)
 		}
 	}
 }

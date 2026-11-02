@@ -77,7 +77,7 @@ func TestActivationLimitRefusesANewSessionBeforeItRuns(t *testing.T) {
 	}
 	for _, refusal := range refusals {
 		result, err := runner.Run(ctx, refusal.request)
-		if !errors.Is(err, service.ErrOverloaded) || !gotato.IsCode(err, gotato.CodeOverloaded) {
+		if !errors.Is(err, service.ErrOverloaded) || !gotato.IsCode(err, service.CodeOverloaded) {
 			t.Fatalf("%s: err = %v, want ErrOverloaded", refusal.name, err)
 		}
 		if result.SessionID != "" || result.Result.RunID != "" {
@@ -90,7 +90,7 @@ func TestActivationLimitRefusesANewSessionBeforeItRuns(t *testing.T) {
 	// called again on the same Events, so count by what they name.
 	seen := map[gotato.SessionID]bool{}
 	if !instance.Wait(5*time.Second, func(e gotato.Event) bool {
-		if r, ok := e.(gotato.RunRejected); ok {
+		if r, ok := e.(service.RunRejected); ok {
 			seen[r.SessionID] = true
 		}
 		return len(seen) >= 2 && seen[gotato.SessionID(idle.ID)]
@@ -98,8 +98,8 @@ func TestActivationLimitRefusesANewSessionBeforeItRuns(t *testing.T) {
 		t.Fatalf("want two run_rejected Events, one for the idle Session; got %v", instance.Kinds())
 	}
 	var reasons []string
-	for _, event := range instance.OfKind(gotato.EventKindRunRejected) {
-		reasons = append(reasons, event.(gotato.RunRejected).Why)
+	for _, event := range instance.OfKind(service.EventKindRunRejected) {
+		reasons = append(reasons, event.(service.RunRejected).Why)
 	}
 	if len(reasons) != 2 || reasons[0] != "activation_limit" || reasons[1] != "activation_limit" {
 		t.Fatalf("run_rejected reasons = %v, want two activation_limit", reasons)

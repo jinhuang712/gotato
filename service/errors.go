@@ -24,7 +24,7 @@ var (
 	// ErrOverloaded is returned when the Instance is at its MaxActiveSessions and
 	// the Run would activate another Session. The Run did not start and nothing
 	// was written, so it is safe to send again to another Instance.
-	ErrOverloaded = gotato.ErrorOf(gotato.CodeOverloaded, "service: this instance is at its limit of active sessions")
+	ErrOverloaded = errorOf(CodeOverloaded, "service: this instance is at its limit of active sessions")
 
 	// ErrUnknownAgent is returned for an unregistered Agent name.
 	// The Run is refused before it starts, so it is not run.
@@ -41,11 +41,11 @@ var (
 	// ErrSessionExists is returned when an explicit Session ID is already taken.
 	// It has its own code, already_exists, so a client can tell "the ID is
 	// taken" from the other invalid_state answers without reading the message.
-	ErrSessionExists = gotato.ErrorOf(gotato.CodeAlreadyExists, "service: session already exists")
+	ErrSessionExists = errorOf(CodeAlreadyExists, "service: session already exists")
 
 	// ErrDraining refuses a new Run, and taking a Session over from another
 	// Instance, once the Runner drains.
-	ErrDraining = gotato.ErrorOf(gotato.CodeDraining, "service: draining")
+	ErrDraining = errorOf(CodeDraining, "service: draining")
 
 	// ErrNotPersisted reports that a write of a Run failed, so the Record does not
 	// hold the Run. The Run outcome is still returned, settled as gotato.RunStatusFailed
@@ -59,7 +59,7 @@ var (
 	// client saw, because the Record was deleted and created again under the same
 	// ID, or the number is past the Record's last Event. The client starts over
 	// from the first Event.
-	ErrCannotResume = gotato.ErrorOf(gotato.CodeCannotResume, "service: the stream cannot resume from that position")
+	ErrCannotResume = errorOf(CodeCannotResume, "service: the stream cannot resume from that position")
 
 	// ErrNoRun is returned by AbortSession when no Run is going on the Session,
 	// here or on the Instance that writes it: a Stop finds nothing to stop.

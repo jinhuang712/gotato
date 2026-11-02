@@ -547,7 +547,7 @@ func TestFencedWritePublishesSessionFenced(t *testing.T) {
 	a := instanceRunner(t, backing, "instance-a", held, steadyLiveness)
 	b := instanceRunner(t, asStore(deadHolders{parts: partsOf(backing), self: "instance-b"}), "instance-b", testkit.EchoModel{}, steadyLiveness)
 	fenced := instanceRecorder(t, a, gotato.SubscribeFilter(func(event gotato.Event) bool {
-		return event.Kind() == gotato.EventKindSessionFenced
+		return event.Kind() == service.EventKindSessionFenced
 	}))
 	s, err := a.CreateSession(ctx, service.CreateSessionRequest{Agent: "echo"})
 	if err != nil {
@@ -569,7 +569,7 @@ func TestFencedWritePublishesSessionFenced(t *testing.T) {
 	if !fenced.Wait(5*time.Second, func(event gotato.Event) bool { return true }) {
 		t.Fatal("no session_fenced was published to instance-a's Instance stream")
 	}
-	event, ok := fenced.Events()[0].(gotato.SessionFenced)
+	event, ok := fenced.Events()[0].(service.SessionFenced)
 	if !ok || !isInstance(event.Instance, "instance-a") || string(event.SessionID) != s.ID {
 		t.Fatalf("event = %+v, want session_fenced by instance-a for %s", fenced.Events()[0], s.ID)
 	}
@@ -594,7 +594,7 @@ func TestLapsedLivenessPublishesOnce(t *testing.T) {
 	paused := &pausableStore{parts: partsOf(backing)}
 	a := instanceRunner(t, asStore(paused), "instance-a", testkit.EchoModel{}, fastLiveness)
 	lapsed := instanceRecorder(t, a, gotato.SubscribeFilter(func(event gotato.Event) bool {
-		return event.Kind() == gotato.EventKindLivenessLapsed
+		return event.Kind() == service.EventKindLivenessLapsed
 	}))
 	s, err := a.CreateSession(ctx, service.CreateSessionRequest{Agent: "echo"})
 	if err != nil {
@@ -619,7 +619,7 @@ func TestLapsedLivenessPublishesOnce(t *testing.T) {
 	if len(events) != 1 {
 		t.Fatalf("liveness_lapsed was published %d times, want once", len(events))
 	}
-	if event, ok := events[0].(gotato.LivenessLapsed); !ok || !isInstance(event.Instance, "instance-a") {
+	if event, ok := events[0].(service.LivenessLapsed); !ok || !isInstance(event.Instance, "instance-a") {
 		t.Fatalf("event = %+v, want liveness_lapsed of instance-a", events[0])
 	}
 }

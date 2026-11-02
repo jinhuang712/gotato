@@ -219,7 +219,7 @@ func TestAMessageForARunOnAnotherInstanceIsNotWriter(t *testing.T) {
 
 	for _, kind := range []service.MessageKind{service.MessageKindSteer, service.MessageKindFollowUp, service.MessageKindInterrupt} {
 		result, err := b.Send(ctx, service.MessageRequest{SessionID: s.ID, Kind: kind, Text: "from b"})
-		if !gotato.IsCode(err, gotato.CodeNotWriter) || !gotato.NotRun(err) || !gotato.Retryable(err) {
+		if !gotato.IsCode(err, service.CodeNotWriter) || !gotato.NotRun(err) || !gotato.Retryable(err) {
 			t.Fatalf("%s: Send = %+v, %v; want not_writer, not run, retryable", kind, result, err)
 		}
 		if address, ok := service.WriterOf(err); !ok || address != "http://instance-a.example:8080" {
@@ -227,7 +227,7 @@ func TestAMessageForARunOnAnotherInstanceIsNotWriter(t *testing.T) {
 		}
 	}
 	// A Stop is a message too.
-	if err := b.AbortSession(ctx, s.ID); !gotato.IsCode(err, gotato.CodeNotWriter) {
+	if err := b.AbortSession(ctx, s.ID); !gotato.IsCode(err, service.CodeNotWriter) {
 		t.Fatalf("AbortSession on the other instance = %v, want not_writer", err)
 	}
 
@@ -272,13 +272,13 @@ func TestNotWriterWithoutAnAdvertisedAddress(t *testing.T) {
 	_, err := b.Send(ctx, service.MessageRequest{SessionID: s.ID, Text: "from b"})
 	// The refusal is an Instance Event of the instance that refused.
 	if !seen.Wait(5*time.Second, func(event gotato.Event) bool {
-		rejected, ok := event.(gotato.RunRejected)
+		rejected, ok := event.(service.RunRejected)
 		return ok && rejected.Why == "not_writer"
 	}) {
 		t.Fatalf("no run_rejected with why not_writer; got %v", seen.Kinds())
 	}
 	address, ok := service.WriterOf(err)
-	if !gotato.IsCode(err, gotato.CodeNotWriter) || !ok || address != "" {
+	if !gotato.IsCode(err, service.CodeNotWriter) || !ok || address != "" {
 		t.Fatalf("Send = %v (writer %q, %v); want not_writer without an address", err, address, ok)
 	}
 	close(model.release[0])
@@ -524,13 +524,13 @@ func TestSessionExistsHasItsOwnCode(t *testing.T) {
 		t.Fatal(err)
 	}
 	_, err := a.CreateSession(ctx, service.CreateSessionRequest{Agent: "echo", ID: "taken"})
-	if !errors.Is(err, service.ErrSessionExists) || !gotato.IsCode(err, gotato.CodeAlreadyExists) {
+	if !errors.Is(err, service.ErrSessionExists) || !gotato.IsCode(err, service.CodeAlreadyExists) {
 		t.Fatalf("second create = %v, want ErrSessionExists with code already_exists", err)
 	}
 	if gotato.IsCode(err, gotato.CodeInvalidState) {
 		t.Fatalf("second create = %v: a taken ID is no longer invalid_state", err)
 	}
-	if gotato.IsCode(service.ErrNoRun, gotato.CodeAlreadyExists) {
+	if gotato.IsCode(service.ErrNoRun, service.CodeAlreadyExists) {
 		t.Fatal("ErrNoRun has the code of a taken ID")
 	}
 }

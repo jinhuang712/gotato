@@ -105,7 +105,7 @@ func (r *Runner) DeleteSession(ctx context.Context, sessionID string) error {
 		if warm != nil {
 			r.unloaded(sessionID, warm.Agent, "deleted")
 		}
-		r.notice(gotato.SessionDeleted{Header: gotato.NewHeader(gotato.SessionID(sessionID), "", 0)}, "")
+		r.notice(SessionDeleted{Header: gotato.NewHeader(gotato.SessionID(sessionID), "", 0)}, "")
 		r.endSessionStreams(sessionID, session.ErrNotFound)
 		return nil
 	})

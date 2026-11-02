@@ -348,7 +348,7 @@ func TestEveryStoredKindHasALayer(t *testing.T) {
 		}
 		return true
 	})
-	if len(kinds) < 40 {
+	if len(kinds) < 35 {
 		t.Fatalf("read %d Event kinds from eventkinds.go, want the whole list", len(kinds))
 	}
 	stored := 0

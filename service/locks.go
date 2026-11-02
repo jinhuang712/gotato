@@ -115,11 +115,11 @@ func (r *Runner) sessionLock(ctx context.Context, sessionID string, forceWait bo
 	}
 	defer unhold()
 	onWait := func() {
-		r.notice(gotato.RunWaiting{Header: gotato.NewHeader(gotato.SessionID(sessionID), "", 0), Why: "busy"}, "")
+		r.notice(RunWaiting{Header: gotato.NewHeader(gotato.SessionID(sessionID), "", 0), Why: "busy"}, "")
 	}
 	if err := r.locks.acquire(ctx, sessionID, forceWait || r.bounds.Queue == QueuePolicyWait, onWait); err != nil {
 		if errors.Is(err, ErrBusy) {
-			r.notice(gotato.RunRejected{Header: gotato.NewHeader(gotato.SessionID(sessionID), "", 0), Why: "busy"}, "")
+			r.notice(RunRejected{Header: gotato.NewHeader(gotato.SessionID(sessionID), "", 0), Why: "busy"}, "")
 		}
 		return err
 	}

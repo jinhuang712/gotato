@@ -52,35 +52,16 @@ const (
 	CodeConflict ErrorCode = "conflict"
 	// CodeStoreFailure means the store could not write a Session's Record.
 	CodeStoreFailure ErrorCode = "store_failure"
-	// CodeOverloaded means an Instance is past its hard limit and refused to
-	// activate a new Session. The request did not run, so sending it to
-	// another Instance cannot run it twice.
-	CodeOverloaded ErrorCode = "overloaded"
-	// CodeDraining means the Instance is draining and takes no new Run. The
-	// request did not run, so another Instance can serve it.
-	CodeDraining ErrorCode = "draining"
 	// CodeNotFound means the Session (or the Record it names) does not exist.
 	// The request did not run, and sending it again changes nothing.
 	// session.ErrNotFound carries it.
 	CodeNotFound ErrorCode = "not_found"
-	// CodeCannotResume means a stream cannot go on from the position a client
-	// holds: the Record is not the one it saw, or the number is past its last
-	// Event. The client starts over from the first Event.
-	CodeCannotResume ErrorCode = "cannot_resume"
-	// CodeNotWriter means a message for a Run reached an Instance that is not
-	// the Run's writer. The message did not run, and sent again to the
-	// writer, whose advertised address is in Details["writer"] when it has
-	// one, it may succeed.
-	CodeNotWriter ErrorCode = "not_writer"
-	// CodeAlreadyExists means a Session with the ID the caller chose exists
-	// already, so a create or a fork with that ID did nothing. The ID is taken:
-	// choose another, or use the Session that has it.
-	CodeAlreadyExists ErrorCode = "already_exists"
 )
 
-// ErrorCodes lists every ErrorCode, so a layer that maps codes (a transport, a
-// CLI) can check that it maps each one. A new code is added here too; a test
-// fails when it is not.
+// ErrorCodes lists every ErrorCode of the core, so a layer that maps codes (a
+// transport, a CLI) can check that it maps each one. A new code is added here
+// too; a test fails when it is not. The codes of the service, which only a
+// Runner makes, are service.ErrorCodes.
 func ErrorCodes() []ErrorCode {
 	return []ErrorCode{
 		CodeInvalidArgument, CodeInvalidState, CodeBusy, CodeSessionClosed, CodeSessionClosing,
@@ -88,8 +69,7 @@ func ErrorCodes() []ErrorCode {
 		CodeToolResolutionFailure, CodeToolArgumentFailure, CodeToolExecutionFailure, CodeToolNotLoaded,
 		CodeExtensionFailure, CodeLimitExceeded, CodeCanceled, CodeDeadlineExceeded,
 		CodeInternalInvariant, CodeNotSupported, CodeConflict, CodeStoreFailure,
-		CodeOverloaded, CodeDraining, CodeNotFound, CodeCannotResume, CodeNotWriter,
-		CodeAlreadyExists,
+		CodeNotFound,
 	}
 }
 
@@ -160,20 +140,18 @@ func runtimeError(code ErrorCode, operation, message string, cause error) *Runti
 // same wherever they are made:
 //
 //	code             not run  retryable
-//	draining         yes      yes (on another Instance)
-//	overloaded       yes      yes (on another Instance)
 //	busy             yes      yes (after the Run in flight)
-//	not_writer       yes      yes (at the writer)
 //	not_found        yes      no
 //	session_closing  yes      no
 //	session_closed   yes      no
 //	store_failure    unknown  yes
 //
 // Any other code is neither: it is set by the place that knows better, such
-// as a model failure the provider calls retryable.
+// as a model failure the provider calls retryable. The codes of the service
+// (draining, overloaded, not_writer) are set where the service makes them.
 func (e *RuntimeError) applyDefaults() {
 	switch e.Code {
-	case CodeDraining, CodeOverloaded, CodeBusy, CodeNotWriter:
+	case CodeBusy:
 		e.NotRun, e.Retryable = true, true
 	case CodeNotFound, CodeSessionClosing, CodeSessionClosed:
 		e.NotRun = true
@@ -223,7 +201,12 @@ func IsCode(err error, code ErrorCode) bool {
 var (
 	// ErrEventsLost ends a Subscription that needs Events its source no longer
 	// holds.
-	ErrEventsLost = ErrorOf(CodeCannotResume, "gotato: the Events this subscriber missed are no longer available")
+	//
+	// Its code is cannot_resume, which is also the code of a stream the service
+	// cannot resume (service.CodeCannotResume): the same string, so a transport
+	// answers both alike. The core states it as a string because the code is the
+	// service's.
+	ErrEventsLost = ErrorOf(ErrorCode("cannot_resume"), "gotato: the Events this subscriber missed are no longer available")
 )
 
 // contextFailure returns the RuntimeError of an ended ctx, and nil while it

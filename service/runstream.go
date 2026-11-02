@@ -80,8 +80,8 @@ func deliver(ctx context.Context, sub gotato.Subscription, sink func(gotato.Even
 // loadedEvent and savedEvent build the Instance Event for a load or a save,
 // with the time the store took. A failure is only flagged: the store's error
 // text can name paths and hosts, and Events reach clients.
-func loadedEvent(sessionID string, messages int, elapsed time.Duration, err error) gotato.SessionLoaded {
-	return gotato.SessionLoaded{
+func loadedEvent(sessionID string, messages int, elapsed time.Duration, err error) SessionLoaded {
+	return SessionLoaded{
 		Header:    gotato.NewHeader(gotato.SessionID(sessionID), "", 0),
 		Messages:  messages,
 		ElapsedMS: float64(elapsed) / float64(time.Millisecond),
@@ -89,8 +89,8 @@ func loadedEvent(sessionID string, messages int, elapsed time.Duration, err erro
 	}
 }
 
-func savedEvent(sessionID string, runID gotato.RunID, messages int, stats session.WriteStats, err error) gotato.SessionSaved {
-	return gotato.SessionSaved{
+func savedEvent(sessionID string, runID gotato.RunID, messages int, stats session.WriteStats, err error) SessionSaved {
+	return SessionSaved{
 		Header:    gotato.NewHeader(gotato.SessionID(sessionID), runID, 0),
 		Messages:  messages,
 		ElapsedMS: float64(stats.Elapsed) / float64(time.Millisecond),

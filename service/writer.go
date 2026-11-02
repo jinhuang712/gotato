@@ -13,7 +13,7 @@ import (
 // not run, and a retry at the writer may succeed. The address is the writer's
 // advertised one, absent when it advertises none.
 func notWriter(instance, address string) *gotato.RuntimeError {
-	e := gotato.ErrorOf(gotato.CodeNotWriter, "service: the session's run is going on another instance")
+	e := errorOf(CodeNotWriter, "service: the session's run is going on another instance")
 	e.Details = map[string]string{"writer_instance": instance}
 	if address != "" {
 		e.Details["writer"] = address
@@ -26,7 +26,7 @@ func notWriter(instance, address string) *gotato.RuntimeError {
 // err is one. The address is empty when the writer advertises none.
 func WriterOf(err error) (address string, ok bool) {
 	var runtimeErr *gotato.RuntimeError
-	if !errors.As(err, &runtimeErr) || runtimeErr.Code != gotato.CodeNotWriter {
+	if !errors.As(err, &runtimeErr) || runtimeErr.Code != CodeNotWriter {
 		return "", false
 	}
 	return runtimeErr.Details["writer"], true
@@ -68,6 +68,6 @@ func (r *Runner) checkWriter(ctx context.Context, sessionID string) error {
 	if !state.Alive {
 		return nil
 	}
-	r.notice(gotato.RunRejected{Header: gotato.NewHeader(gotato.SessionID(sessionID), "", 0), Why: "not_writer"}, "")
+	r.notice(RunRejected{Header: gotato.NewHeader(gotato.SessionID(sessionID), "", 0), Why: "not_writer"}, "")
 	return notWriter(claim.Instance, state.Address)
 }

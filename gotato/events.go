@@ -409,28 +409,6 @@ type ToolUnloaded struct {
 
 // ---- Messages into a Session ------------------------------------------------
 
-// RunRequested is published when a request for a new Run arrives. An Instance
-// Event.
-type RunRequested struct {
-	Header
-	Agent string `json:"agent,omitempty"`
-}
-
-// RunWaiting is published when a request waits for a busy Session. An Instance
-// Event.
-type RunWaiting struct {
-	Header
-	Why string `json:"why,omitempty"`
-}
-
-// RunRejected is published when a request is refused, with why: "busy",
-// "at_capacity", "draining", or "activation_limit" when the Instance is past
-// its hard limit of active Sessions. An Instance Event.
-type RunRejected struct {
-	Header
-	Why string `json:"why"`
-}
-
 // MessageQueued is published when a Steer, FollowUp or Interrupt waits for its
 // point in the Run.
 type MessageQueued struct {
@@ -515,22 +493,6 @@ type SessionReleased struct {
 	Header
 	Instance string `json:"instance"`
 	Epoch    uint64 `json:"epoch"`
-}
-
-// SessionFenced is published when a write is refused because another Instance
-// holds the Claim. An Instance Event.
-type SessionFenced struct {
-	Header
-	Instance string `json:"instance"`
-	// Position is the position of the Record that the refused write needed.
-	Position uint64 `json:"position,omitempty"`
-}
-
-// LivenessLapsed is published when this Instance's Liveness row is not renewed
-// in time, so it writes nothing more. An Instance Event.
-type LivenessLapsed struct {
-	Header
-	Instance string `json:"instance"`
 }
 
 // ---- The Session ------------------------------------------------------------
@@ -630,38 +592,7 @@ type SessionUnloaded struct {
 	Why string `json:"why"`
 }
 
-// SessionDeleted is published when the Session's Record is deleted. An Instance
-// Event.
-type SessionDeleted struct{ Header }
-
 // ---- The store and extensions -----------------------------------------------
-
-// SessionLoaded is published with how long the store took to load the Session.
-// An Instance Event.
-type SessionLoaded struct {
-	Header
-	Messages  int     `json:"messages"`
-	ElapsedMS float64 `json:"elapsed_ms"`
-	Failed    bool    `json:"failed,omitempty"`
-}
-
-// SessionSaved is published with how long the store took to write a Run's
-// steps, summed, and how many writes that was. An Instance Event.
-type SessionSaved struct {
-	Header
-	Messages  int     `json:"messages"`
-	ElapsedMS float64 `json:"elapsed_ms"`
-	Writes    int     `json:"writes"`
-	Failed    bool    `json:"failed,omitempty"`
-}
-
-// StoreWriteFailed is published when a write fails, for another reason than a
-// taken position. An Instance Event; the store's own error text stays out,
-// because Events reach clients.
-type StoreWriteFailed struct {
-	Header
-	Code ErrorCode `json:"code,omitempty"`
-}
 
 // ExtensionFailed is published when an advisory extension fails, and the Run
 // goes on. It is also the warning for a ToolSet that did not resolve at the

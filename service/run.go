@@ -231,10 +231,10 @@ func (r *Runner) runWith(ctx context.Context, request RunRequest, stream *runStr
 		case errors.Is(err, ErrOverloaded):
 			why = "activation_limit"
 		}
-		r.notice(gotato.RunRejected{Header: gotato.NewHeader(gotato.SessionID(request.SessionID), "", 0), Why: why}, request.Agent)
+		r.notice(RunRejected{Header: gotato.NewHeader(gotato.SessionID(request.SessionID), "", 0), Why: why}, request.Agent)
 		return RunResponse{}, err
 	}
-	r.notice(gotato.RunRequested{Header: gotato.NewHeader(gotato.SessionID(request.SessionID), "", 0), Agent: request.Agent}, request.Agent)
+	r.notice(RunRequested{Header: gotato.NewHeader(gotato.SessionID(request.SessionID), "", 0), Agent: request.Agent}, request.Agent)
 	followed := false
 	defer func() {
 		if !followed {

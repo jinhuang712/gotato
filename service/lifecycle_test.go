@@ -338,7 +338,7 @@ func TestDeleteSessionRefusesARunOnAnotherInstance(t *testing.T) {
 	defer release()
 
 	err = b.DeleteSession(ctx, s.ID)
-	if !gotato.IsCode(err, gotato.CodeNotWriter) || !gotato.NotRun(err) {
+	if !gotato.IsCode(err, service.CodeNotWriter) || !gotato.NotRun(err) {
 		t.Fatalf("DeleteSession of a Session with a Run on another Instance = %v, want not_writer, not run", err)
 	}
 	release()

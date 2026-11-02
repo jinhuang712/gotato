@@ -158,7 +158,7 @@ func TestLimitsIsTheDefaultAdmitter(t *testing.T) {
 				}
 				rejections := func() (whys []string) {
 					for _, event := range rec.Events() {
-						if r, ok := event.(gotato.RunRejected); ok {
+						if r, ok := event.(service.RunRejected); ok {
 							whys = append(whys, r.Why)
 						}
 					}

@@ -94,11 +94,11 @@ func (r *Runner) open(ctx context.Context, sessionID string) (*session.Writer, [
 		}
 		remaining := deadline.Sub(r.clock.Now())
 		if remaining <= 0 {
-			r.notice(gotato.RunRejected{Header: gotato.NewHeader(gotato.SessionID(sessionID), "", 0), Why: "busy_elsewhere"}, "")
+			r.notice(RunRejected{Header: gotato.NewHeader(gotato.SessionID(sessionID), "", 0), Why: "busy_elsewhere"}, "")
 			return nil, nil, busyElsewhere(r.heartbeat.Wait)
 		}
 		if !waited {
-			r.notice(gotato.RunWaiting{Header: gotato.NewHeader(gotato.SessionID(sessionID), "", 0), Why: "busy_elsewhere"}, "")
+			r.notice(RunWaiting{Header: gotato.NewHeader(gotato.SessionID(sessionID), "", 0), Why: "busy_elsewhere"}, "")
 		}
 		waited = true
 		if err := clock.Sleep(ctx, r.clock, min(pause, remaining)); err != nil {

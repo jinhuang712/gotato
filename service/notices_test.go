@@ -158,7 +158,7 @@ func TestANoticeForARunOnAnotherInstanceIsNotWriter(t *testing.T) {
 	done := startRun(t, a, s.ID, "hello")
 	waitCall(t, model, 0)
 	_, err := b.Notice(ctx, service.NoticeRequest{SessionID: s.ID, Kind: "k", Text: "from b"})
-	if !gotato.IsCode(err, gotato.CodeNotWriter) || !gotato.NotRun(err) || !gotato.Retryable(err) {
+	if !gotato.IsCode(err, service.CodeNotWriter) || !gotato.NotRun(err) || !gotato.Retryable(err) {
 		t.Fatalf("Notice = %v; want not_writer, not run, retryable", err)
 	}
 	if address, ok := service.WriterOf(err); !ok || address != "http://instance-a.example:8080" {

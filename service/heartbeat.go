@@ -87,5 +87,5 @@ func (r *Runner) Close(ctx context.Context) error {
 
 // lapseNotice tells the Instance's subscribers the row lapsed.
 func (r *Runner) lapseNotice(instance string) {
-	r.notice(gotato.LivenessLapsed{Header: gotato.NewHeader("", "", 0), Instance: instance}, "")
+	r.notice(LivenessLapsed{Header: gotato.NewHeader("", "", 0), Instance: instance}, "")
 }
