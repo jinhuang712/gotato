@@ -10,9 +10,6 @@ None open.
 
 Findings from real use, each checked against the code (first pass on 2026-10-29). Evidence, verdicts and wording of the fixes are in [INTEGRATION-FEEDBACK.md](INTEGRATION-FEEDBACK.md); `D-NNN` is its entry number. Remove an item here in the commit that resolves it.
 
-- [ ] **D-025 · Tool arguments are base64 in a Record.** Keep `[]byte`; add an optional `arguments` JSON field to `tool_started`; document the form.
-- [ ] **D-038 · A compaction ceiling is a hard failure line, and a low one ends Runs.** Document it in the compaction section: the ceiling is a hard line, not a cost knob, and must stay above the floor after a compaction (instruction and tool definitions, kept tail, the largest Tool Result of one Turn; mark the rule of thumb a guess). A cost cap is a team's own `TurnStopper`. Decided: no code.
-- [ ] **D-039 · After a compaction a loaded tool the Session never called is unloaded, and its first call fails once.** Confirmed by measurement, expected. One sentence in the compaction and tool-search sections; running the call on the spot is not planned (see the roadmap).
 - [ ] **D-035 · Show what part of a Turn's Context is what.** Decided 2026-11-02: add an estimate per part (instruction, tool definitions, Segments, history, Tool Results; bytes over 4, named an estimate) to `context_built`, and show the same parts and their share in `inspect`. Additive only; `compaction_ended` and the public `Record` methods stay as they are. It is the measurement behind decision 043.
 
 ## Decisions
