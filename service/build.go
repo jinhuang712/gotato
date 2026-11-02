@@ -79,9 +79,14 @@ func (u unjournaled) Messages() []gotato.Message { return u.record.Messages() }
 
 func (u unjournaled) Append(m gotato.Message) error { return u.record.Append(m) }
 
-func (u unjournaled) ID() string { return u.record.ID() }
-
 func (u unjournaled) LoadedTools() []string { return u.record.LoadedTools() }
+
+// Capabilities says what a Run that is not saved has: the Record's ID and
+// loaded Tools, and no Journal, no Events and no spill, so the live Session
+// numbers its Events in memory and stores none.
+func (u unjournaled) Capabilities() gotato.Capabilities {
+	return gotato.Capabilities{ID: u.record.ID(), Loaded: u}
+}
 
 // CacheKey is the ModelRequest.CacheKey the Runner gives every Turn of a
 // Session, so the provider serves a conversation from one prompt cache. It is

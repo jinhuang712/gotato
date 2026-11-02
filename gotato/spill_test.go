@@ -10,7 +10,7 @@ import (
 // write whose context has ended.
 type spillCtxJournal struct{ journalTranscript }
 
-func (j *spillCtxJournal) KeepsSpilledResults() bool { return true }
+func (j *spillCtxJournal) Capabilities() Capabilities { return Capabilities{Journal: j, Spill: true} }
 
 func (j *spillCtxJournal) Write(ctx context.Context, events []Event) ([]Event, error) {
 	if err := ctx.Err(); err != nil {
@@ -58,7 +58,7 @@ func TestCanceledRunStillCommitsALargeToolResult(t *testing.T) {
 // before it (a metadata change), first.
 type queueingJournal struct{ journalTranscript }
 
-func (j *queueingJournal) KeepsSpilledResults() bool { return true }
+func (j *queueingJournal) Capabilities() Capabilities { return Capabilities{Journal: j, Spill: true} }
 
 func (j *queueingJournal) Write(ctx context.Context, events []Event) ([]Event, error) {
 	for _, event := range events {

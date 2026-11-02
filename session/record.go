@@ -221,12 +221,14 @@ func (s *Record) Append(message gotato.Message) error {
 	return nil
 }
 
-// Durable implements an optional method of gotato.Journal: a Record keeps its
-// Events beyond the process only once it is stored.
-func (s *Record) Durable() bool {
+// Capabilities implements gotato.Transcript: a Record is a Journal that keeps
+// and reads back its Events and the loaded Tools, and spills. It is durable
+// only once it is stored, which is when its log is on.
+func (s *Record) Capabilities() gotato.Capabilities {
 	s.mu.RLock()
-	defer s.mu.RUnlock()
-	return s.logging
+	durable := s.logging
+	s.mu.RUnlock()
+	return gotato.Capabilities{ID: s.id, Journal: s, Durable: durable, Spill: true, Events: s, Loaded: s}
 }
 
 // header is the Header of an Event the Record itself produces.

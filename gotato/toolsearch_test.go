@@ -396,6 +396,8 @@ type loadedNames struct {
 
 func (l *loadedNames) LoadedTools() []string { return l.names }
 
+func (l *loadedNames) Capabilities() Capabilities { return Capabilities{Loaded: l} }
+
 func TestEveryInstanceOffersTheSameToolsFromTheSameRecord(t *testing.T) {
 	build := func() ModelRequest {
 		set, _ := ordersSet()

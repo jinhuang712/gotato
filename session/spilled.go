@@ -25,10 +25,6 @@ type spillCache struct {
 	bytes  int
 }
 
-// KeepsSpilledResults implements gotato.SpillKeeper: a Record's Entries are
-// kept by its store, so the body of a spilled result can be read back.
-func (s *Record) KeepsSpilledResults() bool { return true }
-
 // keepSpilled caches the body of a ToolResultSpilled Event the Record numbered.
 func (s *Record) keepSpilled(event gotato.Event) {
 	if spilled, ok := event.(gotato.ToolResultSpilled); ok {
