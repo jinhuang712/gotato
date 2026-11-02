@@ -5,6 +5,7 @@ import (
 	"errors"
 	"time"
 
+	"github.com/jinhuang712/gotato/service/internal/clock"
 	"github.com/jinhuang712/gotato/session"
 )
 
@@ -15,8 +16,8 @@ const drainStopWait = 5*time.Second + session.WriteTimeout
 
 // stopWait returns drainStopWait, or the value a test set.
 func (r *Runner) stopWait() time.Duration {
-	if r.drainStop > 0 {
-		return r.drainStop
+	if r.hooks.drainStop > 0 {
+		return r.hooks.drainStop
 	}
 	return drainStopWait
 }
@@ -24,13 +25,7 @@ func (r *Runner) stopWait() time.Duration {
 // stopAll stops every admitted Run for the drain: started Runs through their
 // live Session, Runs still waiting for a Session lock through their context.
 func (r *Runner) stopAll() {
-	r.mu.Lock()
-	var all []*runHandle
-	for _, list := range r.handles {
-		all = append(all, list...)
-	}
-	r.mu.Unlock()
-	for _, handle := range all {
+	for _, handle := range r.runs.All() {
 		handle.stopForDrain()
 	}
 }
@@ -63,30 +58,13 @@ func (r *Runner) stopAll() {
 // call Close afterwards to remove it. A signal handler or an endpoint of your
 // own calls Drain.
 func (r *Runner) Drain(ctx context.Context) error {
-	r.mu.Lock()
-	first := r.drained == nil
-	if first {
-		r.drained = make(chan struct{})
-	}
-	drained := r.drained
-	r.mu.Unlock()
+	// Draining comes first: the write of the row can take as long as the
+	// store does, and a Run admitted meanwhile would start on an Instance
+	// that other Instances already see leaving.
+	drained, first := r.runs.Drain()
 	var markErr error
 	if first {
-		// Draining comes first: the write of the row can take as long as the
-		// store does, and a Run admitted meanwhile would start on an Instance
-		// that other Instances already see leaving.
-		r.mu.Lock()
-		r.draining = true
-		r.mu.Unlock()
 		markErr = r.markDraining(ctx)
-		go func() {
-			r.mu.Lock()
-			for r.inflight > 0 || r.locked > 0 {
-				r.idle.Wait()
-			}
-			r.mu.Unlock()
-			close(drained)
-		}()
 	}
 	waitCtx := ctx
 	if r.drainTimeout > 0 {
@@ -101,10 +79,12 @@ func (r *Runner) Drain(ctx context.Context) error {
 		return markErr
 	case <-waitCtx.Done():
 		r.stopAll()
+		stopped, cancelStop := clock.After(r.clock, r.stopWait())
+		defer cancelStop()
 		select {
 		case <-drained:
 		// [LIVENESS] a Run that ignores its stop would hold Drain for good.
-		case <-time.After(r.stopWait()):
+		case <-stopped:
 		}
 		r.dropAllWarm("drain")
 		r.endStreams()

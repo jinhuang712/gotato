@@ -197,7 +197,7 @@ func (h *runHandle) detachLive(follow func([]gotato.Queued) bool) (notices []got
 	if live == nil {
 		return nil
 	}
-	notices, left := splitNotices(live.TakeQueued())
+	notices, left := splitNotices(takeQueued(live))
 	if len(left) > 0 && follow(left) {
 		h.next = left
 		h.ready, h.readyClosed = make(chan struct{}), false
@@ -260,43 +260,13 @@ func (h *runHandle) isStopped() bool {
 // A Run registers before its Session is loaded, so a newly created Session's
 // generated ID has to be attached afterwards.
 func (r *Runner) retargetHandle(handle *runHandle, sessionID string) {
-	r.mu.Lock()
-	defer r.mu.Unlock()
-	if handle.sessionID == sessionID {
-		return
-	}
-	list := r.handles[handle.sessionID]
-	for i, candidate := range list {
-		if candidate == handle {
-			list = append(list[:i], list[i+1:]...)
-			break
-		}
-	}
-	if len(list) == 0 {
-		delete(r.handles, handle.sessionID)
-	} else {
-		r.handles[handle.sessionID] = list
-	}
+	r.runs.Move(handle, handle.sessionID, sessionID)
 	handle.sessionID = sessionID
-	r.handles[sessionID] = append(r.handles[sessionID], handle)
 }
 
 // unregisterHandle drops an admitted Run and its RunID mapping.
 func (r *Runner) unregisterHandle(handle *runHandle) {
 	handle.finish()
 	defer handle.overOnce.Do(func() { close(handle.over) })
-	r.mu.Lock()
-	list := r.handles[handle.sessionID]
-	for i, candidate := range list {
-		if candidate == handle {
-			list = append(list[:i], list[i+1:]...)
-			break
-		}
-	}
-	if len(list) == 0 {
-		delete(r.handles, handle.sessionID)
-	} else {
-		r.handles[handle.sessionID] = list
-	}
-	r.mu.Unlock()
+	r.runs.Remove(handle, handle.sessionID)
 }

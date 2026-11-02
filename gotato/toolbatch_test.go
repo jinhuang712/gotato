@@ -409,7 +409,7 @@ func (forgingTool) Execute(context.Context, ToolUse, ToolProgressFunc) (ToolResu
 // committedResults are the Tool Results of a Session's Transcript, in order.
 func committedResults(agent *Session) []ToolResult {
 	var out []ToolResult
-	for _, message := range agent.transcript.Messages() {
+	for _, message := range agent.history.transcript.Messages() {
 		if message.ToolResult != nil {
 			out = append(out, *message.ToolResult)
 		}

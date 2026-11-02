@@ -62,14 +62,14 @@ type SessionStream struct {
 
 	sessionID string
 
-	// started and seen are guarded by the Runner's streamsMu. A stream is
+	// started and seen are guarded by the streamSet's mu. A stream is
 	// registered before it reads the Record, so that what this Instance does
 	// to the Record meanwhile reaches it: until it starts, seen collects the
 	// epochs of the Records this Instance opened, created or streamed under
 	// its ID, "" for a delete, and it checks them against its own first.
 	started bool
 	seen    []string
-	// startedAt is the number of the start (Runner.streamStarts) at which the
+	// startedAt is the number of the start (Runner.streams.starts) at which the
 	// stream started; 0 until then.
 	startedAt uint64
 
@@ -148,13 +148,7 @@ func (s *SessionStream) endWith(hint *Reconnect) {
 //
 // When the Instance's drain is over, the stream ends after the Events already
 // stored, and Reconnect says to come back.
-func (r *Runner) StreamSession(ctx context.Context, sessionID string, from StreamFrom, opts ...SessionStreamOption) (*SessionStream, error) {
-	var config sessionStreamConfig
-	for _, option := range opts {
-		if option != nil {
-			option(&config)
-		}
-	}
+func (r *Runner) StreamSession(ctx context.Context, sessionID string, from StreamFrom) (*SessionStream, error) {
 	stream := &SessionStream{sessionID: sessionID}
 	r.addStream(stream)
 	loaded, err := r.store.Records.Load(ctx, sessionID)
@@ -223,7 +217,7 @@ func (r *Runner) StreamSession(ctx context.Context, sessionID string, from Strea
 // cannotResume builds the error of a position that cannot be resumed, with the
 // Record's epoch and last number for the client to start over from.
 func cannotResume(why, epoch string, head uint64) error {
-	err := gotato.ErrorOf(gotato.CodeCannotResume, "service: the stream cannot resume: "+why)
+	err := errorOf(CodeCannotResume, "service: the stream cannot resume: "+why)
 	err.Cause = ErrCannotResume
 	err.Details = map[string]string{"record_epoch": epoch, "head": strconv.FormatUint(head, 10)}
 	return err
@@ -232,18 +226,18 @@ func cannotResume(why, epoch string, head uint64) error {
 // addStream registers a Session stream that is opening, before it reads the
 // Record.
 func (r *Runner) addStream(stream *SessionStream) {
-	r.streamsMu.Lock()
-	if r.streams == nil {
-		r.streams = map[*SessionStream]struct{}{}
+	r.streams.mu.Lock()
+	if r.streams.open == nil {
+		r.streams.open = map[*SessionStream]struct{}{}
 	}
-	r.streams[stream] = struct{}{}
-	r.streamsMu.Unlock()
+	r.streams.open[stream] = struct{}{}
+	r.streams.mu.Unlock()
 }
 
 func (r *Runner) dropStream(stream *SessionStream) {
-	r.streamsMu.Lock()
-	delete(r.streams, stream)
-	r.streamsMu.Unlock()
+	r.streams.mu.Lock()
+	delete(r.streams.open, stream)
+	r.streams.mu.Unlock()
 }
 
 // startStream starts a stream that has read its Record's epoch, unless this
@@ -255,8 +249,8 @@ func (r *Runner) dropStream(stream *SessionStream) {
 // its epoch before this one did. The streams still opening are marked with
 // this one's epoch. over says the drain is over.
 func (r *Runner) startStream(stream *SessionStream) (recheck bool, older []*SessionStream, over bool) {
-	r.streamsMu.Lock()
-	defer r.streamsMu.Unlock()
+	r.streams.mu.Lock()
+	defer r.streams.mu.Unlock()
 	for _, epoch := range stream.seen {
 		if epoch != stream.RecordEpoch {
 			recheck = true
@@ -267,9 +261,9 @@ func (r *Runner) startStream(stream *SessionStream) (recheck bool, older []*Sess
 		return true, nil, false
 	}
 	stream.started = true
-	r.streamStarts++
-	stream.startedAt = r.streamStarts
-	for other := range r.streams {
+	r.streams.starts++
+	stream.startedAt = r.streams.starts
+	for other := range r.streams.open {
 		if other == stream || other.sessionID != stream.sessionID {
 			continue
 		}
@@ -281,16 +275,16 @@ func (r *Runner) startStream(stream *SessionStream) (recheck bool, older []*Sess
 			older = append(older, other)
 		}
 	}
-	return false, older, r.streamsOver
+	return false, older, r.streams.over
 }
 
 // streamMark returns the number of the last stream start, to take before a
 // read of the Record. A stream that started after it may have read the Record
 // after that read, and so be of a newer Record than the one read.
 func (r *Runner) streamMark() uint64 {
-	r.streamsMu.Lock()
-	defer r.streamsMu.Unlock()
-	return r.streamStarts
+	r.streams.mu.Lock()
+	defer r.streams.mu.Unlock()
+	return r.streams.starts
 }
 
 // cutStreams ends the Session streams of a Session whose Record has another
@@ -343,9 +337,9 @@ func (r *Runner) endSessionStreams(sessionID string, err error) {
 // ones that started up to mark are stale; the later ones are unsure (see
 // cutStreams).
 func (r *Runner) markStreams(sessionID, epoch string, mark uint64) (stale, unsure []*SessionStream) {
-	r.streamsMu.Lock()
-	defer r.streamsMu.Unlock()
-	for stream := range r.streams {
+	r.streams.mu.Lock()
+	defer r.streams.mu.Unlock()
+	for stream := range r.streams.open {
 		if stream.sessionID != sessionID {
 			continue
 		}
@@ -369,15 +363,15 @@ func (r *Runner) markStreams(sessionID, epoch string, mark uint64) (stale, unsur
 // a Session that no Instance is using. A stream still opening sees the drain
 // when it starts.
 func (r *Runner) endStreams() {
-	r.streamsMu.Lock()
-	r.streamsOver = true
-	open := make([]*SessionStream, 0, len(r.streams))
-	for stream := range r.streams {
+	r.streams.mu.Lock()
+	r.streams.over = true
+	open := make([]*SessionStream, 0, len(r.streams.open))
+	for stream := range r.streams.open {
 		if stream.started {
 			open = append(open, stream)
 		}
 	}
-	r.streamsMu.Unlock()
+	r.streams.mu.Unlock()
 	for _, stream := range open {
 		stream.endWith(NewReconnect("draining"))
 	}
@@ -389,8 +383,8 @@ func (r *Runner) endStreams() {
 func (r *Runner) openSessionStream(ctx context.Context, key feedKey, after uint64, extra ...gotato.SubscribeOption) (*feedSubscription, error) {
 	feed := r.acquireFeed(key, "")
 	options := append([]gotato.SubscribeOption{gotato.SubscribeAfter(after)}, extra...)
-	if r.streamPoll > 0 {
-		options = append(options, gotato.SubscribeTail(r.streamPoll))
+	if r.streams.poll > 0 {
+		options = append(options, gotato.SubscribeTail(r.streams.poll))
 	}
 	sub, err := feed.Subscribe(ctx, options...)
 	if err != nil {
@@ -408,4 +402,17 @@ type Reconnect struct {
 	RetryAfterMS int64 `json:"retry_after_ms"`
 	// Why names the reason, such as "draining".
 	Why string `json:"why,omitempty"`
+}
+
+// streamSet is the Session streams open for clients on this Instance.
+type streamSet struct {
+	mu   sync.Mutex
+	open map[*SessionStream]struct{}
+	// over says the drain is over, so a new stream ends at once.
+	over bool
+	// starts counts the starts of Session streams (SessionStream.startedAt).
+	starts uint64
+	// poll is how often an idle stream looks in the store for Events another
+	// Instance wrote.
+	poll time.Duration
 }

@@ -29,7 +29,7 @@ func TestDrainCommitsRunsAndReleasesClaims(t *testing.T) {
 			openGate := sync.OnceFunc(func() { close(model.gate) })
 			a := instanceRunner(t, open(), "instance-a", model, steadyLiveness)
 			t.Cleanup(openGate)
-			b := instanceRunner(t, open(), "instance-b", testkit.EchoModel{}, service.Liveness{TTL: steadyLiveness.TTL, Wait: 100 * time.Millisecond})
+			b := instanceRunner(t, open(), "instance-b", testkit.EchoModel{}, service.Heartbeat{TTL: steadyLiveness.TTL, Wait: 100 * time.Millisecond})
 
 			const runs = 3
 			ids := make([]string, runs)
@@ -222,9 +222,9 @@ func TestCapacityAndDrain(t *testing.T) {
 	model.Block = block
 	store := memStore()
 	runner, _ := service.New(service.Config{
-		Store:     store,
-		Agents:    []service.Agent{{Name: "slow", Model: model}},
-		Admission: service.Admission{MaxActiveRuns: 1},
+		Store:    store,
+		Agents:   []service.Agent{{Name: "slow", Model: model}},
+		Admitter: service.Limits{MaxActiveRuns: 1},
 	})
 	ctx := context.Background()
 	done := make(chan struct{})
@@ -252,9 +252,9 @@ func TestDrainCancelsQueuedRun(t *testing.T) {
 	model := testkit.NewFakeModel(testkit.Text("slow"))
 	model.Block = block
 	runner, _ := service.New(service.Config{
-		Store:     memStore(),
-		Agents:    []service.Agent{{Name: "slow", Model: model}},
-		Admission: service.Admission{Queue: service.QueuePolicyWait, MaxActiveRuns: 4},
+		Store:  memStore(),
+		Agents: []service.Agent{{Name: "slow", Model: model}},
+		Bounds: service.Bounds{Queue: service.QueuePolicyWait}, Admitter: service.Limits{MaxActiveRuns: 4},
 	})
 	ctx := context.Background()
 	s, _ := runner.CreateSession(ctx, service.CreateSessionRequest{Agent: "slow"})
@@ -351,7 +351,7 @@ func (s *slowBeatStore) Beat(ctx context.Context, row session.InstanceRow, ttl t
 func TestDrainMarksDrainingBeforeTheRowIsWritten(t *testing.T) {
 	ctx := context.Background()
 	store := &slowBeatStore{parts: partsOf(memStore())}
-	a := instanceRunner(t, asStore(store), "instance-a", testkit.EchoModel{}, service.Liveness{TTL: 3 * time.Second, Wait: time.Second})
+	a := instanceRunner(t, asStore(store), "instance-a", testkit.EchoModel{}, service.Heartbeat{TTL: 3 * time.Second, Wait: time.Second})
 	t.Cleanup(func() { store.hold.Store(false) })
 	if _, err := a.CreateSession(ctx, service.CreateSessionRequest{Agent: "echo"}); err != nil {
 		t.Fatal(err)
@@ -389,7 +389,7 @@ func TestDrainReturnsAfterItsContextEvenForAToolThatIgnoresIt(t *testing.T) {
 	}
 	model := testkit.NewFakeModel(testkit.ToolCalls(gotato.ToolCall{ID: "c1", ToolID: "stuck", Arguments: []byte(`{}`)}), testkit.Text("ok"))
 	a, err := service.New(service.Config{
-		Store: memStore(), Liveness: steadyLiveness,
+		Store: memStore(), Heartbeat: steadyLiveness,
 		Agents: []service.Agent{{Name: "echo", Model: model, Tools: []gotato.Tool{tool}}},
 	})
 	if err != nil {
@@ -438,7 +438,7 @@ func TestDrainHasATimeoutOfItsOwn(t *testing.T) {
 	model.Block = block
 	t.Cleanup(func() { close(block) })
 	a, err := service.New(service.Config{
-		Store: memStore(), Liveness: steadyLiveness, DrainTimeout: 200 * time.Millisecond,
+		Store: memStore(), Heartbeat: steadyLiveness, DrainTimeout: 200 * time.Millisecond,
 		Agents: []service.Agent{{Name: "echo", Model: model}},
 	})
 	if err != nil {
@@ -497,7 +497,7 @@ func TestDrainReturnsAfterTheStopWaitForAModelThatIgnoresItsContext(t *testing.T
 	ctx := context.Background()
 	model := &stubbornModel{started: make(chan struct{}), release: make(chan struct{})}
 	a, err := service.New(service.Config{
-		Store: memStore(), Liveness: steadyLiveness,
+		Store: memStore(), Heartbeat: steadyLiveness,
 		Agents: []service.Agent{{Name: "echo", Model: model}},
 	})
 	if err != nil {

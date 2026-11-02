@@ -2,7 +2,6 @@ package gotato
 
 import (
 	"context"
-	"encoding/json"
 	"errors"
 	"maps"
 	"time"
@@ -39,18 +38,18 @@ func (st *runState) metrics() RunMetrics {
 }
 
 func (st *runState) setTurn(turn TurnNumber) {
-	st.a.runMu.Lock()
-	st.a.currentTurn = turn
-	st.a.runMu.Unlock()
+	st.a.run.mu.Lock()
+	st.a.run.turn = turn
+	st.a.run.mu.Unlock()
 }
 
 func (st *runState) currentTurn() TurnNumber {
-	st.a.runMu.Lock()
-	defer st.a.runMu.Unlock()
-	return st.a.currentTurn
+	st.a.run.mu.Lock()
+	defer st.a.run.mu.Unlock()
+	return st.a.run.turn
 }
 
-func (st *runState) header(turn TurnNumber) Header { return NewHeader(st.a.id, st.runID, turn) }
+func (st *runState) header(turn TurnNumber) Header { return NewHeader(st.a.def.id, st.runID, turn) }
 
 // end stores the Run's last Events, RunEnded among them. A Run may not
 // end without exactly one RunEnded, so it is staged even when the Run
@@ -61,18 +60,18 @@ func (st *runState) end(turn TurnNumber, result RunResult, extra func(*RunEnded)
 	// From here on no Abort can start a write, and no Steer, FollowUp or
 	// Interrupt is taken into a queue (see sendControl): what is queued now is
 	// dropped below, and nothing slips in behind that.
-	a.runMu.Lock()
-	a.runEnding = true
-	a.runKeeps = a.keepsQueued(result.Status)
-	a.runMu.Unlock()
-	if !a.runKeeps {
+	a.run.mu.Lock()
+	a.run.ending = true
+	a.run.keeps = a.keepsQueued(result.Status)
+	a.run.mu.Unlock()
+	if !a.run.keeps {
 		a.discardControl(st.runID, turn)
 	}
 	// The Aborts that did start a write have finished: an abort_requested
 	// never follows run_ended.
-	a.waitForAborts()
-	if a.endingHook != nil {
-		a.endingHook()
+	a.run.aborts.Wait()
+	if a.run.endingHook != nil {
+		a.run.endingHook()
 	}
 	metrics := st.metrics()
 	ended := RunEnded{
@@ -147,15 +146,15 @@ func (st *runState) callModel(turn TurnNumber, runStart int) (assistant Message,
 	// build makes the request of this Turn from the Transcript as it
 	// stands. A TurnPreparer that rewrote the Transcript has it built again.
 	build := func() (turnBuild, *RuntimeError) {
-		messages, failure := a.transcriptMessages()
+		messages, failure := a.history.messages()
 		if failure != nil {
 			return turnBuild{}, failure
 		}
 		snapshot := ContextSnapshot{
-			SessionID:          a.id,
+			SessionID:          a.def.id,
 			RunID:              runID,
 			Turn:               turn,
-			SystemInstructions: a.instruction,
+			SystemInstructions: a.def.instruction,
 			Messages:           cloneMessages(messages),
 		}
 		built, request, prefix, err := a.assembleTurn(runCtx, snapshot)
@@ -183,7 +182,7 @@ func (st *runState) callModel(turn TurnNumber, runStart int) (assistant Message,
 			break
 		}
 		if changed {
-			if err := a.measureTranscript(); err != nil {
+			if err := a.history.measure(); err != nil {
 				return Message{}, Usage{}, nil, asRuntimeError(err)
 			}
 			if err := a.syncLoadedTools(); err != nil {
@@ -273,59 +272,11 @@ func (st *runState) runToolBatch(turn TurnNumber, assistant Message) (toolOutcom
 	committed := 0
 	commitUpTo := func(end int) *RuntimeError {
 		for ; committed < end; committed++ {
-			call := plans[committed].call
-			toolResult := outcomes[committed]
-			// Post-Tool-Use sees executed, blocked, failed, and canceled
-			// outcomes alike, in reverse installation order.
-			finalized, postErr := a.extensions.afterTool(runCtx, toolResult)
-			if postErr != nil {
-				return postErr
-			}
-			toolResult = finalized
-			// The Tool already ran: a canceled Run still stores its body.
-			spillCtx, cancelSpill := finalContext(runCtx)
-			toolResult, spillErr := a.spill(spillCtx, runID, turn, call.ToolID, toolResult)
-			cancelSpill()
-			if spillErr != nil {
-				return spillErr
-			}
-			content := cloneParts(toolResult.Content)
-			resultMessage := Message{ID: MessageID(nextID("message")), RunID: runID, Role: RoleToolResult, Parts: content, ToolResult: cloneToolResultPtr(toolResult)}
-			commitErr := a.commitMessage(resultMessage)
-			if isMessageTooLarge(commitErr) {
-				// The Tool already ran: the Model is told why its output is
-				// missing, and the Run goes on.
-				size, _ := json.Marshal(resultMessage)
-				toolResult = oversizedResult(toolResult, len(size), a.limits.MaxMessageBytes)
-				resultMessage.Parts = cloneParts(toolResult.Content)
-				resultMessage.ToolResult = cloneToolResultPtr(toolResult)
-				commitErr = a.commitMessage(resultMessage)
-			}
-			if commitErr != nil {
-				return asRuntimeError(commitErr)
-			}
-			st.batch.next = committed + 1
-			a.stage(ToolResultCommitted{Header: hd(turn), Message: resultMessage.Clone(), CallID: call.ID, Status: toolResult.Status})
-			// A Tool loads as the Tool Result that lists it commits, and its
-			// ToolLoaded goes in the same write, so the Record never says
-			// "Loaded" for a Tool it does not hold as loaded. registryMu
-			// serializes the visibility write with Session.Tools.
-			for _, id := range toolResult.LoadedTools {
-				a.registryMu.Lock()
-				loadedNow := a.registry.load(id)
-				a.registryMu.Unlock()
-				if loadedNow {
-					a.stage(ToolLoaded{Header: hd(turn), ToolID: id, Why: loadWhy(call, id)})
-				}
-			}
-			// The result is committed in memory already: a canceled
-			// Run still stores it.
-			flushCtx, cancelFlush := finalContext(runCtx)
-			err := a.flush(flushCtx)
-			cancelFlush()
+			toolResult, err := st.commitResult(turn, committed, plans[committed].call, outcomes[committed])
 			if err != nil {
 				return err
 			}
+			call := plans[committed].call
 			settledResults = append(settledResults, toolResult.Clone())
 			toolOutcomes = append(toolOutcomes, ToolOutcome{ToolID: call.ToolID, CallID: call.ID, Status: toolResult.Status, Executed: toolResult.Executed})
 		}
@@ -360,8 +311,8 @@ func (st *runState) runToolBatch(turn TurnNumber, assistant Message) (toolOutcom
 
 // stopTurn asks the TurnStoppers whether the Run stops after this Turn.
 func (st *runState) stopTurn(turn TurnNumber, assistant Message, results []ToolResult, reason StopReason) (StopDecision, *RuntimeError) {
-	return st.a.extensions.stopTurn(st.runCtx, TurnSnapshot{
-		SessionID: st.a.id, RunID: st.runID, Turn: turn, Assistant: assistant.Clone(), ToolResults: results, StopReason: reason,
+	return st.a.def.extensions.stopTurn(st.runCtx, TurnSnapshot{
+		SessionID: st.a.def.id, RunID: st.runID, Turn: turn, Assistant: assistant.Clone(), ToolResults: results, StopReason: reason,
 	})
 }
 
@@ -388,18 +339,18 @@ func (a *Session) executeRun(ctx context.Context, prompt *Message) (RunResult, e
 	defer endRun()
 
 	st := &runState{a: a, ctx: ctx, runCtx: runCtx, runID: runID, started: time.Now()}
-	a.stage(RunStarted{Header: st.header(0), RequestID: a.requestID})
+	a.stage(RunStarted{Header: st.header(0), RequestID: a.host.requestID})
 	if startFailure != nil {
 		return st.fail(startFailure)
 	}
 	if err := a.refreshToolSets(runCtx, st.header(0)); err != nil {
 		return st.fail(err)
 	}
-	runStart, failure := a.transcriptLen()
+	runStart, failure := a.history.len()
 	if failure != nil {
 		return st.fail(failure)
 	}
-	if err := a.measureTranscript(); err != nil {
+	if err := a.history.measure(); err != nil {
 		return st.fail(asRuntimeError(err))
 	}
 	if prompt != nil {
@@ -416,37 +367,37 @@ func (a *Session) executeRun(ctx context.Context, prompt *Message) (RunResult, e
 
 // beginRun registers a new Run, whose Abort is cancel, and returns its ID and
 // the function that unregisters it when the Run is over. failure is a panic in
-// the host's WithRunStart function, which fails the Run once RunStarted is
+// the host's withRunStart function, which fails the Run once RunStarted is
 // stored.
 func (a *Session) beginRun(cancel context.CancelFunc) (RunID, func(), *RuntimeError) {
 	runID := RunID(nextID("run"))
-	a.runMu.Lock()
-	a.currentRunID = runID
-	a.currentTurn = 0
-	a.runEnding = false
-	a.abortBeforeStart = false
-	a.runKeeps = false
-	a.currentRunStop = cancel
-	a.runMu.Unlock()
-	a.inRun.Store(true)
+	a.run.mu.Lock()
+	a.run.id = runID
+	a.run.turn = 0
+	a.run.ending = false
+	a.run.abortBeforeStart = false
+	a.run.keeps = false
+	a.run.stop = cancel
+	a.run.mu.Unlock()
+	a.run.inRun.Store(true)
 	var failure *RuntimeError
-	if a.onRunStart != nil {
-		// [LIVENESS] a panic in the host's WithRunStart function fails this Run, not the process.
-		if err := callHost("WithRunStart", func() error { a.onRunStart(runID); return nil }); err != nil {
-			failure = runtimeError(CodeExtensionFailure, "WithRunStart", PublicText(err, "WithRunStart failed"), err)
+	if a.host.onRunStart != nil {
+		// [LIVENESS] a panic in the host's withRunStart function fails this Run, not the process.
+		if err := callHost("WithRunStart", func() error { a.host.onRunStart(runID); return nil }); err != nil {
+			failure = runtimeError(CodeExtensionFailure, "WithRunStart", PublicText(err, "withRunStart failed"), err)
 		}
 	}
 	return runID, func() {
-		a.inRun.Store(false)
+		a.run.inRun.Store(false)
 		// [LIVENESS] a Run whose run_ended was never written must not leave its span open for the next Run's Events.
-		a.runMu.Lock()
-		a.runOpen = false
-		if a.currentRunID == runID {
-			a.currentRunID = ""
-			a.currentTurn = 0
-			a.currentRunStop = nil
+		a.run.mu.Lock()
+		a.run.open = false
+		if a.run.id == runID {
+			a.run.id = ""
+			a.run.turn = 0
+			a.run.stop = nil
 		}
-		a.runMu.Unlock()
+		a.run.mu.Unlock()
 	}, failure
 }
 
@@ -605,7 +556,7 @@ func (st *runState) endAnswerTurn(t *turnRun, replyNumber uint64) (bool, RunResu
 	// A Turn cut off at the output limit before any Tool Call is not an
 	// answer: the Model ran out of room, often while reasoning. Within the
 	// configured bound the Run continues instead of settling on it.
-	if assistant.StopReason == StopReasonMaxTokens && st.truncatedContinuations < a.limits.MaxTruncatedContinuations {
+	if assistant.StopReason == StopReasonMaxTokens && st.truncatedContinuations < a.def.limits.MaxTruncatedContinuations {
 		st.truncatedContinuations++
 		// A notice, not a user Message: it starts no Round, so the
 		// reasoning of the cut reply stays in the request.
@@ -654,14 +605,14 @@ type turnBuild struct {
 // prepareTurn gives the TurnPreparers their chance before a model call. It
 // reports whether one rewrote the Transcript.
 func (a *Session) prepareTurn(ctx context.Context, runID RunID, turn TurnNumber, runStart int, request ModelRequest, refusal error) (bool, *RuntimeError) {
-	if len(a.extensions.preparers) == 0 {
+	if len(a.def.extensions.preparers) == 0 {
 		return false, nil
 	}
-	return a.extensions.prepareTurn(ctx, PendingTurn{
-		SessionID:  a.id,
+	return a.def.extensions.prepareTurn(ctx, PendingTurn{
+		SessionID:  a.def.id,
 		RunID:      runID,
 		Turn:       turn,
-		Transcript: a.transcript,
+		Transcript: a.history.transcript,
 		RunStart:   runStart,
 		Request:    request,
 		Overflow:   refusal != nil,
@@ -710,7 +661,7 @@ func (a *Session) commitContinuation(ctx context.Context, runID RunID, turn Turn
 		return asRuntimeError(err)
 	}
 	taken.done()
-	a.stage(MessageCommitted{Header: NewHeader(a.id, runID, turn), Message: message.Clone(), Source: source})
+	a.stage(MessageCommitted{Header: NewHeader(a.def.id, runID, turn), Message: message.Clone(), Source: source})
 	return a.flush(ctx)
 }
 
@@ -722,7 +673,7 @@ func (a *Session) dropUncommitted(runID RunID, turn TurnNumber, id MessageID, so
 	if taken == nil {
 		return
 	}
-	a.stage(MessageDropped{Header: NewHeader(a.id, runID, turn), MessageID: id, Source: source, Why: "commit_failed"})
+	a.stage(MessageDropped{Header: NewHeader(a.def.id, runID, turn), MessageID: id, Source: source, Why: "commit_failed"})
 	taken.done()
 }
 
@@ -732,7 +683,7 @@ func (a *Session) dropUncommitted(runID RunID, turn TurnNumber, id MessageID, so
 // inside the next Run.
 func (a *Session) discardControl(runID RunID, turn TurnNumber) {
 	for _, queued := range a.queue.drain(false) {
-		a.stage(MessageDropped{Header: NewHeader(a.id, runID, turn), MessageID: queued.message.ID, Source: queued.source, Why: "run_ended"})
+		a.stage(MessageDropped{Header: NewHeader(a.def.id, runID, turn), MessageID: queued.message.ID, Source: queued.source, Why: "run_ended"})
 	}
 }
 

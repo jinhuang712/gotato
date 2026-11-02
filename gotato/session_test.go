@@ -286,16 +286,16 @@ func TestPromptRejectsBlankParts(t *testing.T) {
 // that is not a Journal numbers its Events after the Feed's last number, so the
 // Events are Events of the stream, not numbers that repeat it.
 func TestSharedFeedOverAPlainTranscriptContinuesItsNumbers(t *testing.T) {
-	feed := NewFeed(nil)
+	feed := newFeed(nil)
 	for n := uint64(1); n <= 5; n++ {
-		feed.Publish(storedEvent(n))
+		feed.publish(storedEvent(n))
 	}
 	sub, err := feed.Subscribe(context.Background())
 	if err != nil {
 		t.Fatal(err)
 	}
 	defer func() { _ = sub.Close() }()
-	s, err := NewSession(context.Background(), WithModel(&testModel{scripts: [][]ModelEvent{{{Kind: ModelEventKindDone, StopReason: StopReasonEndTurn}}}}), WithFeed(feed))
+	s, err := NewSession(context.Background(), WithModel(&testModel{scripts: [][]ModelEvent{{{Kind: ModelEventKindDone, StopReason: StopReasonEndTurn}}}}), withFeed(feed))
 	if err != nil {
 		t.Fatal(err)
 	}

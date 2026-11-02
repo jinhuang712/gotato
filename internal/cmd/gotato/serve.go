@@ -53,7 +53,7 @@ func (c *cli) cmdServe(args []string) int {
 		spec.Warm = service.WarmPolicy{TTL: *warmTTL, NoIdleCompaction: *noIdleCompaction}
 		specs = append(specs, spec)
 	}
-	runner, err := service.New(service.Config{Store: rt.store, Agents: specs, Address: *advertise, DrainTimeout: *drain, Admission: service.Admission{MaxActiveRuns: *maxRuns, MaxActiveSessions: *maxSessions, Queue: service.QueuePolicy(*queue)}})
+	runner, err := service.New(service.Config{Store: rt.store, Agents: specs, Address: *advertise, DrainTimeout: *drain, Bounds: service.Bounds{MaxActiveSessions: *maxSessions, Queue: service.QueuePolicy(*queue)}, Admitter: service.Limits{MaxActiveRuns: *maxRuns}})
 	if err != nil {
 		return c.failErr(err)
 	}

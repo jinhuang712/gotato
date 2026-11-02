@@ -25,8 +25,8 @@ func warmInstance(t *testing.T, store session.Store, name string, clock service.
 	}
 	runner, err := service.New(service.WithClock(service.Config{
 		Store: store, Instance: name,
-		Admission: service.Admission{Queue: service.QueuePolicyWait},
-		Agents:    []service.Agent{{Name: "echo", Model: model, Warm: warm}},
+		Bounds: service.Bounds{Queue: service.QueuePolicyWait},
+		Agents: []service.Agent{{Name: "echo", Model: model, Warm: warm}},
 	}, clock))
 	if err != nil {
 		t.Fatal(err)
@@ -61,7 +61,7 @@ func TestWarmSessionIsReusedWhenTheHeadIsUnchanged(t *testing.T) {
 				t.Fatalf("the Runs on the copy = %q with %d messages", second.FinalText, third.Messages)
 			}
 			for _, event := range instance.Events() {
-				if _, loaded := event.(gotato.SessionLoaded); loaded {
+				if _, loaded := event.(service.SessionLoaded); loaded {
 					t.Fatal("a Run on a warm copy sent session_loaded")
 				}
 			}
@@ -94,7 +94,7 @@ func TestWarmRunsReportOnlyTheirOwnWrites(t *testing.T) {
 	waitFor(t, func() bool {
 		saved := 0
 		for _, event := range instance.Events() {
-			if _, ok := event.(gotato.SessionSaved); ok {
+			if _, ok := event.(service.SessionSaved); ok {
 				saved++
 			}
 		}
@@ -102,7 +102,7 @@ func TestWarmRunsReportOnlyTheirOwnWrites(t *testing.T) {
 	})
 	var writes []int
 	for _, event := range instance.Events() {
-		if saved, ok := event.(gotato.SessionSaved); ok {
+		if saved, ok := event.(service.SessionSaved); ok {
 			writes = append(writes, saved.Writes)
 		}
 	}

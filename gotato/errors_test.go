@@ -51,10 +51,7 @@ func TestErrorsSayWhetherTheyRanAndWhetherARetryMaySucceed(t *testing.T) {
 		code              ErrorCode
 		notRun, retryable bool
 	}{
-		{CodeDraining, true, true},
-		{CodeOverloaded, true, true},
 		{CodeBusy, true, true},
-		{CodeNotWriter, true, true},
 		{CodeNotFound, true, false},
 		{CodeSessionClosing, true, false},
 		{CodeSessionClosed, true, false},

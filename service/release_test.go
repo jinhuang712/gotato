@@ -51,7 +51,7 @@ func TestRepairKeepsTheMarkOfASessionWhoseRunStillHoldsTheLock(t *testing.T) {
 func TestRepairDoesNotEraseAMarkSetDuringTheAttempt(t *testing.T) {
 	store := &loadCountStore{parts: partsOf(memStore())}
 	runner, err := service.New(service.Config{Store: asStore(store), Agents: []service.Agent{{Name: "echo", Model: testkit.EchoModel{}}},
-		Liveness: service.Liveness{TTL: time.Minute}})
+		Heartbeat: service.Heartbeat{TTL: time.Minute}})
 	if err != nil {
 		t.Fatal(err)
 	}

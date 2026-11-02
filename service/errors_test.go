@@ -30,7 +30,7 @@ func TestEverySentinelCarriesACode(t *testing.T) {
 		{modelctx.ErrBadRecap, gotato.CodeModelProtocolFailure},
 		{modelctx.ErrNoRecapContext, gotato.CodeInvalidArgument},
 		{testkit.ErrScriptExhausted, gotato.CodeModelFailure},
-		{gotato.ErrEventsLost, gotato.CodeCannotResume},
+		{gotato.ErrEventsLost, service.CodeCannotResume},
 	}
 	for _, c := range cases {
 		if !gotato.IsCode(c.err, c.code) {
@@ -98,8 +98,8 @@ func TestLostReleaseKeepsTheRunCompletedAndWarns(t *testing.T) {
 	if err != nil || result.Result.Status != gotato.RunStatusCompleted || result.Result.Error != nil || result.FinalText != "echo: hi" {
 		t.Fatalf("a Run whose Events are all stored = %+v, %v, want completed without an error", result, err)
 	}
-	instance.Wait(5*time.Second, func(event gotato.Event) bool { return event.Kind() == gotato.EventKindStoreWriteFailed })
-	if len(instance.OfKind(gotato.EventKindStoreWriteFailed)) == 0 {
+	instance.Wait(5*time.Second, func(event gotato.Event) bool { return event.Kind() == service.EventKindStoreWriteFailed })
+	if len(instance.OfKind(service.EventKindStoreWriteFailed)) == 0 {
 		t.Fatalf("no store_write_failed warning among %v", instance.Kinds())
 	}
 }

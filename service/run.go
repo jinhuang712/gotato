@@ -4,7 +4,6 @@ import (
 	"context"
 	"errors"
 	"strings"
-	"sync"
 	"time"
 
 	"github.com/jinhuang712/gotato/gotato"
@@ -102,8 +101,8 @@ func (r *Runner) Run(ctx context.Context, request RunRequest) (RunResponse, erro
 // the sink falls behind on is read again from the Record. A sink error is
 // advisory: it stops delivery, not the Run. StreamRun returns after the Run
 // settles and its last Event has been delivered.
-func (r *Runner) StreamRun(ctx context.Context, request RunRequest, sink func(gotato.Event) error, opts ...StreamRunOption) (RunResponse, error) {
-	return r.StreamRunAdmitted(ctx, request, nil, sink, opts...)
+func (r *Runner) StreamRun(ctx context.Context, request RunRequest, sink func(gotato.Event) error) (RunResponse, error) {
+	return r.StreamRunAdmitted(ctx, request, nil, sink)
 }
 
 // StreamRunAdmitted is StreamRun with a call, on the caller's goroutine, once
@@ -115,13 +114,7 @@ func (r *Runner) StreamRun(ctx context.Context, request RunRequest, sink func(go
 // call, so an endpoint can still answer the request with a status of its own
 // before it starts to stream. A nil sink still gets the call, and its Events
 // are not delivered.
-func (r *Runner) StreamRunAdmitted(ctx context.Context, request RunRequest, admitted func(), sink func(gotato.Event) error, opts ...StreamRunOption) (RunResponse, error) {
-	var config streamRunConfig
-	for _, option := range opts {
-		if option != nil {
-			option(&config)
-		}
-	}
+func (r *Runner) StreamRunAdmitted(ctx context.Context, request RunRequest, admitted func(), sink func(gotato.Event) error) (RunResponse, error) {
 	if sink == nil {
 		if admitted == nil {
 			return r.run(ctx, request, nil)
@@ -229,7 +222,8 @@ func (r *Runner) runWith(ctx context.Context, request RunRequest, stream *runStr
 	runCtx, cancelRun := context.WithCancel(ctx)
 	defer cancelRun()
 	handle := &runHandle{sessionID: request.SessionID, cancel: cancelRun, ready: make(chan struct{}), wait: wait, over: make(chan struct{})}
-	if err := r.admit(handle); err != nil {
+	release, err := r.admit(ctx, handle, request)
+	if err != nil {
 		why := "at_capacity"
 		switch {
 		case errors.Is(err, ErrDraining):
@@ -237,11 +231,10 @@ func (r *Runner) runWith(ctx context.Context, request RunRequest, stream *runStr
 		case errors.Is(err, ErrOverloaded):
 			why = "activation_limit"
 		}
-		r.notice(gotato.RunRejected{Header: gotato.NewHeader(gotato.SessionID(request.SessionID), "", 0), Why: why}, request.Agent)
+		r.notice(RunRejected{Header: gotato.NewHeader(gotato.SessionID(request.SessionID), "", 0), Why: why}, request.Agent)
 		return RunResponse{}, err
 	}
-	r.notice(gotato.RunRequested{Header: gotato.NewHeader(gotato.SessionID(request.SessionID), "", 0), Agent: request.Agent}, request.Agent)
-	release := sync.OnceFunc(r.release)
+	r.notice(RunRequested{Header: gotato.NewHeader(gotato.SessionID(request.SessionID), "", 0), Agent: request.Agent}, request.Agent)
 	followed := false
 	defer func() {
 		if !followed {
@@ -267,11 +260,8 @@ func (r *Runner) runWith(ctx context.Context, request RunRequest, stream *runStr
 		// a Session that no Instance is still using.
 		out.Reconnect = NewReconnect("draining")
 		release()
-		r.mu.Lock()
-		drained := r.drained
-		r.mu.Unlock()
 		select {
-		case <-drained:
+		case <-r.runs.Drained():
 		case <-ctx.Done():
 		}
 	}

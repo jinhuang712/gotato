@@ -40,9 +40,9 @@ func (m *holdingOwner) Config() gotato.ModelConfig { return gotato.ModelConfig{}
 func addressedRunner(t *testing.T, store session.Store, instance string, model gotato.Model) *service.Runner {
 	t.Helper()
 	runner, err := service.New(service.Config{
-		Store: store, Instance: instance, Address: "http://" + instance + ".example:8080", Liveness: steadyLiveness,
-		Admission: service.Admission{Queue: service.QueuePolicyWait},
-		Agents:    []service.Agent{{Name: "echo", Model: model}},
+		Store: store, Instance: instance, Address: "http://" + instance + ".example:8080", Heartbeat: steadyLiveness,
+		Bounds: service.Bounds{Queue: service.QueuePolicyWait},
+		Agents: []service.Agent{{Name: "echo", Model: model}},
 	})
 	if err != nil {
 		t.Fatal(err)
@@ -140,7 +140,7 @@ func TestMessagesMidRunLandOnceOnTheWriter(t *testing.T) {
 			accepted[gotato.MessageID(r.result.MessageID)] = r.text
 		default:
 			address, ok := service.WriterOf(r.err)
-			if !gotato.IsCode(r.err, gotato.CodeNotWriter) || !gotato.NotRun(r.err) || !gotato.Retryable(r.err) || !ok || address != "http://instance-0.example:8080" {
+			if !gotato.IsCode(r.err, service.CodeNotWriter) || !gotato.NotRun(r.err) || !gotato.Retryable(r.err) || !ok || address != "http://instance-0.example:8080" {
 				t.Fatalf("a message to instance-%d: %v; want not_writer with instance-0's address", r.runner, r.err)
 			}
 			refused[r.text] = true

@@ -2,8 +2,6 @@ package gotato
 
 import (
 	"context"
-	"sync"
-	"sync/atomic"
 	"time"
 )
 
@@ -92,52 +90,39 @@ func NewSession(ctx context.Context, options ...SessionOption) (*Session, error)
 	}
 
 	a := &Session{
-		id:             id,
-		model:          cfg.model,
-		instruction:    cfg.instruction,
-		registry:       registry,
-		transcript:     cfg.transcript,
-		contextBuilder: cfg.contextBuilder,
-		extensions:     cfg.extensions,
-		limits:         cfg.limits,
-		spillPage:      spillPage,
-		sampling:       cfg.sampling,
-		cacheKey:       cfg.cacheKey,
-		commands:       make(chan sessionCommand),
-		closeSignal:    make(chan struct{}),
-		done:           make(chan struct{}),
-		ready:          make(chan struct{}),
-		admission:      make(chan struct{}, 1),
-		queue:          newControlQueue(controlCapacity(cfg.limits.MaxSteerMessages), controlCapacity(cfg.limits.MaxFollowUpMessages), controlCapacity(cfg.limits.MaxNotices)),
-		stateChange:    make(chan struct{}),
-		onRunStart:     cfg.onRunStart,
-		handoff:        cfg.handoff,
-		requestID:      cfg.requestID,
+		def: sessionDef{
+			id: id, model: cfg.model, instruction: cfg.instruction, extensions: cfg.extensions, limits: cfg.limits,
+			spillPage: spillPage, sampling: cfg.sampling, cacheKey: cfg.cacheKey, contextBuilder: cfg.contextBuilder,
+		},
+		tools:   sessionTools{registry: registry},
+		history: sessionHistory{transcript: cfg.transcript},
+		queue:   newControlQueue(controlCapacity(cfg.limits.MaxSteerMessages), controlCapacity(cfg.limits.MaxFollowUpMessages), controlCapacity(cfg.limits.MaxNotices)),
+		host:    sessionHost{onRunStart: cfg.onRunStart, handoff: cfg.handoff, requestID: cfg.requestID},
 	}
 	if caps.Journal != nil {
-		a.journal = caps.Journal
+		a.events.journal = caps.Journal
 	} else {
 		// A Transcript that keeps no Events: they are numbered in memory,
 		// after the last number of a Feed the host shares with other Runs.
 		journal := &memoryJournal{}
 		if cfg.feed != nil {
-			journal.last = cfg.feed.Last()
+			journal.last = cfg.feed.lastNumber()
 		}
-		a.journal = journal
+		a.events.journal = journal
 	}
-	a.feed = cfg.feed
-	if a.feed == nil {
-		a.feed = NewFeed(nil)
-		a.ownFeed = true
+	a.events.feed = cfg.feed
+	if a.events.feed == nil {
+		a.events.feed = newFeed(nil)
+		a.events.ownFeed = true
 		if caps.Events != nil {
-			a.feed.setSource(caps.Events)
+			a.events.feed.setSource(caps.Events)
 		}
 	}
-	a.extensions.report = a.reportExtension
-	a.abortCond = sync.NewCond(&a.abortMu)
-	a.setStatus(SessionStatusCreated)
+	a.def.extensions.report = a.reportExtension
+	a.life.init()
+	a.life.setStatus(SessionStatusCreated)
 	go a.loop()
-	<-a.ready
+	<-a.life.ready
 	return a, nil
 }
 
@@ -150,11 +135,42 @@ func NewSession(ctx context.Context, options ...SessionOption) (*Session, error)
 // warm in memory between Runs (service.WarmPolicy), and closes it when it
 // leaves memory. The Record stays the truth.
 type Session struct {
+	// def is what the Agent gave, which nothing changes once the Session runs,
+	// so it has no lock.
+	def sessionDef
+	// life is the Session's life: its commands, the admission of a Run, its
+	// status and its close.
+	life sessionLife
+	// run is the Run in flight.
+	run sessionRun
+	// events is the Session's stored Events: the Journal, what is staged, the
+	// numbers and the Feed.
+	events sessionEvents
+	// history is the committed history, such as a session.Record, and its size.
+	history sessionHistory
+	// tools is the Tool registry, with its own lock.
+	tools sessionTools
+	// queue holds the messages that wait for a Run (Steer, FollowUp,
+	// Interrupt, notice); see controlQueue.
+	queue *controlQueue
+	// host is what the host set through options.
+	host sessionHost
+}
+
+// A Session is built from parts that each do one job (decision 048): def, life,
+// run, events, history, tools, queue and host. Four of them have a lock:
+// events.mu, run.mu, the queue's own and tools.mu. The order is events, then
+// run, then queue; tools.mu is taken with none of them held and no host call
+// is made under any. A part is read and tested alone, and the Session calls
+// them in order.
+
+// sessionDef is what the Agent gave the Session: its Model and instruction,
+// the Context builder, the extensions, the limits, and the Sampling and cache
+// key every model call carries. Nothing changes it after NewSession.
+type sessionDef struct {
 	id          SessionID
 	model       Model
 	instruction string
-	registry    *toolRegistry
-	registryMu  sync.Mutex
 	extensions  extensionSet
 	limits      CoreLimits
 	// spillPage is the page size of the Session's ReadBack, the line past which
@@ -162,79 +178,20 @@ type Session struct {
 	spillPage int
 	// sampling is the Session's own override of the Model's default Sampling, and
 	// cacheKey is sent unchanged with every model call.
-	sampling Sampling
-	cacheKey string
+	sampling       Sampling
+	cacheKey       string
+	contextBuilder ContextBuilder
+}
 
-	// transcript is the committed history, such as a session.Record. The Session
-	// goroutine is its only writer during a Run. transcriptBytes tracks the
-	// encoded size incrementally so a commit never re-encodes the history.
-	transcript      Transcript
-	transcriptBytes uint64
-	contextBuilder  ContextBuilder
-	// journal keeps the Session's stored Events: the Transcript's Journal when
-	// it declares one, and a numbering of its own otherwise.
-	journal Journal
-	feed    *Feed
-	ownFeed bool
-	// staged holds the stored Events of the step in progress, on the Session
-	// goroutine. They are written, and then sent, by flush. emitMu makes a
-	// write and its sending one step, so Events reach subscribers in the
-	// order of their numbers, whichever goroutine writes them.
-	staged     []Event
-	emitMu     sync.Mutex
-	lastNumber atomic.Uint64
+// sessionHost is what the host asked of the Session through options.
+type sessionHost struct {
+	// onRunStart is called with the ID of each Run as it starts (withRunStart).
 	onRunStart func(RunID)
 	// handoff keeps the messages still queued when a Run completes or fails,
-	// for the host to take (TakeQueued); see WithQueueHandoff.
+	// for the host to take (takeQueued); see withQueueHandoff.
 	handoff bool
 	// requestID is the caller's request identifier, recorded in RunStarted.
 	requestID string
-
-	// aborts counts the AbortRequested writes in flight, so a Run's RunEnded
-	// is written after them.
-	abortMu   sync.Mutex
-	abortCond *sync.Cond
-	aborts    int
-
-	commands    chan sessionCommand
-	closeSignal chan struct{}
-	closeOnce   sync.Once
-	done        chan struct{}
-	doneOnce    sync.Once
-	ready       chan struct{}
-	admission   chan struct{}
-	// queue holds the messages that wait for a Run (Steer, FollowUp,
-	// Interrupt, notice); see controlQueue. Lock order: runMu, then its lock.
-	queue *controlQueue
-
-	// intrMu guards the cancellation of the model call in flight
-	// (callCancel), which an Interrupt triggers.
-	intrMu     sync.Mutex
-	callCancel context.CancelFunc
-
-	closeRequested atomic.Bool
-	inRun          atomic.Bool
-	status         atomic.Uint32
-
-	stateMu     sync.Mutex
-	stateChange chan struct{}
-
-	runMu        sync.Mutex
-	currentRunID RunID
-	currentTurn  TurnNumber
-	runEnding    bool
-	// runOpen says the Run's span is open: its run_started is being written or
-	// is written, and its run_ended is not. Only writeEvents changes it, under
-	// emitMu and runMu both. abortBeforeStart records an Abort that came
-	// before; the write of run_started adds the abort_requested.
-	runOpen          bool
-	abortBeforeStart bool
-	// runKeeps says the ending Run leaves its queues for the host
-	// (WithQueueHandoff), so a message taken in meanwhile is kept, not dropped.
-	runKeeps       bool
-	currentRunStop context.CancelFunc
-	// endingHook, for tests, runs when a Run has begun to write its end.
-	endingHook func()
 }
 
 // sessionCommandKind says which Run a sessionCommand starts.
@@ -261,14 +218,14 @@ type promptResponse struct {
 }
 
 // ID is the Session's ID.
-func (a *Session) ID() SessionID { return a.id }
+func (a *Session) ID() SessionID { return a.def.id }
 
 // Status is where the Session is in its life. It reports
 // SessionStatusClosing as soon as Close is requested, until the Session is
 // closed.
 func (a *Session) Status() SessionStatus {
-	status := decodeSessionStatus(a.status.Load())
-	if a.closeRequested.Load() && status != SessionStatusClosed {
+	status := decodeSessionStatus(a.life.status.Load())
+	if a.life.closeRequested.Load() && status != SessionStatusClosed {
 		return SessionStatusClosing
 	}
 	return status
@@ -276,26 +233,26 @@ func (a *Session) Status() SessionStatus {
 
 // Done returns a channel that is closed once the Session has closed: after
 // Close, when no Run is left and the Session has stopped accepting messages.
-func (a *Session) Done() <-chan struct{} { return a.done }
+func (a *Session) Done() <-chan struct{} { return a.life.done }
 
 // Subscribe starts a Subscription to the Session's stored Events and deltas,
 // from now on, across Runs. Subscribe before the first Prompt to see
 // everything. A subscriber that reads slowly slows only itself: the Session
 // never waits for it.
 func (a *Session) Subscribe(ctx context.Context, options ...SubscribeOption) (Subscription, error) {
-	return a.feed.Subscribe(ctx, options...)
+	return a.events.feed.Subscribe(ctx, options...)
 }
 
 // Published returns how many Events the Session has published: its stored
 // Events and its deltas. A test that reads a Subscription compares it with how
 // many it has read, to know that it has seen everything.
-func (a *Session) Published() uint64 { return a.feed.Published() }
+func (a *Session) published() uint64 { return a.events.feed.published() }
 
 // SubscribeRun starts a Subscription to the next Run that starts: its Events
 // and deltas, from its RunStarted to its RunEnded, with the same numbers the
 // Session's stream gives them. Call it before Prompt.
 func (a *Session) SubscribeRun(ctx context.Context) (Subscription, error) {
-	return a.feed.Subscribe(ctx, SubscribeNextRun()...)
+	return a.events.feed.Subscribe(ctx, SubscribeNextRun()...)
 }
 
 // Prompt appends message as the user's Message and runs it to a settled
@@ -333,24 +290,24 @@ func (a *Session) submit(ctx context.Context, kind sessionCommandKind, operation
 	}
 
 	select {
-	case a.admission <- struct{}{}:
+	case a.life.admission <- struct{}{}:
 	default:
 		return RunResult{}, runtimeError(CodeBusy, operation, "Session is already processing a Run", nil)
 	}
 	releaseAdmission := true
 	defer func() {
 		if releaseAdmission {
-			<-a.admission
+			<-a.life.admission
 		}
 	}()
 
 	cmd := sessionCommand{kind: kind, ctx: ctx, message: message, result: make(chan promptResponse, 1)}
 	select {
-	case a.commands <- cmd:
+	case a.life.commands <- cmd:
 		releaseAdmission = false
 	case <-ctx.Done():
 		return RunResult{}, notRunBeforeAdmission(ctx.Err(), operation)
-	case <-a.closeSignal:
+	case <-a.life.closeSignal:
 		return RunResult{}, a.admissionError(operation)
 	}
 
@@ -386,17 +343,10 @@ func notRunBeforeAdmission(cause error, operation string) *RuntimeError {
 const settleGrace = 5 * time.Second
 
 // Transcript returns the Transcript this Session commits to.
-func (a *Session) Transcript() Transcript { return a.transcript }
-
-// capabilities is the Transcript's declaration now, guarded. It is asked again
-// where it can change, as Durable does for a Record that gets stored.
-func (a *Session) capabilities() (caps Capabilities, failure *RuntimeError) {
-	failure = transcriptCall(func() { caps = a.transcript.Capabilities() })
-	return caps, failure
-}
+func (a *Session) Transcript() Transcript { return a.history.transcript }
 
 // isDurable reports whether the Session's Events are stored.
 func (a *Session) isDurable() (stored bool, failure *RuntimeError) {
-	caps, failure := a.capabilities()
+	caps, failure := a.history.capabilities()
 	return caps.Durable && failure == nil, failure
 }

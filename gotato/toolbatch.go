@@ -65,10 +65,10 @@ func (a *Session) closeOpenCalls(runID RunID, batch *openBatch, cause *RuntimeEr
 			Executed:  known && outcome.Executed,
 		}
 		message := Message{ID: MessageID(nextID("message")), RunID: runID, Role: RoleToolResult, Parts: cloneParts(result.Content), ToolResult: cloneToolResultPtr(result)}
-		if err := a.appendMessage(message, false); err != nil {
+		if err := a.history.commit(a.def.limits, message, false); err != nil {
 			break
 		}
-		a.stage(ToolResultCommitted{Header: NewHeader(a.id, runID, batch.turn), Message: message.Clone(), CallID: call.ID, Status: resultStatus})
+		a.stage(ToolResultCommitted{Header: NewHeader(a.def.id, runID, batch.turn), Message: message.Clone(), CallID: call.ID, Status: resultStatus})
 	}
 	*batch = openBatch{}
 }
@@ -98,15 +98,15 @@ func (a *Session) rejectedPlan(index int, call ToolCall, code ErrorCode, message
 // in this Session, and a Tool of a ToolSet that is unavailable now is said to
 // be so; any other name is an unknown tool.
 func (a *Session) unresolvedToolText(id string) string {
-	if set := a.registry.unavailableSet(id); set != "" {
+	if set := a.tools.registry.unavailableSet(id); set != "" {
 		return fmt.Sprintf("%s: tool %q is in ToolSet %q, which is unavailable now; try again in a later Run", CodeToolResolutionFailure, id, set)
 	}
-	if effect, capped := a.registry.cappedEffect(id); capped {
+	if effect, capped := a.tools.registry.cappedEffect(id); capped {
 		if effect == ToolEffectUnspecified {
 			effect = "unspecified, which counts as destructive"
 		}
 		return fmt.Sprintf("%s: tool %q is not allowed in this Session (its effect is %s; the Session's maximum is %s); available tools: %s",
-			CodeToolResolutionFailure, id, effect, a.registry.maxEffect, a.visibleToolIDs())
+			CodeToolResolutionFailure, id, effect, a.tools.registry.maxEffect, a.visibleToolIDs())
 	}
 	return fmt.Sprintf("%s: unknown tool %q; available tools: %s", CodeToolResolutionFailure, id, a.visibleToolIDs())
 }
@@ -114,7 +114,7 @@ func (a *Session) unresolvedToolText(id string) string {
 // visibleToolIDs lists the Tools the Model was shown this Turn, for the
 // message of a call that did not resolve.
 func (a *Session) visibleToolIDs() string {
-	specs := a.registry.visibleSpecs()
+	specs := a.tools.registry.visibleSpecs()
 	ids := make([]string, 0, len(specs))
 	for _, spec := range specs {
 		ids = append(ids, spec.ID)
@@ -139,10 +139,10 @@ type toolSignal struct {
 // parallelWorkers turns the configured bound into a worker count. Zero and one
 // both mean sequential.
 func (a *Session) parallelWorkers() int {
-	if a.limits.MaxParallelTools <= 1 {
+	if a.def.limits.MaxParallelTools <= 1 {
 		return 1
 	}
-	return int(a.limits.MaxParallelTools)
+	return int(a.def.limits.MaxParallelTools)
 }
 
 // groupPlans splits a batch into execution groups. A Tool declared Sequential
@@ -228,7 +228,7 @@ type toolGroupRun struct {
 func (g *toolGroupRun) settle(index int, result ToolResult) {
 	g.outcomes[index] = result
 	call := g.plans[index].call
-	g.a.stage(ToolEnded{Header: NewHeader(g.a.id, g.runID, g.turn), CallID: call.ID, ToolID: call.ToolID, Status: result.Status, Code: result.Code, Executed: result.Executed, ElapsedMS: millis(time.Since(g.launched))})
+	g.a.stage(ToolEnded{Header: NewHeader(g.a.def.id, g.runID, g.turn), CallID: call.ID, ToolID: call.ToolID, Status: result.Status, Code: result.Code, Executed: result.Executed, ElapsedMS: millis(time.Since(g.launched))})
 }
 
 // cancelRest settles every call of the group that has no outcome yet as
@@ -293,7 +293,7 @@ func (g *toolGroupRun) handle(signal toolSignal) {
 // receive. At the call's ToolCallDeadline it stops waiting and reports the
 // call as timed out, with its outcome unknown.
 func (a *Session) runTool(ctx context.Context, plan toolPlan, signals chan<- toolSignal, abandon <-chan struct{}) {
-	toolCtx, toolCancel := boundedContext(ctx, a.limits.ToolCallDeadline)
+	toolCtx, toolCancel := boundedContext(ctx, a.def.limits.ToolCallDeadline)
 	defer toolCancel()
 	progress := newToolProgress(func(text string) {
 		select {
@@ -330,7 +330,7 @@ func (a *Session) runTool(ctx context.Context, plan toolPlan, signals chan<- too
 	var result ToolResult
 	switch {
 	case executed.err != nil && ctx.Err() == nil && errors.Is(toolCtx.Err(), context.DeadlineExceeded):
-		text := fmt.Sprintf("%s: the tool did not finish within ToolCallDeadline (%s); its outcome is unknown", CodeDeadlineExceeded, a.limits.ToolCallDeadline)
+		text := fmt.Sprintf("%s: the tool did not finish within ToolCallDeadline (%s); its outcome is unknown", CodeDeadlineExceeded, a.def.limits.ToolCallDeadline)
 		result = ToolResult{CallID: plan.call.ID, Status: ToolResultStatusFailed, SafeError: text, Code: CodeDeadlineExceeded, Executed: true}
 	case executed.err != nil:
 		result = ToolResult{CallID: plan.call.ID, Status: ToolResultStatusFailed, SafeError: toolErrorText(executed.err), Code: toolErrorCode(executed.err), Executed: true}
@@ -392,11 +392,11 @@ func (a *Session) preflightTools(ctx context.Context, runID RunID, turn TurnNumb
 		// schema-invalid arguments) settles as a failed Tool Result the Model
 		// can read and correct; it never ends the Run (GOALS.md G-G04: every
 		// failed tool call returns its reason to the model).
-		entry, found := a.registry.lookup(call.ToolID)
+		entry, found := a.tools.registry.lookup(call.ToolID)
 		if !found {
 			// A catalog Tool the Model has not loaded does not run: it is
 			// loaded now, and the Model calls it again.
-			if status := a.registry.loadable(call.ToolID); status == loadOK || status == loadAlready {
+			if status := a.tools.registry.loadable(call.ToolID); status == loadOK || status == loadAlready {
 				plans = append(plans, a.rejectedPlan(sourceIndex, call, CodeToolNotLoaded, fmt.Sprintf("%s was not loaded, so this call did not run. It is loaded now; call it again.", call.ToolID), call.ToolID))
 				continue
 			}
@@ -418,7 +418,7 @@ func (a *Session) preflightTools(ctx context.Context, runID RunID, turn TurnNumb
 			tool:       entry.tool,
 			sequential: spec.Sequential,
 			use: ToolUse{
-				SessionID:   a.id,
+				SessionID:   a.def.id,
 				RunID:       runID,
 				Turn:        turn,
 				CallID:      call.ID,
@@ -428,7 +428,7 @@ func (a *Session) preflightTools(ctx context.Context, runID RunID, turn TurnNumb
 				Effect:      spec.Effect,
 			},
 		}
-		decision, preErr := a.extensions.beforeTool(ctx, plan.use)
+		decision, preErr := a.def.extensions.beforeTool(ctx, plan.use)
 		if preErr != nil {
 			return nil, preErr
 		}
@@ -503,4 +503,84 @@ func toolErrorText(err error) string {
 		fallback = re.Error()
 	}
 	return PublicText(err, fallback)
+}
+
+// commitResult commits the settled result of one call of a Turn's batch: the
+// call at position index, whose Tool outcome is outcome. A result is a chain of
+// stages, each its own call so that each can be read, and fails alone: what the
+// extensions make of it (afterToolUse), what is spilled (spillResult), its
+// Message in the history (commitResultMessage), its Events (stageResult) and
+// their write (flushResult). It returns the result as it was committed.
+func (st *runState) commitResult(turn TurnNumber, index int, call ToolCall, outcome ToolResult) (ToolResult, *RuntimeError) {
+	result, err := st.afterToolUse(outcome)
+	if err != nil {
+		return ToolResult{}, err
+	}
+	if result, err = st.spillResult(turn, call, result); err != nil {
+		return ToolResult{}, err
+	}
+	message, result, err := st.commitResultMessage(result)
+	if err != nil {
+		return ToolResult{}, err
+	}
+	st.batch.next = index + 1
+	st.stageResult(turn, call, message, result)
+	if err := st.flushResult(); err != nil {
+		return ToolResult{}, err
+	}
+	return result, nil
+}
+
+// afterToolUse runs the Post-Tool-Use extensions, which see executed, blocked,
+// failed and canceled outcomes alike, in reverse installation order.
+func (st *runState) afterToolUse(outcome ToolResult) (ToolResult, *RuntimeError) {
+	return st.a.def.extensions.afterTool(st.runCtx, outcome)
+}
+
+// spillResult moves a result too large for the Model's context out to the
+// Record (decision 040). The Tool already ran: a canceled Run still stores its
+// body.
+func (st *runState) spillResult(turn TurnNumber, call ToolCall, result ToolResult) (ToolResult, *RuntimeError) {
+	spillCtx, cancel := finalContext(st.runCtx)
+	defer cancel()
+	return st.a.spill(spillCtx, st.runID, turn, call.ToolID, result)
+}
+
+// commitResultMessage commits the Tool Result Message to the history. A result
+// too large for one Message is replaced by one that says why its output is
+// missing, and the Run goes on.
+func (st *runState) commitResultMessage(result ToolResult) (Message, ToolResult, *RuntimeError) {
+	a := st.a
+	message := Message{ID: MessageID(nextID("message")), RunID: st.runID, Role: RoleToolResult, Parts: cloneParts(result.Content), ToolResult: cloneToolResultPtr(result)}
+	message, result, err := a.history.commitToolResult(a.def.limits, message, result)
+	if err != nil {
+		return Message{}, ToolResult{}, asRuntimeError(err)
+	}
+	return message, result, nil
+}
+
+// stageResult stages the Events of a committed result: its ToolResultCommitted,
+// and a ToolLoaded for each Tool it lists. A Tool loads as the Tool Result that
+// lists it commits, and its ToolLoaded goes in the same write, so the Record
+// never says "Loaded" for a Tool it does not hold as loaded. The tools lock
+// serializes the visibility write with Session.Tools.
+func (st *runState) stageResult(turn TurnNumber, call ToolCall, message Message, result ToolResult) {
+	a, hd := st.a, st.header
+	a.stage(ToolResultCommitted{Header: hd(turn), Message: message.Clone(), CallID: call.ID, Status: result.Status})
+	for _, id := range result.LoadedTools {
+		a.tools.mu.Lock()
+		loadedNow := a.tools.registry.load(id)
+		a.tools.mu.Unlock()
+		if loadedNow {
+			a.stage(ToolLoaded{Header: hd(turn), ToolID: id, Why: loadWhy(call, id)})
+		}
+	}
+}
+
+// flushResult writes the Events of the result. It is committed in memory
+// already, so a canceled Run still stores it.
+func (st *runState) flushResult() *RuntimeError {
+	flushCtx, cancel := finalContext(st.runCtx)
+	defer cancel()
+	return st.a.flush(flushCtx)
 }

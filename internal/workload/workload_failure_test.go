@@ -698,7 +698,7 @@ func TestEmbeddedCallerSeesARefusalAsNotRun(t *testing.T) {
 		if !gotato.NotRun(err) {
 			t.Fatalf("Run on a draining instance = %v, want an error that says not run", err)
 		}
-		if !gotato.Retryable(err) || !gotato.IsCode(err, gotato.CodeDraining) {
+		if !gotato.Retryable(err) || !gotato.IsCode(err, service.CodeDraining) {
 			t.Fatalf("Run on a draining instance = %v, want draining and retryable", err)
 		}
 		if res.Result.Status != "" {

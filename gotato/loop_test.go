@@ -214,7 +214,7 @@ func TestAbortAfterTheRunBeganToEndStoresNothing(t *testing.T) {
 		t.Fatal(err)
 	}
 	defer func() { _ = s.Close(context.Background()) }()
-	s.endingHook = s.Abort
+	s.run.endingHook = s.Abort
 	if _, err := s.Prompt(context.Background(), UserMessage("go")); err != nil {
 		t.Fatal(err)
 	}
@@ -294,7 +294,7 @@ func firstOfKind(events []Event, kind EventKind) int {
 func TestSteerBeforeRunStartedHasNoRun(t *testing.T) {
 	var s *Session
 	s, err := NewSession(context.Background(), WithModel(&recordingModel{scripts: [][]ModelEvent{finalScript("a"), finalScript("b")}}),
-		WithRunStart(func(RunID) { _ = s.Steer(context.Background(), UserMessage("s")) }))
+		withRunStart(func(RunID) { _ = s.Steer(context.Background(), UserMessage("s")) }))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -317,7 +317,7 @@ func TestSteerBeforeRunStartedHasNoRun(t *testing.T) {
 func TestNoticeBeforeRunStartedHasNoRun(t *testing.T) {
 	var s *Session
 	s, err := NewSession(context.Background(), WithModel(&recordingModel{scripts: [][]ModelEvent{finalScript("a")}}),
-		WithRunStart(func(RunID) { _, _ = s.Notice(context.Background(), "k", "t") }))
+		withRunStart(func(RunID) { _, _ = s.Notice(context.Background(), "k", "t") }))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -345,7 +345,7 @@ func TestSteerAfterRunEndedHasNoRun(t *testing.T) {
 		}
 		rec := recordAll(t, s)
 		done := make(chan struct{})
-		s.endingHook = func() { go func() { _ = s.Steer(context.Background(), UserMessage("late")); close(done) }() }
+		s.run.endingHook = func() { go func() { _ = s.Steer(context.Background(), UserMessage("late")); close(done) }() }
 		if _, err := s.Prompt(context.Background(), UserMessage("go")); err != nil {
 			t.Fatal(err)
 		}
@@ -360,7 +360,7 @@ func TestSteerAfterRunEndedHasNoRun(t *testing.T) {
 func TestAbortBeforeRunStartedIsStoredAfterIt(t *testing.T) {
 	for range 300 {
 		var s *Session
-		s, err := NewSession(context.Background(), WithModel(&recordingModel{scripts: [][]ModelEvent{finalScript("a")}}), WithRunStart(func(RunID) { s.Abort() }))
+		s, err := NewSession(context.Background(), WithModel(&recordingModel{scripts: [][]ModelEvent{finalScript("a")}}), withRunStart(func(RunID) { s.Abort() }))
 		if err != nil {
 			t.Fatal(err)
 		}

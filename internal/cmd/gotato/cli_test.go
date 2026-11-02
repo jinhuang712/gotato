@@ -111,7 +111,7 @@ func TestRunEventsJSONLStreamsThenResult(t *testing.T) {
 		if i == 0 && event.Kind() != gotato.EventKindSessionCreated {
 			t.Fatalf("first line kind = %s, want session_created", event.Kind())
 		}
-		if event.Kind().Class() == gotato.EventClassInstance {
+		if event.Class() == gotato.EventClassInstance {
 			t.Fatalf("line %d is the Instance Event %s", i, event.Kind())
 		}
 	}
@@ -380,13 +380,14 @@ func TestExitCodes(t *testing.T) {
 // A new ErrorCode must be given an exit code on purpose: this fails until
 // exitOfCode lists it.
 func TestEveryErrorCodeHasAnExplicitExitCode(t *testing.T) {
-	for _, code := range gotato.ErrorCodes() {
+	all := append(gotato.ErrorCodes(), service.ErrorCodes()...)
+	for _, code := range all {
 		if _, ok := exitOfCode[code]; !ok {
 			t.Errorf("error code %q has no exit code", code)
 		}
 	}
-	if len(exitOfCode) != len(gotato.ErrorCodes()) {
-		t.Errorf("exitOfCode has %d entries, gotato.ErrorCodes lists %d", len(exitOfCode), len(gotato.ErrorCodes()))
+	if len(exitOfCode) != len(all) {
+		t.Errorf("exitOfCode has %d entries, gotato.ErrorCodes and service.ErrorCodes list %d", len(exitOfCode), len(all))
 	}
 }
 

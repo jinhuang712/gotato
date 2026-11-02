@@ -579,7 +579,7 @@ func TestProxyRetriesAFullInstancesRefusalElsewhere(t *testing.T) {
 	task := reftasks.Task{Name: "echo", Model: model, Prompts: []string{"x"}}
 	c := newCluster(t, 2, []reftasks.Task{task}, 23, func(i int, cfg *service.Config) {
 		if i == 0 {
-			cfg.Admission.MaxActiveSessions = 1
+			cfg.Bounds.MaxActiveSessions = 1
 		}
 	})
 	t.Cleanup(func() {

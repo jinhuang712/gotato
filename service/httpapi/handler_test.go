@@ -489,7 +489,7 @@ func TestForwardDoesNotFollowARedirectOutOfTheAllowList(t *testing.T) {
 
 func forwardRunner(t *testing.T, store session.Store, agent service.Agent, mutate func(*service.Config)) *service.Runner {
 	t.Helper()
-	cfg := service.Config{Store: store, Agents: []service.Agent{agent}, Liveness: service.Liveness{TTL: time.Second, Wait: 30 * time.Millisecond}}
+	cfg := service.Config{Store: store, Agents: []service.Agent{agent}, Heartbeat: service.Heartbeat{TTL: time.Second, Wait: 30 * time.Millisecond}}
 	mutate(&cfg)
 	r, err := service.New(cfg)
 	if err != nil {

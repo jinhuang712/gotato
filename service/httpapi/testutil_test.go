@@ -110,8 +110,8 @@ func newInstance(t *testing.T, store session.Store, name string, model gotato.Mo
 	}
 	runner, err := service.New(service.Config{
 		Store: store, Instance: name, Address: address,
-		Liveness: service.Liveness{TTL: 5 * time.Second, Wait: 3 * time.Second},
-		Agents:   []service.Agent{{Name: "echo", Model: model}},
+		Heartbeat: service.Heartbeat{TTL: 5 * time.Second, Wait: 3 * time.Second},
+		Agents:    []service.Agent{{Name: "echo", Model: model}},
 	})
 	if err != nil {
 		t.Fatal(err)

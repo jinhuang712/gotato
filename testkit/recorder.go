@@ -33,7 +33,7 @@ func RecordEvents(s *gotato.Session) *EventRecorder {
 		panic("testkit: " + err.Error())
 	}
 	r := newRecorder(sub)
-	r.published, r.base = s.Published, s.Published()
+	r.published, r.base = func() uint64 { return published(s) }, published(s)
 	return r
 }
 

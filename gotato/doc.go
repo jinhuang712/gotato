@@ -53,8 +53,9 @@
 //     (Session, NewSession, Prompt), sessionoptions.go (every SessionOption,
 //     with sessionConfig), sessionlifecycle.go (Abort, Close, the command
 //     loop), loop.go (the Turn loop), reply.go (reading the Model's reply),
-//     request.go (the Model's request), commit.go and eventwrite.go (what a
-//     Turn writes), queue.go (Steer, FollowUp), notice.go (Notice), inspect.go
+//     request.go (the Model's request), history.go and eventwrite.go (what a
+//     Turn writes), sessionrun.go (the Run in flight), hostlink.go (the calls
+//     the core hands to its host, see internal/hostlink), queue.go (Steer, FollowUp), notice.go (Notice), inspect.go
 //     (InspectContext), spill.go (a long result kept out of the Context), and
 //     for Tools toolregistry.go (the Session's catalog), toolsource.go and
 //     toolrefresh.go (Tools that change between Turns), toolsearch.go (loading
@@ -65,6 +66,13 @@
 // A file of layer 3 may use any file below it, and the files inside one layer
 // may use each other. knownBackEdges in layers_test.go lists the uses that
 // point up; it is empty, and it may only shrink.
+//
+// A Session is built from parts that each do one job (decision 048), declared
+// in the file of their job: def and host (session.go), life
+// (sessionlifecycle.go), run (sessionrun.go), events (eventwrite.go), history
+// (history.go), tools (toolregistry.go) and queue (controlqueue.go). Four have
+// a lock, taken in this order: events, run, queue; the tools lock is taken with
+// none of them held.
 //
 // The names, in the order a reader needs them:
 //

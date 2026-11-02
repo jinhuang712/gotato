@@ -255,9 +255,9 @@ func (s *beatOutage) Beat(ctx context.Context, row session.InstanceRow, ttl time
 func TestReadyzReportsALapsedRow(t *testing.T) {
 	store := &beatOutage{parts: partsOf(memStore())}
 	runner, err := service.New(service.Config{
-		Store:    asStore(store),
-		Liveness: service.Liveness{TTL: 300 * time.Millisecond},
-		Agents:   []service.Agent{{Name: "echo", Model: testkit.EchoModel{}}},
+		Store:     asStore(store),
+		Heartbeat: service.Heartbeat{TTL: 300 * time.Millisecond},
+		Agents:    []service.Agent{{Name: "echo", Model: testkit.EchoModel{}}},
 	})
 	if err != nil {
 		t.Fatal(err)

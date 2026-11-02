@@ -5,6 +5,7 @@ import (
 	"time"
 
 	"github.com/jinhuang712/gotato/gotato"
+	"github.com/jinhuang712/gotato/service/internal/clock"
 	"github.com/jinhuang712/gotato/session"
 )
 
@@ -58,16 +59,16 @@ func (st *runState) openSession(ctx, runCtx context.Context) (openedSession, err
 	if request.SessionID == "" {
 		return opened, nil
 	}
-	began := time.Now()
+	began := r.clock.Now()
 	var err error
 	if request.SkipSave {
-		st.feed = gotato.NewFeed(nil)
+		st.feed = newFeed(nil)
 		if err := r.streamTo(ctx, st.feed, st.stream, st.track); err != nil {
 			return opened, err
 		}
 		st.s, err = session.Open(runCtx, r.store.Records, st.sessionID)
 		err = storeFailureOf(runCtx, err, true)
-		opened.loadTime = time.Since(began)
+		opened.loadTime = clock.Since(r.clock, began)
 	} else {
 		opened.loadTime, opened.early, opened.reused, err = st.openWriter(runCtx, began)
 	}
@@ -126,7 +127,7 @@ func (st *runState) openWriter(runCtx context.Context, began time.Time) (loadTim
 		loadTime = st.writer.Stats().Load
 		st.s = st.writer.Record()
 	} else {
-		loadTime = time.Since(began)
+		loadTime = clock.Since(st.r.clock, began)
 	}
 	return loadTime, early, reused, err
 }
@@ -150,12 +151,12 @@ func (st *runState) announceOpen(spec Agent, known bool, early []gotato.Event, r
 	if !known {
 		label = ""
 	}
-	st.feed.SetLabel(label)
+	setLabel(st.feed, label)
 	if st.writer != nil {
 		st.writer.SetPublisher(st.r.publisher(st.acquired, label))
 	}
 	for _, event := range early {
-		st.feed.Publish(event)
+		publish(st.feed, event)
 	}
 	if !reused {
 		st.r.notice(loadedEvent(st.sessionID, st.s.Len(), loadTime, nil), label)

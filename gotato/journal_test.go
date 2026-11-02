@@ -224,7 +224,7 @@ func TestDeltasCarryTheNumberOfTheEventTheyFollow(t *testing.T) {
 		t.Fatalf("deltas = %d, want 3", deltas)
 	}
 	for _, kind := range journal.kinds() {
-		if kind.Class() == EventClassDelta {
+		if classOfKind(kind) == EventClassDelta {
 			t.Fatalf("%s was stored", kind)
 		}
 	}
@@ -243,7 +243,7 @@ func TestSessionWithoutAStoreNumbersItsEvents(t *testing.T) {
 	}
 	var number uint64
 	for _, event := range rec.events() {
-		if event.Kind().Class() != EventClassStored {
+		if event.Class() != EventClassStored {
 			continue
 		}
 		number++

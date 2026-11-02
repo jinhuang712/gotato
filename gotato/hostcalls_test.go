@@ -58,6 +58,9 @@ func TestEveryHostCallIsGuarded(t *testing.T) {
 		if path == modulePath+"/internal/text" {
 			return checkDir(fset, "../internal/text", imp)
 		}
+		if path == modulePath+"/internal/hostlink" {
+			return checkDir(fset, "../internal/hostlink", imp)
+		}
 		return std.Import(path)
 	}
 	info := &types.Info{Selections: map[*ast.SelectorExpr]*types.Selection{}}

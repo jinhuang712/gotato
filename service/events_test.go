@@ -65,7 +65,7 @@ func checkStreamIsRecord(t *testing.T, runner *service.Runner, sessionID string,
 		t.Fatalf("the stream's stored Events differ from the Record's\n got: %v\nwant: %v", got, want)
 	}
 	for _, event := range streamed {
-		if event.Kind().Class() == gotato.EventClassInstance {
+		if event.Class() == gotato.EventClassInstance {
 			t.Fatalf("the Run's stream carries the Instance Event %s", event.Kind())
 		}
 	}
@@ -250,7 +250,7 @@ func TestStreamSessionCatchesUpThenGoesLive(t *testing.T) {
 	all := recordRange(t, runner, first.SessionID, after+1, 1<<62)
 	end := all[len(all)-1].Head().Number
 	if !recorder.Wait(5*time.Second, func(event gotato.Event) bool {
-		return event.Head().Number == end && event.Kind().Class() == gotato.EventClassStored
+		return event.Head().Number == end && event.Class() == gotato.EventClassStored
 	}) {
 		t.Fatalf("the live Events never reached #%d: %v", end, numbered(recorder.Events()))
 	}
@@ -287,7 +287,7 @@ func TestSubscribeInstanceSeesAllAgentsAndForAgentsFilters(t *testing.T) {
 		}
 	}
 	for _, event := range streamed {
-		if event.Kind().Class() == gotato.EventClassInstance {
+		if event.Class() == gotato.EventClassInstance {
 			t.Fatalf("a Run's stream carries the Instance Event %s", event.Kind())
 		}
 	}
@@ -300,7 +300,7 @@ func TestSubscribeInstanceSeesAllAgentsAndForAgentsFilters(t *testing.T) {
 					continue
 				}
 				switch event.Kind() {
-				case gotato.EventKindSessionSaved:
+				case service.EventKindSessionSaved:
 					saves++
 				case gotato.EventKindRunEnded:
 					ended++
@@ -317,7 +317,7 @@ func TestSubscribeInstanceSeesAllAgentsAndForAgentsFilters(t *testing.T) {
 		saves, ended := 0, 0
 		for _, event := range onlyBeta.Events() {
 			switch event.Kind() {
-			case gotato.EventKindSessionSaved:
+			case service.EventKindSessionSaved:
 				saves++
 			case gotato.EventKindRunEnded:
 				ended++
@@ -337,7 +337,7 @@ func TestSubscribeInstanceSeesAllAgentsAndForAgentsFilters(t *testing.T) {
 	}
 	for agent, id := range sessions {
 		counts := kindsOf(all, id)
-		if counts[gotato.EventKindRunEnded] != 2 || counts[gotato.EventKindSessionSaved] < 2 || counts[gotato.EventKindSessionLoaded] < 1 {
+		if counts[gotato.EventKindRunEnded] != 2 || counts[service.EventKindSessionSaved] < 2 || counts[service.EventKindSessionLoaded] < 1 {
 			t.Fatalf("the Instance stream's Events of %s's Session = %v, want its two Runs and the store's timings", agent, counts)
 		}
 	}
@@ -347,7 +347,7 @@ func TestSubscribeInstanceSeesAllAgentsAndForAgentsFilters(t *testing.T) {
 		}
 	}
 	counts := kindsOf(onlyBeta, sessions["beta"])
-	if counts[gotato.EventKindRunEnded] != 2 || counts[gotato.EventKindSessionSaved] < 2 || counts[gotato.EventKindSessionLoaded] < 1 {
+	if counts[gotato.EventKindRunEnded] != 2 || counts[service.EventKindSessionSaved] < 2 || counts[service.EventKindSessionLoaded] < 1 {
 		t.Fatalf("ForAgents(beta) = %v, want beta's Runs and its Instance Events", counts)
 	}
 }
@@ -377,27 +377,27 @@ func TestStoreEventsAreInstanceEvents(t *testing.T) {
 		t.Fatalf("the Run's stream = %v, want it to hold run_started and end at run_ended", kinds)
 	}
 	for _, event := range events {
-		if event.Kind().Class() == gotato.EventClassInstance {
+		if event.Class() == gotato.EventClassInstance {
 			t.Fatalf("the Run's stream carries the Instance Event %s", event.Kind())
 		}
 	}
 
 	isSaved := func(event gotato.Event) bool {
-		saved, ok := event.(gotato.SessionSaved)
+		saved, ok := event.(service.SessionSaved)
 		return ok && saved.RunID == result.Result.RunID
 	}
 	if !instance.Wait(5*time.Second, isSaved) {
 		t.Fatalf("the Instance stream never saw the save of %s: %v", result.Result.RunID, instance.Kinds())
 	}
-	var loaded gotato.SessionLoaded
-	var saved gotato.SessionSaved
+	var loaded service.SessionLoaded
+	var saved service.SessionSaved
 	for _, event := range instance.Events() {
 		switch e := event.(type) {
-		case gotato.SessionLoaded:
+		case service.SessionLoaded:
 			if string(e.SessionID) == first.SessionID {
 				loaded = e
 			}
-		case gotato.SessionSaved:
+		case service.SessionSaved:
 			if e.RunID == result.Result.RunID {
 				saved = e
 			}
@@ -416,7 +416,7 @@ func TestStoreEventsAreInstanceEvents(t *testing.T) {
 		t.Fatal(err)
 	}
 	for _, event := range stored {
-		if event.Kind().Class() == gotato.EventClassInstance {
+		if event.Class() == gotato.EventClassInstance {
 			t.Fatalf("the Record holds %s", event.Kind())
 		}
 	}
@@ -438,7 +438,7 @@ func TestStoreEventsFlagFailuresWithoutTheirText(t *testing.T) {
 		t.Fatalf("err = %v, want ErrNotFound", err)
 	}
 	instance.Wait(5*time.Second, func(event gotato.Event) bool {
-		loaded, ok := event.(gotato.SessionLoaded)
+		loaded, ok := event.(service.SessionLoaded)
 		return ok && loaded.Failed
 	})
 	var flagged []gotato.EventKind
@@ -451,17 +451,17 @@ func TestStoreEventsFlagFailuresWithoutTheirText(t *testing.T) {
 			t.Fatalf("%s carries the store's error text: %s", event.Kind(), raw)
 		}
 		switch e := event.(type) {
-		case gotato.SessionSaved:
+		case service.SessionSaved:
 			if e.Failed {
 				flagged = append(flagged, e.Kind())
 			}
-		case gotato.SessionLoaded:
+		case service.SessionLoaded:
 			if e.Failed {
 				flagged = append(flagged, e.Kind())
 			}
 		}
 	}
-	if len(flagged) != 2 || flagged[0] != gotato.EventKindSessionSaved || flagged[1] != gotato.EventKindSessionLoaded {
+	if len(flagged) != 2 || flagged[0] != service.EventKindSessionSaved || flagged[1] != service.EventKindSessionLoaded {
 		t.Fatalf("flagged = %v, want the failed save and the failed load", flagged)
 	}
 }

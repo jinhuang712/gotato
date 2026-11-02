@@ -16,8 +16,8 @@ import (
 // save.
 func (st *runState) detach(runCtx context.Context, live *gotato.Session) {
 	r, handle := st.r, st.handle
-	if r.beforeDetach != nil {
-		r.beforeDetach()
+	if r.hooks.beforeDetach != nil {
+		r.hooks.beforeDetach()
 	}
 	// A notice from a service the Run left waits for the next Run, even
 	// when the Run was stopped, since it asks for no work: its
@@ -26,14 +26,14 @@ func (st *runState) detach(runCtx context.Context, live *gotato.Session) {
 	notices := handle.detachLive(func(left []gotato.Queued) bool {
 		why := st.dropReason(runCtx)
 		if why != "" {
-			live.DropQueued(left, why)
+			dropQueued(live, left, why)
 			return false
 		}
 		return true
 	})
 	for _, notice := range notices {
 		if notice.Message.Notice != nil && notice.Message.Notice.Source == gotato.NoticeSourceGotato {
-			live.DropQueued([]gotato.Queued{notice}, "run_ended")
+			dropQueued(live, []gotato.Queued{notice}, "run_ended")
 		}
 	}
 	_ = live.Close(context.Background())
@@ -129,7 +129,7 @@ func (st *runState) respond(spec Agent, auto *modelctx.AutoCompactor, result got
 	if st.request.SkipSave {
 		// The Run stored nothing: its Events are those of its own stream,
 		// numbered from 1, so the last number counts them.
-		out.Events = int(st.feed.Last())
+		out.Events = int(feedLast(st.feed))
 	}
 	if result.FinalMessage != nil {
 		out.FinalText = gotato.TextOf(*result.FinalMessage)
@@ -159,9 +159,9 @@ func (r *Runner) noteFailure(err error, sessionID, agent string) {
 	header := gotato.NewHeader(gotato.SessionID(sessionID), "", 0)
 	switch {
 	case errors.Is(err, session.ErrConflict):
-		r.notice(gotato.SessionFenced{Header: header, Instance: r.id()}, agent)
+		r.notice(SessionFenced{Header: header, Instance: r.id()}, agent)
 	case gotato.IsCode(err, gotato.CodeStoreFailure):
-		r.notice(gotato.StoreWriteFailed{Header: header, Code: gotato.CodeStoreFailure}, agent)
+		r.notice(StoreWriteFailed{Header: header, Code: gotato.CodeStoreFailure}, agent)
 	}
 }
 

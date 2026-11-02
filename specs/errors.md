@@ -23,6 +23,8 @@ RuntimeError
 └─────────────────────────────────────────────────────┘
 ```
 
+The codes are two lists. `gotato.ErrorCodes()` lists the core's, and `service.ErrorCodes()` the five only a Runner makes: `not_writer`, `draining`, `overloaded`, `cannot_resume` and `already_exists` ([decision 048](../plan/decisions/048-the-runner-and-the-session-are-built-from-parts-and-host-plumbing-is-internal.md)). Their strings, their JSON and their HTTP statuses did not change. A layer that maps every code, a transport or a CLI, ranges over both. `gotato.ErrorOf` knows the defaults of the core's codes only; the service says for its own that draining, overloaded and not_writer are not run and retryable.
+
 `NotRun` and `Retryable` are separate on purpose. A 404 did not run, yet it fails the same everywhere, so it is not worth sending again. A transient model failure did run, so it is retryable but not safe to send to another Instance blindly. The codes whose answer is the same wherever they are made get it by default; any other error gets its answer from the place that knows better. Both functions look through wrapped errors.
 
 ## Where the answers come from
@@ -41,7 +43,7 @@ The answers are set at the place of the failure, along the path of a request.
  write      store_failure (Retryable; ran is unknown)      ─ it may have run
 ```
 
-Admission and claim refuse before the Run starts, so it is marked not run and a load balancer may try another Instance. After the Run begins, a failure may have had effects, so only the cases that are known stay marked. A store failure on a write of a Run's step is not marked not run, because the write may have landed. Watch `limit_exceeded`: from the Runner's capacity it is not run and retryable, while the same code that ends a Run at a limit of its own ran and is neither.
+Admission and claim refuse before the Run starts, so it is marked not run and a load balancer may try another Instance. Admission has three steps, in order: a draining Instance refuses, the memory bound (`Bounds.MaxActiveSessions`, which evicts a warm copy first) refuses, and then the service's own `Admitter` decides; a refusal it returns is marked not run too. After the Run begins, a failure may have had effects, so only the cases that are known stay marked. A store failure on a write of a Run's step is not marked not run, because the write may have landed. Watch `limit_exceeded`: from the Runner's capacity it is not run and retryable, while the same code that ends a Run at a limit of its own ran and is neither.
 
 ## What a caller does
 

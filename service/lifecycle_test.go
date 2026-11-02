@@ -244,8 +244,8 @@ func TestDeleteSessionDoesNotRemoveARunClaimedAfterTheLook(t *testing.T) {
 	defer cancel()
 	base := memStore()
 	gate := &pausingStore{parts: partsOf(base), entered: make(chan struct{}), proceed: make(chan struct{})}
-	liveness := service.Liveness{TTL: time.Second, Wait: 30 * time.Millisecond}
-	a, err := service.New(service.Config{Store: asStore(gate), Liveness: liveness,
+	liveness := service.Heartbeat{TTL: time.Second, Wait: 30 * time.Millisecond}
+	a, err := service.New(service.Config{Store: asStore(gate), Heartbeat: liveness,
 		Agents: []service.Agent{{Name: "echo", Model: testkit.EchoModel{}, Warm: service.WarmPolicy{TTL: -1}}}})
 	if err != nil {
 		t.Fatal(err)
@@ -262,7 +262,7 @@ func TestDeleteSessionDoesNotRemoveARunClaimedAfterTheLook(t *testing.T) {
 			return nil, ctx.Err()
 		}
 	})
-	b, err := service.New(service.Config{Store: base, Liveness: liveness,
+	b, err := service.New(service.Config{Store: base, Heartbeat: liveness,
 		Agents: []service.Agent{{Name: "echo", Model: model, Warm: service.WarmPolicy{TTL: -1}}}})
 	if err != nil {
 		t.Fatal(err)
@@ -338,7 +338,7 @@ func TestDeleteSessionRefusesARunOnAnotherInstance(t *testing.T) {
 	defer release()
 
 	err = b.DeleteSession(ctx, s.ID)
-	if !gotato.IsCode(err, gotato.CodeNotWriter) || !gotato.NotRun(err) {
+	if !gotato.IsCode(err, service.CodeNotWriter) || !gotato.NotRun(err) {
 		t.Fatalf("DeleteSession of a Session with a Run on another Instance = %v, want not_writer, not run", err)
 	}
 	release()
@@ -394,7 +394,7 @@ func TestCompactOfASessionRunningElsewhereAnswersBusy(t *testing.T) {
 	store := memStore()
 	model := testkit.NewFakeModel(testkit.Text("slow"))
 	a := instanceRunner(t, store, "instance-a", model, steadyLiveness)
-	b := instanceRunner(t, store, "instance-b", testkit.EchoModel{}, service.Liveness{TTL: 5 * time.Second, Wait: 200 * time.Millisecond})
+	b := instanceRunner(t, store, "instance-b", testkit.EchoModel{}, service.Heartbeat{TTL: 5 * time.Second, Wait: 200 * time.Millisecond})
 	s, err := a.CreateSession(ctx, service.CreateSessionRequest{Agent: "echo"})
 	if err != nil {
 		t.Fatal(err)
@@ -427,7 +427,7 @@ func TestForkMidRunDoesNotCarryAFalseStoppedToolResult(t *testing.T) {
 	}
 	model := testkit.NewFakeModel(testkit.ToolCalls(gotato.ToolCall{ID: "call-1", ToolID: "slow", Arguments: []byte(`{}`)}), testkit.Text("ok"))
 	a, err := service.New(service.Config{
-		Store: store, Instance: "instance-a", Liveness: steadyLiveness,
+		Store: store, Instance: "instance-a", Heartbeat: steadyLiveness,
 		Agents: []service.Agent{{Name: "echo", Model: model, Tools: []gotato.Tool{tool}}},
 	})
 	if err != nil {

@@ -32,11 +32,14 @@ import (
 	"errors"
 	"fmt"
 	"strings"
-	"sync"
 	"time"
 
 	"github.com/jinhuang712/gotato/gotato"
 	"github.com/jinhuang712/gotato/modelctx"
+	"github.com/jinhuang712/gotato/service/internal/clock"
+	"github.com/jinhuang712/gotato/service/internal/heartbeat"
+	"github.com/jinhuang712/gotato/service/internal/runs"
+	"github.com/jinhuang712/gotato/service/internal/warm"
 	"github.com/jinhuang712/gotato/session"
 )
 
@@ -216,11 +219,10 @@ const (
 	QueuePolicyWait QueuePolicy = "wait"
 )
 
-// Admission bounds concurrent work. Zero values disable a bound.
-type Admission struct {
-	// MaxActiveRuns is the limit on the Runs this Instance has in flight. Zero
-	// means no limit; a negative value is refused by New.
-	MaxActiveRuns int
+// Bounds is what guards this Instance itself: the Sessions it keeps in memory
+// and what a busy Session does. They run before the Admitter (Config.Admitter),
+// which is a policy of the service's own. Zero values disable a bound.
+type Bounds struct {
 	// MaxActiveSessions is the hard limit on the Sessions this Instance
 	// keeps: those a Run holds, counted once however many Runs wait on them,
 	// and the warm ones idling in memory. At the limit, a Run that would
@@ -244,7 +246,7 @@ type Admission struct {
 }
 
 // DefaultMaxWarmSessions is the bound on warm Sessions when
-// Admission.MaxWarmSessions says nothing: generous for an Instance of a few
+// Bounds.MaxWarmSessions says nothing: generous for an Instance of a few
 // gigabytes, and a limit all the same, so that a Runner left at its defaults
 // does not hold every Session of the last hour.
 const DefaultMaxWarmSessions = 10000
@@ -263,9 +265,15 @@ const DefaultMaxWarmSessions = 10000
 type Config struct {
 	// Store keeps the Sessions' Records. It may be shared by several
 	// processes (see above).
-	Store     session.Store
-	Agents    []Agent
-	Admission Admission
+	Store  session.Store
+	Agents []Agent
+	// Bounds guards the Instance's memory and says what a busy Session does
+	// (Bounds).
+	Bounds Bounds
+	// Admitter decides whether a Run may start, once the drain and the memory
+	// bound have let it through (Admitter). Nil means Limits{}: no limit. A
+	// bound on the Runs in flight is Limits{MaxActiveRuns: n}.
+	Admitter Admitter
 	// Instance is a human-readable label for this Runner, such as a Kubernetes pod name.
 	// It is not the identity: each start appends a random suffix, so the name
 	// the Runner writes to the store, in its Claims, its Liveness row and its
@@ -276,9 +284,9 @@ type Config struct {
 	// process's Claim as its own, it goes through the holder check like any
 	// other Instance, and the old process's Close removes only its own row.
 	Instance string
-	// Liveness sets this Runner's Liveness row, and how long a Run waits
-	// for a Session that runs on another Instance.
-	Liveness Liveness
+	// Heartbeat sets how this Runner keeps its Liveness row, and how long a
+	// Run waits for a Session that runs on another Instance.
+	Heartbeat Heartbeat
 	// Address is where a caller can reach this Instance's own endpoint, such
 	// as "http://10.0.0.7:8080". It is optional. The Instance advertises it in
 	// its Liveness row, so a message for a Run that this Instance writes, sent
@@ -300,80 +308,71 @@ type Config struct {
 	// bound beyond the context Drain is given, which can end the wait sooner
 	// in any case.
 	DrainTimeout time.Duration
-	// clock times the warm Sessions: their TTL and their idle compaction.
-	// Nil means the system clock; the tests of this package set it.
-	clock clock
+	// clock is the time the Runner reads and waits by: warm TTLs, idle
+	// compaction, renewals, waits. Nil means the system clock; the tests of this
+	// package set it.
+	clock clock.Clock
 }
 
-// Runner serves Runs against Sessions.
+// Runner serves Runs against Sessions. It is built from parts that each do one
+// job, with a lock of their own, and calls them in order (decision 048): the
+// Liveness row, the table of admitted Runs, the warm copies, the Session locks,
+// the Feeds, the Session streams and the releases that failed. The Runner holds
+// the definitions and the store, one clock and the test hooks.
 type Runner struct {
-	store     session.Store
-	label     string
-	liveness  Liveness
-	address   string
-	beat      heartbeat
-	agents    map[string]Agent
-	order     []string
-	admission Admission
-
+	// instance is this Runner's Liveness row: its name, the row and the guard
+	// (heartbeat.go).
+	instance *heartbeat.Row
+	// runs holds the admitted Runs, their counts and the drain wait
+	// (internal/runs). Lock order: runs, then warm.
+	runs *runs.Table[*runHandle]
+	// warm holds the idle Sessions, each a cache of a Record and never a lock
+	// (warm.go).
+	warm *warm.Cache
+	// locks serializes the Runs of a Session in this process (locks.go).
 	locks *sessionLocks
+	// feeds are the Instance's stream and the Feeds of the Records in use
+	// (events.go).
+	feeds feedSet
+	// streams are the Session streams open for clients (streams.go).
+	streams streamSet
+	// releases holds the Sessions whose release write failed (release.go).
+	releases releaseSet
 
-	// clock times the warm Sessions. warm holds the idle ones, each a cache
-	// of a Record and never a lock; warmClosed says the Runner has let them
-	// all go and keeps none (see warm.go).
-	clock clock
-	// beforeDetach is a test seam: it runs when a Run has settled and its live
-	// Session still takes messages (see export_test.go).
-	beforeDetach func()
-	// onSendRetry is a test seam: it runs each time Send goes round its loop
-	// again.
-	onSendRetry func()
-	// beforeRelease is a test seam: it runs when a Run no longer takes
-	// messages and still holds the Session.
-	beforeRelease func()
-	warmMu        sync.Mutex
-	warm          map[string]*warmEntry
-	warmClosed    bool
-	warmSeq       uint64
+	// agents are the definitions the Runner serves; the first is the default.
+	agents map[string]Agent
+	order  []string
+	store  session.Store
 
-	// unreleased holds the Sessions whose release write failed. The Claim
-	// still names this Instance, so the Session is marked busy under a live
-	// holder until the heartbeat writes the release again (repairReleases).
-	releaseMu  sync.Mutex
-	unreleased map[string]struct{}
-
-	// instanceFeed is the Instance's stream; feeds are the Feeds of the
-	// Records in use, one per Session ID and epoch, each mirrored to it (see
-	// events.go).
-	instanceFeed *gotato.Feed
-	feedsMu      sync.Mutex
-	feeds        map[feedKey]*sessionFeed
-
-	mu       sync.Mutex
-	handles  map[string][]*runHandle
-	inflight int
-	// locked counts the callers inside sessionLock, Runs among them: Compact,
-	// Notice, SetToolActive and DeleteSession hold a Claim without being
-	// admitted as Runs, and Drain waits for them too.
-	locked   int
-	draining bool
-	// streams are the Session streams open for clients, and streamsOver says
-	// the drain is over, so a new one ends at once.
-	streamsMu   sync.Mutex
-	streams     map[*SessionStream]struct{}
-	streamsOver bool
-	// streamStarts counts the starts of Session streams (SessionStream.startedAt).
-	streamStarts uint64
-	streamPoll   time.Duration
-	// toolSetTimeout bounds the ToolSet resolution of Tools and SetToolActive.
+	// The settings of the Runner (Config): what the Liveness row and the wait
+	// for another Instance's Session take, the bounds that guard the Instance,
+	// the Admitter, and the bounds on the waits of ToolSets and of a drain
+	// (negative is none).
+	heartbeat      Heartbeat
+	bounds         Bounds
+	admitter       Admitter
 	toolSetTimeout time.Duration
-	// drained is made by the first Drain and closed once every Run admitted
-	// before it has settled and released its Session.
-	drained chan struct{}
-	idle    *sync.Cond
-	// drainTimeout bounds how long Drain waits for the Runs; negative is none.
-	drainTimeout time.Duration
-	// drainStop is a test seam: drainStopWait when zero.
+	drainTimeout   time.Duration
+
+	// clock is the one clock of the Runner: every time it reads or waits for.
+	clock clock.Clock
+	// hooks are the seams the tests of this package set (export_test.go).
+	hooks testHooks
+}
+
+// testHooks are the seams the tests of this package set, and nothing else
+// does: each is nil, or zero, in a Runner that runs for real.
+type testHooks struct {
+	// beforeDetach runs when a Run has settled and its live Session still
+	// takes messages.
+	beforeDetach func()
+	// onSendRetry runs each time Send goes round its loop again.
+	onSendRetry func()
+	// beforeRelease runs when a Run no longer takes messages and still holds
+	// the Session.
+	beforeRelease func()
+	// drainStop is how long Drain waits for the Runs it stopped:
+	// drainStopWait when zero.
 	drainStop time.Duration
 }
 
@@ -390,51 +389,60 @@ func New(cfg Config) (*Runner, error) {
 	}
 	r := &Runner{
 		store:          cfg.Store,
-		label:          strings.TrimSpace(cfg.Instance),
-		liveness:       cfg.Liveness.withDefaults(),
-		address:        strings.TrimSpace(cfg.Address),
-		streamPoll:     cfg.StreamPoll,
+		heartbeat:      cfg.Heartbeat.withDefaults(),
+		streams:        streamSet{poll: cfg.StreamPoll},
+		feeds:          feedSet{byKey: map[feedKey]*sessionFeed{}},
 		toolSetTimeout: cfg.ToolSetTimeout,
 		drainTimeout:   cfg.DrainTimeout,
 		agents:         map[string]Agent{},
-		admission:      cfg.Admission,
+		bounds:         cfg.Bounds,
+		admitter:       cfg.Admitter,
+		runs:           runs.New[*runHandle](),
 		locks:          newSessionLocks(),
 		clock:          cfg.clock,
-		warm:           map[string]*warmEntry{},
-		feeds:          map[feedKey]*sessionFeed{},
-		handles:        map[string][]*runHandle{},
 	}
-	// The label is never the identity: the suffix makes the name unique per
-	// start, so a restarted or overlapping process cannot share a Liveness
-	// row or a Claim with the one it replaces.
-	r.beat.instance = r.newName()
 	if r.clock == nil {
-		r.clock = systemClock{}
+		r.clock = clock.System()
+	}
+	r.instance = heartbeat.New(heartbeat.Config{
+		Store:    cfg.Store.Liveness,
+		Clock:    r.clock,
+		Label:    strings.TrimSpace(cfg.Instance),
+		Address:  strings.TrimSpace(cfg.Address),
+		TTL:      r.heartbeat.TTL,
+		OnLapse:  r.lapseNotice,
+		OnRename: func() { r.dropAllWarm("liveness_lapsed") },
+		OnBeat:   r.repairReleases,
+	})
+	if r.admitter == nil {
+		r.admitter = Limits{}
 	}
 	// [CONTRACT] a negative MaxActiveRuns is refused, as MaxActiveSessions is, so a typo does not read as no limit.
-	if r.admission.MaxActiveRuns < 0 {
-		return nil, errors.New("service: MaxActiveRuns cannot be negative")
+	if v, ok := r.admitter.(interface{ Validate() error }); ok {
+		if err := v.Validate(); err != nil {
+			return nil, err
+		}
 	}
-	if r.admission.MaxActiveSessions < 0 {
+	if r.bounds.MaxActiveSessions < 0 {
 		return nil, errors.New("service: MaxActiveSessions cannot be negative")
 	}
-	if r.admission.MaxWarmSessions == 0 {
-		r.admission.MaxWarmSessions = DefaultMaxWarmSessions
+	if r.bounds.MaxWarmSessions == 0 {
+		r.bounds.MaxWarmSessions = DefaultMaxWarmSessions
 	}
-	if r.admission.Queue == "" {
-		r.admission.Queue = QueuePolicyReject
+	if r.bounds.Queue == "" {
+		r.bounds.Queue = QueuePolicyReject
 	}
-	if r.admission.Queue != QueuePolicyReject && r.admission.Queue != QueuePolicyWait {
-		return nil, fmt.Errorf("service: unknown queue policy %q", r.admission.Queue)
+	if r.bounds.Queue != QueuePolicyReject && r.bounds.Queue != QueuePolicyWait {
+		return nil, fmt.Errorf("service: unknown queue policy %q", r.bounds.Queue)
 	}
 	if r.drainTimeout == 0 {
 		r.drainTimeout = DefaultDrainTimeout
 	}
-	if r.streamPoll == 0 {
-		r.streamPoll = defaultStreamPoll
+	if r.streams.poll == 0 {
+		r.streams.poll = defaultStreamPoll
 	}
-	r.instanceFeed = gotato.NewInstanceFeed()
-	r.idle = sync.NewCond(&r.mu)
+	r.warm = warm.New(r.clock)
+	r.feeds.instance = newInstanceFeed()
 	for _, spec := range cfg.Agents {
 		name := strings.TrimSpace(spec.Name)
 		if name == "" {
@@ -488,13 +496,7 @@ func (r *Runner) Record(ctx context.Context, sessionID string) (session.Document
 
 // Events reads a Session's stored Events from the store: every Entry of its
 // Record that is an Event, in the order of their numbers, as typed Events.
-func (r *Runner) Events(ctx context.Context, sessionID string, opts ...EventsOption) ([]gotato.Event, error) {
-	var config eventsConfig
-	for _, option := range opts {
-		if option != nil {
-			option(&config)
-		}
-	}
+func (r *Runner) Events(ctx context.Context, sessionID string) ([]gotato.Event, error) {
 	events, err := session.StoredEvents(ctx, r.store.Records, sessionID, 0, 0)
 	return events, storeFailureOf(ctx, err, true)
 }
@@ -526,35 +528,13 @@ func (r *Runner) Agent(name string) (Agent, bool) {
 }
 
 // ActiveRuns reports Runs in flight.
-func (r *Runner) ActiveRuns() int {
-	r.mu.Lock()
-	defer r.mu.Unlock()
-	return r.inflight
-}
+func (r *Runner) ActiveRuns() int { return r.runs.ActiveRuns() }
 
 // ActiveSessions reports the Sessions this Instance has activated: those that
 // a Run holds or waits for.
-func (r *Runner) ActiveSessions() int {
-	r.mu.Lock()
-	defer r.mu.Unlock()
-	return r.activeSessionsLocked()
-}
-
-// activeSessionsLocked counts the Sessions with an admitted Run. Runs that
-// create a Session have no ID yet, and each counts as one Session of its own.
-func (r *Runner) activeSessionsLocked() int {
-	n := len(r.handles)
-	if fresh := len(r.handles[""]); fresh > 1 {
-		n += fresh - 1
-	}
-	return n
-}
+func (r *Runner) ActiveSessions() int { return r.runs.ActiveSessions() }
 
 // Draining reports whether the Runner drains: from the moment Drain has marked
 // its Liveness row. Readiness probes use it to stop receiving traffic before
 // the process exits.
-func (r *Runner) Draining() bool {
-	r.mu.Lock()
-	defer r.mu.Unlock()
-	return r.draining
-}
+func (r *Runner) Draining() bool { return r.runs.Draining() }

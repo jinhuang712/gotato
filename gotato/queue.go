@@ -19,7 +19,7 @@ import "context"
 //
 // A message the Run took and could not commit is still queued: it goes back
 // to the front of the queue, so the end of the Run drops it (run_ended) or,
-// under WithQueueHandoff, TakeQueued returns it. The one message whose commit
+// under withQueueHandoff, takeQueued returns it. The one message whose commit
 // failed is dropped with commit_failed, since it would fail again.
 func (a *Session) Steer(ctx context.Context, message Message) error {
 	return a.enqueueControl(ctx, message, "Steer", MessageSourceSteer)
@@ -35,15 +35,15 @@ func (a *Session) Steer(ctx context.Context, message Message) error {
 // flight, or when the Run ends before the Interrupt reaches its queue.
 // ctx and a nil result mean what they mean for Steer.
 func (a *Session) Interrupt(ctx context.Context, message Message) error {
-	if !a.inRun.Load() {
+	if !a.run.inRun.Load() {
 		return runtimeError(CodeInvalidState, "Interrupt", "no Run is in flight", nil)
 	}
 	if err := a.enqueueControl(ctx, message, "Interrupt", MessageSourceInterrupt); err != nil {
 		return err
 	}
-	a.intrMu.Lock()
-	cancel := a.callCancel
-	a.intrMu.Unlock()
+	a.run.mu.Lock()
+	cancel := a.run.callCancel
+	a.run.mu.Unlock()
 	// The Message may have been consumed already, at a boundary that fell
 	// between the queueing and this check.
 	if cancel != nil && a.queue.interrupting() {
@@ -83,7 +83,7 @@ func (a *Session) enqueueControl(ctx context.Context, message Message, operation
 		_ = a.writeNow(ctx, MessageRejected{Header: a.nowHeader(), MessageID: message.ID, Source: source, Why: why})
 		return err
 	}
-	if err := a.controlSizeError(message, operation); err != nil {
+	if err := controlSizeError(a.def.limits, message, operation); err != nil {
 		return reject("too_large", err)
 	}
 	// The place is reserved before message_queued is written, so a message
@@ -127,14 +127,14 @@ const (
 // is ending has dropped its queue already or is about to, and a Session whose
 // last drop pass is done takes no more. A message put in before either is
 // dropped by that pass. A Run that leaves its queue for the host
-// (WithQueueHandoff) keeps what arrives as it ends.
+// (withQueueHandoff) keeps what arrives as it ends.
 //
 // An Interrupt needs a Run in flight (needsRun): one that finds the Run over
 // is refused, since it would otherwise cancel the first model call of the
-// next Run. The caller holds runMu.
+// next Run. The caller holds run.mu.
 func (a *Session) controlGate(needsRun bool) controlOutcome {
-	inRun := a.inRun.Load()
-	if (needsRun && !inRun) || (inRun && a.runEnding && !a.runKeeps) {
+	inRun := a.run.inRun.Load()
+	if (needsRun && !inRun) || (inRun && a.run.ending && !a.run.keeps) {
 		return controlRunEnded
 	}
 	return sentControl
@@ -142,10 +142,10 @@ func (a *Session) controlGate(needsRun bool) controlOutcome {
 
 // fillControl puts a message in the place reserved for it, once its
 // message_queued is written. A message that is not put in gives the place back.
-// [CONCURRENCY] the gate and the fill run under runMu, so a message is never queued after the last drop pass or into the next Run.
+// [CONCURRENCY] the gate and the fill run under run.mu, so a message is never queued after the last drop pass or into the next Run.
 func (a *Session) fillControl(queued control, needsRun bool) controlOutcome {
-	a.runMu.Lock()
-	defer a.runMu.Unlock()
+	a.run.mu.Lock()
+	defer a.run.mu.Unlock()
 	if outcome := a.controlGate(needsRun); outcome != sentControl {
 		a.queue.release(queued.kind)
 		return outcome
@@ -163,15 +163,15 @@ func (a *Session) dropAfterQueued(id MessageID, source MessageSource, why string
 	return err
 }
 
-// WithQueueHandoff makes the Session keep the messages (Steer, FollowUp,
+// withQueueHandoff makes the Session keep the messages (Steer, FollowUp,
 // Interrupt) still queued when a Run completes or fails, instead of dropping
-// them at its end, so the host can take them with TakeQueued and start the
+// them at its end, so the host can take them with takeQueued and start the
 // next Run with them. A Run that is canceled, or ends on its deadline, still
 // drops them. A message a failed Run took and did not commit counts as still
-// queued, and is kept too. A host that sets it must call TakeQueued, or
-// DropQueued, after every Run; Close drops what is left (message_dropped,
+// queued, and is kept too. A host that sets it must call takeQueued, or
+// dropQueued, after every Run; Close drops what is left (message_dropped,
 // session_closed).
-func WithQueueHandoff() SessionOption {
+func withQueueHandoff() SessionOption {
 	return func(c *sessionConfig) error {
 		if err := c.once("WithQueueHandoff"); err != nil {
 			return err
@@ -184,7 +184,7 @@ func WithQueueHandoff() SessionOption {
 // keepsQueued says whether a Run that ends with status leaves its queues for
 // the host.
 func (a *Session) keepsQueued(status RunStatus) bool {
-	return a.handoff && (status == RunStatusCompleted || status == RunStatusFailed)
+	return a.host.handoff && (status == RunStatusCompleted || status == RunStatusFailed)
 }
 
 // Queued is a message that waited in a queue when a Run ended.
@@ -196,7 +196,7 @@ type Queued struct {
 
 // queuedNotice returns the queue entry of a notice that was reported queued
 // already, as number, the notice_queued Event that said so. A host that keeps a
-// notice between Runs gives it to the next Session with Requeue.
+// notice between Runs gives it to the next Session with requeue.
 func queuedNotice(message Message, number uint64) Queued {
 	return Queued{Message: message, Source: MessageSourceNotice, number: number}
 }
@@ -205,11 +205,11 @@ func queuedNotice(message Message, number uint64) Queued {
 // message.
 func (q Queued) Number() uint64 { return q.number }
 
-// TakeQueued removes and returns the messages that wait in the Steer and
+// takeQueued removes and returns the messages that wait in the Steer and
 // FollowUp queues, in the order they were accepted. It is for a host that set
-// WithQueueHandoff, between Runs: it takes them without a drop Event, and the
-// host starts the next Run with them (Requeue) or reports them (DropQueued).
-func (a *Session) TakeQueued() []Queued {
+// withQueueHandoff, between Runs: it takes them without a drop Event, and the
+// host starts the next Run with them (requeue) or reports them (dropQueued).
+func (a *Session) takeQueued() []Queued {
 	var out []Queued
 	for _, queued := range a.queue.drain(true) {
 		out = append(out, Queued{Message: queued.message, Source: queued.source, number: queued.number})
@@ -217,14 +217,14 @@ func (a *Session) TakeQueued() []Queued {
 	return out
 }
 
-// Requeue puts messages taken from another Session's queues into this one's
+// requeue puts messages taken from another Session's queues into this one's
 // queues, in order, without Events: they were reported as queued already. An
 // Interrupt becomes a Steer, since no model call is in flight to cut short.
 // They keep the order they had: they go into the Steer queue while it has
 // room and then into the FollowUp queue, and a Run takes the Steer queue
 // before the FollowUp queue. The queue limits apply; it returns the messages
 // that did not fit.
-func (a *Session) Requeue(messages []Queued) (rest []Queued) {
+func (a *Session) requeue(messages []Queued) (rest []Queued) {
 	for _, m := range messages {
 		source := m.Source
 		if source == MessageSourceInterrupt {
@@ -234,14 +234,14 @@ func (a *Session) Requeue(messages []Queued) (rest []Queued) {
 		if source == MessageSourceNotice {
 			queued.kind = kindNotice
 		}
-		// [CONCURRENCY] the gate and the put are one step under runMu, so a message never lands in a Session that closed.
-		a.runMu.Lock()
+		// [CONCURRENCY] the gate and the put are one step under run.mu, so a message never lands in a Session that closed.
+		a.run.mu.Lock()
 		put := a.controlGate(false) == sentControl && a.queue.add(queued)
 		if !put && queued.kind == kindSteer && a.controlGate(false) == sentControl {
 			queued.kind = kindFollowUp
 			put = a.queue.add(queued)
 		}
-		a.runMu.Unlock()
+		a.run.mu.Unlock()
 		if !put {
 			rest = append(rest, m)
 		}
@@ -249,9 +249,9 @@ func (a *Session) Requeue(messages []Queued) (rest []Queued) {
 	return rest
 }
 
-// DropQueued reports messages that will not run: a message_dropped Event for
+// dropQueued reports messages that will not run: a message_dropped Event for
 // each, with why.
-func (a *Session) DropQueued(messages []Queued, why string) {
+func (a *Session) dropQueued(messages []Queued, why string) {
 	for _, m := range messages {
 		_ = a.writeNow(context.Background(), MessageDropped{Header: a.nowHeader(), MessageID: m.Message.ID, Source: m.Source, Why: why})
 	}

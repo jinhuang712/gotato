@@ -260,7 +260,7 @@ func TestNoticeRefusals(t *testing.T) {
 }
 
 // A host that takes the queue between Runs gets the notices in it, in order,
-// and Requeue puts them in another Session's.
+// and requeue puts them in another Session's.
 func TestNoticesSurviveAHandoff(t *testing.T) {
 	model := &recordingModel{scripts: [][]ModelEvent{finalScript("ok")}}
 	from := newNoticeSession(t, model)
@@ -272,11 +272,11 @@ func TestNoticesSurviveAHandoff(t *testing.T) {
 	if _, err := from.Notice(ctx, "b", "second"); err != nil {
 		t.Fatal(err)
 	}
-	taken := from.TakeQueued()
+	taken := from.takeQueued()
 	if len(taken) != 2 || taken[0].Source != MessageSourceNotice || TextOf(taken[0].Message) != "first" || TextOf(taken[1].Message) != "second" {
 		t.Fatalf("taken = %+v", taken)
 	}
-	if rest := to.Requeue(taken); len(rest) != 0 {
+	if rest := to.requeue(taken); len(rest) != 0 {
 		t.Fatalf("rest = %+v", rest)
 	}
 	if _, err := to.Prompt(ctx, UserMessage("go")); err != nil {

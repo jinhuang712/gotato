@@ -8,6 +8,14 @@ import (
 	"github.com/jinhuang712/gotato/session"
 )
 
+// feedSet is the Runner's Feeds: the Instance's own stream, and the Feeds of
+// the Records in use, one per Session ID and epoch, each mirrored to it.
+type feedSet struct {
+	instance *gotato.Feed
+	mu       sync.Mutex
+	byKey    map[feedKey]*sessionFeed
+}
+
 // sessionFeed is the Feed of one Record on this Instance, shared by every
 // Run, every subscriber and every write that concerns the Record while any of
 // them is active. It is mirrored to the Instance's Feed.
@@ -29,17 +37,17 @@ type feedKey struct {
 // acquireFeed returns the Record's Feed, creating it on first use, and counts
 // one more user of it. A Feed catches a slow subscriber up from the store.
 func (r *Runner) acquireFeed(key feedKey, agent string) *gotato.Feed {
-	r.feedsMu.Lock()
-	defer r.feedsMu.Unlock()
-	entry := r.feeds[key]
+	r.feeds.mu.Lock()
+	defer r.feeds.mu.Unlock()
+	entry := r.feeds.byKey[key]
 	if entry == nil {
-		feed := gotato.NewFeed(storeSource{store: r.store.Records, id: key.id})
-		feed.MirrorTo(r.instanceFeed)
+		feed := newFeed(storeSource{store: r.store.Records, id: key.id})
+		mirrorTo(feed, r.feeds.instance)
 		entry = &sessionFeed{feed: feed}
-		r.feeds[key] = entry
+		r.feeds.byKey[key] = entry
 	}
 	if agent != "" {
-		entry.feed.SetLabel(agent)
+		setLabel(entry.feed, agent)
 	}
 	entry.refs++
 	return entry.feed
@@ -48,19 +56,19 @@ func (r *Runner) acquireFeed(key feedKey, agent string) *gotato.Feed {
 // releaseFeed drops one user of the Record's Feed, and closes the Feed when
 // nobody is left.
 func (r *Runner) releaseFeed(key feedKey) {
-	r.feedsMu.Lock()
-	entry := r.feeds[key]
+	r.feeds.mu.Lock()
+	entry := r.feeds.byKey[key]
 	if entry == nil {
-		r.feedsMu.Unlock()
+		r.feeds.mu.Unlock()
 		return
 	}
 	entry.refs--
 	if entry.refs > 0 {
-		r.feedsMu.Unlock()
+		r.feeds.mu.Unlock()
 		return
 	}
-	delete(r.feeds, key)
-	r.feedsMu.Unlock()
+	delete(r.feeds.byKey, key)
+	r.feeds.mu.Unlock()
 	entry.feed.Close()
 }
 
@@ -69,14 +77,14 @@ func (r *Runner) releaseFeed(key feedKey) {
 // Instance has one, and to the Instance's otherwise.
 func (r *Runner) publisher(key feedKey, agent string) func(gotato.Event) {
 	return func(event gotato.Event) {
-		r.feedsMu.Lock()
-		entry := r.feeds[key]
-		r.feedsMu.Unlock()
+		r.feeds.mu.Lock()
+		entry := r.feeds.byKey[key]
+		r.feeds.mu.Unlock()
 		if entry != nil {
-			entry.feed.Publish(event)
+			publish(entry.feed, event)
 			return
 		}
-		r.instanceFeed.PublishLabeled(event, agent)
+		publishLabeled(r.feeds.instance, event, agent)
 	}
 }
 
@@ -93,7 +101,7 @@ func (r *Runner) publishOpened(writer *session.Writer, early []gotato.Event, age
 // notice publishes an Instance Event: one that happens where no Record can take
 // it. It goes to the Instance's subscribers only.
 func (r *Runner) notice(event gotato.Event, agent string) {
-	r.instanceFeed.PublishLabeled(event, agent)
+	publishLabeled(r.feeds.instance, event, agent)
 }
 
 // storeSource reads a Session's stored Events again from the store, for a
@@ -116,7 +124,7 @@ func (s storeSource) EventsAfter(ctx context.Context, after uint64, limit int) (
 // it missed can be read from the Record. A Run that is not saved, because it
 // sets SkipSave, has no Events here.
 func (r *Runner) SubscribeInstance(ctx context.Context, options ...gotato.SubscribeOption) (gotato.Subscription, error) {
-	return r.instanceFeed.Subscribe(ctx, options...)
+	return r.feeds.instance.Subscribe(ctx, options...)
 }
 
 // ForAgents keeps only the Events of Sessions of the named Agents. The Instance

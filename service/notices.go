@@ -68,7 +68,7 @@ func (r *Runner) Notice(ctx context.Context, request NoticeRequest) (NoticeResul
 		return NoticeResult{}, notRunError(gotato.ErrorOf(gotato.CodeInvalidArgument, "service: notice text is required"))
 	}
 	if r.Draining() {
-		return NoticeResult{}, notRunError(gotato.ErrorOf(gotato.CodeDraining, "service: draining"))
+		return NoticeResult{}, notRunError(errorOf(CodeDraining, "service: draining"))
 	}
 	result := NoticeResult{SessionID: request.SessionID}
 	handle, err := r.liveRun(ctx, request.SessionID)

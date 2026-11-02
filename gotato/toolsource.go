@@ -39,9 +39,9 @@ func WithToolSource(source ToolSource) SessionOption {
 // during a Run it reflects the set of the most recent Turn and the Tools loaded
 // since, each from the moment the Tool Result that loads it commits.
 func (a *Session) Tools() []ToolSpec {
-	a.registryMu.Lock()
-	defer a.registryMu.Unlock()
-	specs := a.registry.visibleSpecs()
+	a.tools.mu.Lock()
+	defer a.tools.mu.Unlock()
+	specs := a.tools.registry.visibleSpecs()
 	sort.Slice(specs, func(i, j int) bool { return specs[i].ID < specs[j].ID })
 	return specs
 }
@@ -71,7 +71,7 @@ type ToolSetTool struct {
 // offered. A Tool the WithToolFilter keep refuses is still listed, so a
 // caller can name it to switch it back on.
 func (a *Session) ToolSets() []ToolSetStatus {
-	a.registryMu.Lock()
-	defer a.registryMu.Unlock()
-	return a.registry.toolSetStatus()
+	a.tools.mu.Lock()
+	defer a.tools.mu.Unlock()
+	return a.tools.registry.toolSetStatus()
 }

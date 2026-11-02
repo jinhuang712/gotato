@@ -18,6 +18,17 @@ type catalogTool struct {
 	set  *toolSetState
 }
 
+// sessionTools is the Session's Tools: the registry of what is installed and
+// loaded, and the lock the visibility of a Tool changes under. mu is the lock
+// ToolInspector.Tools reads under, around the registry's own: the holder of the
+// Session's admission token takes it only to swap in what it learned from the
+// host, which cannot fail. It is held with no other lock of the Session, and no
+// host call is made under it.
+type sessionTools struct {
+	mu       sync.Mutex
+	registry *toolRegistry
+}
+
 // toolRegistry owns Tool identity and visibility for one Session. The Session
 // goroutine loads a Tool when the Tool Result that lists it commits;
 // search_tools only reads it, from its own goroutine.
@@ -52,8 +63,8 @@ type toolRegistry struct {
 	// (ToolSources, ToolSets, the filter) with no lock held, takes in what it
 	// learned through intake, where every check lives, and takes the locks
 	// only to swap it in, which cannot fail. It holds the Session's
-	// registryMu, the lock ToolInspector.Tools reads under, around mu, the
-	// inner lock. Every reader on another goroutine, such as search_tools,
+	// tools lock (sessionTools.mu), the lock ToolInspector.Tools reads under,
+	// around mu, the inner lock. Every reader on another goroutine, such as search_tools,
 	// takes mu.
 	mu sync.Mutex
 }

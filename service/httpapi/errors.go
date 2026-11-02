@@ -8,6 +8,7 @@ import (
 	"strconv"
 
 	"github.com/jinhuang712/gotato/gotato"
+	"github.com/jinhuang712/gotato/service"
 	"github.com/jinhuang712/gotato/session"
 )
 
@@ -48,12 +49,12 @@ var statusOfCode = map[gotato.ErrorCode]int{
 	gotato.CodeInvalidState:     http.StatusConflict,
 	gotato.CodeBusy:             http.StatusConflict,
 	gotato.CodeConflict:         http.StatusConflict,
-	gotato.CodeCannotResume:     http.StatusConflict,
-	gotato.CodeNotWriter:        http.StatusConflict,
-	gotato.CodeAlreadyExists:    http.StatusConflict,
+	service.CodeCannotResume:    http.StatusConflict,
+	service.CodeNotWriter:       http.StatusConflict,
+	service.CodeAlreadyExists:   http.StatusConflict,
 	gotato.CodeStoreFailure:     http.StatusServiceUnavailable,
-	gotato.CodeOverloaded:       http.StatusServiceUnavailable,
-	gotato.CodeDraining:         http.StatusServiceUnavailable,
+	service.CodeOverloaded:      http.StatusServiceUnavailable,
+	service.CodeDraining:        http.StatusServiceUnavailable,
 	gotato.CodeLimitExceeded:    http.StatusTooManyRequests,
 	gotato.CodeContextOverflow:  http.StatusUnprocessableEntity,
 	gotato.CodeDeadlineExceeded: http.StatusGatewayTimeout,
@@ -152,7 +153,7 @@ func writeFailure(w http.ResponseWriter, err error) {
 	// A Session busy on another Instance says when to retry.
 	var runtimeErr *gotato.RuntimeError
 	if errors.As(err, &runtimeErr) {
-		if writer := runtimeErr.Details["writer"]; writer != "" && runtimeErr.Code == gotato.CodeNotWriter {
+		if writer := runtimeErr.Details["writer"]; writer != "" && runtimeErr.Code == service.CodeNotWriter {
 			w.Header().Set(WriterHeader, writer)
 		}
 		if ms, convErr := strconv.ParseInt(runtimeErr.Details["retry_after_ms"], 10, 64); convErr == nil {

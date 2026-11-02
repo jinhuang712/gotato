@@ -28,7 +28,7 @@ func memStore() session.Store {
 // removes the dead instance's row, so no short TTL is needed to wait it out.
 func taskRunner(t *testing.T, store session.Store, task reftasks.Task, instance string) *service.Runner {
 	t.Helper()
-	runner, err := service.New(service.Config{Store: store, Instance: instance, Liveness: service.Liveness{TTL: 5 * time.Second, Wait: 2 * time.Second}, Agents: []service.Agent{{
+	runner, err := service.New(service.Config{Store: store, Instance: instance, Heartbeat: service.Heartbeat{TTL: 5 * time.Second, Wait: 2 * time.Second}, Agents: []service.Agent{{
 		Name: task.Name, Model: task.Model, Instruction: task.Instruction, Tools: task.Tools, ToolSets: task.ToolSets, Limits: task.Limits,
 	}}})
 	if err != nil {

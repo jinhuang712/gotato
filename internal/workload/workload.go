@@ -228,7 +228,7 @@ func playTask(ctx context.Context, runner *service.Runner, store session.Store, 
 	turn := 0
 	storeEvents, err := runner.SubscribeInstance(ctx, gotato.SubscribeFilter(func(event gotato.Event) bool {
 		switch event.(type) {
-		case gotato.SessionLoaded, gotato.SessionSaved:
+		case service.SessionLoaded, service.SessionSaved:
 			return event.Head().SessionID == gotato.SessionID(s.ID)
 		}
 		return false
@@ -346,9 +346,9 @@ func readStoreTimes(ctx context.Context, events gotato.Subscription, stats *stat
 			return
 		}
 		switch e := event.(type) {
-		case gotato.SessionLoaded:
+		case service.SessionLoaded:
 			stats.addLoad(time.Duration(e.ElapsedMS * float64(time.Millisecond)))
-		case gotato.SessionSaved:
+		case service.SessionSaved:
 			stats.addSave(time.Duration(e.ElapsedMS * float64(time.Millisecond)))
 			return
 		}

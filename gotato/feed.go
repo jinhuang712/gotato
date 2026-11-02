@@ -29,12 +29,15 @@ const (
 	defaultRetainedEvents     = 4096
 )
 
-// Feed fans a stream of Events out to Subscriptions. Publish never blocks: it
-// puts each Event in every subscriber's queue and returns.
+// Feed fans a stream of Events out to Subscriptions. Publishing never blocks:
+// it puts each Event in every subscriber's queue and returns. A Session makes
+// its own Feed, and a Runner makes one for each Record and one for the
+// Instance; a library user only subscribes to one (Subscribe) and closes what
+// it subscribed to.
 //
 // A Session's Feed holds that Session's Events, which have numbers. A
 // subscriber that falls behind catches up by number, and only deltas are
-// skipped. An Instance's Feed (NewInstanceFeed) mixes Sessions: a subscriber
+// skipped. An Instance's Feed (newInstanceFeed) mixes Sessions: a subscriber
 // that falls behind skips Events and is told how many, with an EventsSkipped
 // Event.
 type Feed struct {
@@ -54,31 +57,31 @@ type Feed struct {
 	dropped bool
 }
 
-// NewFeed creates the Feed of one Session. A subscriber that falls behind
+// newFeed creates the Feed of one Session. A subscriber that falls behind
 // catches up from source; with a nil source the Feed keeps the last 4096
 // stored Events in memory for that.
-func NewFeed(source EventSource) *Feed {
+func newFeed(source EventSource) *Feed {
 	return &Feed{subs: map[*subscription]struct{}{}, source: source, ringCap: defaultRetainedEvents}
 }
 
-// NewInstanceFeed creates the Feed of an Instance: every Session's Events and
+// newInstanceFeed creates the Feed of an Instance: every Session's Events and
 // the Instance's own, with no single number.
-func NewInstanceFeed() *Feed {
+func newInstanceFeed() *Feed {
 	return &Feed{subs: map[*subscription]struct{}{}, mixed: true}
 }
 
-// MirrorTo has every Event published here also published to other, as a
+// mirrorTo has every Event published here also published to other, as a
 // Session's Feed does to its Instance's.
-func (f *Feed) MirrorTo(other *Feed) {
+func (f *Feed) mirrorTo(other *Feed) {
 	f.mu.Lock()
 	f.mirror = other
 	f.mu.Unlock()
 }
 
-// SetLabel sets the label that goes with every Event published here when it is
+// setLabel sets the label that goes with every Event published here when it is
 // mirrored to another Feed, such as the name of the Agent whose Session this
 // is. A subscriber of the other Feed can filter on it (SubscribeLabelFilter).
-func (f *Feed) SetLabel(label string) {
+func (f *Feed) setLabel(label string) {
 	f.mu.Lock()
 	f.label = label
 	f.mu.Unlock()
@@ -96,14 +99,14 @@ func (f *Feed) setSource(source EventSource) {
 // Published returns how many Events the Feed has accepted. A test that reads a
 // Subscription compares it with how many it has read, to know that it has
 // seen everything.
-func (f *Feed) Published() uint64 {
+func (f *Feed) published() uint64 {
 	f.mu.Lock()
 	defer f.mu.Unlock()
 	return f.count
 }
 
 // Last returns the Number of the last stored Event published.
-func (f *Feed) Last() uint64 {
+func (f *Feed) lastNumber() uint64 {
 	f.mu.Lock()
 	defer f.mu.Unlock()
 	return f.last
@@ -165,22 +168,22 @@ func (f *Feed) Subscribe(ctx context.Context, options ...SubscribeOption) (Subsc
 // different goroutines can publish out of order, or an Event can be missing;
 // each subscriber notices a number that is not the next one and reads what it
 // missed from the Record, and ignores one it has already seen.
-func (f *Feed) Publish(event Event) {
+func (f *Feed) publish(event Event) {
 	f.mu.Lock()
 	label := f.label
 	f.mu.Unlock()
-	f.PublishLabeled(event, label)
+	f.publishLabeled(event, label)
 }
 
-// PublishLabeled is Publish with the label that a subscriber's
+// publishLabeled is Publish with the label that a subscriber's
 // SubscribeLabelFilter sees.
-func (f *Feed) PublishLabeled(event Event, label string) {
+func (f *Feed) publishLabeled(event Event, label string) {
 	f.mu.Lock()
 	if f.closed {
 		f.mu.Unlock()
 		return
 	}
-	if !f.mixed && event.Kind().Class() == EventClassStored {
+	if !f.mixed && event.Class() == EventClassStored {
 		if number := event.Head().Number; number > f.last {
 			f.last = number
 		}
@@ -195,7 +198,7 @@ func (f *Feed) PublishLabeled(event Event, label string) {
 		s.offer(event, label)
 	}
 	if mirror != nil {
-		mirror.PublishLabeled(event, label)
+		mirror.publishLabeled(event, label)
 	}
 }
 

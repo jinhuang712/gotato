@@ -86,9 +86,7 @@ func (r *Runner) DeleteSession(ctx context.Context, sessionID string) error {
 		if err := r.checkWriter(ctx, sessionID); err != nil {
 			return err
 		}
-		r.warmMu.Lock()
-		warm := r.warm[sessionID]
-		r.warmMu.Unlock()
+		warm := r.warm.Get(sessionID)
 		// The store's Delete is not conditional, so the Instance that deletes
 		// holds the Claim first. The claim is a conditional write: an Instance
 		// that claims the Session after the look above either wins it, and
@@ -105,9 +103,9 @@ func (r *Runner) DeleteSession(ctx context.Context, sessionID string) error {
 			return storeFailureOf(ctx, err, true)
 		}
 		if warm != nil {
-			r.unloaded(sessionID, warm.agent, "deleted")
+			r.unloaded(sessionID, warm.Agent, "deleted")
 		}
-		r.notice(gotato.SessionDeleted{Header: gotato.NewHeader(gotato.SessionID(sessionID), "", 0)}, "")
+		r.notice(SessionDeleted{Header: gotato.NewHeader(gotato.SessionID(sessionID), "", 0)}, "")
 		r.endSessionStreams(sessionID, session.ErrNotFound)
 		return nil
 	})
@@ -164,9 +162,7 @@ func (r *Runner) AbortSession(ctx context.Context, sessionID string, opts ...Abo
 	if err := ctx.Err(); err != nil {
 		return err
 	}
-	r.mu.Lock()
-	handles := append([]*runHandle(nil), r.handles[sessionID]...)
-	r.mu.Unlock()
+	handles := r.runs.Of(sessionID)
 	// The store answers first, whatever stage the Run is in (waiting, loading,
 	// building or live), so that a caller the store refuses cannot stop a Run
 	// at a stage where nothing was read yet.
@@ -188,9 +184,7 @@ func (r *Runner) AbortSession(ctx context.Context, sessionID string, opts ...Abo
 // waiting for its lock when none has started. With runID it cancels that Run
 // only, and nothing when it is not going here.
 func (r *Runner) abortSession(sessionID string, runID gotato.RunID) bool {
-	r.mu.Lock()
-	waiting := append([]*runHandle(nil), r.handles[sessionID]...)
-	r.mu.Unlock()
+	waiting := r.runs.Of(sessionID)
 	var chosen *runHandle
 	for _, handle := range waiting {
 		handle.mu.Lock()

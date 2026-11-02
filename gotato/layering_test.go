@@ -21,23 +21,31 @@ const modulePath = "github.com/jinhuang712/gotato"
 // TestLayering, and so does an entry no code uses any more; so a change of
 // the graph is a change of this table, made on purpose and seen in review.
 //
-// internal/text is the one shared package of internal/ (standard library
-// only). The rest of internal/ is our test tools, which no shipped package
-// may import, and so never appear here.
+// internal/text and internal/hostlink are the shared packages of internal/
+// (standard library only): the first is text helpers, the second the calls the
+// core hands the host that runs its Sessions (decision 048). The rest of
+// internal/ is our test tools, which no shipped package may import, and so
+// never appear here.
 //
 // adapter/mcp is a module of its own, but it is a shipped package, so it is
 // held to the same table: it may import the core and nothing else.
 var allowedImports = map[string][]string{
-	"gotato":            {"internal/text", "ref"},
+	"gotato":            {"internal/hostlink", "internal/text", "ref"},
 	"session":           {"gotato"},
 	"gateway":           {"gotato", "internal/text"}, // text.Cut: an error body is cut on a rune boundary
 	"modelctx":          {"gotato", "internal/text", "ref", "session"},
 	"ref":               {},
-	"testkit":           {"gotato", "internal/text", "session"}, // text.IsRecapAsk: the fake models recognize the Recap ask by the one definition
+	"testkit":           {"gotato", "internal/hostlink", "internal/text", "session"}, // text.IsRecapAsk: the fake models recognize the Recap ask by the one definition
 	"session/storetest": {"gotato", "session"},
-	"service":           {"gotato", "modelctx", "session"},
-	"service/httpapi":   {"gotato", "modelctx", "service", "session"},
-	"adapter/mcp":       {"gotato"},
+	"service":           {"gotato", "internal/hostlink", "modelctx", "service/internal/clock", "service/internal/heartbeat", "service/internal/runs", "service/internal/warm", "session"},
+	// service/internal holds the parts of the Runner (decision 048): each is
+	// standard library only, or the core, and none imports another.
+	"service/internal/clock":     {},
+	"service/internal/heartbeat": {"gotato", "service/internal/clock", "session"},
+	"service/internal/runs":      {"service/internal/warm"},
+	"service/internal/warm":      {"service/internal/clock"},
+	"service/httpapi":            {"gotato", "modelctx", "service", "session"},
+	"adapter/mcp":                {"gotato"},
 }
 
 // standardOnly lists the packages that may import the standard library alone
@@ -79,9 +87,11 @@ func TestLayering(t *testing.T) {
 	}
 
 	// A shared package of internal/ imports the standard library only.
-	for _, path := range importsOf(t, filepath.Join(root, "internal", "text")) {
-		if strings.Contains(path, ".") {
-			t.Errorf("internal/text imports %q; it may import only the standard library", path)
+	for _, shared := range []string{"text", "hostlink"} {
+		for _, path := range importsOf(t, filepath.Join(root, "internal", shared)) {
+			if strings.Contains(path, ".") {
+				t.Errorf("internal/%s imports %q; it may import only the standard library", shared, path)
+			}
 		}
 	}
 }

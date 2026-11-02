@@ -19,12 +19,12 @@ import (
 // when it reconnects. A delta has none: it is not a position, and what it
 // carried ends up whole in a Message.
 func writeEvent(w http.ResponseWriter, flusher http.Flusher, event gotato.Event) error {
-	data, err := json.Marshal(event)
+	data, err := gotato.MarshalEvent(event)
 	if err != nil {
 		return err
 	}
 	var id string
-	if number := event.Head().Number; number > 0 && event.Kind().Class() == gotato.EventClassStored {
+	if number := event.Head().Number; number > 0 && event.Class() == gotato.EventClassStored {
 		id = "id: " + strconv.FormatUint(number, 10) + "\n"
 	}
 	if _, err := fmt.Fprintf(w, "%sevent: %s\ndata: %s\n\n", id, event.Kind(), data); err != nil {

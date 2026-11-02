@@ -127,7 +127,7 @@ func TestBusyOnAnotherInstanceAnswers409WithRetryAfter(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	other, err := service.New(service.Config{Store: store, Instance: "instance-b", Liveness: service.Liveness{Wait: 100 * time.Millisecond}, Agents: []service.Agent{{Name: "slow", Model: hangingModel{}}}})
+	other, err := service.New(service.Config{Store: store, Instance: "instance-b", Heartbeat: service.Heartbeat{Wait: 100 * time.Millisecond}, Agents: []service.Agent{{Name: "slow", Model: hangingModel{}}}})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -281,7 +281,7 @@ func TestSSEClientThatStopsReadingDoesNotSlowTheRun(t *testing.T) {
 		if err != nil {
 			t.Fatalf("bad event %q: %v", data, err)
 		}
-		if event.Kind().Class() == gotato.EventClassStored {
+		if event.Class() == gotato.EventClassStored {
 			got = append(got, fmt.Sprintf("%s#%d", event.Kind(), event.Head().Number))
 		}
 	}
@@ -322,9 +322,9 @@ func TestStreamingRoutesAnswerCapacityBeforeTheStream(t *testing.T) {
 	model := testkit.NewFakeModel(testkit.Text("done"))
 	model.Block = gate
 	runner, err := service.New(service.Config{
-		Store:     memStore(),
-		Agents:    []service.Agent{{Name: "gated", Model: model}},
-		Admission: service.Admission{MaxActiveRuns: 1},
+		Store:    memStore(),
+		Agents:   []service.Agent{{Name: "gated", Model: model}},
+		Admitter: service.Limits{MaxActiveRuns: 1},
 	})
 	if err != nil {
 		t.Fatal(err)
@@ -651,9 +651,9 @@ func fullServer(t *testing.T) (*httptest.Server, *service.Runner, func()) {
 	model := testkit.NewFakeModel(testkit.Text("done"))
 	model.Block = gate
 	runner, err := service.New(service.Config{
-		Store:     memStore(),
-		Agents:    []service.Agent{{Name: "gated", Model: model}},
-		Admission: service.Admission{MaxActiveSessions: 1},
+		Store:  memStore(),
+		Agents: []service.Agent{{Name: "gated", Model: model}},
+		Bounds: service.Bounds{MaxActiveSessions: 1},
 	})
 	if err != nil {
 		t.Fatal(err)

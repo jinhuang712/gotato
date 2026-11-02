@@ -45,7 +45,7 @@ type control struct {
 // FollowUps and notices, in the order they were accepted. A place is reserved
 // before the message's queued Event is written, so a message that is told it
 // is queued always has its place. mu is a leaf lock: the caller may hold
-// Session.runMu, and takes nothing while it holds mu.
+// Session.run.mu, and takes nothing while it holds mu.
 type controlQueue struct {
 	mu     sync.Mutex
 	items  []control

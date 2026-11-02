@@ -43,9 +43,9 @@ func TestWaitPolicyQueuesAndAbortSessionAborts(t *testing.T) {
 	model.Block = block
 	store := memStore()
 	runner, err := service.New(service.Config{
-		Store:     store,
-		Agents:    []service.Agent{{Name: "slow", Model: model}},
-		Admission: service.Admission{Queue: service.QueuePolicyWait, MaxActiveRuns: 2},
+		Store:  store,
+		Agents: []service.Agent{{Name: "slow", Model: model}},
+		Bounds: service.Bounds{Queue: service.QueuePolicyWait}, Admitter: service.Limits{MaxActiveRuns: 2},
 	})
 	if err != nil {
 		t.Fatal(err)
@@ -86,9 +86,9 @@ func TestQueuedRunIsCancelable(t *testing.T) {
 	model := testkit.NewFakeModel(testkit.Text("slow"))
 	model.Block = block
 	runner, _ := service.New(service.Config{
-		Store:     memStore(),
-		Agents:    []service.Agent{{Name: "slow", Model: model}},
-		Admission: service.Admission{Queue: service.QueuePolicyWait, MaxActiveRuns: 4},
+		Store:  memStore(),
+		Agents: []service.Agent{{Name: "slow", Model: model}},
+		Bounds: service.Bounds{Queue: service.QueuePolicyWait}, Admitter: service.Limits{MaxActiveRuns: 4},
 	})
 	ctx := context.Background()
 	s, _ := runner.CreateSession(ctx, service.CreateSessionRequest{Agent: "slow"})
@@ -215,7 +215,7 @@ func TestAbortSessionReachesRunLoadingSession(t *testing.T) {
 
 // A negative limit is a mistake in the Config, for runs as it is for Sessions.
 func TestNewRefusesANegativeMaxActiveRuns(t *testing.T) {
-	_, err := service.New(service.Config{Store: memStore(), Agents: []service.Agent{{Name: "a", Model: testkit.EchoModel{}}}, Admission: service.Admission{MaxActiveRuns: -1}})
+	_, err := service.New(service.Config{Store: memStore(), Agents: []service.Agent{{Name: "a", Model: testkit.EchoModel{}}}, Admitter: service.Limits{MaxActiveRuns: -1}})
 	if err == nil {
 		t.Fatal("New accepted MaxActiveRuns -1")
 	}

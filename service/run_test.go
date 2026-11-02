@@ -108,8 +108,10 @@ func TestStreamRunInspectCompactFork(t *testing.T) {
 	runner, store := newRunner(t)
 	ctx := context.Background()
 	var kinds []gotato.EventKind
+	var classes []gotato.EventClass
 	result, err := runner.StreamRun(ctx, service.RunRequest{Prompt: "hi"}, func(event gotato.Event) error {
 		kinds = append(kinds, event.Kind())
+		classes = append(classes, event.Class())
 		return nil
 	})
 	if err != nil {
@@ -122,9 +124,9 @@ func TestStreamRunInspectCompactFork(t *testing.T) {
 	if kinds[0] != gotato.EventKindSessionCreated || !slices.Contains(kinds, gotato.EventKindRunStarted) || kinds[last] != gotato.EventKindRunEnded {
 		t.Fatalf("kinds = %v", kinds)
 	}
-	for _, kind := range kinds {
-		if kind.Class() == gotato.EventClassInstance {
-			t.Fatalf("the Run's stream carries %s: %v", kind, kinds)
+	for i, class := range classes {
+		if class == gotato.EventClassInstance {
+			t.Fatalf("the Run's stream carries %s: %v", kinds[i], kinds)
 		}
 	}
 	for range 3 {

@@ -38,7 +38,7 @@ func TestFakeToolAndEventRecorder(t *testing.T) {
 	// Stored Events are numbered by their position in the Record, in order.
 	var last uint64
 	for _, event := range recorder.Events() {
-		if event.Kind().Class() != gotato.EventClassStored {
+		if event.Class() != gotato.EventClassStored {
 			continue
 		}
 		if number := event.Head().Number; number <= last {

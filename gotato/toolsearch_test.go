@@ -247,7 +247,7 @@ func TestALateSearchCannotLoadIntoTheNextRun(t *testing.T) {
 	// The abandoned worker returns after the Run; give it the time to act on
 	// the registry if it could.
 	deadline := time.Now().Add(200 * time.Millisecond)
-	for time.Now().Before(deadline) && slices.ContainsFunc(agent.registry.candidates(), func(spec ToolSpec) bool { return spec.ID == "orders.refund" }) {
+	for time.Now().Before(deadline) && slices.ContainsFunc(agent.tools.registry.candidates(), func(spec ToolSpec) bool { return spec.ID == "orders.refund" }) {
 		time.Sleep(5 * time.Millisecond)
 	}
 	runCollecting(t, agent, "two")
@@ -380,7 +380,7 @@ func TestAToolSwitchedOffForTheSessionIsNeverIndexedOrLoaded(t *testing.T) {
 	restored := newSearchSession(t, &recordingModel{scripts: [][]ModelEvent{finalScript("x")}},
 		WithToolSet(set), WithToolFilter(keep), WithTranscript(&loadedNames{names: []string{"orders.refund", "orders.lookup"}}))
 	var ids []string
-	for _, spec := range restored.registry.visibleSpecs() {
+	for _, spec := range restored.tools.registry.visibleSpecs() {
 		ids = append(ids, spec.ID)
 	}
 	if !slices.Equal(ids, []string{"orders.lookup", SearchToolName}) {
@@ -432,13 +432,13 @@ func TestACompactionNarrowsTheLoadedTools(t *testing.T) {
 	set, _ := ordersSet()
 	transcript := &loadedNames{names: []string{"orders.lookup", "orders.refund"}}
 	agent := newSearchSession(t, &recordingModel{scripts: [][]ModelEvent{finalScript("x")}}, WithToolSet(set), WithTranscript(transcript))
-	if got := agent.registry.loaded; !slices.Equal(got, []string{"orders.lookup", "orders.refund"}) {
+	if got := agent.tools.registry.loaded; !slices.Equal(got, []string{"orders.lookup", "orders.refund"}) {
 		t.Fatalf("loaded = %v", got)
 	}
 	transcript.names = []string{"orders.refund"}
 	_ = agent.syncLoadedTools()
 	var ids []string
-	for _, spec := range agent.registry.visibleSpecs() {
+	for _, spec := range agent.tools.registry.visibleSpecs() {
 		ids = append(ids, spec.ID)
 	}
 	if !slices.Equal(ids, []string{"orders.refund", SearchToolName}) {

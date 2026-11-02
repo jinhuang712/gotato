@@ -60,8 +60,8 @@ func TestModelCallDeadlineNamesItsLimitAndNegativeDisablesIt(t *testing.T) {
 		t.Fatal(err)
 	}
 	defer func() { _ = session.Close(context.Background()) }()
-	if session.limits.ModelCallDeadline >= 0 {
-		t.Fatalf("a negative deadline was replaced by %v", session.limits.ModelCallDeadline)
+	if session.def.limits.ModelCallDeadline >= 0 {
+		t.Fatalf("a negative deadline was replaced by %v", session.def.limits.ModelCallDeadline)
 	}
 	ctx, cancel := context.WithTimeout(context.Background(), 150*time.Millisecond)
 	defer cancel()

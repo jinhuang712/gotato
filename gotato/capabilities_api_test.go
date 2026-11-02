@@ -112,10 +112,10 @@ func TestNewSessionRefusesASingleValuedOptionGivenTwice(t *testing.T) {
 		{"WithContextBuilder", func() gotato.SessionOption { return gotato.WithContextBuilder(gotato.FullHistoryContext()) }},
 		{"WithToolFilter", func() gotato.SessionOption { return gotato.WithToolFilter(func(string) bool { return true }) }},
 		{"WithTranscript", func() gotato.SessionOption { return gotato.WithTranscript(&declaredTranscript{}) }},
-		{"WithFeed", func() gotato.SessionOption { return gotato.WithFeed(gotato.NewFeed(nil)) }},
-		{"WithRequestID", func() gotato.SessionOption { return gotato.WithRequestID("r") }},
-		{"WithRunStart", func() gotato.SessionOption { return gotato.WithRunStart(func(gotato.RunID) {}) }},
-		{"WithQueueHandoff", func() gotato.SessionOption { return gotato.WithQueueHandoff() }},
+		{"WithFeed", func() gotato.SessionOption { return withFeed(newFeed(nil)) }},
+		{"WithRequestID", func() gotato.SessionOption { return withRequestID("r") }},
+		{"WithRunStart", func() gotato.SessionOption { return withRunStart(func(gotato.RunID) {}) }},
+		{"WithQueueHandoff", func() gotato.SessionOption { return withQueueHandoff() }},
 	}
 	for _, c := range cases {
 		t.Run(c.name, func(t *testing.T) {

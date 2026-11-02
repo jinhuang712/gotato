@@ -136,7 +136,7 @@ func readStored(t *testing.T, f *frames, count int) (stored []storedFrame, delta
 		if err := json.Unmarshal([]byte(fr.data), &data); err != nil {
 			t.Fatalf("frame %+v: %v", fr, err)
 		}
-		if gotato.EventKind(fr.event).Class() == gotato.EventClassStored {
+		if classOfFrame(fr) == gotato.EventClassStored {
 			number, _ := data["number"].(float64)
 			if fr.id != strconv.FormatUint(uint64(number), 10) {
 				t.Fatalf("a stored Event numbered %v has id %q", number, fr.id)
@@ -320,7 +320,7 @@ func TestRunStreamCarriesNumbersAndTheEpoch(t *testing.T) {
 		}
 		_ = json.Unmarshal([]byte(fr.data), &data)
 		sessionID = data.SessionID
-		if gotato.EventKind(fr.event).Class() == gotato.EventClassStored {
+		if classOfFrame(fr) == gotato.EventClassStored {
 			if last == 0 {
 				// The stream of a Run on an existing Session starts at the
 				// Run's own first Event.
@@ -435,7 +435,7 @@ func follow(t *testing.T, f *frames) *follower {
 				continue
 			}
 			fl.mu.Lock()
-			if gotato.EventKind(fr.event).Class() == gotato.EventClassStored {
+			if classOfFrame(fr) == gotato.EventClassStored {
 				number, _ := data["number"].(float64)
 				fl.stored = append(fl.stored, storedFrame{number: uint64(number), kind: fr.event, data: data})
 			} else {
@@ -650,4 +650,14 @@ func TestSessionStreamReportsAStoreTimeoutAsAnError(t *testing.T) {
 	if err != nil || fr.event != "error" {
 		t.Fatalf("after a store timeout the stream sent %+v, %v; want an error frame", fr, err)
 	}
+}
+
+// classOfFrame is the class of the Event a frame carries: its JSON names its
+// kind, and the type that kind decodes to states its class.
+func classOfFrame(fr frame) gotato.EventClass {
+	event, err := gotato.UnmarshalEvent([]byte(fr.data))
+	if err != nil {
+		return ""
+	}
+	return event.Class()
 }

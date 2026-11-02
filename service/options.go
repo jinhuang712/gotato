@@ -2,10 +2,6 @@ package service
 
 import "github.com/jinhuang712/gotato/gotato"
 
-// The calls below take a trailing list of options so that they can grow in
-// later releases without a change of signature. Each call has its own option
-// type; a type with no option function yet is kept for that reason.
-
 // AbortOption configures AbortSession.
 type AbortOption func(*abortConfig)
 
@@ -22,19 +18,3 @@ type abortConfig struct {
 func AbortRun(id gotato.RunID) AbortOption {
 	return func(c *abortConfig) { c.runID = id }
 }
-
-// EventsOption configures Runner.Events. It has no option yet.
-type EventsOption func(*eventsConfig)
-
-type eventsConfig struct{}
-
-// StreamRunOption configures StreamRun and StreamRunAdmitted. It has no option
-// yet.
-type StreamRunOption func(*streamRunConfig)
-
-type streamRunConfig struct{}
-
-// SessionStreamOption configures StreamSession. It has no option yet.
-type SessionStreamOption func(*sessionStreamConfig)
-
-type sessionStreamConfig struct{}

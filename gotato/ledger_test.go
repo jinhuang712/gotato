@@ -132,7 +132,7 @@ func TestAFailedCommitSettlesEveryTakenMessage(t *testing.T) {
 				model := &recordingModel{scripts: [][]ModelEvent{toolCallScript(), finalScript("done")}, started: make(chan int, 8), gate: make(chan struct{}, 8)}
 				options := []SessionOption{WithModel(model), WithTools(&scriptedTool{}), WithLimits(limits)}
 				if handoff {
-					options = append(options, WithQueueHandoff())
+					options = append(options, withQueueHandoff())
 				}
 				session, err := NewSession(context.Background(), options...)
 				if err != nil {
@@ -163,16 +163,16 @@ func TestAFailedCommitSettlesEveryTakenMessage(t *testing.T) {
 				failed, rest := ids[fits], ids[fits+1:]
 				var left []Queued
 				if handoff {
-					left = session.TakeQueued()
+					left = session.takeQueued()
 					if len(left) != len(rest) {
-						t.Fatalf("TakeQueued = %d messages, want the %d that were not committed", len(left), len(rest))
+						t.Fatalf("takeQueued = %d messages, want the %d that were not committed", len(left), len(rest))
 					}
 					for i, queued := range left {
 						if queued.Message.ID != rest[i] {
-							t.Fatalf("TakeQueued[%d] = %s, want %s: the order is lost", i, queued.Message.ID, rest[i])
+							t.Fatalf("takeQueued[%d] = %s, want %s: the order is lost", i, queued.Message.ID, rest[i])
 						}
 					}
-					session.DropQueued(left, "run_failed")
+					session.dropQueued(left, "run_failed")
 				}
 				if err := session.Close(context.Background()); err != nil {
 					t.Fatal(err)
@@ -222,11 +222,11 @@ func TestAFailedNoticeCommitKeepsTheNoticesBehindIt(t *testing.T) {
 			if _, err := session.Prompt(context.Background(), UserMessage("go")); !IsCode(err, CodeLimitExceeded) {
 				t.Fatalf("Run error = %v, want limit_exceeded", err)
 			}
-			waiting := session.TakeQueued()
+			waiting := session.takeQueued()
 			if len(waiting) != notices-fits-1 {
 				t.Fatalf("%d notices wait, want %d", len(waiting), notices-fits-1)
 			}
-			session.DropQueued(waiting, "run_ended")
+			session.dropQueued(waiting, "run_ended")
 			if err := session.Close(context.Background()); err != nil {
 				t.Fatal(err)
 			}
@@ -245,7 +245,7 @@ func TestAFailedNoticeCommitKeepsTheNoticesBehindIt(t *testing.T) {
 // written: it never goes back to the queue, or the next Run commits it twice.
 func TestACommittedMessageIsNeverPutBack(t *testing.T) {
 	model := &recordingModel{scripts: [][]ModelEvent{toolCallScript(), finalScript("done")}, started: make(chan int, 8), gate: make(chan struct{}, 8)}
-	session, err := NewSession(context.Background(), WithModel(model), WithTools(&scriptedTool{}), WithQueueHandoff(), WithTranscript(&failSteerJournal{}))
+	session, err := NewSession(context.Background(), WithModel(model), WithTools(&scriptedTool{}), withQueueHandoff(), WithTranscript(&failSteerJournal{}))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -265,8 +265,8 @@ func TestACommittedMessageIsNeverPutBack(t *testing.T) {
 	if runErr := <-done; runErr == nil {
 		t.Fatal("the Run did not fail")
 	}
-	left := session.TakeQueued()
+	left := session.takeQueued()
 	if len(left) != 1 || TextOf(left[0].Message) != "s1" {
-		t.Fatalf("TakeQueued = %+v, want only the message the Transcript did not take", left)
+		t.Fatalf("takeQueued = %+v, want only the message the Transcript did not take", left)
 	}
 }

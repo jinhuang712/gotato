@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"slices"
 	"strings"
 	"sync"
 	"sync/atomic"
@@ -245,7 +246,7 @@ func waitUntil(t *testing.T, what string, cond func() bool) {
 // with the test.
 func newRunnerOn(t *testing.T, store session.Store, agent service.Agent, mutate ...func(*service.Config)) *service.Runner {
 	t.Helper()
-	cfg := service.Config{Store: store, Agents: []service.Agent{agent}, Liveness: service.Liveness{TTL: time.Second, Wait: 30 * time.Millisecond}}
+	cfg := service.Config{Store: store, Agents: []service.Agent{agent}, Heartbeat: service.Heartbeat{TTL: time.Second, Wait: 30 * time.Millisecond}}
 	for _, m := range mutate {
 		m(&cfg)
 	}
@@ -339,6 +340,7 @@ type fakeClock struct {
 type fakeTimer struct {
 	clock   *fakeClock
 	at      time.Time
+	after   time.Duration
 	f       func()
 	stopped bool
 	fired   bool
@@ -355,7 +357,7 @@ func (c *fakeClock) Now() time.Time {
 func (c *fakeClock) AfterFunc(d time.Duration, f func()) service.Timer {
 	c.mu.Lock()
 	defer c.mu.Unlock()
-	timer := &fakeTimer{clock: c, at: c.now.Add(d), f: f}
+	timer := &fakeTimer{clock: c, at: c.now.Add(d), after: d, f: f}
 	c.timers = append(c.timers, timer)
 	return timer
 }
@@ -368,13 +370,15 @@ func (t *fakeTimer) Stop() bool {
 	return was
 }
 
-// Pending counts the timers that have neither fired nor been stopped.
+// Pending counts the warm Sessions' timers that have neither fired nor been
+// stopped. The Runner's renewals arm one every few seconds for as long as it
+// lives; a timer of under a minute is not a warm Session's, and not counted.
 func (c *fakeClock) Pending() int {
 	c.mu.Lock()
 	defer c.mu.Unlock()
 	n := 0
 	for _, timer := range c.timers {
-		if !timer.stopped && !timer.fired {
+		if !timer.stopped && !timer.fired && timer.after >= time.Minute {
 			n++
 		}
 	}
@@ -402,6 +406,9 @@ func (c *fakeClock) Advance(d time.Duration) {
 		if next.at.After(c.now) {
 			c.now = next.at
 		}
+		// Keep only the timers that can still fire: the Runner's renewals arm
+		// one every few seconds, and a long Advance would scan them all.
+		c.timers = slices.DeleteFunc(c.timers, func(t *fakeTimer) bool { return t.stopped || t.fired })
 		c.mu.Unlock()
 		next.f()
 	}
@@ -607,7 +614,7 @@ func checkReleased(t *testing.T, store session.Store, id, instance string) {
 // machine runs 40 ms late fails a Run with "liveness row may have expired".
 // Only a test that waits for a row to expire, or pauses the renewals, uses
 // fastLiveness.
-var steadyLiveness = service.Liveness{TTL: 5 * time.Second, Wait: 3 * time.Second}
+var steadyLiveness = service.Heartbeat{TTL: 5 * time.Second, Wait: 3 * time.Second}
 
 // isInstance reports whether got is the name of the Instance that was
 // configured with label: the label and the per-start suffix.
@@ -616,12 +623,12 @@ func isInstance(got, label string) bool {
 	return ok && len(suffix) == 8
 }
 
-func instanceRunner(t *testing.T, store session.Store, instance string, model gotato.Model, liveness service.Liveness) *service.Runner {
+func instanceRunner(t *testing.T, store session.Store, instance string, model gotato.Model, liveness service.Heartbeat) *service.Runner {
 	t.Helper()
 	runner, err := service.New(service.Config{
-		Store: store, Instance: instance, Liveness: liveness,
-		Admission: service.Admission{Queue: service.QueuePolicyWait},
-		Agents:    []service.Agent{{Name: "echo", Model: model}},
+		Store: store, Instance: instance, Heartbeat: liveness,
+		Bounds: service.Bounds{Queue: service.QueuePolicyWait},
+		Agents: []service.Agent{{Name: "echo", Model: model}},
 	})
 	if err != nil {
 		t.Fatal(err)
@@ -894,7 +901,7 @@ func transcriptOf(t *testing.T, runner *service.Runner, id string) []string {
 func messageRunner(t *testing.T, store session.Store, instance, address string, model gotato.Model) *service.Runner {
 	t.Helper()
 	runner, err := service.New(service.Config{
-		Store: store, Instance: instance, Address: address, Liveness: steadyLiveness, Admission: service.Admission{Queue: service.QueuePolicyWait},
+		Store: store, Instance: instance, Address: address, Heartbeat: steadyLiveness, Bounds: service.Bounds{Queue: service.QueuePolicyWait},
 		Agents: []service.Agent{{Name: "echo", Model: model}},
 	})
 	if err != nil {
@@ -916,7 +923,7 @@ func readNumbers(t *testing.T, stream *service.SessionStream, count int) []uint6
 		if err != nil {
 			t.Fatalf("after %v: %v", out, err)
 		}
-		if event.Kind().Class() == gotato.EventClassStored {
+		if event.Class() == gotato.EventClassStored {
 			out = append(out, event.Head().Number)
 		}
 	}
@@ -958,7 +965,7 @@ func endsWithoutNewEvents(t *testing.T, sub gotato.Subscription) {
 			}
 			return
 		}
-		if event.Kind().Class() == gotato.EventClassStored {
+		if event.Class() == gotato.EventClassStored {
 			t.Fatalf("the stream delivered Event %d (%s) of the Record created again", event.Head().Number, event.Kind())
 		}
 	}
@@ -968,7 +975,7 @@ func endsWithoutNewEvents(t *testing.T, sub gotato.Subscription) {
 func storedOnly(events []gotato.Event) []gotato.Event {
 	var out []gotato.Event
 	for _, event := range events {
-		if event.Kind().Class() == gotato.EventClassStored {
+		if event.Class() == gotato.EventClassStored {
 			out = append(out, event)
 		}
 	}

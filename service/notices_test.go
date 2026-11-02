@@ -158,7 +158,7 @@ func TestANoticeForARunOnAnotherInstanceIsNotWriter(t *testing.T) {
 	done := startRun(t, a, s.ID, "hello")
 	waitCall(t, model, 0)
 	_, err := b.Notice(ctx, service.NoticeRequest{SessionID: s.ID, Kind: "k", Text: "from b"})
-	if !gotato.IsCode(err, gotato.CodeNotWriter) || !gotato.NotRun(err) || !gotato.Retryable(err) {
+	if !gotato.IsCode(err, service.CodeNotWriter) || !gotato.NotRun(err) || !gotato.Retryable(err) {
 		t.Fatalf("Notice = %v; want not_writer, not run, retryable", err)
 	}
 	if address, ok := service.WriterOf(err); !ok || address != "http://instance-a.example:8080" {
@@ -183,8 +183,8 @@ func timeAwayRunner(t *testing.T, clock *fakeClock, agent service.Agent) (*servi
 	agent.Name, agent.Model = "echo", model
 	agent.Warm.NoIdleCompaction = true
 	runner, err := service.New(service.WithClock(service.Config{
-		Store: memStore(), Instance: "a", Liveness: steadyLiveness,
-		Admission: service.Admission{Queue: service.QueuePolicyWait}, Agents: []service.Agent{agent},
+		Store: memStore(), Instance: "a", Heartbeat: steadyLiveness,
+		Bounds: service.Bounds{Queue: service.QueuePolicyWait}, Agents: []service.Agent{agent},
 	}, clock))
 	if err != nil {
 		t.Fatal(err)
@@ -313,7 +313,7 @@ func TestANoticeBetweenRunsOutlivesItsInstance(t *testing.T) {
 	for name, newStore := range stores {
 		t.Run(name, func(t *testing.T) {
 			store := newStore(t)
-			first, err := service.New(service.Config{Store: store, Instance: "first", Liveness: steadyLiveness, Agents: []service.Agent{{Name: "echo", Model: testkit.EchoModel{}}}})
+			first, err := service.New(service.Config{Store: store, Instance: "first", Heartbeat: steadyLiveness, Agents: []service.Agent{{Name: "echo", Model: testkit.EchoModel{}}}})
 			if err != nil {
 				t.Fatal(err)
 			}
@@ -327,7 +327,7 @@ func TestANoticeBetweenRunsOutlivesItsInstance(t *testing.T) {
 			}
 
 			model := testkit.NewFakeModel(testkit.Text("one"), testkit.Text("two"))
-			second, err := service.New(service.Config{Store: store, Instance: "second", Liveness: steadyLiveness, Agents: []service.Agent{{Name: "echo", Model: model}}})
+			second, err := service.New(service.Config{Store: store, Instance: "second", Heartbeat: steadyLiveness, Agents: []service.Agent{{Name: "echo", Model: model}}})
 			if err != nil {
 				t.Fatal(err)
 			}
@@ -426,9 +426,9 @@ func timeAwayRunner2(t *testing.T, store session.Store, name string, clock *fake
 	t.Helper()
 	model := testkit.NewFakeModel(testkit.Text("ok"), testkit.Text("ok"), testkit.Text("ok"))
 	runner, err := service.New(service.WithClock(service.Config{
-		Store: store, Instance: name, Liveness: steadyLiveness,
-		Admission: service.Admission{Queue: service.QueuePolicyWait},
-		Agents:    []service.Agent{{Name: "echo", Model: model, Warm: service.WarmPolicy{NoIdleCompaction: true}}},
+		Store: store, Instance: name, Heartbeat: steadyLiveness,
+		Bounds: service.Bounds{Queue: service.QueuePolicyWait},
+		Agents: []service.Agent{{Name: "echo", Model: model, Warm: service.WarmPolicy{NoIdleCompaction: true}}},
 	}, clock))
 	if err != nil {
 		t.Fatal(err)
@@ -515,13 +515,13 @@ func TestFailedWriteOfAnyExitIsRepairedByTheHeartbeat(t *testing.T) {
 			base := memStore()
 			faulty := &failOnceStore{parts: partsOf(base), failKind: tc.kind, ticks: make(chan struct{})}
 			agents := []service.Agent{{Name: "echo", Model: testkit.DemoModel{}, Tools: []gotato.Tool{testkit.DemoEchoTool()}, Warm: service.WarmPolicy{TTL: -1}}}
-			liveness := service.Liveness{TTL: time.Second, Wait: 30 * time.Millisecond}
-			a, err := service.New(service.Config{Store: asStore(faulty), Agents: agents, Liveness: liveness})
+			liveness := service.Heartbeat{TTL: time.Second, Wait: 30 * time.Millisecond}
+			a, err := service.New(service.Config{Store: asStore(faulty), Agents: agents, Heartbeat: liveness})
 			if err != nil {
 				t.Fatal(err)
 			}
 			t.Cleanup(func() { _ = a.Close(context.Background()) })
-			b, err := service.New(service.Config{Store: base, Agents: agents, Liveness: liveness})
+			b, err := service.New(service.Config{Store: base, Agents: agents, Heartbeat: liveness})
 			if err != nil {
 				t.Fatal(err)
 			}
