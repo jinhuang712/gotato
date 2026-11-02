@@ -35,13 +35,14 @@ var allowedImports = map[string][]string{
 	"ref":               {},
 	"testkit":           {"gotato", "internal/text", "session"}, // text.IsRecapAsk: the fake models recognize the Recap ask by the one definition
 	"session/storetest": {"gotato", "session"},
-	"service":           {"gotato", "modelctx", "service/internal/clock", "service/internal/warm", "session"},
+	"service":           {"gotato", "modelctx", "service/internal/clock", "service/internal/heartbeat", "service/internal/warm", "session"},
 	// service/internal holds the parts of the Runner (decision 048): each is
 	// standard library only, or the core, and none imports another.
-	"service/internal/clock": {},
-	"service/internal/warm":  {"service/internal/clock"},
-	"service/httpapi":        {"gotato", "modelctx", "service", "session"},
-	"adapter/mcp":            {"gotato"},
+	"service/internal/clock":     {},
+	"service/internal/heartbeat": {"gotato", "service/internal/clock", "session"},
+	"service/internal/warm":      {"service/internal/clock"},
+	"service/httpapi":            {"gotato", "modelctx", "service", "session"},
+	"adapter/mcp":                {"gotato"},
 }
 
 // standardOnly lists the packages that may import the standard library alone

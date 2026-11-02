@@ -17,7 +17,7 @@ import (
 	"github.com/jinhuang712/gotato/testkit"
 )
 
-var fastLiveness = service.Liveness{TTL: 150 * time.Millisecond, Wait: 3 * time.Second}
+var fastLiveness = service.Heartbeat{TTL: 150 * time.Millisecond, Wait: 3 * time.Second}
 
 func TestIdleSessionMovesToAnyInstance(t *testing.T) {
 	ctx := context.Background()
@@ -55,7 +55,7 @@ func TestBusyElsewhereWaitsThenRefuses(t *testing.T) {
 	store := memStore()
 	held := &gateModel{gate: make(chan struct{}), started: make(chan struct{})}
 	a := instanceRunner(t, store, "instance-a", held, steadyLiveness)
-	b := instanceRunner(t, store, "instance-b", testkit.EchoModel{}, service.Liveness{TTL: steadyLiveness.TTL, Wait: 200 * time.Millisecond})
+	b := instanceRunner(t, store, "instance-b", testkit.EchoModel{}, service.Heartbeat{TTL: steadyLiveness.TTL, Wait: 200 * time.Millisecond})
 	s, err := a.CreateSession(ctx, service.CreateSessionRequest{Agent: "echo"})
 	if err != nil {
 		t.Fatal(err)
@@ -318,7 +318,7 @@ func TestClosedRunnerNeverBeatsAgain(t *testing.T) {
 // is about two Instances opening a Session, not about liveness lapsing, which
 // the tests that use fastLiveness cover.
 func TestTwoInstancesOpenOneIdleSessionAtOnce(t *testing.T) {
-	liveness := service.Liveness{TTL: 3 * time.Second, Wait: 5 * time.Second}
+	liveness := service.Heartbeat{TTL: 3 * time.Second, Wait: 5 * time.Second}
 	for _, kind := range []struct {
 		name   string
 		rounds int

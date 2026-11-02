@@ -138,6 +138,10 @@ What changed in Gotato, from the user's side. Newest first. A breaking change ca
   - Before: `runner.Events(ctx, id, opts...)`, `StreamRun(ctx, req, sink, opts...)`, `StreamRunAdmitted(ctx, req, admitted, sink, opts...)` and `StreamSession(ctx, id, from, opts...)` ended with `...EventsOption`, `...StreamRunOption` and `...SessionStreamOption`, types that held no option.
   - After: the three types are gone and the calls end at their last argument. A caller that passed no option compiles as before; adding an option later is a break with its own entry. `AbortSession` keeps `...AbortOption` (`AbortRun` exists).
 
+- **The settings struct `service.Liveness` is `service.Heartbeat`, and `Config.Liveness` is `Config.Heartbeat`** (D-048).
+  - Before: `service.Config{Liveness: service.Liveness{TTL: 10 * time.Second, Wait: 5 * time.Second}}`.
+  - After: `service.Config{Heartbeat: service.Heartbeat{TTL: 10 * time.Second, Wait: 5 * time.Second}}`. The fields and their defaults are the same; the name no longer collides with `session.Liveness`, the store seam that keeps the rows.
+
 ### Fixed
 
 - `gotato` and `modelctx`: one page size. Before, a Tool Result was spilled at a fixed 32 KiB while `read_result` and `read_segment` could be built with another page, so a result could be spilled and then read at a different size. Now the `ReadBack`'s `PageBytes` is the spill threshold, the pages a preview counts and the page of both read tools (D-046).

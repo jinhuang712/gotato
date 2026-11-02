@@ -38,6 +38,7 @@ import (
 	"github.com/jinhuang712/gotato/gotato"
 	"github.com/jinhuang712/gotato/modelctx"
 	"github.com/jinhuang712/gotato/service/internal/clock"
+	"github.com/jinhuang712/gotato/service/internal/heartbeat"
 	"github.com/jinhuang712/gotato/service/internal/warm"
 	"github.com/jinhuang712/gotato/session"
 )
@@ -278,9 +279,9 @@ type Config struct {
 	// process's Claim as its own, it goes through the holder check like any
 	// other Instance, and the old process's Close removes only its own row.
 	Instance string
-	// Liveness sets this Runner's Liveness row, and how long a Run waits
-	// for a Session that runs on another Instance.
-	Liveness Liveness
+	// Heartbeat sets how this Runner keeps its Liveness row, and how long a
+	// Run waits for a Session that runs on another Instance.
+	Heartbeat Heartbeat
 	// Address is where a caller can reach this Instance's own endpoint, such
 	// as "http://10.0.0.7:8080". It is optional. The Instance advertises it in
 	// its Liveness row, so a message for a Run that this Instance writes, sent
@@ -310,11 +311,11 @@ type Config struct {
 
 // Runner serves Runs against Sessions.
 type Runner struct {
-	store     session.Store
-	label     string
-	liveness  Liveness
-	address   string
-	beat      heartbeat
+	store session.Store
+	// instance is this Runner's Liveness row: its name, the row and the guard
+	// (see heartbeat.go).
+	instance  *heartbeat.Row
+	heartbeat Heartbeat
 	agents    map[string]Agent
 	order     []string
 	admission Admission
@@ -396,9 +397,7 @@ func New(cfg Config) (*Runner, error) {
 	}
 	r := &Runner{
 		store:          cfg.Store,
-		label:          strings.TrimSpace(cfg.Instance),
-		liveness:       cfg.Liveness.withDefaults(),
-		address:        strings.TrimSpace(cfg.Address),
+		heartbeat:      cfg.Heartbeat.withDefaults(),
 		streamPoll:     cfg.StreamPoll,
 		toolSetTimeout: cfg.ToolSetTimeout,
 		drainTimeout:   cfg.DrainTimeout,
@@ -409,13 +408,19 @@ func New(cfg Config) (*Runner, error) {
 		feeds:          map[feedKey]*sessionFeed{},
 		handles:        map[string][]*runHandle{},
 	}
-	// The label is never the identity: the suffix makes the name unique per
-	// start, so a restarted or overlapping process cannot share a Liveness
-	// row or a Claim with the one it replaces.
-	r.beat.instance = r.newName()
 	if r.clock == nil {
 		r.clock = clock.System()
 	}
+	r.instance = heartbeat.New(heartbeat.Config{
+		Store:    cfg.Store.Liveness,
+		Clock:    r.clock,
+		Label:    strings.TrimSpace(cfg.Instance),
+		Address:  strings.TrimSpace(cfg.Address),
+		TTL:      r.heartbeat.TTL,
+		OnLapse:  r.lapseNotice,
+		OnRename: func() { r.dropAllWarm("liveness_lapsed") },
+		OnBeat:   r.repairReleases,
+	})
 	// [CONTRACT] a negative MaxActiveRuns is refused, as MaxActiveSessions is, so a typo does not read as no limit.
 	if r.admission.MaxActiveRuns < 0 {
 		return nil, errors.New("service: MaxActiveRuns cannot be negative")

@@ -21,7 +21,7 @@ import (
 // A draining Runner refuses it with ErrDraining (not run): it would claim an
 // idle Session for the length of a compaction, after the Instance said it
 // leaves. A Session running on another live Instance is waited for, up to
-// Liveness.Wait, and then refused with busy, as for a Run.
+// Heartbeat.Wait, and then refused with busy, as for a Run.
 func (r *Runner) Compact(ctx context.Context, sessionID string, opts modelctx.CompactConfig) (modelctx.Result, error) {
 	if r.Draining() {
 		return modelctx.Result{}, ErrDraining

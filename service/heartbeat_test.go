@@ -88,7 +88,7 @@ func TestReusedInstanceLabelWhileOldRunIsGoingIsBusy(t *testing.T) {
 	}()
 	<-held.started
 
-	restarted := instanceRunner(t, store, "pod-0", testkit.EchoModel{}, service.Liveness{TTL: steadyLiveness.TTL, Wait: 200 * time.Millisecond})
+	restarted := instanceRunner(t, store, "pod-0", testkit.EchoModel{}, service.Heartbeat{TTL: steadyLiveness.TTL, Wait: 200 * time.Millisecond})
 	began := time.Now()
 	_, err = restarted.Run(ctx, service.RunRequest{SessionID: s.ID, Prompt: "again"})
 	if !errors.Is(err, service.ErrBusy) {
@@ -136,7 +136,7 @@ func TestLateCloseOfReusedInstanceLabelKeepsTheNewRow(t *testing.T) {
 func TestInstanceRecoversWhenTheStoreReturnsAfterTheTTL(t *testing.T) {
 	ctx := context.Background()
 	store := &faultStore{parts: partsOf(memStore())}
-	liveness := service.Liveness{TTL: 300 * time.Millisecond, Wait: time.Second}
+	liveness := service.Heartbeat{TTL: 300 * time.Millisecond, Wait: time.Second}
 	a := instanceRunner(t, asStore(store), "instance-a", testkit.EchoModel{}, liveness)
 	s, err := a.CreateSession(ctx, service.CreateSessionRequest{Agent: "echo"})
 	if err != nil {

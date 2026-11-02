@@ -298,7 +298,7 @@ A Session can live for weeks and a long Run can outgrow the window. A compaction
 | Item | What it does |
 |---|---|
 | Frame and parts | `modelctx.Compactor{CompactPolicy, Trigger, Cut, Builder, Recap, Merge}` is a frame that runs the parts in order and alone writes; a nil part is its default, so the zero `Compactor` is the behaviour before the parts were named. The seven interfaces, stable from 0.3.0, are in the table under this one. `service.Agent.Compact` is a `Compactor`; `modelctx.Compact(ctx, store, c, cfg, opts...)` and `modelctx.AutoCompact(store, c)` take a `SegmentStore`, which `*session.Record` implements and any Transcript can. `ErrBadPart` (code `extension_failure`) is what a part that fails, panics or breaks a rule returns |
-| On demand | `POST /v1/sessions/{id}/compact` and `Runner.Compact`; `{"keep_messages":N}` (`CompactConfig.KeepMessages`, `--keep-messages`) replaces the kept tail with the last N Messages; `{"min_tokens":N}` (`CompactConfig.MinTokens`, `--min-tokens N`) skips a stretch estimated below N tokens (answer `replaced: false`, `reason: below_min_tokens`; a stretch the tail covers whole is `nothing_to_close`). `Runner.Compact` claims the Session before it checks `min_tokens`; the idle timer checks first and claims only a stretch worth compacting. A draining Runner refuses it as `draining`; a Session running elsewhere is waited for up to `Liveness.Wait`, then `busy`. It uses a warm copy and leaves it warm |
+| On demand | `POST /v1/sessions/{id}/compact` and `Runner.Compact`; `{"keep_messages":N}` (`CompactConfig.KeepMessages`, `--keep-messages`) replaces the kept tail with the last N Messages; `{"min_tokens":N}` (`CompactConfig.MinTokens`, `--min-tokens N`) skips a stretch estimated below N tokens (answer `replaced: false`, `reason: below_min_tokens`; a stretch the tail covers whole is `nothing_to_close`). `Runner.Compact` claims the Session before it checks `min_tokens`; the idle timer checks first and claims only a stretch worth compacting. A draining Runner refuses it as `draining`; a Session running elsewhere is waited for up to `Heartbeat.Wait`, then `busy`. It uses a warm copy and leaves it warm |
 | Automatic | before any model call, mid-Run included, through the `gotato.TurnPreparer` hook (`AutoCompactor`; [G-F15](#g-f15--extensions-)): a compaction that closed a Segment returns `Changed` and the Loop builds the request again from the Checkpoint. A Turn compacts at most once: a compaction or a merge that started counts, a dropped one included, and a check that found nothing to close or merge does not |
 | Kept tail | the latest Run's Turns, up to 20K tokens (`TailBudget.TailTokens`, the default Cutter) and at most a quarter of the window (of the ceiling when no window is known), cut at a Turn boundary so a tool call keeps its result; always at least the latest Turn: the Run's last reply and everything after it (its tool results, a notice, a steer, an interrupt), and on the Run's first Turn its prompt and what follows it, kept whole (a prompt past the ceiling ends the Run with `limit_exceeded`). Before a Run's first call the Run that is starting does not count as the latest |
 | Segment | a stretch of history that is never rewritten, with a number and its first and last time; written once as its own `segment_closed` Entry (data plus frozen rendered Messages; tag text is a Part marked `gotato.MetaTag`) before the Checkpoint that lists it |
@@ -670,7 +670,7 @@ A Runner hosts Sessions inside your service on as many instances as you run; any
 | The Session is | The instance |
 |---|---|
 | idle, or its writer is gone | claims it, loads from the last Checkpoint, serves the request |
-| in use by its live writer, also while that writer drains | waits for the release up to a bound (`Liveness.Wait`, whatever the busy policy), then claims it; past the bound 409 with `Retry-After` |
+| in use by its live writer, also while that writer drains | waits for the release up to a bound (`Heartbeat.Wait`, whatever the busy policy), then claims it; past the bound 409 with `Retry-After` |
 | in a Run on its live writer, and the request is a message for that Run | answers `not_writer`, not run, retryable, with the writer's address; does not wait |
 
 A takeover leaves the old writer's warm copy stale; it finds that at its next Run and reloads, or drops it at its TTL.
@@ -680,7 +680,7 @@ A takeover leaves the old writer's warm copy stale; it finds that at its next Ru
 | Place | What differs |
 |---|---|
 | The writer dies mid-Run | the step in flight is lost, a running tool is answered with an unknown outcome, the stream ends, and the Session waits for the dead row to expire |
-| Two requests reach two instances at once | whichever opens it first runs; the other waits up to `Liveness.Wait`, then 409 |
+| Two requests reach two instances at once | whichever opens it first runs; the other waits up to `Heartbeat.Wait`, then 409 |
 | The hash changes or a caller does not route by Session | a message for a running Run is answered `not_writer`; one with no Run going starts a new Run there |
 | Several instances | `MaxActiveRuns` and `MaxActiveSessions` count per instance |
 | A stream on an instance that is not the writer | stored Events arrive at its next look (`StreamPoll`, 1 second), no deltas |
@@ -700,8 +700,8 @@ Settings, on `service.Config` and the HTTP handler:
 | `MaxActiveRuns` | 0, no bound | the team sizes its instances |
 | drain timeout (`Config.DrainTimeout`, `--drain-timeout`) | 10 s (`service.DefaultDrainTimeout`), negative none | most Runs finish in a rolling deploy |
 | write bound (`session.WriteTimeout`) | 10 s | the Writer's writes and a Run's last write (save and release) outlive a canceled caller; a slower store fails the write as unknown |
-| Liveness TTL (`Config.Liveness.TTL`) | 10 s | rides out a slow store; a dead instance's Sessions wait this long |
-| Liveness wait (`Config.Liveness.Wait`) | 5 s | how long a request for a Session running elsewhere waits before 409 |
+| Liveness TTL (`Config.Heartbeat.TTL`) | 10 s | rides out a slow store; a dead instance's Sessions wait this long |
+| Liveness wait (`Config.Heartbeat.Wait`) | 5 s | how long a request for a Session running elsewhere waits before 409 |
 | warm Sessions (`Admission.MaxWarmSessions`) | 10000 (`service.DefaultMaxWarmSessions`), negative none | past it the longest-idle is evicted (`evicted`); a warm Session takes about 8 KB for ten Messages and 570 KB for a thousand |
 | forwarding (`httpapi.WithForwarding`; HTTP only) | off | takes an `allow` function and forwards only to addresses it accepts; a nil `allow` forwards nowhere. An embedding service forwards with its own client |
 | request body cap (`httpapi.WithMaxBody`) | 1 MiB | |

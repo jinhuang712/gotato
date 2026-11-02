@@ -57,7 +57,7 @@ func (r *Runner) repairReleases() {
 	// One bound for the whole pass, so that a slow store cannot hold back the
 	// next renewal.
 	// [LIVENESS] a slow store cannot hold back the next Liveness renewal.
-	ctx, cancel := context.WithTimeout(context.Background(), r.liveness.TTL/3)
+	ctx, cancel := context.WithTimeout(context.Background(), r.heartbeat.TTL/3)
 	defer cancel()
 	for _, id := range ids {
 		// Clear the mark before the attempt: a mark set meanwhile is a new

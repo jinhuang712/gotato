@@ -127,7 +127,7 @@ func TestBusyOnAnotherInstanceAnswers409WithRetryAfter(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	other, err := service.New(service.Config{Store: store, Instance: "instance-b", Liveness: service.Liveness{Wait: 100 * time.Millisecond}, Agents: []service.Agent{{Name: "slow", Model: hangingModel{}}}})
+	other, err := service.New(service.Config{Store: store, Instance: "instance-b", Heartbeat: service.Heartbeat{Wait: 100 * time.Millisecond}, Agents: []service.Agent{{Name: "slow", Model: hangingModel{}}}})
 	if err != nil {
 		t.Fatal(err)
 	}

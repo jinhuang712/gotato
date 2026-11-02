@@ -246,7 +246,7 @@ func waitUntil(t *testing.T, what string, cond func() bool) {
 // with the test.
 func newRunnerOn(t *testing.T, store session.Store, agent service.Agent, mutate ...func(*service.Config)) *service.Runner {
 	t.Helper()
-	cfg := service.Config{Store: store, Agents: []service.Agent{agent}, Liveness: service.Liveness{TTL: time.Second, Wait: 30 * time.Millisecond}}
+	cfg := service.Config{Store: store, Agents: []service.Agent{agent}, Heartbeat: service.Heartbeat{TTL: time.Second, Wait: 30 * time.Millisecond}}
 	for _, m := range mutate {
 		m(&cfg)
 	}
@@ -614,7 +614,7 @@ func checkReleased(t *testing.T, store session.Store, id, instance string) {
 // machine runs 40 ms late fails a Run with "liveness row may have expired".
 // Only a test that waits for a row to expire, or pauses the renewals, uses
 // fastLiveness.
-var steadyLiveness = service.Liveness{TTL: 5 * time.Second, Wait: 3 * time.Second}
+var steadyLiveness = service.Heartbeat{TTL: 5 * time.Second, Wait: 3 * time.Second}
 
 // isInstance reports whether got is the name of the Instance that was
 // configured with label: the label and the per-start suffix.
@@ -623,10 +623,10 @@ func isInstance(got, label string) bool {
 	return ok && len(suffix) == 8
 }
 
-func instanceRunner(t *testing.T, store session.Store, instance string, model gotato.Model, liveness service.Liveness) *service.Runner {
+func instanceRunner(t *testing.T, store session.Store, instance string, model gotato.Model, liveness service.Heartbeat) *service.Runner {
 	t.Helper()
 	runner, err := service.New(service.Config{
-		Store: store, Instance: instance, Liveness: liveness,
+		Store: store, Instance: instance, Heartbeat: liveness,
 		Admission: service.Admission{Queue: service.QueuePolicyWait},
 		Agents:    []service.Agent{{Name: "echo", Model: model}},
 	})
@@ -901,7 +901,7 @@ func transcriptOf(t *testing.T, runner *service.Runner, id string) []string {
 func messageRunner(t *testing.T, store session.Store, instance, address string, model gotato.Model) *service.Runner {
 	t.Helper()
 	runner, err := service.New(service.Config{
-		Store: store, Instance: instance, Address: address, Liveness: steadyLiveness, Admission: service.Admission{Queue: service.QueuePolicyWait},
+		Store: store, Instance: instance, Address: address, Heartbeat: steadyLiveness, Admission: service.Admission{Queue: service.QueuePolicyWait},
 		Agents: []service.Agent{{Name: "echo", Model: model}},
 	})
 	if err != nil {

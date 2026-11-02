@@ -183,7 +183,7 @@ func timeAwayRunner(t *testing.T, clock *fakeClock, agent service.Agent) (*servi
 	agent.Name, agent.Model = "echo", model
 	agent.Warm.NoIdleCompaction = true
 	runner, err := service.New(service.WithClock(service.Config{
-		Store: memStore(), Instance: "a", Liveness: steadyLiveness,
+		Store: memStore(), Instance: "a", Heartbeat: steadyLiveness,
 		Admission: service.Admission{Queue: service.QueuePolicyWait}, Agents: []service.Agent{agent},
 	}, clock))
 	if err != nil {
@@ -313,7 +313,7 @@ func TestANoticeBetweenRunsOutlivesItsInstance(t *testing.T) {
 	for name, newStore := range stores {
 		t.Run(name, func(t *testing.T) {
 			store := newStore(t)
-			first, err := service.New(service.Config{Store: store, Instance: "first", Liveness: steadyLiveness, Agents: []service.Agent{{Name: "echo", Model: testkit.EchoModel{}}}})
+			first, err := service.New(service.Config{Store: store, Instance: "first", Heartbeat: steadyLiveness, Agents: []service.Agent{{Name: "echo", Model: testkit.EchoModel{}}}})
 			if err != nil {
 				t.Fatal(err)
 			}
@@ -327,7 +327,7 @@ func TestANoticeBetweenRunsOutlivesItsInstance(t *testing.T) {
 			}
 
 			model := testkit.NewFakeModel(testkit.Text("one"), testkit.Text("two"))
-			second, err := service.New(service.Config{Store: store, Instance: "second", Liveness: steadyLiveness, Agents: []service.Agent{{Name: "echo", Model: model}}})
+			second, err := service.New(service.Config{Store: store, Instance: "second", Heartbeat: steadyLiveness, Agents: []service.Agent{{Name: "echo", Model: model}}})
 			if err != nil {
 				t.Fatal(err)
 			}
@@ -426,7 +426,7 @@ func timeAwayRunner2(t *testing.T, store session.Store, name string, clock *fake
 	t.Helper()
 	model := testkit.NewFakeModel(testkit.Text("ok"), testkit.Text("ok"), testkit.Text("ok"))
 	runner, err := service.New(service.WithClock(service.Config{
-		Store: store, Instance: name, Liveness: steadyLiveness,
+		Store: store, Instance: name, Heartbeat: steadyLiveness,
 		Admission: service.Admission{Queue: service.QueuePolicyWait},
 		Agents:    []service.Agent{{Name: "echo", Model: model, Warm: service.WarmPolicy{NoIdleCompaction: true}}},
 	}, clock))
@@ -515,13 +515,13 @@ func TestFailedWriteOfAnyExitIsRepairedByTheHeartbeat(t *testing.T) {
 			base := memStore()
 			faulty := &failOnceStore{parts: partsOf(base), failKind: tc.kind, ticks: make(chan struct{})}
 			agents := []service.Agent{{Name: "echo", Model: testkit.DemoModel{}, Tools: []gotato.Tool{testkit.DemoEchoTool()}, Warm: service.WarmPolicy{TTL: -1}}}
-			liveness := service.Liveness{TTL: time.Second, Wait: 30 * time.Millisecond}
-			a, err := service.New(service.Config{Store: asStore(faulty), Agents: agents, Liveness: liveness})
+			liveness := service.Heartbeat{TTL: time.Second, Wait: 30 * time.Millisecond}
+			a, err := service.New(service.Config{Store: asStore(faulty), Agents: agents, Heartbeat: liveness})
 			if err != nil {
 				t.Fatal(err)
 			}
 			t.Cleanup(func() { _ = a.Close(context.Background()) })
-			b, err := service.New(service.Config{Store: base, Agents: agents, Liveness: liveness})
+			b, err := service.New(service.Config{Store: base, Agents: agents, Heartbeat: liveness})
 			if err != nil {
 				t.Fatal(err)
 			}

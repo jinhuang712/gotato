@@ -56,7 +56,7 @@ func (r *Runner) create(ctx context.Context, s *session.Record, agent string, op
 
 // open opens a stored Session for writing as this Runner's Instance. When the
 // Session runs on another live Instance, it waits for that Run to end, up to
-// Liveness.Wait, and then refuses with a busy error that says when to retry.
+// Heartbeat.Wait, and then refuses with a busy error that says when to retry.
 //
 // The Events the open writes, a claim among them, are not published: open
 // returns them, for the caller to publish to the Feed of the Record it opened,
@@ -66,7 +66,7 @@ func (r *Runner) open(ctx context.Context, sessionID string) (*session.Writer, [
 	if err := r.live(ctx); err != nil {
 		return nil, nil, err
 	}
-	deadline := r.clock.Now().Add(r.liveness.Wait)
+	deadline := r.clock.Now().Add(r.heartbeat.Wait)
 	pause := 20 * time.Millisecond
 	waited := false
 	for {
@@ -95,7 +95,7 @@ func (r *Runner) open(ctx context.Context, sessionID string) (*session.Writer, [
 		remaining := deadline.Sub(r.clock.Now())
 		if remaining <= 0 {
 			r.notice(gotato.RunRejected{Header: gotato.NewHeader(gotato.SessionID(sessionID), "", 0), Why: "busy_elsewhere"}, "")
-			return nil, nil, busyElsewhere(r.liveness.Wait)
+			return nil, nil, busyElsewhere(r.heartbeat.Wait)
 		}
 		if !waited {
 			r.notice(gotato.RunWaiting{Header: gotato.NewHeader(gotato.SessionID(sessionID), "", 0), Why: "busy_elsewhere"}, "")

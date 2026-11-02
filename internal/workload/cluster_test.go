@@ -107,15 +107,15 @@ type cluster struct {
 // victimLiveness is for the instance a test kills, whose row must expire for
 // another instance to take its Sessions over.
 var (
-	clusterLiveness = service.Liveness{TTL: 5 * time.Second, Wait: 5 * time.Second}
-	victimLiveness  = service.Liveness{TTL: 300 * time.Millisecond, Wait: 5 * time.Second}
+	clusterLiveness = service.Heartbeat{TTL: 5 * time.Second, Wait: 5 * time.Second}
+	victimLiveness  = service.Heartbeat{TTL: 300 * time.Millisecond, Wait: 5 * time.Second}
 )
 
 // lastIsVictim gives the last of n instances the short Liveness TTL.
 func lastIsVictim(n int) func(i int, cfg *service.Config) {
 	return func(i int, cfg *service.Config) {
 		if i == n-1 {
-			cfg.Liveness = victimLiveness
+			cfg.Heartbeat = victimLiveness
 		}
 	}
 }
@@ -133,7 +133,7 @@ func newCluster(t *testing.T, n int, tasks []reftasks.Task, seed uint64, adjust 
 	for i := range n {
 		in := &instance{name: fmt.Sprintf("instance-%d", i), store: &killStore{Records: c.backing.Records, Liveness: c.backing.Liveness}}
 		cfg := service.Config{
-			Store: in.store.store(), Instance: in.name, Liveness: clusterLiveness, StreamPoll: 20 * time.Millisecond,
+			Store: in.store.store(), Instance: in.name, Heartbeat: clusterLiveness, StreamPoll: 20 * time.Millisecond,
 			Admission: service.Admission{Queue: service.QueuePolicyWait},
 			Agents:    agents,
 		}

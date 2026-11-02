@@ -40,7 +40,7 @@ func (m *holdingOwner) Config() gotato.ModelConfig { return gotato.ModelConfig{}
 func addressedRunner(t *testing.T, store session.Store, instance string, model gotato.Model) *service.Runner {
 	t.Helper()
 	runner, err := service.New(service.Config{
-		Store: store, Instance: instance, Address: "http://" + instance + ".example:8080", Liveness: steadyLiveness,
+		Store: store, Instance: instance, Address: "http://" + instance + ".example:8080", Heartbeat: steadyLiveness,
 		Admission: service.Admission{Queue: service.QueuePolicyWait},
 		Agents:    []service.Agent{{Name: "echo", Model: model}},
 	})

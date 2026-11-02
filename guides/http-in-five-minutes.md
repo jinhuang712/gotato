@@ -175,7 +175,7 @@ handler := httpapi.New(runner, httpapi.WithForwarding(nil, allow))
 - The address comes from the Store, and anyone who can write that row can name it. A forward goes only to an address for which `allow` returns true; for any other, the answer is `not_writer`, as without forwarding.
 - A nil `allow` forwards nowhere. Pass the check you trust: the host is an IP literal inside your cluster's CIDR (as above; never a string prefix, which `http://10.0.evil.com` passes), or a lookup in your own list of Instances.
 - A forwarded request carries the caller's headers, so your authentication runs at the Writer. It carries `Gotato-Forwarded: true`, and the Writer never forwards it again.
-- Only a message, a notice and an abort are forwarded. A `/runs` request for a Session that another Instance is running does not answer `not_writer`: it waits for that Run to end, for at most `service.Liveness.Wait` (5 seconds unless set), then runs on this Instance, or is refused `busy` (409, not run, retryable). Send Runs through your load balancer, which hashes the `session-id` header so every request for one Session reaches one Instance.
+- Only a message, a notice and an abort are forwarded. A `/runs` request for a Session that another Instance is running does not answer `not_writer`: it waits for that Run to end, for at most `service.Heartbeat.Wait` (5 seconds unless set), then runs on this Instance, or is refused `busy` (409, not run, retryable). Send Runs through your load balancer, which hashes the `session-id` header so every request for one Session reaches one Instance.
 
 With forwarding on, the same message to the second Instance answers the Writer's own `202 {"session_id":...,"queued":true}`.
 
