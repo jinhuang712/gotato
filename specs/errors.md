@@ -32,7 +32,8 @@ The answers are set at the place of the failure, along the path of a request.
 ```text
  request ─▶ admission ─▶ claim ─▶ Run (Turns) ─▶ write ─▶ reply
 
- admission  draining, overloaded, invalid_argument, not_found,
+ admission  draining, overloaded, invalid_argument (a reserved
+            metadata key among them), not_found,
             limit_exceeded (the Runner's capacity)         ─ not run
  claim      busy, not_writer, session_closing              ─ not run
  Run        model_failure (Retryable if the Model says so),

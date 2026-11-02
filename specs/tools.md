@@ -20,11 +20,11 @@ Every tool passes the same gates before it reaches a request; a tool that fails 
  Effect:  read  <  write_local  <  write_external  <  destructive      (no Effect counts as destructive)
 ```
 
-An Effect says what a tool changes. The Agent names the highest Effect its tools may have, and a Session can lower what it offers with a filter but can never raise the cap. A tool above the cap is in no request, no inspected Context and no search index. A model that calls its name anyway gets a failed result that says the Session does not allow it, and the Run goes on. `search_tools` and `read_result` declare `read`, so every cap keeps them. Watch the default: with no cap, every tool runs.
+An Effect says what a tool changes. The Agent names the highest Effect its tools may have, and a Session can lower what it offers with a filter but can never raise the cap. Only the Agent sets the cap: an Agent holds typed fields, not options that run after the Runner's own, so nothing it carries can lift it. A tool above the cap is in no request, no inspected Context and no search index. A model that calls its name anyway gets a failed result that says the Session does not allow it, and the Run goes on. `search_tools` and `read_result` declare `read`, so every cap keeps them. Watch the default: with no cap, every tool runs.
 
 ## The catalog and the three installs
 
-A ToolSet is installed in one of three ways, and the mode sets how much of it the model reads.
+A ToolSet is installed in one of three ways, and the mode sets how much of it the model reads (`WithActiveToolSet`, `WithToolSet` and `WithFoldedToolSet` on a Session; in a service, `Agent.ToolSets` with a `Mode` of active, listed or folded, and the Runner builds the options).
 
 ```text
  install            description of search_tools shows              tools in the request
@@ -109,7 +109,7 @@ A call's `Arguments` are bytes, so JSON shows them as base64 in a Record; decode
 
 ## A big result
 
-A result over one page is written to the Record as an Entry of its own, and the Context keeps a preview.
+A result over one page is written to the Record as an Entry of its own, and the Context keeps a preview. The one page size, and the tools that read a page back, come from the `ReadBack` of the Session.
 
 ```text
  Tool returns 412 KiB ─▶ Record:  tool_result_spilled (full body)   ◀── written first
@@ -117,7 +117,11 @@ A result over one page is written to the Record as an Entry of its own, and the 
  Turn N+1: model ─ read_result(ref, page=2) ─▶ one page (32 KiB) of the body, "More: ... page=3"
 ```
 
-The body is written before the Message that points to it, so a crash between the two leaves an Entry nobody points to and nothing worse. The Message is small and written once, so the bytes already sent do not change, and a load does not read the body until it is asked for. Only text is spilled; an image stays in the Message. A Session spills only over a Record that keeps Entries, because the body needs somewhere to be read from.
+The body is written before the Message that points to it, so a crash between the two leaves an Entry nobody points to and nothing worse. The Message is small and written once, so the bytes already sent do not change, and a load does not read the body until it is asked for. Only text is spilled; an image stays in the Message. A Session spills only over a Record that keeps Entries, because the body needs somewhere to be read from, and only with a `ReadBack` installed, because a ref with no reader would leave the model a result it cannot open.
+
+The `ReadBack` (`gotato.WithReadBack`) is a `ToolSource` that also says `PageBytes()`. That one number is the spill threshold, the pages the preview counts and the page of `read_result` and `read_segment`, so they cannot disagree (a result spilled at one size and read at another was a bug, now closed). `modelctx.ReadBack{Originals, PageSize}` is the default: it offers `read_result` always, and `read_segment` once the Context holds a Segment. The tools' IDs, paging, escaping, `read` Effect and wording are fixed, since a Segment already written names them; a team replaces where the originals are read from (`modelctx.Originals`) or the page size, or the whole `ReadBack`. `CoreLimits.SpillPreviewBytes` sets how much of the body the preview keeps (8,000 bytes by default, never above the page).
+
+A service installs the default `ReadBack` over its store, so an Agent needs nothing; a Session built by hand with `gotato.NewSession` installs its own with `gotato.WithReadBack`. The service offers `read_result` when the Agent has a Tool, a ToolSource or a ToolSet, or a Segment exists. It looks at the Agent's configuration, not at the tools left after the Effect cap, so the tool list does not change from Turn to Turn and the cache prefix stays steady.
 
 ## What this buys you
 - The model never sees, plans around or searches its way to a tool above the cap.

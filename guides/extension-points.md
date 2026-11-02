@@ -22,6 +22,7 @@ By the end of this page you know which seam of Gotato to reach for when the defa
 | expose a group of tools, such as an MCP server | `gotato.ToolSet` |
 | supply tools that change between Turns | `gotato.ToolSource`, `service.Agent.ToolSources` |
 | write Recaps with a model | `modelctx.RecapWriter` (`ModelRecap`) |
+| choose when a Session compacts, or where the kept tail starts | `modelctx.Trigger`, `modelctx.Cutter`, in a `modelctx.Compactor` |
 | prune or reshape the Messages after the builder | `gotato.ContextTransformer`, `gotato.MessageConverter` |
 | speak a wire API Gotato does not ship | `gateway.WireAPI` |
 | set how often a model call is sent again, or turn it off | `gateway.Retry`, `gateway.WithRetry` |
@@ -34,6 +35,9 @@ By the end of this page you know which seam of Gotato to reach for when the defa
 | put tagged blocks in the system prompt | `gotato.ContextBlock` |
 | replace the search of `search_tools` | `gotato.ToolSearcher` |
 | write the Recap of merged Segments myself | `modelctx.MergeRecapWriter` |
+| change how a Segment reads, or how many Segments merge | `modelctx.Builder`, `modelctx.Picker` |
+| compact a Transcript that is not a `session.Record` | `modelctx.SegmentStore` |
+| read spilled results and Segments from my own store, or change the page size | `gotato.ReadBack`, `modelctx.Originals` |
 | rewrite the Transcript before a model call | `gotato.TurnPreparer` |
 | keep a Session's Events in my own log | `gotato.Journal`, `gotato.EventSource` |
 
@@ -52,12 +56,18 @@ Each row says what you want, the seam that does it, and where it lives. "Tier" t
 | limit how many Runs and Sessions one pod takes | `service.Admission` | `service.Config.Admission` | common |
 | bring all the tools of an MCP server, or any named group | `gotato.ToolSet` | `gotato.WithActiveToolSet`, `WithToolSet`, `WithFoldedToolSet`, or `service.Agent.ToolSets` with a `Mode`; `adapter/mcp` builds one | sometimes |
 | supply tools that change between Turns (by user, by feature flag) | `gotato.ToolSource` | `gotato.WithToolSource`; `service.Agent.ToolSources` | sometimes |
-| have the Agent's own model write the Recap of a Segment | `modelctx.RecapWriter` (`ModelRecap`, `TruncateRecap`) | `modelctx.CompactPolicy.Recap`, in `service.Agent.Compact` | sometimes |
+| have the Agent's own model write the Recap of a Segment | `modelctx.RecapWriter` (`ModelRecap`, `TruncateRecap`) | `modelctx.Compactor.Recap`, in `service.Agent.Compact` | sometimes |
 | drop or rewrite Messages after the builder ran | `gotato.ContextTransformer` | `gotato.WithExtension` | sometimes |
 | change the shape of Messages for one provider | `gotato.MessageConverter` | `gotato.WithExtension` | sometimes |
 | add tagged blocks to the system prompt | `gotato.ContextBlock` | `ModelContext.System`, set by a `ContextBuilder` | rare |
 | search tools my own way (embeddings, a service) | `gotato.ToolSearcher` | `gotato.WithToolSearcher` | rare |
-| write the Recap of merged Segments myself | `modelctx.MergeRecapWriter` | the same `CompactPolicy.Recap`; a writer with `WriteMergeRecap` is used for merges | rare |
+| decide when a Session compacts | `modelctx.Trigger` | `Compactor.Trigger`; the default is `CeilingTrigger` | sometimes |
+| decide where the kept tail starts | `modelctx.Cutter` | `Compactor.Cut`; the default is `TailBudget` | sometimes |
+| change how a closed stretch reads as a Segment | `modelctx.Builder` | `Compactor.Builder`; the default is `CodeSegments` | rare |
+| decide how many of the oldest Segments merge | `modelctx.Picker` | `Compactor.Merge`; the default is `OldestToHalf` | rare |
+| write the Recap of merged Segments myself | `modelctx.MergeRecapWriter` | the same `Compactor.Recap`; a writer with `WriteMergeRecap` is used for merges | rare |
+| compact a Transcript of my own | `modelctx.SegmentStore` | `modelctx.Compact(ctx, store, compactor, cfg)`, `modelctx.AutoCompact(store, compactor)` | rare |
+| read spilled results and Segments back from my own store, or change the page size | `gotato.ReadBack`, with `modelctx.Originals` | `gotato.WithReadBack`; the default is `modelctx.ReadBack{Originals: modelctx.RecordOriginals(record, log)}` | rare |
 | report the window, the cache time or the reasoning rule of my model | `Config() gotato.ModelConfig` on the `gotato.Model` (a wrapper that embeds the Model forwards it) | read by the Runner and compaction from `Model.Config().Facts` | common |
 | speak a wire API Gotato does not ship | `gateway.WireAPI` (`Encode(Call) (*Request, error)` and a `Decoder`) | the first argument of `gateway.New` | sometimes |
 | authenticate with more than a static key (a signed request, a token that expires) | an `http.RoundTripper` | `gateway.Connection.HTTPClient` | sometimes |
@@ -203,11 +213,170 @@ A ToolSet is attached with `Agent.ToolSets` (a `service.ToolSet{Set, Mode}`), no
 
 ### RecapWriter
 
-A Recap is the end of a Segment, written when a Session compacts. With no writer, a Segment has none. `modelctx.ModelRecap` has the Agent's own model write it on the cached prefix; `TruncateRecap` is the deterministic one for tests. Set it in the Agent's compaction policy:
+A Recap is the end of a Segment, written when a Session compacts. With no writer, a Segment has none. `modelctx.ModelRecap` has the Agent's own model write it on the cached prefix; `TruncateRecap` is the deterministic one for tests. Set it on the Agent's `Compactor`:
 
 ```go
-Compact: modelctx.CompactPolicy{Recap: modelctx.ModelRecap{}}, // a Runner fills in the Agent's model
+Compact: modelctx.Compactor{Recap: modelctx.ModelRecap{}}, // a Runner fills in the Agent's model
 ```
+
+A writer of your own has four methods: `Name`, `WriteRecap`, `WithAgentModel(gotato.Model) RecapWriter` (the Runner calls it to hand over the Agent's model; a writer that asks no model returns itself, and one that wraps a `ModelRecap` passes the model on) and `Validate() error` (a misconfiguration is an error at first use, not a Segment that quietly has none). Embedding the writer you wrap gives you the methods you do not change:
+
+```go
+// loggedRecap logs each Recap it is asked for and leaves the writing to the writer it wraps.
+type loggedRecap struct{ modelctx.RecapWriter }
+
+func (l loggedRecap) WriteRecap(ctx context.Context, req modelctx.RecapRequest) (gotato.Message, error) {
+	log.Printf("recap for segment %d", req.Number)
+	return l.RecapWriter.WriteRecap(ctx, req)
+}
+
+// The Runner calls this with the Agent's model, so the wrapped writer must get it.
+func (l loggedRecap) WithAgentModel(m gotato.Model) modelctx.RecapWriter {
+	return loggedRecap{l.RecapWriter.WithAgentModel(m)}
+}
+
+// in service.Agent: Compact: modelctx.Compactor{Recap: loggedRecap{modelctx.ModelRecap{}}},
+```
+
+Embedding the interface hides `WriteMergeRecap`, so merges of this writer get the digest built by code; add the method to write them too. The frame still appends your Recap escaped, so it cannot end its tag early, and a writer that fails leaves the Segment without a Recap, not without a compaction.
+
+### Compactor, Trigger and Cutter
+
+Compaction is a frame, `modelctx.Compactor`, around parts. You replace a part and keep the rest; a nil part is its default, so `modelctx.Compactor{}` is how compaction behaved before the parts were named. `CompactPolicy` (embedded) holds only numbers: `CeilingTokens`, `WindowTokens`, `DropReasoning`, `SegmentBudgetTokens` and `Location`. [How the frame works](../specs/compaction.md).
+
+```go
+Compact: modelctx.Compactor{
+	CompactPolicy: modelctx.CompactPolicy{WindowTokens: 200_000},
+	Trigger:       everyTwentyTurns{},
+	Cut:           keepLastTwenty{},
+},
+```
+
+A `Trigger` says when a compaction is due, and why. It is asked once before each model call; `gotato.CompactionWhyPastBudget` means only the oldest Segments are due to merge, any other reason closes a Segment. Wrap `modelctx.CeilingTrigger` to add a rule and keep the default ones (overflow, the ceiling, Segments past budget):
+
+```go
+// everyTwentyTurns adds a rule to the default Trigger: also compact on every 20th Turn of a Run.
+type everyTwentyTurns struct{ modelctx.CeilingTrigger }
+
+func (t everyTwentyTurns) Due(ctx context.Context, s modelctx.TurnState) (gotato.CompactionWhy, bool) {
+	if why, due := t.CeilingTrigger.Due(ctx, s); due {
+		return why, true
+	}
+	if s.Turn%20 == 0 {
+		return gotato.CompactionWhyOnDemand, true
+	}
+	return "", false
+}
+```
+
+A `Cutter` says where the kept tail starts, as an index into the Messages since the last Checkpoint; the Messages before it close into the Segment, and 0 closes nothing:
+
+```go
+// keepLastTwenty keeps the last 20 Messages word for word.
+type keepLastTwenty struct{}
+
+func (keepLastTwenty) Cut(stretch []gotato.Message, _ modelctx.CutInfo) int {
+	return max(0, len(stretch)-20)
+}
+```
+
+What the frame still guarantees: a Turn compacts at most once, whatever the Trigger says, and a Run still past the ceiling after its compaction ends `limit_exceeded`; a Trigger that panics, or says due with no reason, drops that Turn's compaction and publishes an `extension_failed` Event. The cut must be inside the stretch (else the compaction fails); the frame moves it forward to a Turn boundary so a tool call keeps its result, and back so a Run's last Turn is kept, and the tail is the Messages as committed, less reasoning and usage. A Cutter cannot drop or move a Segment.
+
+For one call, `modelctx.CompactConfig` changes the numbers, `KeepMessages` (the Cutter becomes `TailBudget{KeepMessages}`) and the Recap writer; it does not need a part of its own.
+
+### Builder and Picker
+
+A `Builder` renders the closed Messages as a Segment. Its settings live with it: `CodeSegments{SegmentSettings{MessageTokens, ToolLines, ArgChars}}`, so most teams change a number and write no code:
+
+```go
+Builder: modelctx.CodeSegments{SegmentSettings: modelctx.SegmentSettings{MessageTokens: 500}},
+```
+
+A Builder of your own wraps the default or writes the Messages itself:
+
+```go
+// countedSegments builds the default Segment and counts it.
+type countedSegments struct {
+	modelctx.CodeSegments
+	built *atomic.Int64
+}
+
+func (b countedSegments) Build(closed []gotato.Message, info modelctx.SegmentInfo) (gotato.Segment, error) {
+	b.built.Add(1)
+	return b.CodeSegments.Build(closed, info)
+}
+```
+
+What the frame still guarantees: it stamps `Number`, `From`, `To`, `Source`, `Merged` and the Message IDs `segment-<n>-<i>`, appends the Recap escaped, and refuses what would break decisions 034 and 043: a Message that is not a plain user or assistant Message, a tagged Part (one of the four tags) whose text holds a tag or is not of the form `<tag ...>...</tag>`, and a ref that names nothing the Segment closed. The refs it checks are the two shapes `CodeSegments` writes: `[result:<call_id> ...]` ending a tool call line in `<tool_calls>`, and a line `ref msg:<message_id>` in `<segment>` (build them with package `ref`). A Builder that errs or panics drops the compaction.
+
+A `Picker` says how many of the oldest Segments a merge replaces. It is asked only when the Segments pass their budget and there are at least two:
+
+```go
+// allButTwo folds every Segment but the newest two, once there are at least two to fold.
+type allButTwo struct{}
+
+func (allButTwo) Pick(segments []gotato.Segment, _ int) int {
+	if n := len(segments) - 2; n >= 2 {
+		return n
+	}
+	return 0 // merges nothing
+}
+```
+
+The frame replaces two or more of the first Segments, never a later one. An answer of 1, or of more than there are, fails the merge with the reason `pick_failed` and nothing is merged; 0 merges nothing.
+
+### SegmentStore
+
+A `modelctx.SegmentStore` is what a compaction reads and writes. `*session.Record` is one, so a Session over a `session.Store` compacts with no work. Implement it for a Transcript of your own (see [Transcript and its Capabilities](#transcript-and-its-capabilities)) that keeps the originals a Segment refers to:
+
+```go
+type myStore struct{ /* your Transcript's state */ }
+
+func (s *myStore) ID() string                                  { /* the Session's ID */ }
+func (s *myStore) Tail() []gotato.Message                      { /* what came since the last Checkpoint, and what it kept */ }
+func (s *myStore) Segments() []gotato.Segment                  { /* the Segments the Context starts with, oldest first */ }
+func (s *myStore) NextSegment() int                            { /* the number the next Segment gets */ }
+func (s *myStore) Position(id gotato.MessageID) (gotato.MessagePosition, bool) { /* where and when a Message was committed */ }
+func (s *myStore) LoadedTools() []string                       { /* qualified IDs of the loaded Tools */ }
+func (s *myStore) Emit(e gotato.Event)                         { /* publish compaction_started and the rest */ }
+
+// One batch: write the Segment and the Checkpoint whose Context is every Segment held, then segment, then tail.
+// The Tools it keeps loaded are compaction.LoadedTools. When it fails, nothing changed.
+func (s *myStore) CloseSegment(why gotato.CompactionWhy, seg gotato.Segment, tail []gotato.Message, c *gotato.Compaction) (gotato.Segment, error) { /* ... */ }
+
+// One batch: write the merged Segment and the Checkpoint whose Context is merged, the Segments after the ones
+// replaced (replaces are the numbers of the first Segments), then tail.
+func (s *myStore) MergeSegments(why gotato.CompactionWhy, merged gotato.Segment, replaces []int, tail []gotato.Message, c *gotato.Compaction) (gotato.Segment, error) { /* ... */ }
+
+// then: modelctx.AutoCompact(store, compactor) is the TurnPreparer; modelctx.Compact(ctx, store, compactor, cfg) compacts once.
+```
+
+What the frame still guarantees: only it calls the two writes, one batch per call. `CloseSegment` lists every Segment of the Context itself (a caller cannot drop or move one) and sets the loaded Tools from `Compaction.LoadedTools` in the same step. A panic in your store is a dropped compaction, not a dead Run, and an error you return keeps its own code (a conflict stays a conflict).
+
+### ReadBack and Originals
+
+A `gotato.ReadBack` is a `ToolSource` that also says `PageBytes() int`. It gives a Session its tools for reading back what left the Context, and the one page size that the spill threshold, the pages of a preview and both read tools share. Install it with `gotato.WithReadBack`; a Session spills a large Tool Result only with one installed (and a Transcript that keeps Entries). `modelctx.ReadBack{Originals, PageSize, Location}` is the default and offers `read_result` and, once the Context holds a Segment, `read_segment`. A service installs it over its store, so most teams write nothing. To read from your own store, supply `modelctx.Originals`, and set the page size if 32 KiB (`modelctx.DefaultPageBytes`) is not right:
+
+```go
+type myOriginals struct{ db *sql.DB }
+
+// Ref returns a Message by its ref: result:<call_id> or msg:<message_id>.
+func (o myOriginals) Ref(ctx context.Context, r ref.Ref) (gotato.Message, error) {
+	// look it up; return modelctx.ErrNoOriginal when nothing has it, modelctx.ErrRemoved when it was pruned
+	return gotato.Message{}, modelctx.ErrNoOriginal
+}
+
+// Segment returns the Messages Segment n closed, and whether it returned all of them.
+func (o myOriginals) Segment(ctx context.Context, n int) ([]gotato.Message, bool, error) {
+	return nil, false, modelctx.ErrNoOriginal
+}
+
+gotato.WithReadBack(modelctx.ReadBack{Originals: myOriginals{db}, PageSize: 16 << 10})
+```
+
+Add `Segments() []gotato.Segment` to your `Originals`, as `modelctx.RecordOriginals` has, and `read_segment` is offered only once the Context holds a Segment; without it, it is always offered. An `ErrNoOriginal` may carry a `Hint() string`, text shown to the model after the words for a ref that names nothing (for example the refs the store holds). Any other error is a store failure and its text is never shown to the model.
+
+What the ReadBack still guarantees: the IDs `read_result` and `read_segment` (`ref.ReadResult`, `ref.ReadSegment`), the paging, the escaping of the four tags, the `read` Effect and the wording are fixed, since written Segments name them; only where the originals are, and how big a page is, are yours. `NewSession` asks `PageBytes` once and refuses a value below 1, or a panic, with `invalid_argument`; a Tool ID it shares with another source fails the Session like any other.
 
 ### ContextTransformer and MessageConverter
 
@@ -251,7 +420,7 @@ Replaces the built-in BM25 search of `search_tools`. Gotato hands it a query and
 
 ### MergeRecapWriter
 
-When the oldest Segments pass their budget they are merged into one. A `RecapWriter` that also has `WriteMergeRecap` writes the Recap of the merge (`ModelRecap` does). Any other writer leaves the merged Segment with a digest built by code.
+When the oldest Segments pass their budget they are merged into one (the Picker says how many). A `RecapWriter` that also has `WriteMergeRecap` writes the Recap of the merge (`ModelRecap` does). Any other writer leaves the merged Segment with a digest built by code.
 
 ### Model config
 
