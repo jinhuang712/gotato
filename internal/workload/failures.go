@@ -28,7 +28,7 @@ const (
 	// CauseModel means the model got a tool call wrong, or its answers missed the
 	// task's goal.
 	CauseModel Cause = "model"
-	// CauseProvider means a model call failed after the gateway's retries, or its
+	// CauseProvider means a model call failed after the model bridge's retries, or its
 	// reply could not be read.
 	CauseProvider Cause = "provider"
 	// CauseTool means the tool ran and failed.

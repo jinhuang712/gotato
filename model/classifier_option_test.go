@@ -103,7 +103,7 @@ func TestWithClassifierJudgesAnErrorEventInTheStream(t *testing.T) {
 		events, err := collectEvents(t, stream)
 		var gerr *Error
 		if !errors.As(err, &gerr) {
-			t.Fatalf("err = %v, want a *gateway.Error", err)
+			t.Fatalf("err = %v, want a *model.Error", err)
 		}
 		return gerr, events
 	}

@@ -159,12 +159,12 @@ func TestDrainCancelsToolSetResolution(t *testing.T) {
 	}
 }
 
-// These tests run a Runner with a gateway Agent against internal/fakegateway: the
+// These tests run a Runner with a model.Client Agent against internal/fakegateway: the
 // Phase 10 exit item "an overflow in each provider's form compacts and sends
 // again", and the same for a Session past its ceiling. The fake refuses a
 // request past its window in each provider's own words and status.
 
-// gatewaySetup is a wire API, its path on the fake gateway and the model that
+// gatewaySetup is a wire API, its path on the fake endpoint and the model that
 // speaks it. The window is unknown: the tests set the ceiling in the policy.
 type gatewaySetup struct {
 	wire  model.WireAPI

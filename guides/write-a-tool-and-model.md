@@ -180,7 +180,7 @@ func (s TicketTools) Tools(context.Context) ([]gotato.Tool, error) {
 
 ## Models
 
-A Model is two methods: `Stream(ctx, ModelRequest) (ModelStream, error)` starts a call, and `Config() ModelConfig` says what the model is: its name, its facts (the context window, how long its provider keeps the prompt cache, whether it takes back only the current Round's reasoning) and its default sampling. The `gateway` package implements it for OpenAI Chat Completions, OpenAI Responses and Anthropic Messages. You write your own Model to reach a provider it does not cover, or you wrap one. A Model that states nothing returns the zero `gotato.ModelConfig`: an unknown window, so compaction has no ceiling and runs only after the provider refuses a request as too long.
+A Model is two methods: `Stream(ctx, ModelRequest) (ModelStream, error)` starts a call, and `Config() ModelConfig` says what the model is: its name, its facts (the context window, how long its provider keeps the prompt cache, whether it takes back only the current Round's reasoning) and its default sampling. The `model` package implements it for OpenAI Chat Completions, OpenAI Responses and Anthropic Messages. You write your own Model to reach a provider it does not cover, or you wrap one. A Model that states nothing returns the zero `gotato.ModelConfig`: an unknown window, so compaction has no ceiling and runs only after the provider refuses a request as too long.
 
 ### A Model wrapper
 
@@ -260,7 +260,7 @@ func (TooLong) Error() string         { return "provider: prompt too long" }
 func (TooLong) ContextOverflow() bool { return true }
 ```
 
-A Model that retries inside itself, as the gateway providers do, calls `gotato.ReportModelRetry(ctx, ...)` before it waits, so the Session stores a `ModelRetried` Event and discards the reply so far.
+A Model that retries inside itself, as the `model` package's wire APIs do, calls `gotato.ReportModelRetry(ctx, ...)` before it waits, so the Session stores a `ModelRetried` Event and discards the reply so far.
 
 A context error is the caller's only when the Run's context really ended; one the Model produced itself (an HTTP client timeout) is a retryable `model_failure`.
 

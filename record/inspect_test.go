@@ -95,7 +95,7 @@ func TestReportPartsAddUpToTheWhole(t *testing.T) {
 	if diff := sum - whole; diff < -1 || diff > len(parts) {
 		t.Fatalf("parts add up to %d, whole is %d", sum, whole)
 	}
-	// The same numbers as the modelctx rule: the history part is the user
+	// The same numbers as the record package rule: the history part is the user
 	// and assistant Messages alone.
 	history := []gotato.Message{messages[1], messages[2], messages[4], messages[5], messages[6]}
 	if got := record.EstimateTokens(history); report.EstimateHistoryTokens < got-2 || report.EstimateHistoryTokens > got+1 {

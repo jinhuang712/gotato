@@ -41,10 +41,10 @@ func TestErrorCodesListsEveryCodeOfTheService(t *testing.T) {
 			t.Errorf("ErrorCodes does not list %q", code)
 		}
 	}
-	// A code is the service's or the core's, never both.
+	// A code is the host's or the core's, never both.
 	for _, code := range listed {
 		if slices.Contains(gotato.ErrorCodes(), code) {
-			t.Errorf("%q is listed by the core and by the service", code)
+			t.Errorf("%q is listed by the core and by the host", code)
 		}
 	}
 }
@@ -66,7 +66,7 @@ func TestServiceCodesKeepTheirStrings(t *testing.T) {
 	}
 }
 
-// What the service's codes say about the request they refuse: the codes the
+// What the host's codes say about the request they refuse: the codes the
 // core used to default.
 func TestServiceCodesSayWhetherTheyRan(t *testing.T) {
 	for _, tc := range []struct {
@@ -92,9 +92,9 @@ func TestServiceCodesSayWhetherTheyRan(t *testing.T) {
 	if err := notWriter("i-1", "http://i-1:8080"); !gotato.NotRun(err) || !gotato.Retryable(err) || !gotato.IsCode(err, CodeNotWriter) {
 		t.Errorf("notWriter = %v", err)
 	}
-	// The core's ErrorOf knows none of them: they are neither, until the service says.
+	// The core's ErrorOf knows none of them: they are neither, until the host says.
 	if bare := gotato.ErrorOf(CodeDraining, "x"); bare.NotRun || bare.Retryable {
-		t.Error("gotato.ErrorOf still defaults a code of the service")
+		t.Error("gotato.ErrorOf still defaults a code of the host")
 	}
 	if errors.Is(ErrDraining, ErrOverloaded) {
 		t.Error("ErrDraining matches ErrOverloaded")

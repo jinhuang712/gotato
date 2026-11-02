@@ -30,7 +30,7 @@ func TestErrorIsPublicAndKeepsTheTransportCauseHidden(t *testing.T) {
 	sent := &Error{Message: "the request could not be sent", cause: cause}
 	var public gotato.PublicError
 	if !errors.As(error(sent), &public) {
-		t.Fatal("gateway.Error is not a gotato.PublicError")
+		t.Fatal("model.Error is not a gotato.PublicError")
 	}
 	if strings.Contains(public.Public(), "gateway.internal") || !errors.Is(sent, cause) {
 		t.Fatalf("public text %q, cause kept = %v", public.Public(), errors.Is(sent, cause))
@@ -88,7 +88,7 @@ func TestStreamErrorsAreClassifiedAlikeOnEveryWire(t *testing.T) {
 				t.Fatalf("Retryable() = %v, want %v (%v)", gatewayErr.Retryable(), tc.retryable, err)
 			}
 			if got := requests.Load(); got != 1 {
-				t.Fatalf("requests = %d, want 1: a stream that started is never sent again by the gateway", got)
+				t.Fatalf("requests = %d, want 1: a stream that started is never sent again by the Client", got)
 			}
 		})
 	}

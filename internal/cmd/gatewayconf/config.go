@@ -1,7 +1,7 @@
 // Package gatewayconf reads the gateway YAML file that Gotato's own command
 // line tools take (gotato --gateway-config, gotato-workload -gateway-config).
 // It is the one place a wire API's name maps to a model.WireAPI value: the
-// gateway library keeps no names, no table of providers and no file format,
+// model package keeps no names, no table of providers and no file format,
 // so a service builds its Client in Go, and only these tools read a file.
 //
 // gateway.example.yaml, next to this file, is the commented file to copy.

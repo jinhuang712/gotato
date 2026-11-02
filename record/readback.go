@@ -21,7 +21,7 @@ const (
 // back what compaction and the spill moved out of the Context, and owns the
 // page size they and the spill share. Install it with gotato.WithReadBack.
 //
-//	gotato.WithReadBack(record.ReadBack{Originals: record.RecordOriginals(record, store.Records)})
+//	gotato.WithReadBack(record.ReadBack{Originals: record.OriginalsOf(rec, st)})
 //
 // The tools are fixed, since a Segment already written names them: read_result
 // (ref.ReadResult) returns the original of a ref, a Tool Result or a Message,

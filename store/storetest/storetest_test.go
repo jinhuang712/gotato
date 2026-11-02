@@ -242,7 +242,7 @@ func TestTheSuiteCatchesAStoreThatDropsAField(t *testing.T) {
 	problems := storetest.CheckRecords(context.Background(), recordsOf(func(m *store.MemoryStore) store.Records {
 		return columns{m, func(h *record.Header) { h.LogFrom = 0 }}
 	}))
-	if !mentions(problems, "every field of Header, RecordInfo and Entry is kept") {
+	if !mentions(problems, "every field of Header, Info and Entry is kept") {
 		t.Fatalf("problems = %v, want the field check to fail", problems)
 	}
 }
@@ -399,7 +399,7 @@ func TestTheListerSuiteNeedsAListerAndAcceptsAnyCursorFormat(t *testing.T) {
 		shared := store.NewMemoryStore()
 		return func() store.Records { return onlyRecords{shared} }, nil, nil
 	})
-	if len(problems) == 0 || !strings.Contains(problems[0].Error(), "not a session.Lister") {
+	if len(problems) == 0 || !strings.Contains(problems[0].Error(), "not a store.Lister") {
 		t.Fatalf("problems = %v, want every check to say the Records is not a Lister", problems)
 	}
 	if problems := storetest.CheckLister(context.Background(), recordsOf(func(m *store.MemoryStore) store.Records { return paging{m, 0} })); len(problems) > 0 {

@@ -137,7 +137,7 @@ var recordsChecks = []check{
 	{"a canceled context stops Append and Load and writes nothing", checkCanceled},
 	{"an ID the store cannot keep is refused with ErrInvalidID by every call that takes an ID", checkInvalidID},
 	{"Create and Append refuse a Header with no Epoch with invalid_argument", checkEmptyEpoch},
-	{"every field of Header, RecordInfo and Entry is kept", checkFieldsKept},
+	{"every field of Header, Info and Entry is kept", checkFieldsKept},
 	{"IDs that differ only in case or Unicode form are different Records", checkIDCase},
 }
 
@@ -168,10 +168,10 @@ var livenessChecks = []livenessCheck{
 }
 
 var listerChecks = []check{
-	{"List returns the last RecordInfo of each Record, newest update first", checkList},
+	{"List returns the last Info of each Record, newest update first", checkList},
 	{"List pages by Limit and Cursor, every Record once", checkListPaging},
 	{"List with a Cursor the store did not make is an error", checkListBadCursor},
-	{"every field of RecordInfo is kept and listed", checkListInfoKept},
+	{"every field of Info is kept and listed", checkListInfoKept},
 	{"List leaves out a deleted Record and keeps IDs that differ by case or Unicode form apart", checkListAfterDelete},
 }
 

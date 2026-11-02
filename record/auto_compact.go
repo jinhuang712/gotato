@@ -202,7 +202,7 @@ func (a *AutoCompactor) mergeOnly(ctx context.Context, pending gotato.PendingTur
 }
 
 // refusalLimit returns the limit in tokens that the error refusing a request
-// names, or 0 when it names none. The gateway's Error reads it from the
+// names, or 0 when it names none. model.Error reads it from the
 // provider's wording (ContextLimit).
 func refusalLimit(refusal error) int {
 	var named interface{ ContextLimit() int }

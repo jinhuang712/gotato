@@ -8,7 +8,7 @@ import (
 )
 
 // The host calls, as a test outside the core reaches them: through
-// internal/hostlink, with the type of each asserted once, as the service does.
+// internal/hostlink, with the type of each asserted once, as package host does.
 var (
 	withFeed         = hostlink.WithFeed.(func(*gotato.Feed) gotato.SessionOption)
 	withRunStart     = hostlink.WithRunStart.(func(func(gotato.RunID)) gotato.SessionOption)

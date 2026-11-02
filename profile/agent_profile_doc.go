@@ -12,7 +12,7 @@ import (
 )
 
 // KindAgentProfile is the kind under which a store keeps AgentProfile
-// documents (session.Definitions), and KindTaskSpec the kind of TaskSpecs.
+// documents (store.Definitions), and KindTaskSpec the kind of TaskSpecs.
 const (
 	KindAgentProfile = "agent_profile"
 	KindTaskSpec     = "task_spec"

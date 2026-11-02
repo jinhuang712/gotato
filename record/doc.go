@@ -68,6 +68,6 @@
 //	    gotato.WithInstruction(agentsMD),
 //	    gotato.WithTranscript(s),
 //	    gotato.WithExtension(record.AutoCompact(s, record.Compactor{CompactPolicy: record.CompactPolicy{CeilingTokens: 60000}})),
-//	    gotato.WithReadBack(record.ReadBack{Originals: record.RecordOriginals(s, store)}),
+//	    gotato.WithReadBack(record.ReadBack{Originals: record.OriginalsOf(rec, st)}),
 //	)
 package record

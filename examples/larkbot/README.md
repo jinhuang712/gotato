@@ -38,7 +38,7 @@ Lark ◄── reply to the user's message ◄── replyLoop ◄── runner.
 
 The streaming card is `streamRun` in `stream.go`. For a message that finds the Session idle, the bot:
 
-1. reads the Session's Record, through the store it gave the Runner (`session.View`, since `Runner.Record` answers a copy that does not say who holds the Session): if any Instance holds it, a Run is going, so it uses `Runner.Send` as before (that queues the text, or answers `not_writer` and the bot forwards);
+1. reads the Session's Record, through the store it gave the Runner (`store.View`, since `Runner.Record` answers a copy that does not say who holds the Session): if any Instance holds it, a Run is going, so it uses `Runner.Send` as before (that queues the text, or answers `not_writer` and the bot forwards);
 2. posts a card (`...`) as a reply to the user's message, and starts the Run with `Runner.StreamRun`, with the Lark `message_id` as `RequestID` and the card's own id in `Update` (Session metadata `lark.card`);
 3. in the sink, buffers `text_delta` and updates the card (Lark's patch-message API) at most every 500 ms (`bot.streamEvery`, shortened in tests); a new reply (`reply_started`) clears the buffer, since a reply that ends in tool calls is a draft;
 4. when the Run settles, sets the card to the Run's `FinalText` (or a notice when it did not complete). It reads the Run's response, not Events, so a skipped delta cannot leave the card half written, and `replyLoop` does not post that Run a second time;
@@ -139,7 +139,7 @@ For tests, `-script` plays `[script:NAME]` directives in a message with a script
 
 ## Run it on a local cluster
 
-Three bot replicas on a local [kind](https://kind.sigs.k8s.io/) cluster, one shared file store, a fake Lark in front (random delivery and redelivery) and Gotato's fake gateway (`internal/fakegateway`) as the model. Nothing connects to the real Lark or to a real model, and your own kubectl context is not touched: the cluster has its own kubeconfig in `cluster/.state/`, and every command names the context `kind-gotato`.
+Three bot replicas on a local [kind](https://kind.sigs.k8s.io/) cluster, one shared file store, a fake Lark in front (random delivery and redelivery) and Gotato's fake model endpoint (`internal/fakegateway`) as the model. Nothing connects to the real Lark or to a real model, and your own kubectl context is not touched: the cluster has its own kubeconfig in `cluster/.state/`, and every command names the context `kind-gotato`.
 
 You need Docker, `kind`, `kubectl` and Go. Any Docker works. From a clean clone of Gotato:
 

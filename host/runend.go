@@ -167,7 +167,7 @@ func (r *Runner) noteFailure(err error, sessionID, agent string) {
 	}
 }
 
-// foreignError builds the RuntimeError of a failure whose text the service did
+// foreignError builds the RuntimeError of a failure whose text the host did
 // not write (a Store's error, say). Message reaches HTTP clients, so it is the
 // text of a gotato.PublicError that err is or wraps, else the fixed fallback;
 // err itself stays on the Cause for logs.

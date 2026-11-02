@@ -79,7 +79,7 @@ type Store struct {
 //   - What Load, Log and List return is the caller's to read and the store's
 //     to keep: a caller must not modify it, and an adapter with a cache may
 //     return it without a copy. MemoryStore returns copies.
-//   - RecordInfo, Header and Entry gain fields. An adapter that maps them to
+//   - Info, Header and Entry gain fields. An adapter that maps them to
 //     columns must round-trip every field, also the ones it was written
 //     before; the suite fails an adapter that drops one, and storing the whole
 //     value (its JSON) next to the columns it indexes keeps a later field.
@@ -118,7 +118,7 @@ type Records interface {
 
 // ListQuery asks a Lister for one page of Records.
 type ListQuery struct {
-	// Limit is the most RecordInfos the page holds. 0 or less leaves the size
+	// Limit is the most Infos the page holds. 0 or less leaves the size
 	// to the store; a store may also return fewer than Limit.
 	Limit int
 	// Cursor is the Next of the page before, or empty for the first page.

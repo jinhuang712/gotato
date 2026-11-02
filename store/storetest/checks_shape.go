@@ -41,7 +41,7 @@ func checkEmptyEpoch(ctx context.Context, open Open) error {
 	return nil
 }
 
-// checkFieldsKept round-trips every field of Header (RecordInfo included) and
+// checkFieldsKept round-trips every field of Header (Info included) and
 // Entry through the store, found by reflection: a field added to one of them
 // later is filled by this check without a change here, so an adapter that maps
 // the fields it knew to columns, and drops a new one, fails.

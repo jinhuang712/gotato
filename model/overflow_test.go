@@ -145,7 +145,7 @@ func TestOverflowErrorFlowsThroughAWrappedError(t *testing.T) {
 	}
 }
 
-// A rate limit that is still refused after the gateway's own retries reaches
+// A rate limit that is still refused after the Client's own retries reaches
 // the Run as a retryable model_failure.
 func TestRateLimitReachesTheRunAsRetryable(t *testing.T) {
 	var calls atomic.Int32

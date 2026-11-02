@@ -14,7 +14,7 @@ Gotato is a minimal, synchronous Go library. An **Agent** is a definition (model
 | add the module | `guides/install.md` (pin `@v0.2.0`, never `@main`) |
 | one in-process agent, a tool, Events | `guides/getting-started.md` |
 | many pods, a Store, shutdown | `guides/embed-in-a-service.md`, `guides/minimal-main.md` |
-| an HTTP API you can curl | `guides/http-in-five-minutes.md` |
+| an HTTP API you can curl | `guides/http-in-five-minutes.md` (`adapter/http`, a module of its own) |
 | your own Tool, ToolSet or Model | `guides/write-a-tool-and-model.md` |
 | your own database as the Store | `guides/write-a-store.md` |
 | tests with no network | `guides/test-with-fakes.md` |
@@ -24,20 +24,20 @@ Gotato is a minimal, synchronous Go library. An **Agent** is a definition (model
 
 ## Rules that save time
 
-- Import the core as `github.com/jinhuang712/gotato/gotato` (package `gotato`); `session`, `service`, `service/httpapi`, `modelctx`, `gateway`, `testkit` are siblings.
-- Start with `testkit` fakes (`EchoModel`, `DemoModel`, `NewFakeModel(testkit.ToolCalls(...), testkit.Text(...))`). A real model comes from `gateway.New(wire, connection, model)` (the CLI and the workload tool read a YAML file for it); no key is needed to start.
+- Import the core as `github.com/jinhuang712/gotato/gotato` (package `gotato`); `ref`, `record`, `store`, `profile`, `host`, `model` and `testkit` are siblings, and `adapter/http` and `adapter/mcp` are modules of their own. Layers import down only: `host` -> `profile` -> `store` -> `record` -> `gotato` -> `ref`.
+- Start with `testkit` fakes (`EchoModel`, `DemoModel`, `NewFakeModel(testkit.ToolCalls(...), testkit.Text(...))`). A real model comes from `model.New(wire, connection, config)` (the CLI and the workload tool read a YAML file for it); no key is needed to start.
 - A Tool is `gotato.NewFuncTool(name, description, func(ctx, In) (string, error))`. Declare the effect read-only with `gotato.ToolWithEffect(tool, gotato.ToolEffectRead)` when it is; an undeclared Tool counts as destructive.
 - A `testkit.FakeModel` shares one script across all Runs; in a server test use `testkit.NewFuncModel` (it has no `Delay`: wait inside the function).
 - Pass `ctx` everywhere; it cancels model and tool calls.
 - A tool's error text reaches the model only if the error implements `gotato.PublicError` (a `Public() string` method); otherwise the model sees `tool failed`.
 - A `ToolSet` goes in `Agent.ToolSets` (with a `Mode`), not in `Agent.ToolSources`. An Extension goes in `Agent.Extensions`. There is no `Agent.Options`: the Runner builds every `SessionOption`.
-- A Session has no instruction or ceiling of its own. Another instruction is another Agent, named by `RunRequest.Agent`. A metadata key that starts with `gotato.` is the Runner's, and `CreateSession`, `RunRequest.Metadata` and `RunRequest.Update` refuse it with `service.ErrReservedKey`.
-- `Runner.CreateSession(ctx, service.CreateSessionRequest{...})`, `Fork` and `Record` return values (`RecordInfo`, `RecordInfo`, `Document`); there is no `Runner.Store()`.
+- A Session has no instruction or ceiling of its own. Another instruction is another Agent, named by `RunRequest.Agent`. A metadata key that starts with `gotato.` is the Runner's, and `CreateSession`, `RunRequest.Metadata` and `RunRequest.Update` refuse it with `host.ErrReservedKey`.
+- `Runner.CreateSession(ctx, host.CreateSessionRequest{...})`, `Fork` and `Record` return values (`record.Info`, `record.Info`, `record.Document`); there is no `Runner.Store()`.
 - A wrapper Model must implement `Unwrap() gotato.Model`, or the context window and cache hints are lost.
 - On shutdown: `Drain`, then `Shutdown` the HTTP server, then `Runner.Close`.
 - Errors are `*gotato.RuntimeError` with a code. `gotato.NotRun(err)` means nothing happened, so resend elsewhere; `gotato.Retryable(err)` means it ran and a later retry may work. HTTP carries both as `Gotato-Not-Run` and `Gotato-Retryable`.
-- Forwarding between pods is off; `httpapi.WithForwarding(client, allow)` needs an allow function for writer addresses.
-- Run `storetest.RunRecords` and `storetest.RunLiveness` on any Records and Liveness you write (and `storetest.RunLister` on a Lister).
+- Forwarding between pods is off; `httpapi.WithForwarding(client, allow)` (`httpapi` is `github.com/jinhuang712/gotato/adapter/http`) needs an allow function for writer addresses.
+- Run `storetest.RunRecords` and `storetest.RunLiveness` (package `store/storetest`) on any `store.Records` and `store.Liveness` you write (and `storetest.RunLister` on a `store.Lister`). The Entry, Header, Info and Loaded such a store returns are `record` types.
 
 ## Smallest working program
 

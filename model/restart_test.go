@@ -648,7 +648,7 @@ func TestAnthropicStreamIsNotReplayedAfterOutputBegan(t *testing.T) {
 }
 
 // A Recap is written outside a Session, so no one drops what a cut stream
-// already delivered: the gateway does not send the request again, and the
+// already delivered: the Client does not send the request again, and the
 // Recap fails rather than join the cut text with a second reply.
 func TestARecapOverACutStreamFailsWithoutARestart(t *testing.T) {
 	for _, wire := range fakeWires {

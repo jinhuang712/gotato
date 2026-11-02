@@ -265,6 +265,6 @@ func TestLapsedAndNotRunIfLapsedTellTheGuardFromOtherConflicts(t *testing.T) {
 		t.Fatalf("NotRunIfLapsed changed another error: %v", got)
 	}
 	if !errors.Is(ErrLapsed, store.ErrConflict) {
-		t.Fatal("ErrLapsed does not match session.ErrConflict, so a lost-race check would miss it")
+		t.Fatal("ErrLapsed does not match store.ErrConflict, so a lost-race check would miss it")
 	}
 }

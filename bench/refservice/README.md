@@ -1,6 +1,6 @@
 # bench/refservice
 
-The reference service that GOALS.md G-B10 (startup time) and G-B12 (footprint) measure: the smallest program a team would write to embed Gotato in its own Go service. It is a nested Go module, so the root `go test ./...` does not build it.
+The reference service that GOALS.md G-B10 (startup time) and G-B12 (footprint) measure: the smallest program a team would write to embed Gotato in its own Go service. It is a nested Go module, so the root `go test ./...` does not build it; it requires the root module and `adapter/http` (a module of its own), both by `replace`.
 
 Run both from the repository root:
 

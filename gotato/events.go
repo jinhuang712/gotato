@@ -290,7 +290,7 @@ type ReplyPartKept struct {
 	Reasoning string    `json:"reasoning,omitempty"`
 }
 
-// ModelRetried is published when the gateway calls the model again.
+// ModelRetried is published when the model bridge calls the model again.
 type ModelRetried struct {
 	Header
 	Attempt int     `json:"attempt"`

@@ -14,7 +14,7 @@ import (
 )
 
 // streamedCalls plays chunks as a chat stream and returns the Tool calls the
-// gateway made of them.
+// Client made of them.
 func streamedCalls(t *testing.T, chunks ...string) []gotato.ToolCall {
 	t.Helper()
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
@@ -282,7 +282,7 @@ func TestGatewayStreamDefaultsEmptyToolArguments(t *testing.T) {
 // Observed in Mow: a DeepSeek Worker failed after 70 turns with HTTP 400
 // "The `reasoning_content` in the thinking mode must be passed back to the
 // API." The chat-completions stream carried reasoning_content that the
-// gateway dropped, so the next request could not send it back. Reasoning
+// Client dropped, so the next request could not send it back. Reasoning
 // deltas become reasoning events, and an assistant message's reasoning is
 // replayed as reasoning_content, never mixed into content.
 func TestChatReasoningContentIsKeptAndPassedBack(t *testing.T) {

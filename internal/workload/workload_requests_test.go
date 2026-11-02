@@ -220,7 +220,7 @@ func TestSameRecordSameRequest(t *testing.T) {
 // The exceptions principle 2 in DESIGNS.md names do not occur in this play, and the test says
 // why for each:
 //   - A new Round leaving out the last Round's reasoning happens in the
-//     gateway's encoder (the RoundReasoning fact), after the
+//     model bridge's encoder (the RoundReasoning fact), after the
 //     request is built. The ModelRequest carries every reasoning artifact, so
 //     "with reasoning" plays tasks whose replies all carry reasoning and
 //     requires the prefix to hold with it.
@@ -368,8 +368,8 @@ func checkToolLoading(t *testing.T, pair string, prev, next gotato.ModelRequest)
 	}
 }
 
-// wireBodies encodes every request with the gateway for one wire API and
-// deferred form, as the gateway would send it, and returns the JSON bodies and the form the Client used.
+// wireBodies encodes every request with the model bridge for one wire API and
+// deferred form, as the model bridge would send it, and returns the JSON bodies and the form the Client used.
 func wireBodies(t *testing.T, api wireName, form model.DeferredForm, requests []gotato.ModelRequest) ([]map[string]json.RawMessage, model.DeferredForm) {
 	t.Helper()
 	var mu sync.Mutex
@@ -450,10 +450,10 @@ func TestToolSearchRequestOnlyGrowsAtItsEnd(t *testing.T) {
 	t.Logf("%d request pairs, %d of them across a load", len(requests)-1, loads)
 }
 
-// TestWireRequestOnlyGrowsAtItsEnd checks G-G07 on the bytes the gateway
+// TestWireRequestOnlyGrowsAtItsEnd checks G-G07 on the bytes the model bridge
 // encodes, for every reference task, on each wire API and each form of deferred
 // tools. Each task is played as in TestRequestOnlyGrowsAtItsEnd, and the
-// gateway encodes its requests. Between two consecutive requests of a pair:
+// model bridge encodes its requests. Between two consecutive requests of a pair:
 //
 //   - the instruction keeps its bytes;
 //   - the Messages of the earlier request come first in the later one, byte for

@@ -2,9 +2,11 @@
 
 A Session has to outlive its Instance: the process can stop between two Steps, and any other Instance must be able to pick the Session up. So Gotato keeps what happened in a Record in the Store, one Entry at a time, and never rewrites an Entry. The Session in memory is rebuilt from the Record, and nothing else holds the truth. This spec shows how the Record is laid out, what the Store promises, and what keeps two writers, or two lives of one ID, apart.
 
+The Record, its Entries and the Context built from it live in package `record`, and the Store's contract, the Writer and the memory and file stores live in package `store`, which imports `record` and never the reverse: the Record does not know how it is saved ([decision 050](../plan/decisions/050-each-package-is-one-layer-named-for-its-job.md)). The Context is in [context.md](context.md) and compaction in [compaction.md](compaction.md), and both are `record` too.
+
 ## TL;DR
 - A Record is an append-only log of Entries. Facts rebuild the Session, Log entries only say what happened, and every Entry is also an Event.
-- The Store is two seams: `Records` makes one promise, a batch lands whole, at the position after the head the Writer read, or it is refused (the Record epoch refuses a Writer of a Record that was deleted), and `Liveness` keeps one row per Instance. Listing is an optional third, `Lister`. A service that keeps its Agent definitions in its own database implements a separate, optional contract, `session.Definitions`.
+- The Store is two seams: `Records` makes one promise, a batch lands whole, at the position after the head the Writer read, or it is refused (the Record epoch refuses a Writer of a Record that was deleted), and `Liveness` keeps one row per Instance. Listing is an optional third, `Lister`. A service that keeps its Agent definitions in its own database implements a separate, optional contract, `store.Definitions`.
 - A Session opened for a TaskSpec keeps that TaskSpec in its metadata, so every Instance rebuilds the Session the same.
 - A Fork and a spilled result point into a log by position and epoch. They copy no body and never read another Record's future.
 
@@ -50,7 +52,7 @@ A write passes a `Header` with its Entries, and the store keeps the last one wit
           LogFrom  from where Load also returns the log Entries; 0 for none
 ```
 
-`Info` holds what a service lists and a database may index, and nothing a rebuild needs. `State` is Gotato's own JSON, kept as an Entry's `Data` is, and no store reads it. So a store keeps the Header as it is and returns it from `Load`, and a later field of `Info` or `State` needs no change to an adapter that stores the whole value. Listing is the optional `Lister`, `List(ctx, ListQuery{Limit, Cursor})`, which a caller finds as `store.Records.(session.Lister)`: without it `Runner.Sessions` is `not_supported`, and a page may repeat or skip a Record updated while a caller pages.
+`Info` holds what a service lists and a database may index, and nothing a rebuild needs. `State` is Gotato's own JSON, kept as an Entry's `Data` is, and no store reads it. So a store keeps the Header as it is and returns it from `Load`, and a later field of `Info` or `State` needs no change to an adapter that stores the whole value. Listing is the optional `Lister`, `List(ctx, ListQuery{Limit, Cursor})`, which a caller finds as `records.(store.Lister)`: without it `Runner.Sessions` is `not_supported`, and a page may repeat or skip a Record updated while a caller pages.
 
 ## A TaskSpec in the Record, and Definitions beside it
 
@@ -63,7 +65,7 @@ A Run of a TaskSpec (`RunRequest.Task` or `RunRequest.TaskSpec`) opens a new Ses
 
 The document is a metadata value like any other, written with the Session's first Entry and read with its facts, so it needs nothing from the Store. Any Instance that loads the Session decodes it and narrows the AgentProfile it looks up by name, whatever the registered spec says by then; a registered spec that changes reaches only new Sessions. Both keys are the Runner's (`ErrReservedKey` for a caller).
 
-Where a service keeps its definitions is not the Record's business. `session.Definitions` is a store of documents by kind and name (`SaveDefinition`, `LoadDefinition`, which answers `ErrNotFound` when none), a contract of its own and not a part of `session.Store`: the Store has no field for it, and a service passes it to `RegisterAgentProfileWithStore` or `RegisterTaskSpecWithStore`. It keeps the bytes as written and copies them in and out, and every implementation refuses a kind or name that `session.CheckDefinitionKey` refuses (`ErrInvalidID`). `session.NewMemoryDefinitions` and `session.NewFileDefinitions(dir)` ship with it, and `storetest.RunDefinitions` is its conformance suite, so your own database store proves the contract the way a Store does ([write a store](../guides/write-a-store.md)).
+Where a service keeps its definitions is not the Record's business. `store.Definitions` is a store of documents by kind and name (`SaveDefinition`, `LoadDefinition`, which answers `record.ErrNotFound` when none), a contract of its own and not a part of `store.Records`: the Store has no field for it, and a service passes it to `RegisterAgentProfileWithStore` or `RegisterTaskSpecWithStore`. It keeps the bytes as written and copies them in and out, and every implementation refuses a kind or name that `store.CheckDefinitionKey` refuses (`ErrInvalidID`). `store.NewMemoryDefinitions` and `store.NewFileDefinitions(dir)` ship with it, and `storetest.RunDefinitions` (package `store/storetest`) is its conformance suite, so your own database store proves the contract the way a Store does ([write a store](../guides/write-a-store.md)).
 
 ## One write
 

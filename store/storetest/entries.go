@@ -89,13 +89,13 @@ func listerOf(open Open) (store.Records, store.Lister, error) {
 	handle := open()
 	lister, ok := handle.(store.Lister)
 	if !ok {
-		return nil, nil, errors.New("the Records the backing opens is not a session.Lister: RunLister checks a store that lists")
+		return nil, nil, errors.New("the Records the backing opens is not a store.Lister: RunLister checks a store that lists")
 	}
 	return handle, lister, nil
 }
 
 // listAll follows the Next of every page, at limit a page, and returns the
-// RecordInfos in the order they came. A page with no Infos and a Next, or a
+// Infos in the order they came. A page with no Infos and a Next, or a
 // walk that does not end, is an error.
 func listAll(ctx context.Context, lister store.Lister, limit int) ([]record.Info, error) {
 	var all []record.Info

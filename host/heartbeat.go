@@ -9,7 +9,7 @@ import (
 	"github.com/jinhuang712/gotato/host/internal/heartbeat"
 )
 
-// Heartbeat sets how a Runner keeps its Liveness row (session.Liveness), and
+// Heartbeat sets how a Runner keeps its Liveness row (store.Liveness), and
 // how long a Run waits for a Session that runs on another Instance.
 type Heartbeat struct {
 	// TTL is how long the row stays alive after each renewal, by the store's

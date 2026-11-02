@@ -180,7 +180,7 @@ binary, stripped                   8.7 MB    14.8 MB
 minimum Go version                 1.24      1.26.6
 ```
 
-Gotato measured 2026-10-28 with `bench/refservice/footprint.sh` (Go 1.27.1, Apple M5 Pro), on the reference service, which also imports the gateway; ADK for Go v2.6.0 measured 2026-10-15 on an Apple M3.
+Gotato measured 2026-10-28 with `bench/refservice/footprint.sh` (Go 1.27.1, Apple M5 Pro), on the reference service, which also imports the model bridge; ADK for Go v2.6.0 measured 2026-10-15 on an Apple M3.
 
 ## What we don't want
 

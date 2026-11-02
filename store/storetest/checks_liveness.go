@@ -119,7 +119,7 @@ func checkBeatInvalidID(ctx context.Context, open OpenLiveness, _ livenessConfig
 	for _, id := range []string{"", "a/b", "..", ".hidden", "a\x00b", "a\xffb"} {
 		err := st.Beat(ctx, store.InstanceRow{ID: id}, time.Hour)
 		if !errors.Is(err, store.ErrInvalidID) || !gotato.IsCode(err, gotato.CodeInvalidArgument) {
-			return failf("Beat with the Instance ID %q = %v, want ErrInvalidID (invalid_argument): call session.CheckID first", id, err)
+			return failf("Beat with the Instance ID %q = %v, want ErrInvalidID (invalid_argument): call store.CheckID first", id, err)
 		}
 	}
 	return nil

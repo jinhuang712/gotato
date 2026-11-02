@@ -14,7 +14,7 @@ import (
 )
 
 // defaultsOf says what an error of the code says about its request when it is
-// made: gotato.ErrorOf for the core's codes, the service's own errors for its
+// made: gotato.ErrorOf for the core's codes, the host package's own errors for its
 // codes (not_writer is made with an address and is not run and retryable, as
 // draining and overloaded are).
 func defaultsOf(code gotato.ErrorCode) *gotato.RuntimeError {

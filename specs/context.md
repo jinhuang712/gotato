@@ -2,6 +2,8 @@
 
 The model never reads the Transcript directly. On every Turn Gotato builds a Context, the model's view of the Session, and sends that. The aim is a request that only grows at its end, so the provider's prompt cache keeps hitting, and that the model can always reach what was left out, through a tool.
 
+The Context is built from the Record, so it lives with it in package `record` (the Record itself is in [record.md](record.md)), with compaction and the read-back tools ([decision 050](../plan/decisions/050-each-package-is-one-layer-named-for-its-job.md)). The `ContextBuilder` and the Loop are in package `gotato`.
+
 ## TL;DR
 - A `ContextBuilder` turns the Transcript into the Context on every Turn; the default shows the whole committed history, and nothing is committed back.
 - The request is laid out static first: system, tools, then Messages. Cache breakpoints sit at the end of each of the three, and a Notice or a new Message is only ever appended.
@@ -94,7 +96,7 @@ A Tool Result over one page is written to the Record first, and the Context keep
 
 The body goes in before the Message that points to it, so a crash between the two leaves a log Entry nobody points at and nothing worse. The Message holds a preview and the ref `result:<call_id>`, and it is written once, so the bytes already sent stay the same. A load does not read the body; `read_result` does, one page at a time, and it reads only results of its own Session. `read_segment` is its sibling for Segments.
 
-Three numbers would break the preview if they disagreed: the line past which a result is spilled, the page the preview counts its pages by, and the page the read tools return. They are one number, the page size, and the `ReadBack` owns it (`gotato.WithReadBack`; `modelctx.ReadBack{PageSize}`, 32 KiB by default). The preview is the first `CoreLimits.SpillPreviewBytes` of the body (8,000 by default, never above the page), so it is always the start of page 1. The core writes the line after it, `[Result cut: 412 KiB, 13 pages. Read it page by page with read_result(ref="result:call_9a2", page=1); ...]`, so the line is the same on every Instance. With no `ReadBack`, or over a Transcript that keeps no Entries, a result is not spilled and goes in whole. If the team has pruned the body, `read_result` says `result:<id> was removed from the Record, so only what the conversation keeps of it is left.`; it says the same of a message.
+Three numbers would break the preview if they disagreed: the line past which a result is spilled, the page the preview counts its pages by, and the page the read tools return. They are one number, the page size, and the `ReadBack` owns it (`gotato.WithReadBack`; `record.ReadBack{PageSize}`, 32 KiB by default). The preview is the first `CoreLimits.SpillPreviewBytes` of the body (8,000 by default, never above the page), so it is always the start of page 1. The core writes the line after it, `[Result cut: 412 KiB, 13 pages. Read it page by page with read_result(ref="result:call_9a2", page=1); ...]`, so the line is the same on every Instance. With no `ReadBack`, or over a Transcript that keeps no Entries, a result is not spilled and goes in whole. If the team has pruned the body, `read_result` says `result:<id> was removed from the Record, so only what the conversation keeps of it is left.`; it says the same of a message.
 
 ## What this buys you
 - The cache keeps hitting: the top of the request is the same from Turn to Turn, and only the end grows.

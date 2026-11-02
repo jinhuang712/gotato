@@ -115,7 +115,7 @@ func failureOf(err error) errorResponse {
 	if status >= http.StatusInternalServerError && !out.NotRun {
 		// Keep store and filesystem internals in the server log; the client
 		// gets a stable body.
-		log.Printf("httpapi: %d %s: %v", status, http.StatusText(status), err)
+		log.Printf("adapter/http: %d %s: %v", status, http.StatusText(status), err)
 		out.Message = http.StatusText(status)
 		return out
 	}
@@ -185,7 +185,7 @@ func writeError(w http.ResponseWriter, status int, err error) {
 // internalError logs the detailed cause and returns a stable body for a 5xx
 // response, so store or filesystem internals never reach the client.
 func internalError(err error) errorResponse {
-	log.Printf("httpapi: internal error: %v", err)
+	log.Printf("adapter/http: internal error: %v", err)
 	message := http.StatusText(http.StatusInternalServerError)
 	return errorResponse{Message: message}
 }

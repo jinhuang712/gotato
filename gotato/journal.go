@@ -15,7 +15,7 @@ import (
 // goroutine of a Steer, a Notice or an Abort for an Event of its own. When a
 // step's write fails, the Run fails
 // with its error, and the Events of the step are not sent. record.Record and
-// session.Writer implement it; a Session whose Transcript declares no Journal
+// store.Writer implement it; a Session whose Transcript declares no Journal
 // numbers its Events in memory.
 //
 // Write is called under the Session's write-ordering lock, which numbers the

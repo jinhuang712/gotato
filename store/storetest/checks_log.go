@@ -57,7 +57,7 @@ func checkHeaderKept(ctx context.Context, open Open) error {
 			return fmt.Errorf("%s returned Epoch %q, want %q: a store must keep the Header unchanged", step, got.Epoch, want.Epoch)
 		}
 		if !got.Info.CreatedAt.Equal(want.Info.CreatedAt) || !got.Info.UpdatedAt.Equal(want.Info.UpdatedAt) || got.Info.ID != want.Info.ID || got.Info.Messages != want.Info.Messages || got.Info.Metadata["k"] != want.Info.Metadata["k"] {
-			return fmt.Errorf("%s returned Info %+v, want %+v: a store must keep the whole RecordInfo", step, got.Info, want.Info)
+			return fmt.Errorf("%s returned Info %+v, want %+v: a store must keep the whole Info", step, got.Info, want.Info)
 		}
 		if string(got.State) != string(want.State) {
 			return fmt.Errorf("%s returned State %s, want %s: a store must keep Header.State byte for byte, as it keeps an Entry's Data", step, got.State, want.State)

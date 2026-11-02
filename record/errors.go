@@ -15,7 +15,7 @@ var (
 
 	// ErrNoRecapContext is what a ModelRecap returns when the compaction gave it
 	// no Context to build its request from.
-	ErrNoRecapContext = gotato.ErrorOf(gotato.CodeInvalidArgument, "record: ModelRecap needs the Context the next call would send (modelctx.WithRecapContext)")
+	ErrNoRecapContext = gotato.ErrorOf(gotato.CodeInvalidArgument, "record: ModelRecap needs the Context the next call would send (record.WithRecapContext)")
 
 	// ErrNoRecapModel is what a ModelRecap returns, and Compact and the
 	// AutoCompactor refuse with, when it names no Model: outside a Runner,

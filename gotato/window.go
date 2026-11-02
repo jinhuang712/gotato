@@ -8,7 +8,7 @@ import (
 
 // Window is a model's context window as a team states it: a number of tokens,
 // or "unknown" written out. The zero Window states nothing, so a place that
-// requires the window (gateway.New) can refuse a model whose team forgot it,
+// requires the window (model.New) can refuse a model whose team forgot it,
 // and leaving it out is never an accident. A hand-written Model that states
 // nothing reads as unknown to the runtime.
 //
@@ -21,7 +21,7 @@ type Window struct {
 	unknown bool
 }
 
-// WindowTokens states a window of n tokens. n must be above 0; a gateway
+// WindowTokens states a window of n tokens. n must be above 0; model.New
 // refuses any other value when it builds a Client.
 func WindowTokens(n int) Window { return Window{tokens: n, stated: true} }
 

@@ -107,10 +107,10 @@ func checkDefinitionInvalidKey(ctx context.Context, open OpenDefinitions) error 
 		for _, k := range [][2]string{{key, "ok"}, {"ok", key}} {
 			err := st.SaveDefinition(ctx, k[0], k[1], []byte("x"))
 			if !errors.Is(err, store.ErrInvalidID) || !gotato.IsCode(err, gotato.CodeInvalidArgument) {
-				return failf("SaveDefinition(%q, %q) = %v, want ErrInvalidID (invalid_argument): call session.CheckDefinitionKey first", k[0], k[1], err)
+				return failf("SaveDefinition(%q, %q) = %v, want ErrInvalidID (invalid_argument): call store.CheckDefinitionKey first", k[0], k[1], err)
 			}
 			if _, err := st.LoadDefinition(ctx, k[0], k[1]); !errors.Is(err, store.ErrInvalidID) {
-				return failf("LoadDefinition(%q, %q) returned %v, want ErrInvalidID: call session.CheckDefinitionKey first", k[0], k[1], err)
+				return failf("LoadDefinition(%q, %q) returned %v, want ErrInvalidID: call store.CheckDefinitionKey first", k[0], k[1], err)
 			}
 		}
 	}

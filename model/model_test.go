@@ -258,8 +258,8 @@ func TestEmptyFinishReasonIsNotAFinish(t *testing.T) {
 	}
 }
 
-// These tests point the gateway at internal/fakegateway, which speaks each wire
-// API from the providers' public documentation, so they check the gateway's
+// These tests point the Client at internal/fakegateway, which speaks each wire
+// API from the providers' public documentation, so they check the Client's
 // adaptation against the format and not against its own decoder.
 
 // drainFake reads a stream to its end and returns what it said and how it ended.
@@ -287,7 +287,7 @@ func asGatewayError(t *testing.T, err error) *Error {
 	t.Helper()
 	var gerr *Error
 	if !errors.As(err, &gerr) {
-		t.Fatalf("err = %v, want a *gateway.Error", err)
+		t.Fatalf("err = %v, want a *model.Error", err)
 	}
 	return gerr
 }
@@ -446,7 +446,7 @@ func TestFakeStreamCutAfterTextAndInArgumentsIsRetriedAndSucceeds(t *testing.T) 
 	}
 }
 
-// A reasoning reply is kept by the gateway and replayed in the tool loop, and
+// A reasoning reply is kept by the Client and replayed in the tool loop, and
 // the fake, which refuses a request that drops what the provider requires,
 // accepts it. The same loop without the reasoning is refused.
 func TestFakeReasoningIsReplayedAndTheFakeRefusesARequestThatDropsIt(t *testing.T) {

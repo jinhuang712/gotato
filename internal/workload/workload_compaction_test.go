@@ -311,13 +311,13 @@ func TestSameRecordSameRequestAcrossCompactions(t *testing.T) {
 	}
 }
 
-// This file checks G-G07 on the bytes the gateway sends where the Session
+// This file checks G-G07 on the bytes the model bridge sends where the Session
 // compacts and merges (GOALS.md → G-G07). It plays the long_session task as
 // TestRequestOnlyGrowsAtItsEndAcrossCompactions does, and encodes every request
-// with the gateway for each wire API, with the facts of a Claude model, an
+// with the model bridge for each wire API, with the facts of a Claude model, an
 // OpenAI model and a DeepSeek model.
 
-// wireEncoder encodes requests with a gateway Client, as it would send them.
+// wireEncoder encodes requests with a model.Client, as it would send them.
 type wireEncoder struct {
 	api  wireName
 	mu   sync.Mutex
@@ -530,9 +530,9 @@ func withoutReadSegment(tools []string) []string {
 }
 
 // TestWireRequestOnlyGrowsAtItsEndAcrossCompactions checks GOALS.md G-G07 on
-// the gateway's bytes where the Session compacts and merges. The long_session
+// the model bridge's bytes where the Session compacts and merges. The long_session
 // task is played as in TestRequestOnlyGrowsAtItsEndAcrossCompactions, with and
-// without the model's Recap, and the gateway encodes every request for each wire
+// without the model's Recap, and the model bridge encodes every request for each wire
 // API (Claude, OpenAI and DeepSeek rules). In each pair of consecutive requests:
 //
 //   - the cache key and every option keep their bytes, and the instruction

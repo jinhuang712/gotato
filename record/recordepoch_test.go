@@ -29,7 +29,7 @@ func TestRecordEpochIsStableAcrossLoadsAndChangesWithANewRecord(t *testing.T) {
 		t.Fatal("a new Record has no epoch")
 	}
 
-	// It is in the first Entry, session_created, and in the RecordInfo.
+	// It is in the first Entry, session_created, and in the Info.
 	entries, err := st.Log(ctx, "same", 0, 0)
 	if err != nil {
 		t.Fatal(err)
@@ -46,7 +46,7 @@ func TestRecordEpochIsStableAcrossLoadsAndChangesWithANewRecord(t *testing.T) {
 	}
 	loaded, err := st.Load(ctx, "same")
 	if err != nil || loaded.Header.Epoch != epoch {
-		t.Fatalf("RecordInfo epoch = %q, %v; want %q", loaded.Header.Epoch, err, epoch)
+		t.Fatalf("Info epoch = %q, %v; want %q", loaded.Header.Epoch, err, epoch)
 	}
 
 	// Another Instance opens it, and writes to it: same epoch.
@@ -93,7 +93,7 @@ func TestRecordEpochIsStableAcrossLoadsAndChangesWithANewRecord(t *testing.T) {
 
 // A Writer of a Record that was deleted, and created again under the same ID
 // at the same length, must not write into the new Record: its Entries belong
-// to another log, and the new Record's RecordInfo would name the old epoch.
+// to another log, and the new Record's Info would name the old epoch.
 func TestWriterOfADeletedRecordCannotAppendToARecordCreatedAgain(t *testing.T) {
 	stores := map[string]func(t *testing.T) store.Records{
 		"memory": func(*testing.T) store.Records { return store.NewMemoryStore() },

@@ -316,7 +316,7 @@ func (f *FileStore) List(ctx context.Context, q ListQuery) (ListPage, error) {
 	return pageOf(out, q)
 }
 
-// info reads a Record's RecordInfo from the Header of its last write alone.
+// info reads a Record's Info from the Header of its last write alone.
 func (f *FileStore) info(id string) (record.Info, error) {
 	dir, firsts, err := f.batchList(id)
 	if err != nil {

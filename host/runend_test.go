@@ -17,7 +17,7 @@ type publicText struct{}
 func (publicText) Error() string  { return "private " + foreignSecret }
 func (publicText) Public() string { return "the store is unavailable" }
 
-// A failure the service did not write keeps its text on the Cause; Message is
+// A failure the host did not write keeps its text on the Cause; Message is
 // fixed, or the text of a PublicError.
 func TestForeignErrorKeepsPrivateTextOffMessage(t *testing.T) {
 	raw := errors.New(foreignSecret)

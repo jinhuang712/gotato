@@ -3,7 +3,7 @@ package text
 import "strings"
 
 // The first words of the two messages that ask a model for a Recap. They are
-// the one definition: modelctx writes its asks with them, and a fake model
+// the one definition: package record writes its asks with them, and a fake model
 // (testkit.DemoModel, the reference tasks) recognizes an ask with IsRecapAsk,
 // so no one matches the wording by hand.
 const (

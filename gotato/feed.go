@@ -11,9 +11,9 @@ import (
 
 // EventSource reads stored Events again by number. A subscriber that falls too
 // far behind is no longer buffered in memory: it catches up from its Feed's
-// source, because the Record only grows. session.Writer is the source of a
+// source, because the Record only grows. store.Writer is the source of a
 // Session that has a store.
-// [SEAM] a Feed catches a slow subscriber up from this source; session.Writer is the one implementation in the repository.
+// [SEAM] a Feed catches a slow subscriber up from this source; store.Writer is the one implementation in the repository.
 type EventSource interface {
 	// EventsAfter returns the stored Events whose Number is greater than
 	// after, in order. limit is a hint for how many the caller reads at once:

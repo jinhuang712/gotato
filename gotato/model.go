@@ -175,7 +175,7 @@ type ModelEvent struct {
 	Usage             Usage          `json:"usage,omitzero"`
 	StopReason        StopReason     `json:"stop_reason,omitempty"`
 	// Model is the model the provider reports answering, when it reports
-	// one. Behind a gateway that falls back to another model, it can differ
+	// one. Behind an endpoint that falls back to another model, it can differ
 	// from the model that was requested. Any event may carry it; the last
 	// one a reply's stream carries wins.
 	Model string `json:"model,omitempty"`

@@ -395,7 +395,7 @@ func ExampleRunner_Run() {
 	// echo: again
 }
 
-// roundModel stands for a gateway Client of a recognized Claude or OpenAI
+// roundModel stands for a model.Client of a recognized Claude or OpenAI
 // provider, which is sent only the current Round's reasoning.
 type roundModel struct{ *testkit.FakeModel }
 

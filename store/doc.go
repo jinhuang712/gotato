@@ -10,6 +10,6 @@
 // ErrExpired here and record.ErrNotFound. Prove the adapter with
 // store/storetest. MemoryStore and FileStore are the Stores that ship. Writer,
 // WriteStats and the Writer options are for hosts that run Sessions on many
-// Instances (the service package uses them); a program that runs one Session
+// Instances (package host uses them); a program that runs one Session
 // needs only a Record and a store to open it from.
 package store

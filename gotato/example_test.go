@@ -16,7 +16,7 @@ import (
 func Example() {
 	s, err := gotato.NewSession(
 		context.Background(),
-		gotato.WithModel(testkit.EchoModel{}), // any gotato.Model; providers live in gateway/
+		gotato.WithModel(testkit.EchoModel{}), // any gotato.Model; providers live in model/
 		gotato.WithInstruction("You are a helpful assistant."),
 	)
 	if err != nil {
@@ -96,10 +96,10 @@ func ExampleSession_SubscribeRun() {
 	// status: completed
 }
 
-// A real model through the gateway, and a tool. The README shows this code with
-// an Anthropic key; here the endpoint is a fake gateway that speaks the same
+// A real model through the model bridge, and a tool. The README shows this code with
+// an Anthropic key; here the endpoint is a fake endpoint that speaks the same
 // wire API, so the test needs no key and no network.
-func Example_gatewayAndTool() {
+func Example_modelAndTool() {
 	fake := httptest.NewServer(fakegateway.New())
 	defer fake.Close()
 
@@ -140,7 +140,7 @@ func Example_gatewayAndTool() {
 	defer func() { _ = s.Close(context.Background()) }()
 
 	// 4. Ask. Prompt runs the loop (model, tools, model, ...) and returns the final reply.
-	// "use-tool" makes the fake gateway call the first tool; a real model decides for itself.
+	// "use-tool" makes the fake endpoint call the first tool; a real model decides for itself.
 	result, err := s.Prompt(context.Background(), gotato.UserMessage("use-tool"))
 	if err != nil {
 		panic(err)

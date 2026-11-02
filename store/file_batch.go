@@ -66,7 +66,7 @@ func readBatch(path string) (fileBatch, error) {
 	return batch, nil
 }
 
-// readBatchInfo reads only the Header's RecordInfo of a batch file. The Entries are
+// readBatchInfo reads only the Header's Info of a batch file. The Entries are
 // scanned for syntax but not decoded, so a listing does not build a large
 // batch's Entries to drop them.
 func readBatchInfo(path string) (record.Info, error) {

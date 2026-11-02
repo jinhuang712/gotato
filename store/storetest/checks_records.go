@@ -55,7 +55,7 @@ func checkInvalidID(ctx context.Context, open Open) error {
 		}
 		for i, err := range calls {
 			if !errors.Is(err, store.ErrInvalidID) || !gotato.IsCode(err, gotato.CodeInvalidArgument) {
-				return fmt.Errorf("call %d with the ID %q = %v, want ErrInvalidID (invalid_argument): call session.CheckID first", i, id, err)
+				return fmt.Errorf("call %d with the ID %q = %v, want ErrInvalidID (invalid_argument): call store.CheckID first", i, id, err)
 			}
 		}
 	}

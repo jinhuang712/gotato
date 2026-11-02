@@ -1,23 +1,23 @@
 # Embed Gotato in a service
 
-By the end of this page your service runs agent conversations that survive a restart and can be continued by any pod. You need the [first page](getting-started.md), and a place to keep Sessions: a directory (`session.NewFileStore`), or your own `session.Records` and `session.Liveness`, which a `session.Store` holds side by side.
+By the end of this page your service runs agent conversations that survive a restart and can be continued by any pod. You need the [first page](getting-started.md), and a place to keep Sessions: a directory (`store.NewFileStore`), or your own `store.Records` and `store.Liveness`, which a `store.Store` holds side by side.
 
 ## The Runner
 
-A `service.Runner` runs Sessions for you. It opens a Session's Record from the store, runs the message, writes every step as it happens, and lets the Session go.
+A `host.Runner` runs Sessions for you. It opens a Session's Record from the store, runs the message, writes every step as it happens, and lets the Session go.
 
 ```go
 // One FileStore is both halves of a Store: Records and Liveness. Your own may be two.
-store, err := session.NewFileStore("/var/lib/myservice/sessions")
+st, err := store.NewFileStore("/var/lib/myservice/sessions")
 if err != nil {
     return err
 }
 profiles := profile.NewRegistry(nil)
-if err := profiles.RegisterAgentProfileInline(profile.AgentProfile{Name: "default", Model: model, Tools: tools}); err != nil {
+if err := profiles.RegisterAgentProfileInline(profile.AgentProfile{Name: "default", Model: m, Tools: tools}); err != nil {
     return err
 }
-runner, err := service.New(service.Config{
-    Store:        session.Store{Records: store, Liveness: store},
+runner, err := host.New(host.Config{
+    Store:        store.Store{Records: st, Liveness: st},
     Profiles:     profiles,
     DefaultAgent: "default",
 })
@@ -26,15 +26,15 @@ if err != nil {
 }
 defer runner.Close(ctx)
 
-first, err := runner.Run(ctx, service.RunRequest{Prompt: "summarize the open tickets"})
+first, err := runner.Run(ctx, host.RunRequest{Prompt: "summarize the open tickets"})
 // The same Session goes on, here or on another pod.
-second, err := runner.Run(ctx, service.RunRequest{SessionID: first.SessionID, Prompt: "and the urgent ones?"})
+second, err := runner.Run(ctx, host.RunRequest{SessionID: first.SessionID, Prompt: "and the urgent ones?"})
 fmt.Println(second.FinalText)
 ```
 
 An Agent is a definition, in code a `profile.AgentProfile`: a model, an instruction, tools, limits. A Session is a conversation that runs it. The Runner keeps the two apart, so one Agent serves many Sessions. The Runner looks the Agent up by name in the `profile.Registry` you give it, each time it builds a Session, and `DefaultAgent` names the one a request that names none runs. How the pod keeps idle Sessions (`Config.Warm`) and when a pause counts as time away (`Config.TimeAwayAfter`) are the pod's settings, not the Agent's.
 
-This example is run as a test: `ExampleRunner_Run` in [service/run_test.go](../service/run_test.go).
+This example is run as a test: `ExampleRunner_Run` in [host/run_test.go](../host/run_test.go).
 
 ## Many pods
 
@@ -60,7 +60,7 @@ switch {
 case gotato.NotRun(err):
     // refused before it started (draining, full, busy, no such Session): nothing
     // happened, so send it to another pod or ask the user to try again
-case errors.Is(err, service.ErrNotPersisted):
+case errors.Is(err, host.ErrNotPersisted):
     // the Run failed to save (store_failure): the Record does not hold it,
     // though a reply was made (out.FinalText)
 case gotato.Retryable(err):
@@ -76,17 +76,17 @@ A Session has no instruction of its own: the instruction, the model, the tools, 
 
 ```go
 profiles := profile.NewRegistry(nil)
-err := profiles.RegisterAgentProfileInline(profile.AgentProfile{Name: "default", Model: model, Instruction: "You answer questions about open tickets.", Tools: tools})
-err = profiles.RegisterAgentProfileInline(profile.AgentProfile{Name: "french", Model: model, Instruction: "You answer questions about open tickets, in French.", Tools: tools})
-runner, err := service.New(service.Config{
-    Store:        session.Store{Records: store, Liveness: store},
+err := profiles.RegisterAgentProfileInline(profile.AgentProfile{Name: "default", Model: m, Instruction: "You answer questions about open tickets.", Tools: tools})
+err = profiles.RegisterAgentProfileInline(profile.AgentProfile{Name: "french", Model: m, Instruction: "You answer questions about open tickets, in French.", Tools: tools})
+runner, err := host.New(host.Config{
+    Store:        store.Store{Records: st, Liveness: st},
     Profiles:     profiles,
     DefaultAgent: "default",
 })
 
 // Answer this message in French. The Session now runs "french", and stays on it
 // until a request names another Agent.
-out, err := runner.Run(ctx, service.RunRequest{SessionID: id, Agent: "french", Prompt: "what is open today?"})
+out, err := runner.Run(ctx, host.RunRequest{SessionID: id, Agent: "french", Prompt: "what is open today?"})
 ```
 
 `RunRequest.Agent` is the one way to change a Session's Agent, and it is saved with the Run (`SkipSave` keeps the Session as it was). An AgentProfile holds typed fields and no function that runs on the Session: `Instruction`, `Tools`, `ToolSets` (each a `profile.ToolSet{Set, Mode}`: listed, folded or active), `ToolSources`, `ToolSearcher`, `MaxEffect`, `Sampling`, `Extensions`, `ContextBuilder`, `Limits`, `ReadBack`, `RunTimeout` and `Compact`. There is no `AgentProfile.Options`: the Runner builds every `gotato.SessionOption` itself, so an Agent cannot replace the Writer or raise its own cap. `ReadBack` is the one hole, and only for the read-back tool.
@@ -102,19 +102,19 @@ err = profiles.RegisterTaskSpecInline(profile.TaskSpec{
     Background: "Report the tickets that opened since yesterday.",
     MaxEffect:  gotato.ToolEffectRead,
 })
-out, err := runner.Run(ctx, service.RunRequest{Task: "morning-report", Prompt: "Go."})
+out, err := runner.Run(ctx, host.RunRequest{Task: "morning-report", Prompt: "Go."})
 ```
 
 A Run of a TaskSpec opens a new Session, so it takes no `SessionID` and no `Agent`. The Background is added once after the instruction, and the Session keeps the TaskSpec as it was, so another pod builds it the same after you change the registered spec. A spec that widens its profile is refused (`profile.ErrWidens`). `RunRequest.TaskSpec` carries a spec as a value instead of by name.
 
 ### Definitions from your own store
 
-A definition can live in your database instead of your code. Fill a `profile.Catalog` with the models, tools and ToolSets your code offers, and register a name whose document is read from your `session.Definitions`:
+A definition can live in your database instead of your code. Fill a `profile.Catalog` with the models, tools and ToolSets your code offers, and register a name whose document is read from your `store.Definitions`:
 
 ```go
-catalog, err := profile.NewCatalog(map[string]gotato.Model{"main": model}, tools, nil)
+catalog, err := profile.NewCatalog(map[string]gotato.Model{"main": m}, tools, nil)
 profiles := profile.NewRegistry(catalog)
-err = profiles.RegisterAgentProfileWithStore("support", defs)  // defs is a session.Definitions
+err = profiles.RegisterAgentProfileWithStore("support", defs)  // defs is a store.Definitions
 err = profiles.RegisterTaskSpecWithStore("nightly", defs)
 ```
 
@@ -122,34 +122,34 @@ The stored document is data only (a model name, Tool names, numbers and text); i
 
 ### Keys under `gotato.` are the Runner's
 
-Session metadata is yours, except for the keys that start with `service.ReservedPrefix` (`"gotato."`). `CreateSession`, `RunRequest.Metadata` and `RunRequest.Update` refuse such a key with `service.ErrReservedKey` (`invalid_argument`, not run, naming the key) before anything is written, and the HTTP API answers 400. A tool is switched only by `Runner.SetToolActive`, and the cache key only by `Runner.Fork`.
+Session metadata is yours, except for the keys that start with `host.ReservedPrefix` (`"gotato."`). `CreateSession`, `RunRequest.Metadata` and `RunRequest.Update` refuse such a key with `host.ErrReservedKey` (`invalid_argument`, not run, naming the key) before anything is written, and the HTTP API answers 400. A tool is switched only by `Runner.SetToolActive`, and the cache key only by `Runner.Fork`.
 
 ```go
-_, err := runner.Run(ctx, service.RunRequest{
+_, err := runner.Run(ctx, host.RunRequest{
     SessionID: id,
     Prompt:    "what is open today?",
     Update:    map[string]string{"gotato.instruction": "Answer in French."}, // refused
 })
-errors.Is(err, service.ErrReservedKey) // true; gotato.NotRun(err) is true; nothing was written
+errors.Is(err, host.ErrReservedKey) // true; gotato.NotRun(err) is true; nothing was written
 ```
 
-The tests `TestAnInstructionInMetadataIsRefusedAndAnotherAgentIsTheWay` in [service/run_instruction_test.go](../service/run_instruction_test.go) and `TestAReservedKeyIsRefusedByRunMetadataAndUpdate` in [service/reserved_test.go](../service/reserved_test.go) pin this.
+The tests `TestAnInstructionInMetadataIsRefusedAndAnotherAgentIsTheWay` in [host/run_instruction_test.go](../host/run_instruction_test.go) and `TestAReservedKeyIsRefusedByRunMetadataAndUpdate` in [host/reserved_test.go](../host/reserved_test.go) pin this.
 
 ### Values, not handles
 
 `CreateSession` takes one request and `Fork` and `Record` answer values you can keep and read, but not write through:
 
 ```go
-info, err := runner.CreateSession(ctx, service.CreateSessionRequest{
+info, err := runner.CreateSession(ctx, host.CreateSessionRequest{
     Agent:    "default",
     ID:       "ticket-4711",                  // optional; a taken ID is ErrSessionExists
     Metadata: map[string]string{"owner": "ann"},
-})                                           // info is a session.RecordInfo
-child, err := runner.Fork(ctx, info.ID, "")  // a session.RecordInfo
-doc, err := runner.Record(ctx, info.ID)      // a session.Document: a copy
+})                                           // info is a record.Info
+child, err := runner.Fork(ctx, info.ID, "")  // a record.Info
+doc, err := runner.Record(ctx, info.ID)      // a record.Document: a copy
 ```
 
-There is no `Runner.Store()`; keep the `session.Store` you gave to `service.New` if you read Records yourself.
+There is no `Runner.Store()`; keep the `store.Store` you gave to `host.New` if you read Records yourself.
 
 ## Shutting down
 
@@ -160,6 +160,8 @@ On SIGTERM, call `runner.Drain(ctx)`: the pod stops taking new Runs, lets each R
 ```go
 mux.Handle("/agent/", http.StripPrefix("/agent", httpapi.New(runner)))
 ```
+
+`httpapi` is `github.com/jinhuang712/gotato/adapter/http`, a module of its own (`go get github.com/jinhuang712/gotato/adapter/http`; see [Install](install.md)), imported with an alias because `net/http` is imported too.
 
 The handler serves the same Runner over HTTP, with a stream for each Run and each Session. A service that wants another transport maps the same Runner itself.
 

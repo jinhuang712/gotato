@@ -10,11 +10,11 @@ By the end of this page you know which seam of Gotato to reach for when the defa
 |---|---|
 | call my own model or provider, and say what it is (its window, cache retention, reasoning rule) | `gotato.Model` (`Stream` and `Config`) |
 | give the agent a capability | `gotato.Tool` (`NewFuncTool`) |
-| save Sessions in my own database | `session.Records` and `session.Liveness` |
+| save Sessions in my own database | `store.Records` and `store.Liveness` |
 | change what the model sees | `gotato.ContextBuilder` |
 | block a tool call, rewrite its result, or cap the Turns | Extension stages `PreToolUse`, `PostToolUse`, `TurnStopper` |
-| bound the memory of one pod | `service.Bounds` |
-| decide whether a Run may start, such as a limit for each tenant | `service.Admitter` |
+| bound the memory of one pod | `host.Bounds` |
+| decide whether a Run may start, such as a limit for each tenant | `host.Admitter` |
 | register the Agents a service runs, and the jobs that run again | `profile.Registry`: `RegisterAgentProfileInline`, `RegisterTaskSpecInline` |
 
 **Sometimes**
@@ -22,14 +22,14 @@ By the end of this page you know which seam of Gotato to reach for when the defa
 | I want to | Seam |
 |---|---|
 | expose a group of tools, such as an MCP server | `gotato.ToolSet` |
-| keep Agent and job definitions in my own database | `session.Definitions`, with `RegisterAgentProfileWithStore`, `RegisterTaskSpecWithStore` and a `profile.Catalog` |
+| keep Agent and job definitions in my own database | `store.Definitions`, with `RegisterAgentProfileWithStore`, `RegisterTaskSpecWithStore` and a `profile.Catalog` |
 | supply tools that change between Turns | `gotato.ToolSource`, `profile.AgentProfile.ToolSources` |
-| write Recaps with a model | `modelctx.RecapWriter` (`ModelRecap`) |
-| choose when a Session compacts, or where the kept tail starts | `modelctx.Trigger`, `modelctx.Cutter`, in a `modelctx.Compactor` |
+| write Recaps with a model | `record.RecapWriter` (`ModelRecap`) |
+| choose when a Session compacts, or where the kept tail starts | `record.Trigger`, `record.Cutter`, in a `record.Compactor` |
 | prune or reshape the Messages after the builder | `gotato.ContextTransformer`, `gotato.MessageConverter` |
-| speak a wire API Gotato does not ship | `gateway.WireAPI` |
-| set how often a model call is sent again, or turn it off | `gateway.Retry`, `gateway.WithRetry` |
-| change what a failed model call means | `gateway.Classifier`, `gateway.WithClassifier` |
+| speak a wire API Gotato does not ship | `model.WireAPI` |
+| set how often a model call is sent again, or turn it off | `model.Retry`, `model.WithRetry` |
+| change what a failed model call means | `model.Classifier`, `model.WithClassifier` |
 
 **Rare** (a specific need, or a store adapter's concern)
 
@@ -37,10 +37,10 @@ By the end of this page you know which seam of Gotato to reach for when the defa
 |---|---|
 | put tagged blocks in the system prompt | `gotato.ContextBlock` |
 | replace the search of `search_tools` | `gotato.ToolSearcher` |
-| write the Recap of merged Segments myself | `modelctx.MergeRecapWriter` |
-| change how a Segment reads, or how many Segments merge | `modelctx.Builder`, `modelctx.Picker` |
-| compact a Transcript that is not a `session.Record` | `modelctx.SegmentStore` |
-| read spilled results and Segments from my own store, or change the page size | `gotato.ReadBack`, `modelctx.Originals`; in a service, `profile.AgentProfile.ReadBack` |
+| write the Recap of merged Segments myself | `record.MergeRecapWriter` |
+| change how a Segment reads, or how many Segments merge | `record.Builder`, `record.Picker` |
+| compact a Transcript that is not a `record.Record` | `record.SegmentStore` |
+| read spilled results and Segments from my own store, or change the page size | `gotato.ReadBack`, `record.Originals`; in a service, `profile.AgentProfile.ReadBack` |
 | rewrite the Transcript before a model call | `gotato.TurnPreparer` |
 | keep a Session's Events in my own log | `gotato.Journal`, `gotato.EventSource` |
 
@@ -52,40 +52,40 @@ Each row says what you want, the seam that does it, and where it lives. "Tier" t
 |---|---|---|---|
 | call a model of my own, or wrap one (retries, a header, a counter) | `gotato.Model` | `gotato.WithModel`; `profile.AgentProfile.Model` | common |
 | give the agent a function to call | `gotato.Tool`, built by `gotato.NewFuncTool` | `gotato.WithTools`; `profile.AgentProfile.Tools` | common |
-| keep Sessions in Postgres, Redis or another database | `session.Records` and `session.Liveness`, and optionally `session.Lister` | `service.Config.Store` (`session.Store{Records:, Liveness:}`); prove it with `session/storetest` | common |
+| keep Sessions in Postgres, Redis or another database | `store.Records` and `store.Liveness`, and optionally `store.Lister` | `host.Config.Store` (`store.Store{Records:, Liveness:}`); prove it with `store/storetest` | common |
 | change what the model sees on each Turn (window, selection, a layout of my own) | `gotato.ContextBuilder` | `gotato.WithContextBuilder`; `profile.AgentProfile.ContextBuilder` | common |
 | refuse a tool call, or change its result | `gotato.PreToolUse`, `gotato.PostToolUse` | `gotato.WithExtension` | common |
 | stop a Run after N Turns or N calls | `gotato.TurnStopper` | `gotato.WithExtension` | common |
-| limit how many Sessions one pod keeps in memory, and what a busy Session does | `service.Bounds` | `service.Config.Bounds` | common |
-| decide whether a Run may start: a bound on the Runs in flight, a limit for each tenant or caller | `service.Admitter` (`Admit(ctx, Admission, Load) (release, error)`) | `service.Config.Admitter`; the default is `service.Limits{MaxActiveRuns}` | common |
+| limit how many Sessions one pod keeps in memory, and what a busy Session does | `host.Bounds` | `host.Config.Bounds` | common |
+| decide whether a Run may start: a bound on the Runs in flight, a limit for each tenant or caller | `host.Admitter` (`Admit(ctx, Admission, Load) (release, error)`) | `host.Config.Admitter`; the default is `host.Limits{MaxActiveRuns}` | common |
 | bring all the tools of an MCP server, or any named group | `gotato.ToolSet` | `gotato.WithActiveToolSet`, `WithToolSet`, `WithFoldedToolSet`, or `profile.AgentProfile.ToolSets` with a `profile.ToolSet{Set, Mode}`; `adapter/mcp` builds one | sometimes |
 | supply tools that change between Turns (by user, by feature flag) | `gotato.ToolSource` | `gotato.WithToolSource`; `profile.AgentProfile.ToolSources` | sometimes |
-| have the Agent's own model write the Recap of a Segment | `modelctx.RecapWriter` (`ModelRecap`, `TruncateRecap`) | `modelctx.Compactor.Recap`, in `profile.AgentProfile.Compact` | sometimes |
+| have the Agent's own model write the Recap of a Segment | `record.RecapWriter` (`ModelRecap`, `TruncateRecap`) | `record.Compactor.Recap`, in `profile.AgentProfile.Compact` | sometimes |
 | drop or rewrite Messages after the builder ran | `gotato.ContextTransformer` | `gotato.WithExtension` | sometimes |
 | change the shape of Messages for one provider | `gotato.MessageConverter` | `gotato.WithExtension` | sometimes |
 | add tagged blocks to the system prompt | `gotato.ContextBlock` | `ModelContext.System`, set by a `ContextBuilder` | rare |
 | search tools my own way (embeddings, a service) | `gotato.ToolSearcher` | `gotato.WithToolSearcher` | rare |
-| decide when a Session compacts | `modelctx.Trigger` | `Compactor.Trigger`; the default is `CeilingTrigger` | sometimes |
-| decide where the kept tail starts | `modelctx.Cutter` | `Compactor.Cut`; the default is `TailBudget` | sometimes |
-| change how a closed stretch reads as a Segment | `modelctx.Builder` | `Compactor.Builder`; the default is `CodeSegments` | rare |
-| decide how many of the oldest Segments merge | `modelctx.Picker` | `Compactor.Merge`; the default is `OldestToHalf` | rare |
-| write the Recap of merged Segments myself | `modelctx.MergeRecapWriter` | the same `Compactor.Recap`; a writer with `WriteMergeRecap` is used for merges | rare |
-| compact a Transcript of my own | `modelctx.SegmentStore` | `modelctx.Compact(ctx, store, compactor, cfg)`, `modelctx.AutoCompact(store, compactor)` | rare |
-| read spilled results and Segments back from my own store, or change the page size | `gotato.ReadBack`, with `modelctx.Originals` | `gotato.WithReadBack`; the default is `modelctx.ReadBack{Originals: modelctx.RecordOriginals(record, log)}` | rare |
+| decide when a Session compacts | `record.Trigger` | `Compactor.Trigger`; the default is `CeilingTrigger` | sometimes |
+| decide where the kept tail starts | `record.Cutter` | `Compactor.Cut`; the default is `TailBudget` | sometimes |
+| change how a closed stretch reads as a Segment | `record.Builder` | `Compactor.Builder`; the default is `CodeSegments` | rare |
+| decide how many of the oldest Segments merge | `record.Picker` | `Compactor.Merge`; the default is `OldestToHalf` | rare |
+| write the Recap of merged Segments myself | `record.MergeRecapWriter` | the same `Compactor.Recap`; a writer with `WriteMergeRecap` is used for merges | rare |
+| compact a Transcript of my own | `record.SegmentStore` | `record.Compact(ctx, mine, compactor, cfg)`, `record.AutoCompact(mine, compactor)` | rare |
+| read spilled results and Segments back from my own store, or change the page size | `gotato.ReadBack`, with `record.Originals` | `gotato.WithReadBack`; the default is `record.ReadBack{Originals: record.OriginalsOf(rec, log)}` | rare |
 | report the window, the cache time or the reasoning rule of my model | `Config() gotato.ModelConfig` on the `gotato.Model` (a wrapper that embeds the Model forwards it) | read by the Runner and compaction from `Model.Config().Facts` | common |
-| speak a wire API Gotato does not ship | `gateway.WireAPI` (`Encode(Call) (*Request, error)` and a `Decoder`) | the first argument of `gateway.New` | sometimes |
-| authenticate with more than a static key (a signed request, a token that expires) | an `http.RoundTripper` | `gateway.Connection.HTTPClient` | sometimes |
-| change how often a model call is sent again, or turn it off | `gateway.Retry` | `gateway.WithRetry`; `gateway.Retry{}` is off | sometimes |
-| change what a failed model call means (retryable, too long) | `gateway.Classifier` | `gateway.WithClassifier`; wrap `gateway.DefaultClassifier` to add to it | sometimes |
+| speak a wire API Gotato does not ship | `model.WireAPI` (`Encode(Call) (*Request, error)` and a `Decoder`) | the first argument of `model.New` | sometimes |
+| authenticate with more than a static key (a signed request, a token that expires) | an `http.RoundTripper` | `model.Connection.HTTPClient` | sometimes |
+| change how often a model call is sent again, or turn it off | `model.Retry` | `model.WithRetry`; `model.Retry{}` is off | sometimes |
+| change what a failed model call means (retryable, too long) | `model.Classifier` | `model.WithClassifier`; wrap `model.DefaultClassifier` to add to it | sometimes |
 | rewrite the Transcript before a model call, such as to compact | `gotato.TurnPreparer` | `gotato.WithExtension` | rare |
-| write a Session's Events to a store of my own | `gotato.Journal` (declared in `Transcript.Capabilities()` with `EventSource`, `Spill` and `LoadedToolSource`) | a `Transcript` given to `gotato.WithTranscript`; `session.Records` is the usual way | rare |
+| write a Session's Events to a store of my own | `gotato.Journal` (declared in `Transcript.Capabilities()` with `EventSource`, `Spill` and `LoadedToolSource`) | a `Transcript` given to `gotato.WithTranscript`; `store.Records` is the usual way | rare |
 | let a subscriber catch up from my own log | `gotato.EventSource` | `Events` in the `Capabilities` of a `Transcript` given to `gotato.WithTranscript` | rare |
 
 ## Common seams
 
 ### Model
 
-A `gotato.Model` has two methods: `Stream` starts a call and returns its events, and `Config` returns a `gotato.ModelConfig`, what the model is. `gateway` implements it for three wire APIs; you implement it for anything else. A Model that states nothing returns the zero `ModelConfig`: an unknown window, no cache retention and no default sampling. A wrapper that embeds the model it wraps forwards `Config` for free; one that holds it in a field returns `Inner.Config()`, or the window and cache facts are lost.
+A `gotato.Model` has two methods: `Stream` starts a call and returns its events, and `Config` returns a `gotato.ModelConfig`, what the model is. The `model` package implements it for three wire APIs; you implement it for anything else. A Model that states nothing returns the zero `ModelConfig`: an unknown window, no cache retention and no default sampling. A wrapper that embeds the model it wraps forwards `Config` for free; one that holds it in a field returns `Inner.Config()`, or the window and cache facts are lost.
 
 ### Tool
 
@@ -93,7 +93,7 @@ A tool is a `gotato.Tool`. `NewFuncTool` builds one from a Go function, and its 
 
 ### Store
 
-A Store is where Records live. The memory and file stores ship with `session`. A `session.Store` is two seams side by side: `Records` (`Create`, `Append`, `Load`, `Log`, `Delete`) and `Liveness` (`Beat`, `Instance`), so they may live in two databases. A `Records` may also be a `session.Lister`, which `Runner.Sessions` and `GET /v1/sessions` need and the runtime does not; without one they answer `not_supported`. For a database of your own, implement them and run `storetest.RunRecords`, `RunLiveness` and, if you list, `RunLister` on it; the suite names the rules the Runner relies on. Definitions are a separate contract, below.
+A Store is where Records live. The memory and file stores ship with `store`. A `store.Store` is two seams side by side: `Records` (`Create`, `Append`, `Load`, `Log`, `Delete`) and `Liveness` (`Beat`, `Instance`), so they may live in two databases. A `Records` may also be a `store.Lister`, which `Runner.Sessions` and `GET /v1/sessions` need and the runtime does not; without one they answer `not_supported`. For a database of your own, implement them and run `storetest.RunRecords`, `RunLiveness` and, if you list, `RunLister` (package `store/storetest`) on it; the suite names the rules the Runner relies on. Definitions are a separate contract, below.
 
 ### ContextBuilder
 
@@ -175,9 +175,9 @@ Gotato has no built-in approval and no waiting state in the Loop ([decision 005]
 
 Two things decide whether a Run starts on a pod, in this order ([decision 048](../plan/decisions/048-the-runner-and-the-session-are-built-from-parts-and-host-plumbing-is-internal.md)).
 
-`service.Bounds` guards the pod itself: `MaxActiveSessions` (the Sessions it keeps, active and warm, with the eviction of the longest-idle warm copy before a Run is refused as `overloaded`), `MaxWarmSessions`, and a `Queue` policy for a Session that is busy (`reject` or `wait`). A draining pod refuses first. These are not a policy: they run whatever the `Admitter` says.
+`host.Bounds` guards the pod itself: `MaxActiveSessions` (the Sessions it keeps, active and warm, with the eviction of the longest-idle warm copy before a Run is refused as `overloaded`), `MaxWarmSessions`, and a `Queue` policy for a Session that is busy (`reject` or `wait`). A draining pod refuses first. These are not a policy: they run whatever the `Admitter` says.
 
-`service.Admitter` is the policy of the service, and the one place a Runner asks it. `Admit(ctx, service.Admission, service.Load) (release func(), err error)` is given the Run (`Admission{SessionID, Agent, Task}`: the AgentProfile and, for a Run of a TaskSpec, the TaskSpec's name), what the pod holds (`Load{ActiveRuns, ActiveSessions, WarmSessions}`), and the caller's `ctx`, which carries who asks. The default is `service.Limits{MaxActiveRuns: n}`: refuse past n Runs in flight, and no limit at zero. A limit for each tenant is a few lines:
+`host.Admitter` is the policy of the service, and the one place a Runner asks it. `Admit(ctx, host.Admission, host.Load) (release func(), err error)` is given the Run (`Admission{SessionID, Agent, Task}`: the AgentProfile and, for a Run of a TaskSpec, the TaskSpec's name), what the pod holds (`Load{ActiveRuns, ActiveSessions, WarmSessions}`), and the caller's `ctx`, which carries who asks. The default is `host.Limits{MaxActiveRuns: n}`: refuse past n Runs in flight, and no limit at zero. A limit for each tenant is a few lines:
 
 ```go
 type perTenant struct {
@@ -186,7 +186,7 @@ type perTenant struct {
 	held  map[string]int
 }
 
-func (p *perTenant) Admit(ctx context.Context, _ service.Admission, _ service.Load) (func(), error) {
+func (p *perTenant) Admit(ctx context.Context, _ host.Admission, _ host.Load) (func(), error) {
 	tenant, _ := ctx.Value(tenantKey{}).(string)
 	p.mu.Lock()
 	defer p.mu.Unlock()
@@ -208,7 +208,7 @@ A Tool cannot learn who asked from the request: `ToolUse` has no field for it, a
 type askerKey struct{}
 
 ctx = context.WithValue(ctx, askerKey{}, "ann")
-runner.Run(ctx, service.RunRequest{SessionID: id, Prompt: text})
+runner.Run(ctx, host.RunRequest{SessionID: id, Prompt: text})
 
 // in a PreToolUse extension, or in a Tool's Execute:
 who, _ := ctx.Value(askerKey{}).(string)
@@ -218,7 +218,7 @@ who, _ := ctx.Value(askerKey{}).(string)
 - **Askers of one Session do not mix.** A Session runs one Run at a time, so each Run sees the value of its own caller.
 - **A Run that follows another** (it starts from messages the first Run left queued) runs under the first Run's context without its cancel, so it sees the first caller's value, not the sender's of those messages.
 
-`TestAValueInTheCallersCtxReachesBeforeAndExecute` in [service/service_test.go](../service/service_test.go) pins this.
+`TestAValueInTheCallersCtxReachesBeforeAndExecute` in [host/host_test.go](../host/host_test.go) pins this.
 
 ## Sometimes
 
@@ -227,15 +227,15 @@ who, _ := ctx.Value(askerKey{}).(string)
 A `ToolSet` is a named group with a description and one source; the model loads its tools one by one with `search_tools`. A `ToolSource` is lower level: one method, `Tools(ctx)`, called at the start of each Turn. Reach for a ToolSource when the set of tools depends on who is asking. Through the Runner, set `profile.AgentProfile.ToolSources`:
 
 ```go
-memory := session.NewMemoryStore()
+memory := store.NewMemoryStore()
 profiles := profile.NewRegistry(nil)
 err := profiles.RegisterAgentProfileInline(profile.AgentProfile{
 	Name:        "default",
-	Model:       model,
+	Model:       m,
 	ToolSources: []gotato.ToolSource{source{}}, // source has Tools(ctx) ([]gotato.Tool, error)
 })
-runner, err := service.New(service.Config{
-	Store:        session.Store{Records: memory, Liveness: memory},
+runner, err := host.New(host.Config{
+	Store:        store.Store{Records: memory, Liveness: memory},
 	Profiles:     profiles,
 	DefaultAgent: "default",
 })
@@ -245,83 +245,83 @@ A ToolSet is attached with `AgentProfile.ToolSets` (a `profile.ToolSet{Set, Mode
 
 ### Agent profiles and task specs
 
-A service registers the Agents it runs in a `profile.Registry`, which it gives to `service.Config.Profiles` ([decision 044](../plan/decisions/044-an-agent-profile-and-a-task-spec-are-registered-inline-or-from-a-store.md)). There are four registrations, two for each kind of definition: inline, as a Go value, or from a store, by name. Each name is registered once, and a later registration replaces the earlier.
+A service registers the Agents it runs in a `profile.Registry`, which it gives to `host.Config.Profiles` ([decision 044](../plan/decisions/044-an-agent-profile-and-a-task-spec-are-registered-inline-or-from-a-store.md)). There are four registrations, two for each kind of definition: inline, as a Go value, or from a store, by name. Each name is registered once, and a later registration replaces the earlier.
 
 | Registration | What it registers |
 |---|---|
 | `RegisterAgentProfileInline(p)` | a `profile.AgentProfile` as a value, under its `Name` |
 | `RegisterTaskSpecInline(t)` | a `profile.TaskSpec`, a job that runs again, as a value |
-| `RegisterAgentProfileWithStore(name, defs)` | the name of an AgentProfile whose document is read from a `session.Definitions` at each lookup |
+| `RegisterAgentProfileWithStore(name, defs)` | the name of an AgentProfile whose document is read from a `store.Definitions` at each lookup |
 | `RegisterTaskSpecWithStore(name, defs)` | the same for a TaskSpec |
 
 ```go
 profiles := profile.NewRegistry(nil)
-err := profiles.RegisterAgentProfileInline(profile.AgentProfile{Name: "support", Model: model, Tools: tools})
+err := profiles.RegisterAgentProfileInline(profile.AgentProfile{Name: "support", Model: m, Tools: tools})
 err = profiles.RegisterTaskSpecInline(profile.TaskSpec{Name: "morning-report", Profile: "support", Background: "Report on yesterday's tickets."})
-runner, err := service.New(service.Config{Store: store, Profiles: profiles, DefaultAgent: "support"})
-out, err := runner.Run(ctx, service.RunRequest{Task: "morning-report", Prompt: "Go."})
+runner, err := host.New(host.Config{Store: st, Profiles: profiles, DefaultAgent: "support"})
+out, err := runner.Run(ctx, host.RunRequest{Task: "morning-report", Prompt: "Go."})
 ```
 
 A TaskSpec only narrows its profile (a subset of the Tools, a lower Effect cap, a shorter timeout, a lower `MaxTokens`); one that widens is refused with `profile.ErrWidens`. A Session looks its AgentProfile up by name each time it is built, so a replaced profile reaches new Sessions and never a Run in flight.
 
 ### Definitions and the Catalog
 
-`session.Definitions` is a store of documents by kind and name, which a service implements over its own database so that an AgentProfile or a TaskSpec lives there and not in code. It has two methods, `SaveDefinition` and `LoadDefinition` (`ErrNotFound` when none), keeps bytes, and is not a part of `session.Store`. The stored document is data only: a model name, Tool and ToolSet names, numbers and text. The `profile.Catalog`, built with `profile.NewCatalog(models, tools, toolSets)`, holds what those names can point to, so a stored definition selects what your code offers and never adds to it. A row whose name is not registered is not a definition. `session.NewMemoryDefinitions` and `session.NewFileDefinitions(dir)` ship, and `storetest.RunDefinitions` proves your own ([write a store](write-a-store.md)).
+`store.Definitions` is a store of documents by kind and name, which a service implements over its own database so that an AgentProfile or a TaskSpec lives there and not in code. It has two methods, `SaveDefinition` and `LoadDefinition` (`ErrNotFound` when none), keeps bytes, and is not a part of `store.Store`. The stored document is data only: a model name, Tool and ToolSet names, numbers and text. The `profile.Catalog`, built with `profile.NewCatalog(models, tools, toolSets)`, holds what those names can point to, so a stored definition selects what your code offers and never adds to it. A row whose name is not registered is not a definition. `store.NewMemoryDefinitions` and `store.NewFileDefinitions(dir)` ship, and `storetest.RunDefinitions` proves your own ([write a store](write-a-store.md)).
 
 ```go
-catalog, err := profile.NewCatalog(map[string]gotato.Model{"main": model}, tools, toolSets)
+catalog, err := profile.NewCatalog(map[string]gotato.Model{"main": m}, tools, toolSets)
 profiles := profile.NewRegistry(catalog)
-err = profiles.RegisterAgentProfileWithStore("support", defs) // defs is your session.Definitions
+err = profiles.RegisterAgentProfileWithStore("support", defs) // defs is your store.Definitions
 ```
 
 ### RecapWriter
 
-A Recap is the end of a Segment, written when a Session compacts. With no writer, a Segment has none. `modelctx.ModelRecap` has the Agent's own model write it on the cached prefix; `TruncateRecap` is the deterministic one for tests. Set it on the Agent's `Compactor`:
+A Recap is the end of a Segment, written when a Session compacts. With no writer, a Segment has none. `record.ModelRecap` has the Agent's own model write it on the cached prefix; `TruncateRecap` is the deterministic one for tests. Set it on the Agent's `Compactor`:
 
 ```go
-Compact: modelctx.Compactor{Recap: modelctx.ModelRecap{}}, // a Runner fills in the Agent's model
+Compact: record.Compactor{Recap: record.ModelRecap{}}, // a Runner fills in the Agent's model
 ```
 
 A writer of your own has four methods: `Name`, `WriteRecap`, `WithAgentModel(gotato.Model) RecapWriter` (the Runner calls it to hand over the Agent's model; a writer that asks no model returns itself, and one that wraps a `ModelRecap` passes the model on) and `Validate() error` (a misconfiguration is an error at first use, not a Segment that quietly has none). Embedding the writer you wrap gives you the methods you do not change:
 
 ```go
 // loggedRecap logs each Recap it is asked for and leaves the writing to the writer it wraps.
-type loggedRecap struct{ modelctx.RecapWriter }
+type loggedRecap struct{ record.RecapWriter }
 
-func (l loggedRecap) WriteRecap(ctx context.Context, req modelctx.RecapRequest) (gotato.Message, error) {
+func (l loggedRecap) WriteRecap(ctx context.Context, req record.RecapRequest) (gotato.Message, error) {
 	log.Printf("recap for segment %d", req.Number)
 	return l.RecapWriter.WriteRecap(ctx, req)
 }
 
 // The Runner calls this with the Agent's model, so the wrapped writer must get it.
-func (l loggedRecap) WithAgentModel(m gotato.Model) modelctx.RecapWriter {
+func (l loggedRecap) WithAgentModel(m gotato.Model) record.RecapWriter {
 	return loggedRecap{l.RecapWriter.WithAgentModel(m)}
 }
 
-// in profile.AgentProfile: Compact: modelctx.Compactor{Recap: loggedRecap{modelctx.ModelRecap{}}},
+// in profile.AgentProfile: Compact: record.Compactor{Recap: loggedRecap{record.ModelRecap{}}},
 ```
 
 Embedding the interface hides `WriteMergeRecap`, so merges of this writer get the digest built by code; add the method to write them too. The frame still appends your Recap escaped, so it cannot end its tag early, and a writer that fails leaves the Segment without a Recap, not without a compaction.
 
 ### Compactor, Trigger and Cutter
 
-Compaction is a frame, `modelctx.Compactor`, around parts. You replace a part and keep the rest; a nil part is its default, so `modelctx.Compactor{}` is how compaction behaved before the parts were named. `CompactPolicy` (embedded) holds only numbers: `CeilingTokens`, `WindowTokens`, `DropReasoning`, `SegmentBudgetTokens` and `Location`. [How the frame works](../specs/compaction.md).
+Compaction is a frame, `record.Compactor`, around parts. You replace a part and keep the rest; a nil part is its default, so `record.Compactor{}` is how compaction behaved before the parts were named. `CompactPolicy` (embedded) holds only numbers: `CeilingTokens`, `WindowTokens`, `DropReasoning`, `SegmentBudgetTokens` and `Location`. [How the frame works](../specs/compaction.md).
 
 ```go
-Compact: modelctx.Compactor{
-	CompactPolicy: modelctx.CompactPolicy{WindowTokens: 200_000},
+Compact: record.Compactor{
+	CompactPolicy: record.CompactPolicy{WindowTokens: 200_000},
 	Trigger:       everyTwentyTurns{},
 	Cut:           keepLastTwenty{},
 },
 ```
 
-A `Trigger` says when a compaction is due, and why. It is asked once before each model call; `gotato.CompactionWhyPastBudget` means only the oldest Segments are due to merge, any other reason closes a Segment. Wrap `modelctx.CeilingTrigger` to add a rule and keep the default ones (overflow, the ceiling, Segments past budget):
+A `Trigger` says when a compaction is due, and why. It is asked once before each model call; `gotato.CompactionWhyPastBudget` means only the oldest Segments are due to merge, any other reason closes a Segment. Wrap `record.CeilingTrigger` to add a rule and keep the default ones (overflow, the ceiling, Segments past budget):
 
 ```go
 // everyTwentyTurns adds a rule to the default Trigger: also compact on every 20th Turn of a Run.
-type everyTwentyTurns struct{ modelctx.CeilingTrigger }
+type everyTwentyTurns struct{ record.CeilingTrigger }
 
-func (t everyTwentyTurns) Due(ctx context.Context, s modelctx.TurnState) (gotato.CompactionWhy, bool) {
+func (t everyTwentyTurns) Due(ctx context.Context, s record.TurnState) (gotato.CompactionWhy, bool) {
 	if why, due := t.CeilingTrigger.Due(ctx, s); due {
 		return why, true
 	}
@@ -338,21 +338,21 @@ A `Cutter` says where the kept tail starts, as an index into the Messages since 
 // keepLastTwenty keeps the last 20 Messages word for word.
 type keepLastTwenty struct{}
 
-func (keepLastTwenty) Cut(stretch []gotato.Message, _ modelctx.CutInfo) int {
+func (keepLastTwenty) Cut(stretch []gotato.Message, _ record.CutInfo) int {
 	return max(0, len(stretch)-20)
 }
 ```
 
 What the frame still guarantees: a Turn compacts at most once, whatever the Trigger says, and a Run still past the ceiling after its compaction ends `limit_exceeded`; a Trigger that panics, or says due with no reason, drops that Turn's compaction and publishes an `extension_failed` Event. The cut must be inside the stretch (else the compaction fails); the frame moves it forward to a Turn boundary so a tool call keeps its result, and back so a Run's last Turn is kept, and the tail is the Messages as committed, less reasoning and usage. A Cutter cannot drop or move a Segment.
 
-For one call, `modelctx.CompactConfig` changes the numbers, `KeepMessages` (the Cutter becomes `TailBudget{KeepMessages}`) and the Recap writer; it does not need a part of its own.
+For one call, `record.CompactConfig` changes the numbers, `KeepMessages` (the Cutter becomes `TailBudget{KeepMessages}`) and the Recap writer; it does not need a part of its own.
 
 ### Builder and Picker
 
 A `Builder` renders the closed Messages as a Segment. Its settings live with it: `CodeSegments{SegmentSettings{MessageTokens, ToolLines, ArgChars}}`, so most teams change a number and write no code:
 
 ```go
-Builder: modelctx.CodeSegments{SegmentSettings: modelctx.SegmentSettings{MessageTokens: 500}},
+Builder: record.CodeSegments{SegmentSettings: record.SegmentSettings{MessageTokens: 500}},
 ```
 
 A Builder of your own wraps the default or writes the Messages itself:
@@ -360,11 +360,11 @@ A Builder of your own wraps the default or writes the Messages itself:
 ```go
 // countedSegments builds the default Segment and counts it.
 type countedSegments struct {
-	modelctx.CodeSegments
+	record.CodeSegments
 	built *atomic.Int64
 }
 
-func (b countedSegments) Build(closed []gotato.Message, info modelctx.SegmentInfo) (gotato.Segment, error) {
+func (b countedSegments) Build(closed []gotato.Message, info record.SegmentInfo) (gotato.Segment, error) {
 	b.built.Add(1)
 	return b.CodeSegments.Build(closed, info)
 }
@@ -390,7 +390,7 @@ The frame replaces two or more of the first Segments, never a later one. An answ
 
 ### SegmentStore
 
-A `modelctx.SegmentStore` is what a compaction reads and writes. `*session.Record` is one, so a Session over a `session.Store` compacts with no work. Implement it for a Transcript of your own (see [Transcript and its Capabilities](#transcript-and-its-capabilities)) that keeps the originals a Segment refers to:
+A `record.SegmentStore` is what a compaction reads and writes. `*record.Record` is one, so a Session over a `store.Store` compacts with no work. Implement it for a Transcript of your own (see [Transcript and its Capabilities](#transcript-and-its-capabilities)) that keeps the originals a Segment refers to:
 
 ```go
 type myStore struct{ /* your Transcript's state */ }
@@ -411,33 +411,33 @@ func (s *myStore) CloseSegment(why gotato.CompactionWhy, seg gotato.Segment, tai
 // replaced (replaces are the numbers of the first Segments), then tail.
 func (s *myStore) MergeSegments(why gotato.CompactionWhy, merged gotato.Segment, replaces []int, tail []gotato.Message, c *gotato.Compaction) (gotato.Segment, error) { /* ... */ }
 
-// then: modelctx.AutoCompact(store, compactor) is the TurnPreparer; modelctx.Compact(ctx, store, compactor, cfg) compacts once.
+// then: record.AutoCompact(mine, compactor) is the TurnPreparer; record.Compact(ctx, mine, compactor, cfg) compacts once.
 ```
 
 What the frame still guarantees: only it calls the two writes, one batch per call. `CloseSegment` lists every Segment of the Context itself (a caller cannot drop or move one) and sets the loaded Tools from `Compaction.LoadedTools` in the same step. A panic in your store is a dropped compaction, not a dead Run, and an error you return keeps its own code (a conflict stays a conflict).
 
 ### ReadBack and Originals
 
-A `gotato.ReadBack` is a `ToolSource` that also says `PageBytes() int`. It gives a Session its tools for reading back what left the Context, and the one page size that the spill threshold, the pages of a preview and both read tools share. Install it with `gotato.WithReadBack`; a Session spills a large Tool Result only with one installed (and a Transcript that keeps Entries). `modelctx.ReadBack{Originals, PageSize, Location}` is the default and offers `read_result` and, once the Context holds a Segment, `read_segment`. A service installs it over its store, so most teams write nothing; one Agent that needs another sets `profile.AgentProfile.ReadBack`, and nil keeps the default. To read from your own store, supply `modelctx.Originals`, and set the page size if 32 KiB (`modelctx.DefaultPageBytes`) is not right:
+A `gotato.ReadBack` is a `ToolSource` that also says `PageBytes() int`. It gives a Session its tools for reading back what left the Context, and the one page size that the spill threshold, the pages of a preview and both read tools share. Install it with `gotato.WithReadBack`; a Session spills a large Tool Result only with one installed (and a Transcript that keeps Entries). `record.ReadBack{Originals, PageSize, Location}` is the default and offers `read_result` and, once the Context holds a Segment, `read_segment`. A service installs it over its store, so most teams write nothing; one Agent that needs another sets `profile.AgentProfile.ReadBack`, and nil keeps the default. To read from your own store, supply `record.Originals`, and set the page size if 32 KiB (`record.DefaultPageBytes`) is not right:
 
 ```go
 type myOriginals struct{ db *sql.DB }
 
 // Ref returns a Message by its ref: result:<call_id> or msg:<message_id>.
 func (o myOriginals) Ref(ctx context.Context, r ref.Ref) (gotato.Message, error) {
-	// look it up; return modelctx.ErrNoOriginal when nothing has it, modelctx.ErrRemoved when it was pruned
-	return gotato.Message{}, modelctx.ErrNoOriginal
+	// look it up; return record.ErrNoOriginal when nothing has it, record.ErrRemoved when it was pruned
+	return gotato.Message{}, record.ErrNoOriginal
 }
 
 // Segment returns the Messages Segment n closed, and whether it returned all of them.
 func (o myOriginals) Segment(ctx context.Context, n int) ([]gotato.Message, bool, error) {
-	return nil, false, modelctx.ErrNoOriginal
+	return nil, false, record.ErrNoOriginal
 }
 
-gotato.WithReadBack(modelctx.ReadBack{Originals: myOriginals{db}, PageSize: 16 << 10})
+gotato.WithReadBack(record.ReadBack{Originals: myOriginals{db}, PageSize: 16 << 10})
 ```
 
-Add `Segments() []gotato.Segment` to your `Originals`, as `modelctx.RecordOriginals` has, and `read_segment` is offered only once the Context holds a Segment; without it, it is always offered. An `ErrNoOriginal` may carry a `Hint() string`, text shown to the model after the words for a ref that names nothing (for example the refs the store holds). Any other error is a store failure and its text is never shown to the model.
+Add `Segments() []gotato.Segment` to your `Originals`, as `record.OriginalsOf` has, and `read_segment` is offered only once the Context holds a Segment; without it, it is always offered. An `ErrNoOriginal` may carry a `Hint() string`, text shown to the model after the words for a ref that names nothing (for example the refs the store holds). Any other error is a store failure and its text is never shown to the model.
 
 What the ReadBack still guarantees: the IDs `read_result` and `read_segment` (`ref.ReadResult`, `ref.ReadSegment`), the paging, the escaping of the four tags, the `read` Effect and the wording are fixed, since written Segments name them; only where the originals are, and how big a page is, are yours. `NewSession` asks `PageBytes` once and refuses a value below 1, or a panic, with `invalid_argument`; a Tool ID it shares with another source fails the Session like any other.
 
@@ -447,23 +447,23 @@ Both are Extension stages that run after the builder. A transformer selects, add
 
 ### WireAPI
 
-Replaces the wire API of the gateway: how a request is written and its reply read. Implement `Encode(Call) (*Request, error)`: the `Call` holds the `ModelConfig`, the `ModelRequest`, the key and the cache key, and the `Request` holds the `Body`, the `Header` the wire sets and `NewDecoder`, which returns a fresh `Decoder` for each attempt. `Decoder.Decode(SSEEvent)` turns one event into `ModelEvent`s and says when the reply is done. The wire never sends, retries or classifies, so it reuses the Connection, the Retry and the Classifier as they are. Pass it as the first argument of `gateway.New`; the shipped ones are `ChatCompletions{}`, `Responses{}` and `AnthropicMessages{}`. A wire may add `Validate() error`, which `gateway.New` calls.
+Replaces the wire API of the model bridge (package `model`): how a request is written and its reply read. Implement `Encode(Call) (*Request, error)`: the `Call` holds the `ModelConfig`, the `ModelRequest`, the key and the cache key, and the `Request` holds the `Body`, the `Header` the wire sets and `NewDecoder`, which returns a fresh `Decoder` for each attempt. `Decoder.Decode(SSEEvent)` turns one event into `ModelEvent`s and says when the reply is done. The wire never sends, retries or classifies, so it reuses the Connection, the Retry and the Classifier as they are. Pass it as the first argument of `model.New`; the shipped ones are `ChatCompletions{}`, `Responses{}` and `AnthropicMessages{}`. A wire may add `Validate() error`, which `model.New` calls.
 
 ### Connection and its HTTP client
 
-`gateway.Connection` holds the complete `Endpoint`, an `APIKey`, `Headers`, a `CacheKeyHeader` and an `HTTPClient`. Any authentication beyond a static key goes in the `RoundTripper` of the client you pass: sign the request or add a token that expires there. With no `HTTPClient` the gateway uses `gateway.NewHTTPClient(10*time.Second, 60*time.Second)`; call it yourself for other timeouts.
+`model.Connection` holds the complete `Endpoint`, an `APIKey`, `Headers`, a `CacheKeyHeader` and an `HTTPClient`. Any authentication beyond a static key goes in the `RoundTripper` of the client you pass: sign the request or add a token that expires there. With no `HTTPClient` the model bridge uses `model.NewHTTPClient(10*time.Second, 60*time.Second)`; call it yourself for other timeouts.
 
 ### Retry
 
-`gateway.Retry{Max, Backoff, MaxWait}` says how often a refused request or a cut stream is sent again, how long to wait and the longest wait. Pass it with `gateway.WithRetry`; the default is `gateway.DefaultRetry` (2, 200 ms, 60 s), and `gateway.Retry{}` turns retries off. Whether a failure may be repeated is the Classifier's answer.
+`model.Retry{Max, Backoff, MaxWait}` says how often a refused request or a cut stream is sent again, how long to wait and the longest wait. Pass it with `model.WithRetry`; the default is `model.DefaultRetry` (2, 200 ms, 60 s), and `model.Retry{}` turns retries off. Whether a failure may be repeated is the Classifier's answer.
 
 ### Classifier
 
-`gateway.Classifier` is `func(Failure) Verdict`. A `Failure` is what one attempt showed (the status, the message, the code and type, the headers, the error under it), and a `Verdict{Retryable, Overflow, Limit}` says what it means. `gateway.DefaultClassifier` holds the gateway's own tables. To add to it, write a function that calls it and changes the Verdict, and pass that with `gateway.WithClassifier`:
+`model.Classifier` is `func(Failure) Verdict`. A `Failure` is what one attempt showed (the status, the message, the code and type, the headers, the error under it), and a `Verdict{Retryable, Overflow, Limit}` says what it means. `model.DefaultClassifier` holds the model bridge's own tables. To add to it, write a function that calls it and changes the Verdict, and pass that with `model.WithClassifier`:
 
 ```go
-func(f gateway.Failure) gateway.Verdict {
-	v := gateway.DefaultClassifier(f)
+func(f model.Failure) model.Verdict {
+	v := model.DefaultClassifier(f)
 	if strings.Contains(f.Message, "request_too_big") { // your provider's wording for "too long"
 		v.Overflow, v.Retryable = true, false
 	}
@@ -496,7 +496,7 @@ When the oldest Segments pass their budget they are merged into one (the Picker 
 | `RoundReasoning` | leaving reasoning out of the Messages compaction keeps, and out of earlier Rounds in the request |
 | `ThinkingBinding` | asking the provider to drop a thinking block whose prefix changed (Anthropic wire) |
 
-`ModelConfig.Sampling` holds the model's default sampling, which a Session's `gotato.WithSampling` overrides field by field. `gateway.New` takes the same `ModelConfig` and returns it from `Config()`; a wrapper that embeds the Model forwards it, so no fact is hidden.
+`ModelConfig.Sampling` holds the model's default sampling, which a Session's `gotato.WithSampling` overrides field by field. `model.New` takes the same `ModelConfig` and returns it from `Config()`; a wrapper that embeds the Model forwards it, so no fact is hidden.
 
 ### TurnPreparer
 
@@ -515,7 +515,7 @@ A `Transcript` is what `gotato.WithTranscript` takes, and it says what else it c
 | `Events` | an `EventSource`: a Subscription that falls behind reads Events again from it |
 | `Loaded` | a `LoadedToolSource`: the Tools a Run loaded are restored |
 
-`session.Record` and `session.Writer` declare all of them, so you meet this only if you write a Transcript that is not backed by `session.Store`. A wrapper that embeds the concrete type forwards `Capabilities`; any other wrapper writes its own declaration, so one that forgets a part says so in code. `NewSession` refuses a Transcript that declares `Durable` without a `Journal`, `Events` and `Loaded`, so a wrapper that hides the Journal fails at construction, not weeks later as a Session that stores less. A Transcript that stores nothing declares `Capabilities{}`. For your own database, write a Store instead.
+`record.Record` and `store.Writer` declare all of them, so you meet this only if you write a Transcript that is not backed by `store.Store`. A wrapper that embeds the concrete type forwards `Capabilities`; any other wrapper writes its own declaration, so one that forgets a part says so in code. `NewSession` refuses a Transcript that declares `Durable` without a `Journal`, `Events` and `Loaded`, so a wrapper that hides the Journal fails at construction, not weeks later as a Session that stores less. A Transcript that stores nothing declares `Capabilities{}`. For your own database, write a Store instead.
 
 ## What is not a seam
 

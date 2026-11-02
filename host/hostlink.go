@@ -8,7 +8,7 @@ import (
 // The calls the core keeps for the host of its Sessions (decision 048). The core
 // hands them over through internal/hostlink as untyped values; their types are
 // asserted here, once, when the package is loaded, so a drift between the core
-// and the service fails the first program that imports both and not a call in
+// and the host fails the first program that imports both and not a call in
 // the middle of a Run.
 var (
 	withFeed         = hostlink.WithFeed.(func(*gotato.Feed) gotato.SessionOption)

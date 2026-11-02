@@ -8,7 +8,7 @@ import (
 
 // Observed: an assistant reply was stored as one Part per streamed delta
 // ("I", "'ll", " start", ...), so a Mow Worker transcript of 113 messages
-// took 827 KB, and the Responses gateway replayed every fragment as its own
+// took 827 KB, and the Responses wire replayed every fragment as its own
 // output message. The Message holds one Part per contiguous block of one
 // kind, and a Reasoning block closes when its signature arrives.
 func TestStreamedDeltasCoalesceIntoBlocks(t *testing.T) {

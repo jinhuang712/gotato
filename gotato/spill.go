@@ -116,7 +116,7 @@ func humanBytes(n int) string {
 }
 
 // keepsSpilled reports whether the Session's Transcript keeps what the spill
-// writes: a record.Record or session.Writer declares Capabilities.Spill; over
+// writes: a record.Record or store.Writer declares Capabilities.Spill; over
 // any other Transcript a Tool Result is committed whole.
 func (a *Session) keepsSpilled() (keeps bool, failure *RuntimeError) {
 	caps, failure := a.history.capabilities()

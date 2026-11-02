@@ -82,7 +82,7 @@ func (a *Session) Notice(ctx context.Context, kind, text string) (uint64, error)
 }
 
 // QueueNotice queues a notice Message, of any source and kind, as Notice does.
-// It is for the host that speaks for Gotato, such as the service layer's
+// It is for the host that speaks for Gotato, such as the host layer's
 // time_away; a service's own notice goes through Notice.
 func (a *Session) QueueNotice(ctx context.Context, message Message) (uint64, error) {
 	if ctx == nil {

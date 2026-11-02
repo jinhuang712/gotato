@@ -340,7 +340,7 @@ func summarize(text string) string {
 	return strings.Join(pairs, " ")
 }
 
-// WithLoadedToolsOf is a session.Option for a Record made from messages alone:
+// WithLoadedToolsOf is a record.Option for a Record made from messages alone:
 // it sets as loaded the catalog Tools the Tool Results among them list, in
 // order, which is what a Session that played them holds as long as it did not
 // compact. A Record built with record.WithMessages starts with no loaded

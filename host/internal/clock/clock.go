@@ -1,4 +1,4 @@
-// Package clock is the one clock of the service: every time the Runner reads
+// Package clock is the one clock of the host: every time the Runner reads
 // or waits for goes through a Clock, so a test that supplies its own advances
 // a TTL, a Liveness renewal and a wait together, and never sleeps.
 //
@@ -13,7 +13,7 @@ import (
 	"time"
 )
 
-// Clock is the time the service waits by.
+// Clock is the time the host waits by.
 type Clock interface {
 	Now() time.Time
 	// AfterFunc calls f once, in a goroutine of its own, after d.

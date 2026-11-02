@@ -8,91 +8,103 @@ By the end of this page you know which Gotato packages your program needs, and w
 
 ## Where each package lives
 
-The layout follows three rules: the module root holds no Go code; a directory's name is its package's name, so no import needs an alias; and a test-helper package sits next to what it tests, as `net/http/httptest` does.
+The layout follows three rules: the module root holds no Go code; a directory's name is its package's name, so no import needs an alias (`adapter/http` is the one exception, see below); and a test-helper package sits next to what it tests, as `net/http/httptest` does.
 
 ```text
 github.com/jinhuang712/gotato
 ├── gotato/            the core: Session, Tool, Model, Event (standard library only)
-├── session/
+├── ref/               the form of a reference (standard library only)
+├── record/            the Record, the Context it yields, compaction and read-back
+├── store/             saving: the Store contract, the Writer, the memory and file stores
 │   └── storetest/     the Store contract suite
-├── modelctx/  gateway/  profile/  service/  service/httpapi/  testkit/
-├── internal/          text: string helpers shared by the packages above (standard library only);
+├── profile/           AgentProfile, TaskSpec, the Registry
+├── model/             the bridge to a model over HTTP
+├── host/              hosting many Sessions on many instances: the Runner
+├── testkit/           fakes for tests
+├── internal/          text, hostlink: shared by the packages above (standard library only);
 │                      the rest are our own test tools, the test CLI (internal/cmd/gotato) among them,
 │                      which no shipped package imports
+├── adapter/http/      a module of its own: an HTTP API over host
 ├── adapter/mcp/       a module of its own
 ├── examples/larkbot/  a module of its own
 └── bench/refservice/  a module of its own
 ```
 
+`adapter/http` is a package named `http`, the name of `net/http`, so a program that serves it imports it with an alias: `httpapi "github.com/jinhuang712/gotato/adapter/http"`.
+
 ## What to import for what
 
 | You want to | Import |
 |---|---|
-| Run an agent in your program | `gotato`, and a model: `gateway` for a provider's wire API, or your own `gotato.Model` |
-| Keep conversations in a store and continue them on any pod | add `service` (the Runner) and `session` (the Store) |
-| Keep long conversations small | `modelctx`; the Runner brings it |
+| Run an agent in your program | `gotato`, and a model: `model` for a provider's wire API, or your own `gotato.Model` |
+| Keep conversations in a store and continue them on any pod | add `host` (the Runner) and `store` (the Store) |
+| Keep long conversations small | `record` (compaction); `store` and the Runner bring it |
 | Register Agents and jobs that run again, inline or from your own store | `profile` (AgentProfile, TaskSpec, the Registry); a Runner needs one |
 | Call MCP servers | `adapter/mcp` (a module of its own) |
-| Serve it over HTTP | `service/httpapi` |
+| Serve it over HTTP | `adapter/http` (a module of its own) |
 | Write tests with a fake model | `testkit` |
-| Prove your own Store adapter keeps the store contract | `session/storetest` |
+| Prove your own Store adapter keeps the store contract | `store/storetest` |
 
 ## What leaving one out costs
 
 ```text
 gotato                               one process, in memory, no compaction
-gotato + session                     the conversation is saved and any pod can continue it
-gotato + session + modelctx          long conversations compact on their own
+gotato + record                      long conversations compact on their own
+gotato + record + store              the conversation is saved and any pod can continue it
 ```
 
-- **Without `session`** a conversation lives in the memory of one process and is gone when it exits. It is the one package to add before you run on many pods.
-- **Without `modelctx`** the context is the full history, which grows until it meets the model's window.
+- **Without `store`** a conversation lives in the memory of one process and is gone when it exits. It is the one package to add before you run on many pods.
+- **Without `record`** the context is the full history, which grows until it meets the model's window.
 
 ## How they depend on each other
 
-Every shipped package builds on the core. The diagram shows the layers, with each package above the ones it imports; `gateway` and `adapter/mcp` sit beside the chain and import the core alone:
+Every shipped package builds on the core. The diagram shows the layers, with each package above the ones it imports; `model` and `adapter/mcp` sit beside the chain and import the core alone:
 
 ```text
-service/httpapi
+adapter/http
       │
       ▼
-   service
+    host
       │
       ▼
-   profile
+  profile
       │
       ▼
-  modelctx          testkit   session/storetest
-      │                   │       │
-      ▼                   ▼       ▼
-   session ◄──────────────┴───────┘        gateway   adapter/mcp
-      │                                       │          │
-      ▼                                       ▼          ▼
-   gotato  ◄──────────────────────────────────┴──────────┘
+   store ◄──────── store/storetest
+      │
+      ▼
+   record ◄─────── testkit        model   adapter/mcp
+      │                             │         │
+      ▼                             ▼         ▼
+   gotato  ◄────────────────────────┴─────────┘
+      │
+      ▼
+    ref
 ```
 
 An arrow reads "imports". Some imports skip a layer, and the table lists all of them:
 
 | Package | Imports |
 |---|---|
-| `gotato` | none (the standard library, and the shared `internal/text`) |
-| `session` | `gotato` |
-| `gateway` | `gotato` |
-| `modelctx` | `gotato`, `session` |
-| `testkit` | `gotato`, `session` |
-| `session/storetest` | `gotato`, `session` |
-| `profile` | `gotato`, `session`, `modelctx` |
-| `service` | `gotato`, `session`, `modelctx`, `profile` |
-| `service/httpapi` | `gotato`, `session`, `modelctx`, `service` |
+| `ref` | none (the standard library) |
+| `gotato` | `ref` (and the standard library, and the shared `internal/text` and `internal/hostlink`) |
+| `record` | `gotato`, `ref` |
+| `store` | `gotato`, `record` |
+| `model` | `gotato` (and the shared `internal/text`) |
+| `testkit` | `gotato`, `record` |
+| `store/storetest` | `gotato`, `record`, `store` |
+| `profile` | `gotato`, `record`, `store` |
+| `host` | `gotato`, `record`, `store`, `profile` |
+| `adapter/http` | `gotato`, `record`, `store`, `host` |
 | `adapter/mcp` | `gotato` |
 
-`session` and `gateway` depend on the core alone, and not on each other. `testkit` and `session/storetest` import the core and `session`. `profile` sits between `service` and `session`: it imports no `service`, and the core and `session` import none of it, so a program that does not host Agents never loads it. Of the shipped packages, only `service/httpapi` imports `service`.
+The order is `host`, `profile`, `store`, `record`, `gotato`, `ref`: a package imports its own layer and the ones after it, never one before it. `store` imports `record`, and `record` does not know how it is saved. `model` and `adapter/mcp` depend on the core alone, and not on each other (`model` also uses the shared `internal/text`). `testkit` imports the core and `record`, and `store/storetest` the core, `record` and `store`. `profile` sits between `host` and `store`: it imports no `host`, and the core, `record` and `store` import none of it, so a program that does not host Agents never loads it. Of the shipped packages, only `adapter/http` imports `host`.
 
-`gotato/layering_test.go` holds this table as `allowedImports` and fails on any import outside it, on a table entry no code uses, and on a new package that is not in it. To add a dependency on purpose, extend the table in the same commit and say why.
+`gotato/layering_test.go` holds this table as `allowedImports` and the order as `layerOrder`, and fails on any import outside the table or against the order, on a table entry no code uses, and on a new package that is not in it. To add a dependency on purpose, extend the table in the same commit and say why.
 
 ## Next
 
 - [Getting started](getting-started.md) uses the core and a model.
-- [Embed Gotato in a service](embed-in-a-service.md) adds `service`, `profile` and `session`.
+- [Embed Gotato in a service](embed-in-a-service.md) adds `host`, `profile` and `store`.
 - [Write a Tool or a Model](write-a-tool-and-model.md), [write a Store](write-a-store.md), and [pick an extension point](extension-points.md).
 - [HTTP in five minutes](http-in-five-minutes.md), a [minimal `main.go`](minimal-main.md), and [tests with fakes](test-with-fakes.md).

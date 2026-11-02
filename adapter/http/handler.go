@@ -42,7 +42,7 @@
 //	DELETE /v1/sessions/{id}                → 200 {id, deleted}
 //	POST   /v1/sessions/{id}/fork           → 201 summary of the fork
 //	GET    /v1/sessions/{id}/events?kind=   → 200 JSON Lines of the Session's stored Events
-//	GET    /v1/sessions/{id}/context        → 200 modelctx report (what the model would see now)
+//	GET    /v1/sessions/{id}/context        → 200 context report (what the model would see now)
 //	GET    /v1/sessions/{id}/stream?after=N&record_epoch=E
 //	                                        → SSE: stream, event*, reconnect?   (resumes after N; Last-Event-ID too)
 //	POST   /v1/sessions/{id}/compact        {keep_messages?, min_tokens?} → 200 compaction result

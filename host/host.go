@@ -154,7 +154,7 @@ const DefaultMaxWarmSessions = 10000
 // each is an Instance with its own name, and a Session is written by one
 // Instance at a time (a Claim), whichever Instance served its last Run. To
 // stop an Instance, call Drain, then shut down the HTTP server (for
-// httpapi: http.Server.Shutdown), then Close. Drain comes first because it
+// the package adapter/http: http.Server.Shutdown), then Close. Drain comes first because it
 // lets the Runs in flight finish, which their open HTTP requests are waiting
 // for, and ends the Session streams, which Shutdown would otherwise wait on
 // for ever; Close comes last because it removes the Instance's Liveness row,
@@ -399,7 +399,7 @@ func (r *Runner) Events(ctx context.Context, sessionID string) ([]gotato.Event, 
 func (r *Runner) Sessions(ctx context.Context, q store.ListQuery) (store.ListPage, error) {
 	lister, ok := r.store.Records.(store.Lister)
 	if !ok {
-		return store.ListPage{}, gotato.ErrorOf(gotato.CodeNotSupported, "host: the store does not list Sessions (its Records is not a session.Lister)")
+		return store.ListPage{}, gotato.ErrorOf(gotato.CodeNotSupported, "host: the store does not list Sessions (its Records is not a store.Lister)")
 	}
 	page, err := lister.List(ctx, q)
 	return page, storeFailureOf(ctx, err, true)

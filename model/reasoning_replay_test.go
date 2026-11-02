@@ -71,7 +71,7 @@ func TestResponsesLeavesOutTheItemIDsOfEarlierRounds(t *testing.T) {
 // DeepSeek refuses a request that leaves out any earlier reasoning_content
 // once tools are in play, and any model whose facts say nothing may do the
 // same. A model with no stated facts gets every reasoning artifact back, and
-// no field or header the gateway adds only for a stated fact.
+// no field or header the Client adds only for a stated fact.
 func TestAModelWithNoStatedFactsGetsEveryReasoningAndNothingElse(t *testing.T) {
 	for _, api := range wireAPIs {
 		t.Run(string(api), func(t *testing.T) {
@@ -462,7 +462,7 @@ func reasoningElements(api string, elements []string) int {
 	return n
 }
 
-// withoutReasoning is what the gateway leaves of an earlier Round's elements
+// withoutReasoning is what the Client leaves of an earlier Round's elements
 // when a new Round begins on a provider that takes the current Round's reasoning
 // only: the thinking blocks and reasoning items are gone, and so is the ID of a
 // Responses function call, which names the output its reasoning came with.
@@ -503,7 +503,7 @@ func mustJSON(t *testing.T, v any) string {
 }
 
 // TestFakeRequestOnlyGrowsAtItsEndWithReasoning checks GOALS.md G-G07 on the
-// bytes the gateway sends when the replies carry reasoning, with the reasoning
+// bytes the Client sends when the replies carry reasoning, with the reasoning
 // as each wire API's fake signs it. One Session plays four Runs, three of them
 // with a tool loop, and every pair of consecutive requests is compared:
 //

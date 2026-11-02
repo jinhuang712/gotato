@@ -136,7 +136,7 @@ func sortInfos(out []record.Info) {
 // query names no Limit.
 const defaultListLimit = 100
 
-// listCursor is what the reference stores' Cursor holds: the last RecordInfo
+// listCursor is what the reference stores' Cursor holds: the last Info
 // of the page before, by the order of the listing.
 type listCursor struct {
 	At time.Time `json:"at"`

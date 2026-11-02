@@ -172,7 +172,7 @@ func TestA200WithAJSONErrorBodySurfacesTheProvidersError(t *testing.T) {
 	}
 }
 
-// A gateway that calls the model again says so: the Session stores a
+// A Client that calls the model again says so: the Session stores a
 // model_retried Event with the attempt, the wait, and why, without the
 // provider's own text.
 func TestGatewayRetryIsAnEvent(t *testing.T) {

@@ -4,7 +4,7 @@ import "github.com/jinhuang712/gotato/gotato"
 
 // The error codes only a Runner makes (decision 048). They are gotato.ErrorCode
 // values with the strings they always had, so a client reads the same JSON and
-// the same HTTP status; they are the service's because the core never returns
+// the same HTTP status; they are the host's because the core never returns
 // one.
 const (
 	// CodeNotWriter means a message for a Run reached an Instance that is not
@@ -31,7 +31,7 @@ const (
 	CodeAlreadyExists gotato.ErrorCode = "already_exists"
 )
 
-// ErrorCodes lists the codes of the service, so a layer that maps codes (a
+// ErrorCodes lists the codes of the host, so a layer that maps codes (a
 // transport, a CLI) can check that it maps each one, beside gotato.ErrorCodes,
 // which lists those of the core. A new code is added here too; a test fails
 // when it is not.
@@ -39,7 +39,7 @@ func ErrorCodes() []gotato.ErrorCode {
 	return []gotato.ErrorCode{CodeNotWriter, CodeDraining, CodeOverloaded, CodeCannotResume, CodeAlreadyExists}
 }
 
-// errorOf builds an error of one of the service's codes with what the code
+// errorOf builds an error of one of the host's codes with what the code
 // says about the request, which gotato.ErrorOf knows for the core's codes only:
 //
 //	code             not run  retryable

@@ -20,7 +20,7 @@ import (
 // tinyWire is a wire API a team could write outside the package: a made-up
 // protocol whose request is {"model","prompt"} and whose reply is one SSE data
 // line per piece of text, then "END". An "error" event carries a failure.
-// It is here to prove that a new wire needs no edit of the gateway: it is
+// It is here to prove that a new wire needs no edit of package model: it is
 // passed to New and reuses the Connection, the Retry, the restart after a cut
 // and the Classifier as they are.
 type tinyWire struct {

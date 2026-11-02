@@ -12,7 +12,7 @@ import (
 )
 
 const (
-	ruleListOrder = "List must return the last RecordInfo of each Record, the most recently updated first (UpdatedAt), ties by ID"
+	ruleListOrder = "List must return the last Info of each Record, the most recently updated first (UpdatedAt), ties by ID"
 	ruleListPages = "List must return each Record once across the pages of a walk: a page holds at most Limit Infos, Next is the Cursor of the page after it, and the last page names none"
 )
 
@@ -112,7 +112,7 @@ func checkListBadCursor(ctx context.Context, open Open) error {
 	return nil
 }
 
-// checkListInfoKept round-trips every field of RecordInfo, found by
+// checkListInfoKept round-trips every field of Info, found by
 // reflection, through Create and Append to the listing.
 func checkListInfoKept(ctx context.Context, open Open) error {
 	store, lister, err := listerOf(open)
@@ -121,7 +121,7 @@ func checkListInfoKept(ctx context.Context, open Open) error {
 	}
 	filled := func() (record.Header, error) {
 		h := record.Header{Epoch: "epoch-shape"}
-		if err := fillAll(reflect.ValueOf(&h.Info).Elem(), "RecordInfo", nil); err != nil {
+		if err := fillAll(reflect.ValueOf(&h.Info).Elem(), "Info", nil); err != nil {
 			return h, err
 		}
 		h.Info.ID = "shape"
@@ -151,7 +151,7 @@ func checkListInfoKept(ctx context.Context, open Open) error {
 		return failf("List returned %d Records (%v), want 1", len(list), idsOf(list))
 	}
 	if diff := differ(reflect.ValueOf(list[0]), reflect.ValueOf(next.Info), "List"); diff != "" {
-		return failf("%s: List must return every field of the RecordInfo of the last write", diff)
+		return failf("%s: List must return every field of the Info of the last write", diff)
 	}
 	return nil
 }

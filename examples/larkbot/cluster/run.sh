@@ -1,5 +1,5 @@
 #!/bin/sh
-# A local kind cluster with three bot replicas, a fake Lark in front and Gotato's fake gateway as the model.
+# A local kind cluster with three bot replicas, a fake Lark in front and Gotato's fake model endpoint (internal/fakegateway) as the model.
 #   cluster/run.sh up       create the cluster (if missing), build and load the images, apply, wait ready
 #   cluster/run.sh smoke    one message, one card, one Transcript
 #   cluster/run.sh s1       rolling deploy with Runs in flight

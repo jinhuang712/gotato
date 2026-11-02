@@ -13,7 +13,7 @@ type Price struct {
 }
 
 // Cost is what usage costs at this price. Usage.InputTokens counts cached
-// tokens too, as every gateway wire API reports it, so cache reads and writes
+// tokens too, as every wire API reports it, so cache reads and writes
 // are taken out of it and priced on their own.
 func (p Price) Cost(usage gotato.Usage) float64 {
 	cached := min(usage.InputTokens, usage.CacheReadTokens+usage.CacheWriteTokens)

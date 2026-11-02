@@ -11,7 +11,7 @@ import (
 	"github.com/jinhuang712/gotato/store"
 )
 
-// A RecordInfo's times are time.Time. They go through a store's JSON and come
+// A Info's times are time.Time. They go through a store's JSON and come
 // back as the same instants, and the epoch reads the same after the reload,
 // whatever digits the time carries and in whatever zone it was written.
 func TestRecordInfoTimesSurviveASaveAndLoad(t *testing.T) {

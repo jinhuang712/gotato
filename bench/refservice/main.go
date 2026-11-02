@@ -1,7 +1,7 @@
 // Command refservice is the reference service that GOALS.md G-B10 (startup
 // time) and G-B12 (footprint) measure: the smallest program a team would write
 // to embed Gotato in a Go service. It imports the core, the Runner, a file
-// store, the HTTP handler and a gateway model, and nothing else.
+// store, the HTTP handler and a model from package model, and nothing else.
 package main
 
 import (

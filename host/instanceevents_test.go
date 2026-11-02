@@ -9,7 +9,7 @@ import (
 	"github.com/jinhuang712/gotato/host"
 )
 
-// The nine Instance Events moved from the core to the service with their kinds,
+// The nine Instance Events moved from the core to the host with their kinds,
 // their fields and their JSON unchanged: MarshalEvent writes each as one flat
 // object whose kind comes first, and the core reads it back as an UnknownEvent
 // that writes the same bytes.
