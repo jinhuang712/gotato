@@ -38,8 +38,10 @@ type Report struct {
 	// The estimates are in tokens (bytes over 4, as ApproxTokens): the
 	// instruction, the tool definitions, the Segment and Recap Messages, the
 	// user and assistant Messages, and the Tool Results. They add up to
-	// ApproxTokens within the rounding of each part, and are the numbers the
-	// context_built Event of that Turn carries.
+	// EstimateTokens of the request's Messages plus the estimate of its
+	// instruction and tools, within the rounding of each part (ApproxTokens
+	// counts the whole encoding of the request, so it is a little larger).
+	// They are the numbers the context_built Event of that Turn carries.
 	EstimateSystemTokens      int                 `json:"estimate_system_tokens"`
 	EstimateToolDefsTokens    int                 `json:"estimate_tool_defs_tokens"`
 	EstimateSegmentsTokens    int                 `json:"estimate_segments_tokens"`

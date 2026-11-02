@@ -155,6 +155,21 @@ func TestContextInspectBuildCompact(t *testing.T) {
 	if len(first.Request.Tools) != 3 || len(first.Request.CacheBreakpoints) != 3 {
 		t.Fatalf("request = %+v", first.Request)
 	}
+	var parts struct {
+		System   int `json:"estimate_system_tokens"`
+		ToolDefs int `json:"estimate_tool_defs_tokens"`
+		History  int `json:"estimate_history_tokens"`
+	}
+	h.mustJSON(h.ok("context", "inspect", id, "--json"), &parts)
+	if parts.System == 0 || parts.ToolDefs == 0 || parts.History == 0 {
+		t.Fatalf("parts = %+v", parts)
+	}
+	text := h.ok("context", "inspect", id)
+	for _, want := range []string{"parts (estimate, tokens):", "system", "tool definitions", "segments", "history", "tool results", "%", "compact_ceiling_tokens"} {
+		if !strings.Contains(text, want) {
+			t.Fatalf("inspect text lacks %q:\n%s", want, text)
+		}
+	}
 	var second report
 	h.mustJSON(h.ok("context", "inspect", id, "--json"), &second)
 	if second.PrefixHash != first.PrefixHash {
