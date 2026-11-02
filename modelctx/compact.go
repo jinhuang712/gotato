@@ -110,9 +110,10 @@ type Result struct {
 	Merge *MergeResult `json:"merge,omitempty"`
 }
 
-// closeSegment appends a Segment and its Checkpoint in one step. A test
+// closeSegment appends a Segment and its Checkpoint in one step, and sets the
+// loaded Tools the compaction keeps. A test
 // replaces it to make the write fail.
-var closeSegment = (*session.Record).CloseSegmentAndCheckpoint
+var closeSegment = (*session.Record).CloseSegment
 
 // Compact closes everything since the last Checkpoint, less a kept tail, into
 // a Segment built by code: the user's Messages and each Run's final reply word
@@ -182,10 +183,6 @@ func runCompact(ctx context.Context, s *session.Record, call compactCall) (Resul
 	// What the Record holds after: the Segments before, the new one, the tail.
 	after := slices.Concat(all[:len(all)-len(stretch)], segment.Messages, tail)
 	encoded, _ := json.Marshal(after)
-	var earlier []int
-	for _, previous := range s.Segments() {
-		earlier = append(earlier, previous.Number)
-	}
 	record := gotato.Compaction{
 		At:               time.Now().UTC(),
 		ReplacedMessages: cut,
@@ -202,9 +199,7 @@ func runCompact(ctx context.Context, s *session.Record, call compactCall) (Resul
 		CeilingTokens:    cfg.EffectiveCeilingTokens(),
 		LoadedTools:      kept,
 	}
-	s.SetLoadedTools(kept)
-	if _, err := closeSegment(s, why, segment, earlier, tail, &record); err != nil {
-		s.SetLoadedTools(loaded)
+	if _, err := closeSegment(s, why, segment, tail, &record); err != nil {
 		s.Emit(gotato.CompactionFailed{Header: sessionHeader(s), Why: why, Cause: causeOf(err)})
 		return Result{}, err
 	}

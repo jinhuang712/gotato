@@ -313,7 +313,7 @@ func TestReadSegmentSaysWhenTheEntriesWerePruned(t *testing.T) {
 	}
 	// A Segment that never recorded where its Messages are reads the same.
 	bare := session.New(session.WithID("bare"))
-	closed, err := bare.CloseSegmentAndCheckpoint(gotato.CompactionWhyOnDemand, gotato.Segment{Messages: []gotato.Message{gotato.UserMessage("x")}}, nil, nil, nil)
+	closed, err := bare.CloseSegment(gotato.CompactionWhyOnDemand, gotato.Segment{Messages: []gotato.Message{gotato.UserMessage("x")}}, nil, nil)
 	if err != nil || closed.Number != 1 {
 		t.Fatal(err)
 	}

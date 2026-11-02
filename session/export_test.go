@@ -26,8 +26,8 @@ func DecodeState(h Header) (RecordState, error) {
 	return state, err
 }
 
-// CloseSegment is Record.closeSegment.
-func (s *Record) CloseSegment(segment gotato.Segment) (gotato.Segment, error) {
+// CloseWithoutCheckpoint is Record.closeSegment.
+func (s *Record) CloseWithoutCheckpoint(segment gotato.Segment) (gotato.Segment, error) {
 	return s.closeSegment(segment)
 }
 

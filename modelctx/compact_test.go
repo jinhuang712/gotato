@@ -15,7 +15,7 @@ import (
 func failWrites(t *testing.T) {
 	t.Helper()
 	original := closeSegment
-	closeSegment = func(*session.Record, gotato.CompactionWhy, gotato.Segment, []int, []gotato.Message, *gotato.Compaction) (gotato.Segment, error) {
+	closeSegment = func(*session.Record, gotato.CompactionWhy, gotato.Segment, []gotato.Message, *gotato.Compaction) (gotato.Segment, error) {
 		return gotato.Segment{}, gotato.ErrorOf(gotato.CodeStoreFailure, "disk gone")
 	}
 	t.Cleanup(func() { closeSegment = original })

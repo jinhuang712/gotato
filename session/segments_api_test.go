@@ -26,7 +26,7 @@ func TestCheckpointSegmentsPointsToTheStoredSegment(t *testing.T) {
 			for _, message := range []gotato.Message{idMessage("u1", "user", "one"), idMessage("a1", "assistant", "ok one"), idMessage("u2", "user", "two"), idMessage("a2", "assistant", "ok two")} {
 				commit(t, writer, message)
 			}
-			first, err := record.CloseSegment(rendered(0, "SEGMENT-ONE-TEXT", "reply"))
+			first, err := record.CloseWithoutCheckpoint(rendered(0, "SEGMENT-ONE-TEXT", "reply"))
 			if err != nil || first.Number != 1 || first.Rendered != 2 {
 				t.Fatalf("CloseSegment = %+v, %v; want number 1 rendered by 2 Messages", first, err)
 			}
@@ -104,7 +104,7 @@ func TestASegmentIsNeverRewrittenByTheNextCompaction(t *testing.T) {
 			record := writer.Record()
 			commit(t, writer, idMessage("u1", "user", "one"))
 			commit(t, writer, idMessage("a1", "assistant", "ok one"))
-			if _, err := record.CloseSegment(rendered(0, "first", "first reply")); err != nil {
+			if _, err := record.CloseWithoutCheckpoint(rendered(0, "first", "first reply")); err != nil {
 				t.Fatal(err)
 			}
 			if err := record.CheckpointSegments(gotato.CompactionWhyOnDemand, []int{1}, nil, nil); err != nil {
@@ -119,7 +119,7 @@ func TestASegmentIsNeverRewrittenByTheNextCompaction(t *testing.T) {
 			}
 			before := bytesOf(record)
 
-			if _, err := record.CloseSegment(rendered(0, "second", "second reply")); err != nil {
+			if _, err := record.CloseWithoutCheckpoint(rendered(0, "second", "second reply")); err != nil {
 				t.Fatal(err)
 			}
 			if err := record.CheckpointSegments(gotato.CompactionWhyOnDemand, []int{1, 2}, record.Tail()[2:], nil); err != nil {
@@ -182,7 +182,7 @@ func TestRecordKeepsWhereMessagesWereCommitted(t *testing.T) {
 		t.Fatal("Position invented a Message")
 	}
 	kept := record.Tail()[2:]
-	if _, err := record.CloseSegment(rendered(0, "first", "reply")); err != nil {
+	if _, err := record.CloseWithoutCheckpoint(rendered(0, "first", "reply")); err != nil {
 		t.Fatal(err)
 	}
 	if err := record.CheckpointSegments(gotato.CompactionWhyOnDemand, []int{1}, kept, nil); err != nil {
@@ -220,10 +220,10 @@ func TestCheckpointSegmentsRefusesWhatIsNotClosed(t *testing.T) {
 	if err := record.CheckpointSegments(gotato.CompactionWhyOnDemand, []int{1}, nil, nil); err == nil {
 		t.Fatal("CheckpointSegments accepted a Segment that is not closed")
 	}
-	if _, err := record.CloseSegment(rendered(3, "a", "b")); err != nil {
+	if _, err := record.CloseWithoutCheckpoint(rendered(3, "a", "b")); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := record.CloseSegment(rendered(3, "a", "b")); err == nil {
+	if _, err := record.CloseWithoutCheckpoint(rendered(3, "a", "b")); err == nil {
 		t.Fatal("CloseSegment closed number 3 twice")
 	}
 	if record.NextSegment() != 4 {
@@ -242,7 +242,7 @@ func TestCheckpointWithMessagesLeavesNoSegments(t *testing.T) {
 	}
 	record := writer.Record()
 	commit(t, writer, idMessage("u1", "user", "one"))
-	if _, err := record.CloseSegment(rendered(0, "first", "reply")); err != nil {
+	if _, err := record.CloseWithoutCheckpoint(rendered(0, "first", "reply")); err != nil {
 		t.Fatal(err)
 	}
 	if err := record.CheckpointSegments(gotato.CompactionWhyOnDemand, []int{1}, nil, nil); err != nil {
@@ -267,7 +267,7 @@ func TestForkCopiesSegments(t *testing.T) {
 			ctx := context.Background()
 			parent := session.New(session.WithID("parent-1"))
 			_ = parent.Append(idMessage("u1", "user", "one"))
-			if _, err := parent.CloseSegment(rendered(0, "first", "reply")); err != nil {
+			if _, err := parent.CloseWithoutCheckpoint(rendered(0, "first", "reply")); err != nil {
 				t.Fatal(err)
 			}
 			if err := parent.CheckpointSegments(gotato.CompactionWhyOnDemand, []int{1}, []gotato.Message{idMessage("u2", "user", "two")}, nil); err != nil {
@@ -286,7 +286,7 @@ func TestForkCopiesSegments(t *testing.T) {
 				t.Fatal(err)
 			}
 			commit(t, writer, idMessage("u3", "user", "three"))
-			if _, err := writer.Record().CloseSegment(rendered(0, "second", "reply two")); err != nil {
+			if _, err := writer.Record().CloseWithoutCheckpoint(rendered(0, "second", "reply two")); err != nil {
 				t.Fatal(err)
 			}
 			if err := writer.Record().CheckpointSegments(gotato.CompactionWhyOnDemand, []int{1, 2}, nil, nil); err != nil {
@@ -315,7 +315,7 @@ func TestForkCopiesSegments(t *testing.T) {
 func TestADocumentKeepsSegments(t *testing.T) {
 	record := session.New()
 	_ = record.Append(idMessage("u1", "user", "one"))
-	if _, err := record.CloseSegment(rendered(0, "first", "reply")); err != nil {
+	if _, err := record.CloseWithoutCheckpoint(rendered(0, "first", "reply")); err != nil {
 		t.Fatal(err)
 	}
 	if err := record.CheckpointSegments(gotato.CompactionWhyOnDemand, []int{1}, record.Tail(), nil); err != nil {
@@ -343,7 +343,7 @@ func TestADocumentKeepsSegments(t *testing.T) {
 func TestCheckpointSegmentsRefusesDuplicateOutOfOrderAndUnclosed(t *testing.T) {
 	record := session.New()
 	for _, number := range []int{1, 2} {
-		if _, err := record.CloseSegment(rendered(number, "a", "b")); err != nil {
+		if _, err := record.CloseWithoutCheckpoint(rendered(number, "a", "b")); err != nil {
 			t.Fatal(err)
 		}
 	}
@@ -370,10 +370,10 @@ func TestCheckpointSegmentsRefusesDuplicateOutOfOrderAndUnclosed(t *testing.T) {
 	}
 }
 
-// CloseSegmentAndCheckpoint writes the Segment and the Checkpoint that lists
-// it as neighbouring Entries of one batch, so nothing stored holds the one
-// without the other.
-func TestCloseSegmentAndCheckpointWritesBothTogether(t *testing.T) {
+// CloseSegment writes the Segment and the Checkpoint that lists it as
+// neighbouring Entries of one batch, so nothing stored holds the one without
+// the other.
+func TestCloseSegmentWritesBothTogether(t *testing.T) {
 	for name, store := range segmentStores(t) {
 		t.Run(name, func(t *testing.T) {
 			ctx := context.Background()
@@ -385,15 +385,9 @@ func TestCloseSegmentAndCheckpointWritesBothTogether(t *testing.T) {
 			for _, message := range []gotato.Message{idMessage("u1", "user", "one"), idMessage("a1", "assistant", "ok one"), idMessage("u2", "user", "two")} {
 				commit(t, writer, message)
 			}
-			if _, err := record.CloseSegmentAndCheckpoint(gotato.CompactionWhyOnDemand, rendered(0, "one", "ok one"), []int{9}, record.Tail()[2:], nil); err == nil {
-				t.Fatal("an earlier Segment that is not closed was accepted")
-			}
-			if record.NextSegment() != 1 || len(record.Segments()) != 0 {
-				t.Fatal("a refused call closed or listed a Segment")
-			}
-			closed, err := record.CloseSegmentAndCheckpoint(gotato.CompactionWhyOnDemand, rendered(0, "one", "ok one"), nil, record.Tail()[2:], nil)
+			closed, err := record.CloseSegment(gotato.CompactionWhyOnDemand, rendered(0, "one", "ok one"), record.Tail()[2:], nil)
 			if err != nil || closed.Number != 1 || closed.Rendered != 2 {
-				t.Fatalf("CloseSegmentAndCheckpoint = %+v, %v", closed, err)
+				t.Fatalf("CloseSegment = %+v, %v", closed, err)
 			}
 			if got := record.Segments(); len(got) != 1 || got[0].Number != 1 || record.Len() != 3 {
 				t.Fatalf("Context = %d Segments, %d Messages; want 1 and 3", len(got), record.Len())
@@ -424,13 +418,13 @@ func TestCloseSegmentAndCheckpointWritesBothTogether(t *testing.T) {
 // Document lists.
 func TestLoadReadsTheLargestListedSegmentNumber(t *testing.T) {
 	record := session.New(session.WithID("seg-max"))
-	if _, err := record.CloseSegment(rendered(0, "a", "b")); err != nil {
+	if _, err := record.CloseWithoutCheckpoint(rendered(0, "a", "b")); err != nil {
 		t.Fatal(err)
 	}
 	if err := record.CheckpointSegments(gotato.CompactionWhyOnDemand, []int{1}, nil, nil); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := record.CloseSegment(rendered(0, "c", "d")); err != nil { // closed alone: number 2, listed by nothing
+	if _, err := record.CloseWithoutCheckpoint(rendered(0, "c", "d")); err != nil { // closed alone: number 2, listed by nothing
 		t.Fatal(err)
 	}
 	if record.NextSegment() != 3 {
@@ -456,9 +450,9 @@ func TestLoadReadsTheLargestListedSegmentNumber(t *testing.T) {
 
 // closeAndList closes a Segment of two Messages and lists it after the earlier
 // ones, the way a compaction does.
-func closeAndList(t *testing.T, record *session.Record, earlier []int, texts ...string) gotato.Segment {
+func closeAndList(t *testing.T, record *session.Record, texts ...string) gotato.Segment {
 	t.Helper()
-	closed, err := record.CloseSegmentAndCheckpoint(gotato.CompactionWhyOnDemand, rendered(0, texts...), earlier, nil, nil)
+	closed, err := record.CloseSegment(gotato.CompactionWhyOnDemand, rendered(0, texts...), nil, nil)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -486,9 +480,9 @@ func TestMergeSegmentsPutsOneMergedSegmentFirst(t *testing.T) {
 				t.Fatal(err)
 			}
 			record := writer.Record()
-			closeAndList(t, record, nil, "one", "r1")
-			closeAndList(t, record, []int{1}, "two", "r2")
-			closeAndList(t, record, []int{1, 2}, "three", "r3")
+			closeAndList(t, record, "one", "r1")
+			closeAndList(t, record, "two", "r2")
+			closeAndList(t, record, "three", "r3")
 			commit(t, writer, idMessage("tail-1", "user", "the tail"))
 			keptBefore, _ := json.Marshal(record.Segments()[2].Messages)
 
@@ -551,9 +545,9 @@ func TestMergeSegmentsPutsOneMergedSegmentFirst(t *testing.T) {
 // nothing is written.
 func TestMergeSegmentsRefusesWhatIsNotAMerge(t *testing.T) {
 	record := session.New(session.WithID("merge-2"))
-	closeAndList(t, record, nil, "one", "r1")
-	closeAndList(t, record, []int{1}, "two", "r2")
-	closeAndList(t, record, []int{1, 2}, "three", "r3")
+	closeAndList(t, record, "one", "r1")
+	closeAndList(t, record, "two", "r2")
+	closeAndList(t, record, "three", "r3")
 	events := len(record.Events())
 	for name, tc := range map[string]struct {
 		merged   gotato.Segment
@@ -575,10 +569,10 @@ func TestMergeSegmentsRefusesWhatIsNotAMerge(t *testing.T) {
 	}
 	// A merged Segment is never closed as an ordinary one, and never listed
 	// after another Segment.
-	if _, err := record.CloseSegmentAndCheckpoint(gotato.CompactionWhyOnDemand, mergedOf(1), []int{1, 2, 3}, nil, nil); err == nil {
-		t.Error("CloseSegmentAndCheckpoint accepted a merged Segment")
+	if _, err := record.CloseSegment(gotato.CompactionWhyOnDemand, mergedOf(1), nil, nil); err == nil {
+		t.Error("CloseSegment accepted a merged Segment")
 	}
-	merged, err := record.CloseSegment(mergedOf(1, 2))
+	merged, err := record.CloseWithoutCheckpoint(mergedOf(1, 2))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -591,8 +585,8 @@ func TestMergeSegmentsRefusesWhatIsNotAMerge(t *testing.T) {
 // be read: the parent's Record.
 func TestAForkKeepsWhereTheMergedSegmentsCanBeRead(t *testing.T) {
 	record := session.New(session.WithID("merge-parent"))
-	closeAndList(t, record, nil, "one", "r1")
-	closeAndList(t, record, []int{1}, "two", "r2")
+	closeAndList(t, record, "one", "r1")
+	closeAndList(t, record, "two", "r2")
 	merged := mergedOf(1, 2)
 	merged.Merged[0].Source = gotato.SegmentSource{FromNumber: 3, ToNumber: 6}
 	if _, err := record.MergeSegments(gotato.CompactionWhyPastBudget, merged, []int{1, 2}, record.Tail(), nil); err != nil {

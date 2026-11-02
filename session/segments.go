@@ -121,7 +121,7 @@ func (s *Record) inheritSegments(parentID, parentEpoch string, segments []gotato
 // nothing. That is harmless: a load reads it and leaves it out of the Context,
 // and its number is never given to another Segment. A compaction that wants
 // the Segment in the Context closes and lists it in one step
-// (CloseSegmentAndCheckpoint), so no write holds the one without the other.
+// (CloseSegment), so no write holds the one without the other.
 func (s *Record) closeSegment(segment gotato.Segment) (gotato.Segment, error) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
@@ -161,13 +161,20 @@ func (s *Record) checkpointSegments(why gotato.CompactionWhy, numbers []int, tai
 	return s.checkpointSegmentsLocked(why, numbers, tail, compaction)
 }
 
-// CloseSegmentAndCheckpoint closes segment (closeSegment) and, in the same
-// step, appends the Checkpoint whose Context is the earlier Segments, then
-// the new one, then tail (checkpointSegments). Both Events are queued under
-// one lock, so no write holds the Segment without the Checkpoint that lists
-// it. earlier are closed numbers in ascending order, all below the new
-// Segment's. When it returns an error, nothing was closed or checkpointed.
-func (s *Record) CloseSegmentAndCheckpoint(why gotato.CompactionWhy, segment gotato.Segment, earlier []int, tail []gotato.Message, compaction *gotato.Compaction) (gotato.Segment, error) {
+// CloseSegment closes segment (closeSegment) and, in the same step, appends
+// the Checkpoint whose Context is every Segment the Context holds now, in
+// order, then the new one, then tail (checkpointSegments). It lists the
+// Segments itself, so none can be dropped or moved by the caller. Both Events
+// are queued under one lock, so no write holds the Segment without the
+// Checkpoint that lists it.
+//
+// When compaction is not nil, the Tools it lists as loaded
+// (Compaction.LoadedTools) become the Record's loaded Tools before the
+// Checkpoint is queued, so the Checkpoint keeps them, and are recorded with
+// the compaction; a compaction that narrows the loaded Tools needs no other
+// call. When it returns an error, nothing was closed, checkpointed or changed.
+// It must not run while a Run is using the Record.
+func (s *Record) CloseSegment(why gotato.CompactionWhy, segment gotato.Segment, tail []gotato.Message, compaction *gotato.Compaction) (gotato.Segment, error) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	number := segment.Number
@@ -180,13 +187,16 @@ func (s *Record) CloseSegmentAndCheckpoint(why gotato.CompactionWhy, segment got
 	if len(segment.Merged) > 0 {
 		return gotato.Segment{}, gotato.ErrorOf(gotato.CodeInvalidArgument, "session: a merged Segment is closed with MergeSegments")
 	}
-	numbers := append(slices.Clone(earlier), number)
+	numbers := append(slices.Clone(s.used), number)
 	if err := s.checkNumbersLocked(numbers, &gotato.Segment{Number: number}); err != nil {
 		return gotato.Segment{}, err
 	}
 	closed, err := s.closeSegmentLocked(segment)
 	if err != nil {
 		return gotato.Segment{}, err
+	}
+	if compaction != nil {
+		s.loaded = slices.Clone(compaction.LoadedTools)
 	}
 	if err := s.checkpointSegmentsLocked(why, numbers, tail, compaction); err != nil {
 		return gotato.Segment{}, err
