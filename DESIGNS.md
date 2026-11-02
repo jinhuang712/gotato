@@ -3,7 +3,7 @@
 
 Every capitalized term on this page is defined in [GLOSSARY.md](GLOSSARY.md), which also gives each term's name in the code.
 
-Gotato is designed around nine principles, in three groups. A principle is a question to ask of every new requirement, and it is kept here without the forks that follow from it: each fork someone could reasonably reverse is a decision in [plan/decisions](plan/decisions/README.md), with its problem, its choice, what we did not choose and what it costs. Each principle below lists the decisions that follow it and the specs that show how it works.
+Gotato is designed around ten principles, in four groups. A principle is a question to ask of every new requirement, and it is kept here without the forks that follow from it: each fork someone could reasonably reverse is a decision in [plan/decisions](plan/decisions/README.md), with its problem, its choice, what we did not choose and what it costs. Each principle below lists the decisions that follow it and the specs that show how it works.
 
 **What Gotato guarantees**
 
@@ -22,6 +22,10 @@ Gotato is designed around nine principles, in three groups. A principle is a que
 
 8. **No instance is special.** Instances coordinate only through the store, and one instance is only the simplest case of many.
 9. **A Session can be stopped and seen.** Every Run can be stopped at any point, and what it did and what it cost are computed from its Events.
+
+**How Gotato is built**
+
+10. **Each layer does one job, and each default can be replaced.** A type holds the concerns of one layer, and wherever Gotato chooses a behaviour for its user, it ships that choice as a default behind a seam the user can fill with their own.
 
 The four guarantees are asked of every decision, whatever its principle: a decision about tools or instances can still lose a step, change a byte already sent, or let the Context grow without bound. This page describes the design we intend, not the state of the code. What is built is in [FEATURES.md](FEATURES.md), what comes next is in [ROADMAP.md](plan/ROADMAP.md), and beliefs are in [PHILOSOPHY.md](PHILOSOPHY.md).
 
@@ -105,6 +109,15 @@ A cloud Session runs with nobody watching each step. So it can be stopped at any
 
 - **Decisions:** [012](plan/decisions/012-a-run-stops-through-its-context-and-the-record-is-the-trace.md) stop through ctx, the Record is the trace; [018](plan/decisions/018-events-are-typed-written-before-sent-and-never-awaited.md) typed Events, written before sent; [021](plan/decisions/021-messages-reach-the-writer-and-take-effect-in-its-process.md) messages reach the writer; [030](plan/decisions/030-every-entry-is-an-event.md) every Entry is an Event; [007](plan/decisions/007-the-context-is-a-value-built-every-turn-and-a-team-can-replace-it.md) the Context is a built value.
 - **How it works:** [Events](specs/events.md), [a Session](specs/session.md), [the Context](specs/context.md).
+
+## 10. Each layer does one job, and each default can be replaced
+
+Gotato is a library, and a library is used in ways its authors did not foresee. So each layer does one job and knows only the layer below it: a definition is not mixed with runtime policy, a model's facts are not mixed with the connection to it, and a transport's shapes are not mixed with the runtime's. Wherever Gotato decides something for its user (where a definition comes from, when to compact, which wire API to speak, how to authenticate), the decision is a default behind a small interface, and the user can replace it without forking Gotato or reimplementing the layer around it. A default may be held in code or loaded from a store, and both go through the same seam. Nothing a user plugs in can bypass a layer that owns a guarantee: an option cannot replace the Writer, and a value read from a store cannot raise an Agent above its cap. *Keep subtracting* decides whether a behaviour exists at all; this principle decides how a behaviour that exists is built.
+
+**Ask:** can a user replace this default without copying the code around it, and does this type hold one layer's concerns?
+
+- **Decisions:** [003](plan/decisions/003-gotato-owns-the-shapes-and-adapters-own-storage.md) shapes and adapters; [009](plan/decisions/009-one-loop-extended-at-fixed-stages.md) one Loop, extended at fixed stages; [013](plan/decisions/013-a-conformance-suite-ships-with-the-store-contract.md) a conformance suite; [042](plan/decisions/042-a-models-profile-is-its-own-value-apart-from-the-connection.md) a model's profile apart from the connection.
+- **How it works:** [extension points](guides/extension-points.md).
 
 ## When principles collide
 
