@@ -122,7 +122,7 @@ func (r *Runner) noticeBetweenRuns(ctx context.Context, request NoticeRequest) (
 		if err != nil {
 			return err
 		}
-		agentName, _ := writer.Record().Get(MetaAgent)
+		agentName, _ := writer.Record().Get(metaAgent)
 		r.publishOpened(writer, early, agentName)
 		spec, known := r.Agent(agentName)
 		limit := int(gotato.DefaultLimits().MaxNotices)

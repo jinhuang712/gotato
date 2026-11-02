@@ -8,19 +8,51 @@ import (
 	"github.com/jinhuang712/gotato/session"
 )
 
-// CreateSession creates and saves a Session bound to an Agent. It fails with
-// ErrSessionExists when an ID given in options is taken.
-func (r *Runner) CreateSession(ctx context.Context, agent string, metadata map[string]string, options ...session.RecordOption) (*session.Record, error) {
-	s, spec, err := r.newSession(agent, metadata, options...)
+// CreateSessionRequest is the one way to make a Session. The Session starts
+// with the history in Messages and the Agent it names, and nothing else of it is
+// set by the caller: its instruction, its ceiling and its Tools are its Agent's.
+type CreateSessionRequest struct {
+	// Agent names the Agent the Session runs. Empty means the default (the
+	// first registered).
+	Agent string
+	// ID is the new Session's ID. Empty generates one. An ID that is taken fails
+	// with ErrSessionExists: the store's Create is the check, so two concurrent
+	// creates of the same ID cannot both succeed, also on two Instances.
+	ID string
+	// Metadata is the caller's own. A key under ReservedPrefix fails the request
+	// with ErrReservedKey, before anything is written.
+	Metadata map[string]string
+	// Messages is the history the Session starts with.
+	Messages []gotato.Message
+}
+
+// CreateSession creates and saves a Session bound to an Agent, and returns its
+// listing columns: a value, so what a caller holds is never mistaken for the
+// stored Record, which only the Runner writes. Read the Record with Record.
+func (r *Runner) CreateSession(ctx context.Context, request CreateSessionRequest) (session.RecordInfo, error) {
+	if err := refuseReserved(request.Metadata); err != nil {
+		return session.RecordInfo{}, err
+	}
+	var options []session.RecordOption
+	if request.ID != "" {
+		if strings.TrimSpace(request.ID) == "" {
+			return session.RecordInfo{}, gotato.ErrorOf(gotato.CodeInvalidArgument, "service: session ID is blank")
+		}
+		options = append(options, session.WithID(request.ID))
+	}
+	if len(request.Messages) > 0 {
+		options = append(options, session.WithMessages(request.Messages...))
+	}
+	s, spec, err := r.newSession(request.Agent, request.Metadata, options...)
 	if err != nil {
-		return nil, err
+		return session.RecordInfo{}, err
 	}
 	// Nothing runs against a Session that is only created: it is released in
 	// the write that creates it.
 	if _, err := r.create(ctx, s, spec.Name, session.WithIdle()); err != nil {
-		return nil, err
+		return session.RecordInfo{}, err
 	}
-	return s, nil
+	return s.Info(), nil
 }
 
 // newSession builds a Session bound to an Agent, without saving it.
@@ -33,18 +65,8 @@ func (r *Runner) newSession(agent string, metadata map[string]string, options ..
 	for key, value := range metadata {
 		s.Set(key, value)
 	}
-	s.Set(MetaAgent, spec.Name)
+	s.Set(metaAgent, spec.Name)
 	return s, spec, nil
-}
-
-// CreateSessionExclusive creates a Session with an explicit ID and fails with
-// ErrSessionExists when the ID is taken. The store's Create is the check, so
-// two concurrent creates cannot both succeed, also on two Instances.
-func (r *Runner) CreateSessionExclusive(ctx context.Context, agent, id string, metadata map[string]string) (*session.Record, error) {
-	if strings.TrimSpace(id) == "" {
-		return nil, gotato.ErrorOf(gotato.CodeInvalidArgument, "service: session ID is required")
-	}
-	return r.CreateSession(ctx, agent, metadata, session.WithID(id))
 }
 
 // DeleteSession removes a Session under the Session lock, so a Run in flight
@@ -75,7 +97,7 @@ func (r *Runner) DeleteSession(ctx context.Context, sessionID string) error {
 		if err != nil {
 			return err
 		}
-		agent, _ := writer.Record().Get(MetaAgent)
+		agent, _ := writer.Record().Get(metaAgent)
 		r.publishOpened(writer, early, agent)
 		if err := r.store.Records.Delete(ctx, sessionID); err != nil {
 			// The Claim was written and the Record stays: give it back.
@@ -91,13 +113,13 @@ func (r *Runner) DeleteSession(ctx context.Context, sessionID string) error {
 	})
 }
 
-// Fork creates a new Session from an existing one. An explicit newID must be
-// free: a fork never overwrites an existing Session, and a taken ID is
-// ErrSessionExists, as CreateSessionExclusive reports it.
-func (r *Runner) Fork(ctx context.Context, sessionID, newID string) (*session.Record, error) {
+// Fork creates a new Session from an existing one, and returns its listing
+// columns. An explicit newID must be free: a fork never overwrites an existing
+// Session, and a taken ID is ErrSessionExists, as CreateSession reports it.
+func (r *Runner) Fork(ctx context.Context, sessionID, newID string) (session.RecordInfo, error) {
 	parent, err := session.View(ctx, r.store.Records, sessionID)
 	if err != nil {
-		return nil, storeFailureOf(ctx, err, true)
+		return session.RecordInfo{}, storeFailureOf(ctx, err, true)
 	}
 	var options []session.RecordOption
 	if newID != "" {
@@ -106,14 +128,14 @@ func (r *Runner) Fork(ctx context.Context, sessionID, newID string) (*session.Re
 	child := session.Fork(parent, options...)
 	// The child starts with its parent's history, so it keeps its parent's
 	// cache key and its first Turn reads the parent's cached prefix.
-	child.Set(MetaCacheKey, sessionCacheKey(parent))
+	child.Set(metaCacheKey, sessionCacheKey(parent))
 	// The store's Create is the existence check, so two concurrent forks with
 	// the same explicit newID cannot both succeed.
-	childAgent, _ := child.Get(MetaAgent)
+	childAgent, _ := child.Get(metaAgent)
 	if _, err := r.create(ctx, child, childAgent, session.WithIdle()); err != nil {
-		return nil, err
+		return session.RecordInfo{}, err
 	}
-	return child, nil
+	return child.Info(), nil
 }
 
 // AbortSession stops the Run in flight on a Session: everything in flight is

@@ -117,7 +117,7 @@ func (c *cli) contextCompact(args []string) int {
 			if err != nil {
 				return c.failErr(err)
 			}
-			agent, _ = s.Get(service.MetaAgent)
+			agent, _ = s.Get(agentKey)
 		}
 		spec, ok := rt.runner.Agent(agent)
 		if !ok {

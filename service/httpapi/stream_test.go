@@ -70,7 +70,7 @@ func TestRunStreamAnswersRefusalsAsRunDoes(t *testing.T) {
 	t.Run("unknown agent", func(t *testing.T) {
 		store := memStore()
 		a := newInstance(t, store, "a", testkit.NewFakeModel(testkit.Text("x")), false)
-		s, err := a.runner.CreateSession(t.Context(), "echo", nil)
+		s, err := a.runner.CreateSession(t.Context(), service.CreateSessionRequest{Agent: "echo"})
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -81,6 +81,6 @@ func TestRunStreamAnswersRefusalsAsRunDoes(t *testing.T) {
 		}
 		server := httptest.NewServer(httpapi.New(other))
 		t.Cleanup(func() { server.Close(); _ = other.Close(t.Context()) })
-		same(t, &instance{server: server, runner: other}, s.ID(), http.StatusBadRequest)
+		same(t, &instance{server: server, runner: other}, s.ID, http.StatusBadRequest)
 	})
 }

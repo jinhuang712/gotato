@@ -30,6 +30,7 @@ func (j *holdJournal) Messages() []gotato.Message {
 	defer j.mu.Unlock()
 	return append([]gotato.Message(nil), j.messages...)
 }
+func (j *holdJournal) Capabilities() gotato.Capabilities { return gotato.Capabilities{Journal: j} }
 func (j *holdJournal) Append(m gotato.Message) error {
 	j.mu.Lock()
 	defer j.mu.Unlock()

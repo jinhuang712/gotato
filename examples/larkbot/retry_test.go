@@ -38,7 +38,7 @@ func deadWriter(t *testing.T, wrap func(http.Handler) http.Handler) (a, b *insta
 	b.bot.retry = fastRetry
 	ctx := context.Background()
 	id = sessionIDFor(rootMsg)
-	if _, err := a.runner.CreateSessionExclusive(ctx, "fake", id, map[string]string{metaChatID: chat, metaThread: rootMsg}); err != nil {
+	if _, err := a.runner.CreateSession(ctx, service.CreateSessionRequest{Agent: "fake", ID: id, Metadata: map[string]string{metaChatID: chat, metaThread: rootMsg}}); err != nil {
 		t.Fatal(err)
 	}
 	aDone = make(chan struct{})

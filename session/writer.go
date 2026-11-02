@@ -380,12 +380,12 @@ func (w *Writer) SetPublisher(publish func(gotato.Event)) {
 	w.mu.Unlock()
 }
 
-// Durable implements an optional method of gotato.Journal: a Writer stores.
-func (w *Writer) Durable() bool { return true }
-
-// KeepsSpilledResults implements gotato.SpillKeeper: a Writer stores every
-// Entry, so the body of a spilled result can be read back.
-func (w *Writer) KeepsSpilledResults() bool { return true }
+// Capabilities implements gotato.Transcript: a Writer is a durable Journal over
+// its Record, stores every Entry (so the body of a spilled result can be read
+// back), catches a subscriber up from the store and restores the loaded Tools.
+func (w *Writer) Capabilities() gotato.Capabilities {
+	return gotato.Capabilities{ID: w.record.ID(), Journal: w, Durable: true, Spill: true, Events: w, Loaded: w}
+}
 
 // Record returns the Record the Writer writes.
 func (w *Writer) Record() *Record { return w.record }

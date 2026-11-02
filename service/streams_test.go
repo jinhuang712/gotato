@@ -95,7 +95,7 @@ func TestStreamSessionRefusesAPositionItCannotResume(t *testing.T) {
 	if err := runner.DeleteSession(ctx, id); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := runner.CreateSessionExclusive(ctx, "echo", id, nil); err != nil {
+	if _, err := runner.CreateSession(ctx, service.CreateSessionRequest{Agent: "echo", ID: id}); err != nil {
 		t.Fatal(err)
 	}
 	if _, err := runner.StreamSession(ctx, id, service.StreamFrom{After: 1, RecordEpoch: first.RecordEpoch}); !errors.Is(err, service.ErrCannotResume) {
@@ -126,19 +126,19 @@ func TestStreamSessionFollowsAnotherInstancesWrites(t *testing.T) {
 	}
 	writer, reader := build("writer"), build("reader")
 	ctx := context.Background()
-	created, err := writer.CreateSession(ctx, "echo", nil)
+	created, err := writer.CreateSession(ctx, service.CreateSessionRequest{Agent: "echo"})
 	if err != nil {
 		t.Fatal(err)
 	}
-	stream, err := reader.StreamSession(ctx, created.ID(), service.StreamFrom{After: 1})
+	stream, err := reader.StreamSession(ctx, created.ID, service.StreamFrom{After: 1})
 	if err != nil {
 		t.Fatal(err)
 	}
 	defer func() { _ = stream.Close() }()
-	if _, err := writer.Run(ctx, service.RunRequest{SessionID: created.ID(), Prompt: "hi"}); err != nil {
+	if _, err := writer.Run(ctx, service.RunRequest{SessionID: created.ID, Prompt: "hi"}); err != nil {
 		t.Fatal(err)
 	}
-	loaded, _ := store.Records.Load(ctx, created.ID())
+	loaded, _ := store.Records.Load(ctx, created.ID)
 	got := readNumbers(t, stream, int(loaded.Seq)-1)
 	if want := consecutive(2, int(loaded.Seq)-1); !equalNumbers(got, want) {
 		t.Fatalf("the reader saw %v, want %v", got, want)
@@ -251,21 +251,21 @@ func TestSessionStreamSnippetReadsTheFinalReply(t *testing.T) {
 		t.Fatal(err)
 	}
 	t.Cleanup(func() { _ = runner.Close(ctx) })
-	s, err := runner.CreateSession(ctx, "echo", nil)
+	s, err := runner.CreateSession(ctx, service.CreateSessionRequest{Agent: "echo"})
 	if err != nil {
 		t.Fatal(err)
 	}
 	// As in the snippet: follow the Session from its head now.
-	record, err := runner.Record(ctx, s.ID())
+	record, err := runner.Record(ctx, s.ID)
 	if err != nil {
 		t.Fatal(err)
 	}
-	sub, err := runner.StreamSession(ctx, s.ID(), service.StreamFrom{After: record.Head()})
+	sub, err := runner.StreamSession(ctx, s.ID, service.StreamFrom{After: record.Seq})
 	if err != nil {
 		t.Fatal(err)
 	}
 	t.Cleanup(func() { _ = sub.Close() })
-	if _, err := runner.Run(ctx, service.RunRequest{SessionID: s.ID(), Prompt: "hi"}); err != nil {
+	if _, err := runner.Run(ctx, service.RunRequest{SessionID: s.ID, Prompt: "hi"}); err != nil {
 		t.Fatal(err)
 	}
 	reply, err := replyOf(ctx, sub)
@@ -320,32 +320,32 @@ func TestSessionStreamHasNoGapAfterAnotherInstanceWrote(t *testing.T) {
 	liveness := steadyLiveness
 	a := instanceRunner(t, asStore(store), "a", testkit.EchoModel{}, liveness)
 	b := instanceRunner(t, asStore(store), "b", testkit.EchoModel{}, liveness)
-	s, err := a.CreateSession(ctx, "echo", nil)
+	s, err := a.CreateSession(ctx, service.CreateSessionRequest{Agent: "echo"})
 	if err != nil {
 		t.Fatal(err)
 	}
-	if _, err := a.Run(ctx, service.RunRequest{SessionID: s.ID(), Prompt: "p0"}); err != nil {
+	if _, err := a.Run(ctx, service.RunRequest{SessionID: s.ID, Prompt: "p0"}); err != nil {
 		t.Fatal(err)
 	}
-	before, err := a.Events(ctx, s.ID())
+	before, err := a.Events(ctx, s.ID)
 	if err != nil {
 		t.Fatal(err)
 	}
 	head := before[len(before)-1].Head().Number
 	emptyBefore := store.emptyReads.Load()
-	sub, err := a.StreamSession(ctx, s.ID(), service.StreamFrom{After: head})
+	sub, err := a.StreamSession(ctx, s.ID, service.StreamFrom{After: head})
 	if err != nil {
 		t.Fatal(err)
 	}
 	defer func() { _ = sub.Close() }()
 	store.waitLive(t, emptyBefore) // the subscriber catches up and goes live
-	if _, err := b.Run(ctx, service.RunRequest{SessionID: s.ID(), Prompt: "p1"}); err != nil {
+	if _, err := b.Run(ctx, service.RunRequest{SessionID: s.ID, Prompt: "p1"}); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := a.Run(ctx, service.RunRequest{SessionID: s.ID(), Prompt: "p2"}); err != nil {
+	if _, err := a.Run(ctx, service.RunRequest{SessionID: s.ID, Prompt: "p2"}); err != nil {
 		t.Fatal(err)
 	}
-	all, err := a.Events(ctx, s.ID())
+	all, err := a.Events(ctx, s.ID)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -407,7 +407,7 @@ func TestOpenStreamEndsWhenItsSessionIsCreatedAgain(t *testing.T) {
 			if err := other.DeleteSession(ctx, id); err != nil {
 				t.Fatal(err)
 			}
-			if _, err := other.CreateSessionExclusive(ctx, "echo", id, nil); err != nil {
+			if _, err := other.CreateSession(ctx, service.CreateSessionRequest{Agent: "echo", ID: id}); err != nil {
 				t.Fatal(err)
 			}
 			for range 3 {
@@ -466,7 +466,7 @@ func recreate(t *testing.T, runner *service.Runner, id string) {
 	if err := runner.DeleteSession(ctx, id); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := runner.CreateSessionExclusive(ctx, "echo", id, nil); err != nil {
+	if _, err := runner.CreateSession(ctx, service.CreateSessionRequest{Agent: "echo", ID: id}); err != nil {
 		t.Fatal(err)
 	}
 	for range 3 {
@@ -496,7 +496,7 @@ func TestStreamEndsWhenThisInstanceOpensARecordCreatedAgainElsewhere(t *testing.
 	if err := b.DeleteSession(ctx, first.SessionID); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := b.CreateSessionExclusive(ctx, "echo", first.SessionID, nil); err != nil {
+	if _, err := b.CreateSession(ctx, service.CreateSessionRequest{Agent: "echo", ID: first.SessionID}); err != nil {
 		t.Fatal(err)
 	}
 	for range 3 {
@@ -562,7 +562,7 @@ func TestFirstCatchUpChecksTheEpochAfterItsRead(t *testing.T) {
 	if err := b.DeleteSession(ctx, first.SessionID); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := b.CreateSessionExclusive(ctx, "echo", first.SessionID, nil); err != nil {
+	if _, err := b.CreateSession(ctx, service.CreateSessionRequest{Agent: "echo", ID: first.SessionID}); err != nil {
 		t.Fatal(err)
 	}
 	close(gate.release)
@@ -582,7 +582,7 @@ func TestStreamSessionEndsWhenTheSessionIsCreatedAgain(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	sub, err := a.StreamSession(ctx, first.SessionID, service.StreamFrom{After: record.Head()})
+	sub, err := a.StreamSession(ctx, first.SessionID, service.StreamFrom{After: record.Seq})
 	if err != nil {
 		t.Fatal(err)
 	}

@@ -12,6 +12,7 @@ import (
 	"github.com/jinhuang712/gotato/gotato"
 	"github.com/jinhuang712/gotato/internal/fakegateway"
 	"github.com/jinhuang712/gotato/internal/reftasks"
+	"github.com/jinhuang712/gotato/service"
 )
 
 var (
@@ -317,7 +318,14 @@ func TestFakeNativeDeferredToolsEndToEnd(t *testing.T) {
 		t.Run(wire.name, func(t *testing.T) {
 			// The wires of fakeWires take the default, which is native.
 			fake, client := newFake(t, wire)
-			options := append([]gotato.SessionOption{gotato.WithModel(client), gotato.WithTools(reftasks.OrdersLookup())}, reftasks.ToolSearchOptions()...)
+			options := []gotato.SessionOption{gotato.WithModel(client), gotato.WithTools(reftasks.OrdersLookup())}
+			for _, set := range reftasks.ToolSearchToolSets() {
+				if set.Mode == service.ToolSetFolded {
+					options = append(options, gotato.WithFoldedToolSet(set.Set))
+				} else {
+					options = append(options, gotato.WithToolSet(set.Set))
+				}
+			}
 			session, err := gotato.NewSession(context.Background(), options...)
 			if err != nil {
 				t.Fatal(err)

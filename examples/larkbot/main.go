@@ -104,7 +104,7 @@ func run() error {
 		opts = append(opts, lark.WithOpenBaseUrl(*larkBase))
 	}
 	api := lark.NewClient(appID, appSecret, opts...)
-	b := newBot(runner, larkSender{api}, agent.Name, agent.ModelName, lbl, log)
+	b := newBot(runner, store, larkSender{api}, agent.Name, agent.ModelName, lbl, log)
 	b.retry = defaultRetry(*retryBudget)
 	b.ackDelay = *ackDelay
 

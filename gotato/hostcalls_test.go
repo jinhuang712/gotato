@@ -16,7 +16,7 @@ import (
 var hostInterfaces = []string{
 	"Tool", "ToolSet", "ToolSource", "Transcript", "Journal", "Model", "ModelStream",
 	"ContextTransformer", "MessageConverter", "PreToolUse", "PostToolUse", "TurnStopper",
-	"AdvisoryExtension", "TurnPreparer", "LoadedToolSource", "SpillKeeper", "durable",
+	"AdvisoryExtension", "TurnPreparer", "LoadedToolSource",
 	"ToolSearcher", "ContextBuilder", "EventSource", "PublicError",
 }
 

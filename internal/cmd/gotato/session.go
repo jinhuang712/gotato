@@ -172,17 +172,18 @@ func (c *cli) sessionCreate(args []string) int {
 	bindModel(fs, &flags)
 	id := fs.String("id", "", "explicit session id (default: random)")
 	meta := fs.String("meta", "", "initial metadata as key=value,key=value")
-	compactCeiling := fs.Int("compact-ceiling", 0, "auto-compaction budget (estimated tokens) stored in the session")
+	compactCeiling := fs.Int("compact-ceiling", 0, "auto-compaction budget (estimated tokens): the session is made with a variant of the agent that has it")
 	if _, err := parseInterspersed(fs, args); err != nil {
 		return c.parseError(err)
 	}
 	ctx, cancel := c.ctx()
 	defer cancel()
+	flags.compactCeiling = *compactCeiling
 	rt, err := c.newRuntime(flags)
 	if err != nil {
 		return c.failErr(err)
 	}
-	agent, err := rt.resolveAgent(flags.model, c.getenv)
+	agent, err := rt.agentFor(ctx, flags, c.getenv, "")
 	if err != nil {
 		return c.failErr(err)
 	}
@@ -190,23 +191,14 @@ func (c *cli) sessionCreate(args []string) int {
 	if err != nil {
 		return c.usageError(err.Error())
 	}
-	settings := sessionSettings{instruction: flags.instruction, compactCeiling: *compactCeiling}
-	settings.apply(func(key, value string) { metadata[key] = value })
-	if *id != "" {
-		s, err := rt.runner.CreateSessionExclusive(ctx, agent, *id, metadata)
-		if errors.Is(err, service.ErrSessionExists) {
-			return c.fail(ExitUsage, "session "+*id+" already exists")
-		}
-		if err != nil {
-			return c.failErr(err)
-		}
-		return c.emit(s.Info(), s.ID())
+	info, err := rt.runner.CreateSession(ctx, service.CreateSessionRequest{Agent: agent, ID: *id, Metadata: metadata})
+	if errors.Is(err, service.ErrSessionExists) {
+		return c.fail(ExitUsage, "session "+*id+" already exists")
 	}
-	s, err := rt.runner.CreateSession(ctx, agent, metadata)
 	if err != nil {
 		return c.failErr(err)
 	}
-	return c.emit(s.Info(), s.ID())
+	return c.emit(info, info.ID)
 }
 
 func (c *cli) sessionList(args []string) int {
@@ -308,7 +300,7 @@ func (c *cli) sessionFork(args []string) int {
 	if err != nil {
 		return c.failErr(err)
 	}
-	return c.emit(child.Info(), child.ID())
+	return c.emit(child, child.ID)
 }
 
 func (c *cli) sessionDelete(args []string) int {

@@ -17,6 +17,49 @@ import (
 	"github.com/jinhuang712/gotato/testkit"
 )
 
+// The Session metadata keys the Runner owns, as a client reads them from a Record.
+const (
+	metaAgentKey       = service.ReservedPrefix + "agent"
+	metaCacheKeyKey    = service.ReservedPrefix + "cache_key"
+	metaToolKeyPrefix  = service.ReservedPrefix + "tool."
+	metaInstructionKey = service.ReservedPrefix + "instruction"
+	metaCeilingKey     = service.ReservedPrefix + "compact_ceiling"
+)
+
+// claimOf is the Claim that the facts of a stored Session last name. It reads
+// the Record through the store: the Runner's Record answers a Document, which
+// carries no Claim.
+func claimOf(t *testing.T, store session.Store, id string) session.Claim {
+	t.Helper()
+	record, err := session.View(context.Background(), store.Records, id)
+	if err != nil {
+		t.Fatal(err)
+	}
+	return record.Claim()
+}
+
+// viewOf reads a stored Session's whole Record, for the methods a Document does
+// not have (Segments, SpilledResults, Claim, Len).
+func viewOf(t *testing.T, store session.Store, id string) *session.Record {
+	t.Helper()
+	record, err := session.View(context.Background(), store.Records, id)
+	if err != nil {
+		t.Fatal(err)
+	}
+	return record
+}
+
+// plant stores a Record as an earlier version, a migration or another process
+// would, bypassing the Runner, and returns its ID.
+func plant(t *testing.T, store session.Store, options ...session.RecordOption) string {
+	t.Helper()
+	record := session.New(options...)
+	if _, err := session.CreateWriter(context.Background(), store.Records, record, "planter", session.WithIdle()); err != nil {
+		t.Fatal(err)
+	}
+	return record.ID()
+}
+
 func newRunner(t *testing.T, specs ...service.Agent) (*service.Runner, session.Store) {
 	t.Helper()
 	store := memStore()
@@ -673,7 +716,7 @@ func claimsOf(t *testing.T, runner *service.Runner, sessionID string) []gotato.S
 		t.Fatal(err)
 	}
 	var claims []gotato.SessionClaimed
-	for _, event := range record.Events() {
+	for _, event := range record.Events {
 		if claimed, ok := event.(gotato.SessionClaimed); ok {
 			claims = append(claims, claimed)
 		}
@@ -714,11 +757,11 @@ func holdBeforeReleaseOn(t *testing.T, store session.Store) (runner *service.Run
 	t.Cleanup(func() { _ = runner.Close(context.Background()) })
 	hold = newHold()
 	runner.SetBeforeRelease(hold.hook)
-	s, err := runner.CreateSession(context.Background(), "echo", nil)
+	s, err := runner.CreateSession(context.Background(), service.CreateSessionRequest{Agent: "echo"})
 	if err != nil {
 		t.Fatal(err)
 	}
-	id = s.ID()
+	id = s.ID
 	done = make(chan service.RunResponse, 1)
 	go func() {
 		result, _ := runner.Run(context.Background(), service.RunRequest{SessionID: id, Prompt: "hello"})
@@ -845,7 +888,7 @@ func transcriptOf(t *testing.T, runner *service.Runner, id string) []string {
 	if err != nil {
 		t.Fatal(err)
 	}
-	return texts(record.Messages())
+	return texts(record.Messages)
 }
 
 func messageRunner(t *testing.T, store session.Store, instance, address string, model gotato.Model) *service.Runner {

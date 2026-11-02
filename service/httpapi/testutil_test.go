@@ -152,13 +152,13 @@ func (in *instance) post(t *testing.T, path string, body any, headers ...string)
 // Session and a function that waits for the Run.
 func running(t *testing.T, in *instance, g *gate) (string, func() service.RunResponse) {
 	t.Helper()
-	s, err := in.runner.CreateSession(context.Background(), "echo", nil)
+	s, err := in.runner.CreateSession(context.Background(), service.CreateSessionRequest{Agent: "echo"})
 	if err != nil {
 		t.Fatal(err)
 	}
 	done := make(chan service.RunResponse, 1)
 	go func() {
-		result, _ := in.runner.Run(context.Background(), service.RunRequest{SessionID: s.ID(), Prompt: "hello"})
+		result, _ := in.runner.Run(context.Background(), service.RunRequest{SessionID: s.ID, Prompt: "hello"})
 		done <- result
 	}()
 	select {
@@ -166,7 +166,7 @@ func running(t *testing.T, in *instance, g *gate) (string, func() service.RunRes
 	case <-time.After(5 * time.Second):
 		t.Fatal("the Run never reached the model")
 	}
-	return s.ID(), func() service.RunResponse {
+	return s.ID, func() service.RunResponse {
 		select {
 		case result := <-done:
 			return result

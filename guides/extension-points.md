@@ -50,7 +50,7 @@ Each row says what you want, the seam that does it, and where it lives. "Tier" t
 | refuse a tool call, or change its result | `gotato.PreToolUse`, `gotato.PostToolUse` | `gotato.WithExtension` | common |
 | stop a Run after N Turns or N calls | `gotato.TurnStopper` | `gotato.WithExtension` | common |
 | limit how many Runs and Sessions one pod takes | `service.Admission` | `service.Config.Admission` | common |
-| bring all the tools of an MCP server, or any named group | `gotato.ToolSet` | `gotato.WithActiveToolSet`, `WithToolSet`, `WithFoldedToolSet`; `adapter/mcp` builds one | sometimes |
+| bring all the tools of an MCP server, or any named group | `gotato.ToolSet` | `gotato.WithActiveToolSet`, `WithToolSet`, `WithFoldedToolSet`, or `service.Agent.ToolSets` with a `Mode`; `adapter/mcp` builds one | sometimes |
 | supply tools that change between Turns (by user, by feature flag) | `gotato.ToolSource` | `gotato.WithToolSource`; `service.Agent.ToolSources` | sometimes |
 | have the Agent's own model write the Recap of a Segment | `modelctx.RecapWriter` (`ModelRecap`, `TruncateRecap`) | `modelctx.CompactPolicy.Recap`, in `service.Agent.Compact` | sometimes |
 | drop or rewrite Messages after the builder ran | `gotato.ContextTransformer` | `gotato.WithExtension` | sometimes |
@@ -64,7 +64,7 @@ Each row says what you want, the seam that does it, and where it lives. "Tier" t
 | change how often a model call is sent again, or turn it off | `gateway.Retry` | `gateway.WithRetry`; `gateway.Retry{}` is off | sometimes |
 | change what a failed model call means (retryable, too long) | `gateway.Classifier` | `gateway.WithClassifier`; wrap `gateway.DefaultClassifier` to add to it | sometimes |
 | rewrite the Transcript before a model call, such as to compact | `gotato.TurnPreparer` | `gotato.WithExtension` | rare |
-| write a Session's Events to a store of my own | `gotato.Journal` (with `EventSource` and `SpillKeeper` beside it) | a `Transcript` given to `gotato.WithTranscript`; `session.Records` is the usual way | rare |
+| write a Session's Events to a store of my own | `gotato.Journal` (declared in `Transcript.Capabilities()` with `EventSource`, `Spill` and `LoadedToolSource`) | a `Transcript` given to `gotato.WithTranscript`; `session.Records` is the usual way | rare |
 | let a subscriber catch up from my own log | `gotato.EventSource` | `gotato.NewFeed(source)`, `gotato.WithFeed` | rare |
 
 ## Common seams
@@ -143,7 +143,7 @@ s, err := gotato.NewSession(ctx,
 
 `WithExtension` fails when a value has a method named like a stage (`Before`, `Stop`, ...) with the wrong signature, so a typo does not pass silently. A failing extension ends the Run, unless it also implements `Advisory() bool` and returns true: then the failure is recorded as an `extension_failed` Event.
 
-Through the Runner, pass extensions in `service.Agent.Options`, as `gotato.WithExtension(...)`.
+Through the Runner, pass extensions in `service.Agent.Extensions`; the Runner installs each with `gotato.WithExtension`, after its own.
 
 ### Needs a person
 
@@ -199,7 +199,7 @@ runner, err := service.New(service.Config{
 })
 ```
 
-A ToolSet is attached with `Agent.Options`, not `ToolSources`.
+A ToolSet is attached with `Agent.ToolSets` (a `service.ToolSet{Set, Mode}`), not `ToolSources`.
 
 ### RecapWriter
 
@@ -270,9 +270,20 @@ When the oldest Segments pass their budget they are merged into one. A `RecapWri
 
 An Extension stage before every model call, with no tool open. It may rewrite the Transcript and say so. The Runner's own compaction works this way.
 
-### Journal, EventSource and SpillKeeper
+### Transcript and its Capabilities
 
-These are optional capabilities of a `Transcript`, which `gotato.WithTranscript` takes. A `Journal` writes the Events of a step as numbered Entries; an `EventSource` lets a Subscription that falls behind read them again; a `SpillKeeper` says large Tool Results may be spilled. `session.Record` and `session.Writer` implement all of them, so you meet them only if you write a Transcript that is not backed by `session.Store`. For your own database, write a Store instead.
+A `Transcript` is what `gotato.WithTranscript` takes, and it says what else it can do in one method, `Capabilities() gotato.Capabilities`:
+
+| Field | Says |
+|---|---|
+| `ID` | the Session's ID, when not empty |
+| `Journal` | writes the Events of a step as numbered Entries; nil means the Session numbers its Events in memory and stores none |
+| `Durable` | the Journal's Events are stored, so they survive the process |
+| `Spill` | the Journal keeps the Entries it writes, so a large Tool Result may be spilled and read back |
+| `Events` | an `EventSource`: a Subscription that falls behind reads Events again from it |
+| `Loaded` | a `LoadedToolSource`: the Tools a Run loaded are restored |
+
+`session.Record` and `session.Writer` declare all of them, so you meet this only if you write a Transcript that is not backed by `session.Store`. A wrapper that embeds the concrete type forwards `Capabilities`; any other wrapper writes its own declaration, so one that forgets a part says so in code. `NewSession` refuses a Transcript that declares `Durable` without a `Journal`, `Events` and `Loaded`, so a wrapper that hides the Journal fails at construction, not weeks later as a Session that stores less. A Transcript that stores nothing declares `Capabilities{}`. For your own database, write a Store instead.
 
 ## What is not a seam
 

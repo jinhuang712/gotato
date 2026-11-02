@@ -7,7 +7,6 @@ import (
 	"fmt"
 	"io"
 	"os"
-	"strconv"
 	"strings"
 	"time"
 
@@ -24,12 +23,14 @@ type modelFlags struct {
 	gatewayConfig string
 	instruction   string
 	timeAway      string
+	// compactCeiling is set by the commands that take --compact-ceiling.
+	compactCeiling int
 }
 
 func bindModel(fs *flag.FlagSet, flags *modelFlags) {
 	fs.StringVar(&flags.model, "model", "", "agent/model: echo (default), demo, or gateway")
 	fs.StringVar(&flags.gatewayConfig, "gateway-config", "", "YAML config for --model gateway (default $GOTATO_GATEWAY_CONFIG or gateway.yaml)")
-	fs.StringVar(&flags.instruction, "instruction", "", "system instruction stored in the session")
+	fs.StringVar(&flags.instruction, "instruction", "", "system instruction: the run uses a variant of the agent with it (a session made with it keeps it)")
 	fs.StringVar(&flags.timeAway, "time-away", "", "idle time after which a message is followed by a time_away notice: a duration such as 2h, or off (default 30m, or $GOTATO_TIME_AWAY)")
 }
 
@@ -118,6 +119,11 @@ func (c *cli) newRuntime(flags modelFlags) (*cliRuntime, error) {
 	} else {
 		specs = append(specs, service.Agent{Name: "gateway", Model: client, ModelName: config.Model.Name, Instruction: defaultInstruction, Tools: tools, TimeAwayAfter: timeAway})
 	}
+	// --instruction and --compact-ceiling make variants of these Agents, and
+	// Sessions made with one of them name it (variant.go).
+	listCtx, cancelList := c.ctx()
+	specs = registerVariants(listCtx, specs, store, flags)
+	cancelList()
 	runner, err := service.New(service.Config{Store: store, Agents: specs})
 	if err != nil {
 		return nil, err
@@ -181,28 +187,6 @@ func outcomeOf(result service.RunResponse) runOutcome {
 		Events:       result.Events,
 		RecordEpoch:  result.RecordEpoch,
 	}
-}
-
-// sessionSettings are the per-session settings the CLI writes as metadata;
-// the service honors them on every run.
-type sessionSettings struct {
-	instruction    string
-	compactCeiling int
-}
-
-func (s sessionSettings) apply(set func(key, value string)) {
-	if s.instruction != "" {
-		set(service.MetaInstruction, s.instruction)
-	}
-	if s.compactCeiling > 0 {
-		set(service.MetaCompactCeiling, strconv.Itoa(s.compactCeiling))
-	}
-}
-
-func (s sessionSettings) metadata() map[string]string {
-	out := map[string]string{}
-	s.apply(func(key, value string) { out[key] = value })
-	return out
 }
 
 // readPrompt returns the prompt from positionals or, when "-" is given, from

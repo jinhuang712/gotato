@@ -8,7 +8,6 @@ import (
 
 	"github.com/jinhuang712/gotato/gotato"
 	"github.com/jinhuang712/gotato/modelctx"
-	"github.com/jinhuang712/gotato/ref"
 	"github.com/jinhuang712/gotato/service"
 	"github.com/jinhuang712/gotato/session"
 	"github.com/jinhuang712/gotato/testkit"
@@ -120,66 +119,5 @@ func TestARecapWriterThatPanicsOnTheAgentsModelDoesNotCrashTheRunner(t *testing.
 	}
 	if _, err := runner.Compact(ctx, result.SessionID, modelctx.CompactConfig{}); err != nil {
 		t.Fatalf("compact: %v", err)
-	}
-}
-
-// bigResult is a tool whose result is far under the default page and over a
-// small one.
-type bigResult struct{}
-
-func (bigResult) Spec() gotato.ToolSpec {
-	return gotato.ToolSpec{ID: "demo.big", Description: "returns text", InputSchema: []byte(`{"type":"object"}`), Effect: gotato.ToolEffectRead}
-}
-
-func (bigResult) Execute(context.Context, gotato.ToolUse, gotato.ToolProgressFunc) (gotato.ToolResult, error) {
-	return gotato.ToolResult{Executed: true, Content: []gotato.ContentPart{{Kind: gotato.ContentKindText, Text: strings.Repeat("row of text\n", 500)}}}, nil
-}
-
-// unreadable is an Originals that finds nothing, to stand in for a user's.
-type unreadable struct{}
-
-func (unreadable) Ref(context.Context, ref.Ref) (gotato.Message, error) {
-	return gotato.Message{}, modelctx.ErrNoOriginal
-}
-
-func (unreadable) Segment(context.Context, int) ([]gotato.Message, bool, error) {
-	return nil, false, modelctx.ErrNoOriginal
-}
-
-// The ReadBack is replaceable: an Agent whose Options install one with a small
-// page spills a result the default page holds whole. By default a result of 6 KB
-// is not spilled.
-func TestAnAgentsReadBackSetsThePageOfTheSpill(t *testing.T) {
-	ctx := context.Background()
-	for name, tc := range map[string]struct {
-		options []gotato.SessionOption
-		spilled bool
-	}{
-		"the default page": {nil, false},
-		"a page of 1 KiB":  {[]gotato.SessionOption{gotato.WithReadBack(modelctx.ReadBack{Originals: unreadable{}, PageSize: 1024})}, true},
-	} {
-		t.Run(name, func(t *testing.T) {
-			call := testkit.ToolCalls(gotato.ToolCall{ID: "c1", ToolID: "demo.big", Arguments: []byte(`{}`)})
-			model := testkit.NewFakeModel(call, testkit.Text("done"))
-			agent := service.Agent{Name: "big", Model: model, Tools: []gotato.Tool{bigResult{}}, Options: tc.options}
-			runner, store := newRunner(t, agent)
-			result, err := runner.Run(ctx, service.RunRequest{Prompt: "go"})
-			if err != nil {
-				t.Fatal(err)
-			}
-			record, err := session.View(ctx, store.Records, result.SessionID)
-			if err != nil {
-				t.Fatal(err)
-			}
-			var spilled bool
-			for _, m := range record.Messages() {
-				if m.ToolResult != nil && m.ToolResult.Spilled != nil {
-					spilled = true
-				}
-			}
-			if spilled != tc.spilled {
-				t.Fatalf("spilled = %v, want %v", spilled, tc.spilled)
-			}
-		})
 	}
 }

@@ -2,7 +2,6 @@ package service
 
 import (
 	"context"
-	"strconv"
 
 	"github.com/jinhuang712/gotato/gotato"
 	"github.com/jinhuang712/gotato/modelctx"
@@ -33,13 +32,13 @@ func (r *Runner) Compact(ctx context.Context, sessionID string, opts modelctx.Co
 		if err != nil {
 			return err
 		}
-		agentName, _ := writer.Record().Get(MetaAgent)
+		agentName, _ := writer.Record().Get(metaAgent)
 		r.publishOpened(writer, early, agentName)
 		spec, known := r.Agent(agentName)
 		var compactor modelctx.Compactor
 		var compactOpts []modelctx.CompactOption
 		if known {
-			compactor = compactorFor(spec, writer.Record())
+			compactor = compactorFor(spec)
 			if opts.Recap != nil {
 				opts.Recap = withAgentModel(opts.Recap, spec.Model)
 			}
@@ -95,21 +94,16 @@ func (r *Runner) recapContext(spec Agent, record *session.Record) func(context.C
 	}
 }
 
-// compactorFor is the Agent's Compactor with the Model's window and the
-// Session's own ceiling (MetaCompactCeiling) applied, and its Recap writer given
-// the Agent's Model when it names none.
-func compactorFor(spec Agent, record *session.Record) modelctx.Compactor {
+// compactorFor is the Agent's Compactor with the Model's window applied, and its
+// Recap writer given the Agent's Model when it names none. The ceiling is the
+// Agent's alone.
+func compactorFor(spec Agent) modelctx.Compactor {
 	compactor := spec.Compact
 	facts := spec.Model.Config().Facts
 	compactor.Recap = withAgentModel(compactor.Recap, spec.Model)
 	compactor.DropReasoning = compactor.DropReasoning || facts.RoundReasoning
 	if compactor.WindowTokens <= 0 {
 		compactor.WindowTokens = facts.Window.Tokens()
-	}
-	if raw, ok := record.Get(MetaCompactCeiling); ok {
-		if ceiling, err := strconv.Atoi(raw); err == nil && ceiling > 0 {
-			compactor.CeilingTokens = ceiling
-		}
 	}
 	return compactor
 }

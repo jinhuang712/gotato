@@ -13,6 +13,7 @@ import (
 	"github.com/jinhuang712/gotato/testkit"
 
 	"github.com/jinhuang712/gotato/gotato"
+	"github.com/jinhuang712/gotato/service"
 	"github.com/jinhuang712/gotato/session"
 )
 
@@ -124,13 +125,14 @@ func (t toolSearchFunc) Execute(_ context.Context, use gotato.ToolUse, _ gotato.
 	return gotato.ToolResult{Status: gotato.ToolResultStatusOK, Content: []gotato.ContentPart{{Kind: gotato.ContentKindJSON, Text: string(encoded)}}}, nil
 }
 
-// ToolSearchOptions returns the Options the tool_search task adds to its Agent:
-// the shop and the carrier as listed ToolSets, the warehouse as a folded one.
-func ToolSearchOptions() []gotato.SessionOption {
-	return []gotato.SessionOption{
-		gotato.WithToolSet(newToolSearchSet(ShopSetName)),
-		gotato.WithToolSet(newToolSearchSet(CarrierSetName)),
-		gotato.WithFoldedToolSet(newToolSearchSet(WarehouseSetName)),
+// ToolSearchToolSets returns the ToolSets the tool_search task adds to its
+// Agent: the shop and the carrier as listed ToolSets, the warehouse as a folded
+// one.
+func ToolSearchToolSets() []service.ToolSet {
+	return []service.ToolSet{
+		{Set: newToolSearchSet(ShopSetName), Mode: service.ToolSetListed},
+		{Set: newToolSearchSet(CarrierSetName), Mode: service.ToolSetListed},
+		{Set: newToolSearchSet(WarehouseSetName), Mode: service.ToolSetFolded},
 	}
 }
 
@@ -201,7 +203,7 @@ func ToolSearchTask() Task {
 		Instruction: toolSearchInstruction,
 		Prompts:     toolSearchPrompts,
 		Tools:       []gotato.Tool{OrdersLookup()},
-		Options:     ToolSearchOptions(),
+		ToolSets:    ToolSearchToolSets(),
 		Model:       toolSearchModel{},
 		Check: func(answers []string) error {
 			if len(answers) != len(toolSearchPrompts) {

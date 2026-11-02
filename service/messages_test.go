@@ -55,11 +55,11 @@ func TestSteerReachesTheRunAtItsNextTurn(t *testing.T) {
 	ctx := context.Background()
 	model := newStagedModel(false, "first", "second")
 	runner := messageRunner(t, memStore(), "instance-a", "", model)
-	s, _ := runner.CreateSession(ctx, "echo", nil)
+	s, _ := runner.CreateSession(ctx, service.CreateSessionRequest{Agent: "echo"})
 
-	done := startRun(t, runner, s.ID(), "hello")
+	done := startRun(t, runner, s.ID, "hello")
 	waitCall(t, model, 0)
-	result, err := runner.Send(ctx, service.MessageRequest{SessionID: s.ID(), Kind: service.MessageKindSteer, Text: "prefer metric"})
+	result, err := runner.Send(ctx, service.MessageRequest{SessionID: s.ID, Kind: service.MessageKindSteer, Text: "prefer metric"})
 	if err != nil || !result.Queued || result.MessageID == "" || result.Run != nil {
 		t.Fatalf("Send = %+v, %v; want queued with an ID", result, err)
 	}
@@ -72,10 +72,10 @@ func TestSteerReachesTheRunAtItsNextTurn(t *testing.T) {
 	close(model.release[1])
 	settled(t, done)
 
-	if got := transcriptOf(t, runner, s.ID()); !equal(got, []string{"user:hello", "assistant:first", "user:prefer metric", "assistant:second"}) {
+	if got := transcriptOf(t, runner, s.ID); !equal(got, []string{"user:hello", "assistant:first", "user:prefer metric", "assistant:second"}) {
 		t.Fatalf("transcript = %v", got)
 	}
-	if got := messageKinds(t, runner, s.ID()); !equal(got, []string{"queued:steer", "committed:steer"}) {
+	if got := messageKinds(t, runner, s.ID); !equal(got, []string{"queued:steer", "committed:steer"}) {
 		t.Fatalf("message events = %v", got)
 	}
 }
@@ -84,11 +84,11 @@ func TestFollowUpKeepsTheRunGoingWhereItWouldSettle(t *testing.T) {
 	ctx := context.Background()
 	model := newStagedModel(false, "first", "second")
 	runner := messageRunner(t, memStore(), "instance-a", "", model)
-	s, _ := runner.CreateSession(ctx, "echo", nil)
+	s, _ := runner.CreateSession(ctx, service.CreateSessionRequest{Agent: "echo"})
 
-	done := startRun(t, runner, s.ID(), "hello")
+	done := startRun(t, runner, s.ID, "hello")
 	waitCall(t, model, 0)
-	if _, err := runner.Send(ctx, service.MessageRequest{SessionID: s.ID(), Kind: service.MessageKindFollowUp, Text: "and then summarize"}); err != nil {
+	if _, err := runner.Send(ctx, service.MessageRequest{SessionID: s.ID, Kind: service.MessageKindFollowUp, Text: "and then summarize"}); err != nil {
 		t.Fatal(err)
 	}
 	close(model.release[0])
@@ -98,10 +98,10 @@ func TestFollowUpKeepsTheRunGoingWhereItWouldSettle(t *testing.T) {
 	if result.Result.Status != gotato.RunStatusCompleted || result.FinalText != "second" {
 		t.Fatalf("result = %+v", result)
 	}
-	if got := transcriptOf(t, runner, s.ID()); !equal(got, []string{"user:hello", "assistant:first", "user:and then summarize", "assistant:second"}) {
+	if got := transcriptOf(t, runner, s.ID); !equal(got, []string{"user:hello", "assistant:first", "user:and then summarize", "assistant:second"}) {
 		t.Fatalf("transcript = %v", got)
 	}
-	if got := messageKinds(t, runner, s.ID()); !equal(got, []string{"queued:follow_up", "committed:follow_up"}) {
+	if got := messageKinds(t, runner, s.ID); !equal(got, []string{"queued:follow_up", "committed:follow_up"}) {
 		t.Fatalf("message events = %v", got)
 	}
 }
@@ -110,11 +110,11 @@ func TestInterruptCutsTheModelCallAndStartsTheNextTurn(t *testing.T) {
 	ctx := context.Background()
 	model := newStagedModel(true, "", "B done")
 	runner := messageRunner(t, memStore(), "instance-a", "", model)
-	s, _ := runner.CreateSession(ctx, "echo", nil)
+	s, _ := runner.CreateSession(ctx, service.CreateSessionRequest{Agent: "echo"})
 
-	done := startRun(t, runner, s.ID(), "do A")
+	done := startRun(t, runner, s.ID, "do A")
 	waitCall(t, model, 0)
-	if _, err := runner.Send(ctx, service.MessageRequest{SessionID: s.ID(), Kind: service.MessageKindInterrupt, Text: "do B instead"}); err != nil {
+	if _, err := runner.Send(ctx, service.MessageRequest{SessionID: s.ID, Kind: service.MessageKindInterrupt, Text: "do B instead"}); err != nil {
 		t.Fatal(err)
 	}
 	waitCall(t, model, 1)
@@ -124,13 +124,13 @@ func TestInterruptCutsTheModelCallAndStartsTheNextTurn(t *testing.T) {
 		t.Fatalf("result = %+v", result)
 	}
 	// The Transcript keeps the cut-off reply; the model does not read it.
-	if got := transcriptOf(t, runner, s.ID()); !equal(got, []string{"user:do A", "assistant:partial", "user:do B instead", "assistant:B done"}) {
+	if got := transcriptOf(t, runner, s.ID); !equal(got, []string{"user:do A", "assistant:partial", "user:do B instead", "assistant:B done"}) {
 		t.Fatalf("transcript = %v", got)
 	}
 	if got := texts(model.request(1)); !equal(got, []string{"user:do A", "user:do B instead"}) {
 		t.Fatalf("second request = %v", got)
 	}
-	if got := messageKinds(t, runner, s.ID()); !equal(got, []string{"queued:interrupt", "committed:interrupt"}) {
+	if got := messageKinds(t, runner, s.ID); !equal(got, []string{"queued:interrupt", "committed:interrupt"}) {
 		t.Fatalf("message events = %v", got)
 	}
 }
@@ -139,29 +139,29 @@ func TestStopCancelsTheRunAndKeepsWhatItCommitted(t *testing.T) {
 	ctx := context.Background()
 	model := newStagedModel(true)
 	runner := messageRunner(t, memStore(), "instance-a", "", model)
-	s, _ := runner.CreateSession(ctx, "echo", nil)
+	s, _ := runner.CreateSession(ctx, service.CreateSessionRequest{Agent: "echo"})
 
 	done := make(chan service.RunResponse, 1)
 	go func() {
-		result, _ := runner.Run(ctx, service.RunRequest{SessionID: s.ID(), Prompt: "do A"})
+		result, _ := runner.Run(ctx, service.RunRequest{SessionID: s.ID, Prompt: "do A"})
 		done <- result
 	}()
 	waitCall(t, model, 0)
-	if err := runner.AbortSession(ctx, s.ID()); err != nil {
+	if err := runner.AbortSession(ctx, s.ID); err != nil {
 		t.Fatal(err)
 	}
 	result := settled(t, done)
 	if result.Result.Status != gotato.RunStatusCanceled {
 		t.Fatalf("status = %q, want canceled", result.Result.Status)
 	}
-	if got := transcriptOf(t, runner, s.ID()); !equal(got, []string{"user:do A", "assistant:partial"}) {
+	if got := transcriptOf(t, runner, s.ID); !equal(got, []string{"user:do A", "assistant:partial"}) {
 		t.Fatalf("transcript = %v", got)
 	}
-	if got := messageKinds(t, runner, s.ID()); !equal(got, []string{"abort"}) {
+	if got := messageKinds(t, runner, s.ID); !equal(got, []string{"abort"}) {
 		t.Fatalf("message events = %v", got)
 	}
 	// With nothing running, a Stop finds nothing to stop.
-	if err := runner.AbortSession(ctx, s.ID()); !errors.Is(err, service.ErrNoRun) {
+	if err := runner.AbortSession(ctx, s.ID); !errors.Is(err, service.ErrNoRun) {
 		t.Fatalf("Stop with no Run = %v", err)
 	}
 }
@@ -172,17 +172,17 @@ func TestAMessageAfterTheRunStartsANewRun(t *testing.T) {
 	close(model.release[0])
 	close(model.release[1])
 	runner := messageRunner(t, memStore(), "instance-a", "", model)
-	s, _ := runner.CreateSession(ctx, "echo", nil)
-	if _, err := runner.Run(ctx, service.RunRequest{SessionID: s.ID(), Prompt: "hello"}); err != nil {
+	s, _ := runner.CreateSession(ctx, service.CreateSessionRequest{Agent: "echo"})
+	if _, err := runner.Run(ctx, service.RunRequest{SessionID: s.ID, Prompt: "hello"}); err != nil {
 		t.Fatal(err)
 	}
 	for _, kind := range []service.MessageKind{service.MessageKindFollowUp} {
-		result, err := runner.Send(ctx, service.MessageRequest{SessionID: s.ID(), Kind: kind, Text: "one more thing"})
+		result, err := runner.Send(ctx, service.MessageRequest{SessionID: s.ID, Kind: kind, Text: "one more thing"})
 		if err != nil || result.Queued || result.Run == nil || result.Run.FinalText != "second" {
 			t.Fatalf("Send = %+v, %v; want a new Run", result, err)
 		}
 	}
-	if got := transcriptOf(t, runner, s.ID()); !equal(got, []string{"user:hello", "assistant:first", "user:one more thing", "assistant:second"}) {
+	if got := transcriptOf(t, runner, s.ID); !equal(got, []string{"user:hello", "assistant:first", "user:one more thing", "assistant:second"}) {
 		t.Fatalf("transcript = %v", got)
 	}
 }
@@ -190,11 +190,11 @@ func TestAMessageAfterTheRunStartsANewRun(t *testing.T) {
 func TestSendRefusesWhatItCannotUse(t *testing.T) {
 	ctx := context.Background()
 	runner := messageRunner(t, memStore(), "instance-a", "", testkit.EchoModel{})
-	s, _ := runner.CreateSession(ctx, "echo", nil)
+	s, _ := runner.CreateSession(ctx, service.CreateSessionRequest{Agent: "echo"})
 	for name, request := range map[string]service.MessageRequest{
 		"no session": {Text: "hi"},
-		"no text":    {SessionID: s.ID(), Text: "  "},
-		"bad kind":   {SessionID: s.ID(), Kind: "shout", Text: "hi"},
+		"no text":    {SessionID: s.ID, Text: "  "},
+		"bad kind":   {SessionID: s.ID, Kind: "shout", Text: "hi"},
 	} {
 		_, err := runner.Send(ctx, request)
 		if !gotato.IsCode(err, gotato.CodeInvalidArgument) || !gotato.NotRun(err) {
@@ -212,13 +212,13 @@ func TestAMessageForARunOnAnotherInstanceIsNotWriter(t *testing.T) {
 	model := newStagedModel(false, "first", "taken over")
 	a := messageRunner(t, store, "instance-a", "http://instance-a.example:8080", model)
 	b := messageRunner(t, store, "instance-b", "http://instance-b.example:8080", testkit.EchoModel{})
-	s, _ := a.CreateSession(ctx, "echo", nil)
+	s, _ := a.CreateSession(ctx, service.CreateSessionRequest{Agent: "echo"})
 
-	done := startRun(t, a, s.ID(), "hello")
+	done := startRun(t, a, s.ID, "hello")
 	waitCall(t, model, 0)
 
 	for _, kind := range []service.MessageKind{service.MessageKindSteer, service.MessageKindFollowUp, service.MessageKindInterrupt} {
-		result, err := b.Send(ctx, service.MessageRequest{SessionID: s.ID(), Kind: kind, Text: "from b"})
+		result, err := b.Send(ctx, service.MessageRequest{SessionID: s.ID, Kind: kind, Text: "from b"})
 		if !gotato.IsCode(err, gotato.CodeNotWriter) || !gotato.NotRun(err) || !gotato.Retryable(err) {
 			t.Fatalf("%s: Send = %+v, %v; want not_writer, not run, retryable", kind, result, err)
 		}
@@ -227,12 +227,12 @@ func TestAMessageForARunOnAnotherInstanceIsNotWriter(t *testing.T) {
 		}
 	}
 	// A Stop is a message too.
-	if err := b.AbortSession(ctx, s.ID()); !gotato.IsCode(err, gotato.CodeNotWriter) {
+	if err := b.AbortSession(ctx, s.ID); !gotato.IsCode(err, gotato.CodeNotWriter) {
 		t.Fatalf("AbortSession on the other instance = %v, want not_writer", err)
 	}
 
 	// The Run is untouched, and the writer takes the message itself.
-	if _, err := a.Send(ctx, service.MessageRequest{SessionID: s.ID(), Kind: service.MessageKindSteer, Text: "from a"}); err != nil {
+	if _, err := a.Send(ctx, service.MessageRequest{SessionID: s.ID, Kind: service.MessageKindSteer, Text: "from a"}); err != nil {
 		t.Fatal(err)
 	}
 	close(model.release[0])
@@ -240,17 +240,16 @@ func TestAMessageForARunOnAnotherInstanceIsNotWriter(t *testing.T) {
 	close(model.release[1])
 	settled(t, done)
 	want := []string{"user:hello", "assistant:first", "user:from a", "assistant:taken over"}
-	if got := transcriptOf(t, a, s.ID()); !equal(got, want) {
+	if got := transcriptOf(t, a, s.ID); !equal(got, want) {
 		t.Fatalf("transcript = %v, want %v", got, want)
 	}
 
 	// With no Run going, the other instance takes the Session over and runs.
-	result, err := b.Send(ctx, service.MessageRequest{SessionID: s.ID(), Text: "now from b"})
+	result, err := b.Send(ctx, service.MessageRequest{SessionID: s.ID, Text: "now from b"})
 	if err != nil || result.Queued || result.Run == nil || result.Run.Result.Status != gotato.RunStatusCompleted {
 		t.Fatalf("Send with no Run going = %+v, %v; want a new Run on b", result, err)
 	}
-	view, _ := b.Record(ctx, s.ID())
-	if claim := view.Claim(); !isInstance(claim.Instance, "instance-b") {
+	if claim := claimOf(t, store, s.ID); !isInstance(claim.Instance, "instance-b") {
 		t.Fatalf("claim = %+v, want instance-b", claim)
 	}
 }
@@ -261,8 +260,8 @@ func TestNotWriterWithoutAnAdvertisedAddress(t *testing.T) {
 	model := newStagedModel(false, "first")
 	a := messageRunner(t, store, "instance-a", "", model)
 	b := messageRunner(t, store, "instance-b", "", testkit.EchoModel{})
-	s, _ := a.CreateSession(ctx, "echo", nil)
-	done := startRun(t, a, s.ID(), "hello")
+	s, _ := a.CreateSession(ctx, service.CreateSessionRequest{Agent: "echo"})
+	done := startRun(t, a, s.ID, "hello")
 	waitCall(t, model, 0)
 
 	sub, subErr := b.SubscribeInstance(ctx)
@@ -270,7 +269,7 @@ func TestNotWriterWithoutAnAdvertisedAddress(t *testing.T) {
 		t.Fatal(subErr)
 	}
 	seen := testkit.RecordSubscription(sub)
-	_, err := b.Send(ctx, service.MessageRequest{SessionID: s.ID(), Text: "from b"})
+	_, err := b.Send(ctx, service.MessageRequest{SessionID: s.ID, Text: "from b"})
 	// The refusal is an Instance Event of the instance that refused.
 	if !seen.Wait(5*time.Second, func(event gotato.Event) bool {
 		rejected, ok := event.(gotato.RunRejected)
@@ -290,16 +289,16 @@ func TestMessageEventsReachTheInstanceStream(t *testing.T) {
 	ctx := context.Background()
 	model := newStagedModel(false, "first", "second")
 	runner := messageRunner(t, memStore(), "instance-a", "", model)
-	s, _ := runner.CreateSession(ctx, "echo", nil)
+	s, _ := runner.CreateSession(ctx, service.CreateSessionRequest{Agent: "echo"})
 	sub, err := runner.SubscribeInstance(ctx)
 	if err != nil {
 		t.Fatal(err)
 	}
 	seen := testkit.RecordSubscription(sub)
 
-	done := startRun(t, runner, s.ID(), "hello")
+	done := startRun(t, runner, s.ID, "hello")
 	waitCall(t, model, 0)
-	if _, err := runner.Send(ctx, service.MessageRequest{SessionID: s.ID(), Text: "steer"}); err != nil {
+	if _, err := runner.Send(ctx, service.MessageRequest{SessionID: s.ID, Text: "steer"}); err != nil {
 		t.Fatal(err)
 	}
 	close(model.release[0])
@@ -322,15 +321,15 @@ func TestEveryQueuedMessageIsCommittedOrDropped(t *testing.T) {
 	ctx := context.Background()
 	runner := messageRunner(t, memStore(), "instance-a", "", testkit.EchoModel{})
 	for i := range 30 {
-		s, _ := runner.CreateSession(ctx, "echo", nil)
-		done := startRun(t, runner, s.ID(), "hello")
+		s, _ := runner.CreateSession(ctx, service.CreateSessionRequest{Agent: "echo"})
+		done := startRun(t, runner, s.ID, "hello")
 		var senders sync.WaitGroup
 		for range 4 {
 			senders.Add(1)
 			go func() {
 				defer senders.Done()
 				// A message sent after the Run ended starts a Run of its own.
-				if _, err := runner.Send(ctx, service.MessageRequest{SessionID: s.ID(), Text: "steer"}); err != nil && !gotato.IsCode(err, gotato.CodeBusy) {
+				if _, err := runner.Send(ctx, service.MessageRequest{SessionID: s.ID, Text: "steer"}); err != nil && !gotato.IsCode(err, gotato.CodeBusy) {
 					t.Errorf("Send: %v", err)
 				}
 			}()
@@ -343,7 +342,7 @@ func TestEveryQueuedMessageIsCommittedOrDropped(t *testing.T) {
 				t.Fatal("the Runs did not end")
 			}
 		}
-		events, err := runner.Events(ctx, s.ID())
+		events, err := runner.Events(ctx, s.ID)
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -378,14 +377,14 @@ func TestSendRefusedBeforeItRanHasNoRun(t *testing.T) {
 		t.Fatal(err)
 	}
 	t.Cleanup(func() { _ = runner.Close(context.Background()) })
-	s, err := runner.CreateSession(context.Background(), "echo", nil)
+	s, err := runner.CreateSession(context.Background(), service.CreateSessionRequest{Agent: "echo"})
 	if err != nil {
 		t.Fatal(err)
 	}
 	if err := runner.Drain(context.Background()); err != nil {
 		t.Fatal(err)
 	}
-	result, err := runner.Send(context.Background(), service.MessageRequest{SessionID: s.ID(), Text: "hi"})
+	result, err := runner.Send(context.Background(), service.MessageRequest{SessionID: s.ID, Text: "hi"})
 	if !errors.Is(err, service.ErrDraining) {
 		t.Fatalf("Send while draining = %v, want ErrDraining", err)
 	}
@@ -422,11 +421,11 @@ func TestAbortSessionNamesARun(t *testing.T) {
 	store := memStore()
 	model := testkit.NewFakeModel(testkit.Text("first"), testkit.Text("second"))
 	a := instanceRunner(t, store, "instance-a", model, steadyLiveness)
-	s, err := a.CreateSession(ctx, "echo", nil)
+	s, err := a.CreateSession(ctx, service.CreateSessionRequest{Agent: "echo"})
 	if err != nil {
 		t.Fatal(err)
 	}
-	first, err := a.Run(ctx, service.RunRequest{SessionID: s.ID(), Prompt: "one"})
+	first, err := a.Run(ctx, service.RunRequest{SessionID: s.ID, Prompt: "one"})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -436,7 +435,7 @@ func TestAbortSessionNamesARun(t *testing.T) {
 	model.Block = block
 	result := make(chan service.RunResponse, 1)
 	go func() {
-		response, _ := a.Run(ctx, service.RunRequest{SessionID: s.ID(), Prompt: "two"})
+		response, _ := a.Run(ctx, service.RunRequest{SessionID: s.ID, Prompt: "two"})
 		result <- response
 	}()
 	deadline := time.Now().Add(10 * time.Second)
@@ -446,13 +445,13 @@ func TestAbortSessionNamesARun(t *testing.T) {
 		}
 		time.Sleep(5 * time.Millisecond)
 	}
-	second := runIDOf(t, a, s.ID())
+	second := runIDOf(t, a, s.ID)
 	if second == first.Result.RunID {
 		t.Fatalf("both Runs have the ID %q", second)
 	}
 
 	// The late abort of the first Run: it names a Run that is over.
-	if err := a.AbortSession(ctx, s.ID(), service.AbortRun(first.Result.RunID)); !errors.Is(err, service.ErrNoRun) {
+	if err := a.AbortSession(ctx, s.ID, service.AbortRun(first.Result.RunID)); !errors.Is(err, service.ErrNoRun) {
 		t.Fatalf("AbortSession of a Run that is over = %v, want ErrNoRun", err)
 	}
 	select {
@@ -461,7 +460,7 @@ func TestAbortSessionNamesARun(t *testing.T) {
 	case <-time.After(100 * time.Millisecond):
 	}
 	// Naming the Run that is going stops it.
-	if err := a.AbortSession(ctx, s.ID(), service.AbortRun(second)); err != nil {
+	if err := a.AbortSession(ctx, s.ID, service.AbortRun(second)); err != nil {
 		t.Fatalf("AbortSession of the Run going = %v", err)
 	}
 	select {
@@ -511,7 +510,7 @@ func TestRequestIDIsRecordedAndEchoed(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	runs := record.Runs()
+	runs := record.Runs
 	if len(runs) != 2 || runs[0].RequestID != "req-1" || runs[1].RequestID != "req-2" {
 		t.Fatalf("Runs = %+v, want request IDs req-1 and req-2", runs)
 	}
@@ -521,10 +520,10 @@ func TestRequestIDIsRecordedAndEchoed(t *testing.T) {
 func TestSessionExistsHasItsOwnCode(t *testing.T) {
 	ctx := context.Background()
 	a := instanceRunner(t, memStore(), "instance-a", testkit.EchoModel{}, steadyLiveness)
-	if _, err := a.CreateSessionExclusive(ctx, "echo", "taken", nil); err != nil {
+	if _, err := a.CreateSession(ctx, service.CreateSessionRequest{Agent: "echo", ID: "taken"}); err != nil {
 		t.Fatal(err)
 	}
-	_, err := a.CreateSessionExclusive(ctx, "echo", "taken", nil)
+	_, err := a.CreateSession(ctx, service.CreateSessionRequest{Agent: "echo", ID: "taken"})
 	if !errors.Is(err, service.ErrSessionExists) || !gotato.IsCode(err, gotato.CodeAlreadyExists) {
 		t.Fatalf("second create = %v, want ErrSessionExists with code already_exists", err)
 	}
@@ -549,14 +548,14 @@ func TestQueuedMessageOfADeadWriterIsDroppedOnTakeover(t *testing.T) {
 	model.Block = block
 	a := instanceRunner(t, store, "instance-a", model, steadyLiveness)
 	b := instanceRunner(t, store, "instance-b", testkit.EchoModel{}, steadyLiveness)
-	s, err := a.CreateSession(ctx, "echo", nil)
+	s, err := a.CreateSession(ctx, service.CreateSessionRequest{Agent: "echo"})
 	if err != nil {
 		t.Fatal(err)
 	}
 	done := make(chan struct{})
 	go func() {
 		defer close(done)
-		_, _ = a.Run(ctx, service.RunRequest{SessionID: s.ID(), Prompt: "first"})
+		_, _ = a.Run(ctx, service.RunRequest{SessionID: s.ID, Prompt: "first"})
 	}()
 	deadline := time.Now().Add(10 * time.Second)
 	for model.Calls() == 0 {
@@ -565,7 +564,7 @@ func TestQueuedMessageOfADeadWriterIsDroppedOnTakeover(t *testing.T) {
 		}
 		time.Sleep(5 * time.Millisecond)
 	}
-	sent, err := a.Send(ctx, service.MessageRequest{SessionID: s.ID(), Text: "steer"})
+	sent, err := a.Send(ctx, service.MessageRequest{SessionID: s.ID, Text: "steer"})
 	if err != nil || !sent.Queued {
 		t.Fatalf("Send = %+v, %v; want queued", sent, err)
 	}
@@ -574,13 +573,13 @@ func TestQueuedMessageOfADeadWriterIsDroppedOnTakeover(t *testing.T) {
 	if err := a.Close(ctx); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := b.Run(ctx, service.RunRequest{SessionID: s.ID(), Prompt: "second"}); err != nil {
+	if _, err := b.Run(ctx, service.RunRequest{SessionID: s.ID, Prompt: "second"}); err != nil {
 		t.Fatal(err)
 	}
 	close(block)
 	<-done
 
-	events, err := b.Events(ctx, s.ID())
+	events, err := b.Events(ctx, s.ID)
 	if err != nil {
 		t.Fatal(err)
 	}

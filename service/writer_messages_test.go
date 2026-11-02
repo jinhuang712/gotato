@@ -93,11 +93,11 @@ func TestMessagesMidRunLandOnceOnTheWriter(t *testing.T) {
 		addressedRunner(t, store, "instance-1", ownerModel{instance: "instance-1", store: store, dead: &dead, violations: &violations, calls: &calls}),
 		addressedRunner(t, store, "instance-2", ownerModel{instance: "instance-2", store: store, dead: &dead, violations: &violations, calls: &calls}),
 	}
-	s, err := runners[0].CreateSession(ctx, "echo", nil)
+	s, err := runners[0].CreateSession(ctx, service.CreateSessionRequest{Agent: "echo"})
 	if err != nil {
 		t.Fatal(err)
 	}
-	id := s.ID()
+	id := s.ID
 	runDone := make(chan error, 1)
 	go func() {
 		_, err := runners[0].Run(ctx, service.RunRequest{SessionID: id, Prompt: id + "/run"})
@@ -219,11 +219,11 @@ func TestManyInstancesOneWriterWithMessages(t *testing.T) {
 			}
 			var ids []string
 			for range 2 {
-				s, err := runners[0].CreateSession(ctx, "echo", nil)
+				s, err := runners[0].CreateSession(ctx, service.CreateSessionRequest{Agent: "echo"})
 				if err != nil {
 					t.Fatal(err)
 				}
-				ids = append(ids, s.ID())
+				ids = append(ids, s.ID)
 			}
 
 			type outcome struct {

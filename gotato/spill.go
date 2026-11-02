@@ -66,15 +66,6 @@ func (c *sessionConfig) installReadBack() (int, error) {
 	return page, nil
 }
 
-// SpillKeeper is an optional method of a Transcript: it says the Transcript's
-// Journal keeps the Entries it writes, so the body of a spilled result can be
-// read back. A Session spills only over a Transcript that does, as a
-// session.Record or session.Writer does; over any other, a Tool Result is
-// committed whole, as before.
-type SpillKeeper interface {
-	KeepsSpilledResults() bool
-}
-
 // cutRunes returns the first n bytes of s, less a rune cut in half.
 func cutRunes(s string, n int) string {
 	if n >= len(s) {
@@ -125,14 +116,11 @@ func humanBytes(n int) string {
 }
 
 // keepsSpilled reports whether the Session's Transcript keeps what the spill
-// writes.
+// writes: a session.Record or session.Writer declares Capabilities.Spill; over
+// any other Transcript a Tool Result is committed whole.
 func (a *Session) keepsSpilled() (keeps bool, failure *RuntimeError) {
-	keeper, ok := a.transcript.(SpillKeeper)
-	if !ok {
-		return false, nil
-	}
-	failure = transcriptCall(func() { keeps = keeper.KeepsSpilledResults() })
-	return keeps, failure
+	caps, failure := a.capabilities()
+	return caps.Spill && failure == nil, failure
 }
 
 // spill spills a result whose text is longer than one page (the ReadBack's

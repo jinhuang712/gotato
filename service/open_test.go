@@ -35,11 +35,11 @@ func TestActivationLimitRefusesANewSessionBeforeItRuns(t *testing.T) {
 	instance := instanceRecorder(t, runner)
 
 	// An idle stored Session that another request will try to wake up.
-	idle, err := runner.CreateSession(ctx, "echo", nil)
+	idle, err := runner.CreateSession(ctx, service.CreateSessionRequest{Agent: "echo"})
 	if err != nil {
 		t.Fatal(err)
 	}
-	idleBefore, err := store.Records.Log(ctx, idle.ID(), 0, 0)
+	idleBefore, err := store.Records.Log(ctx, idle.ID, 0, 0)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -73,7 +73,7 @@ func TestActivationLimitRefusesANewSessionBeforeItRuns(t *testing.T) {
 		request service.RunRequest
 	}{
 		{"new session", service.RunRequest{Prompt: "three"}},
-		{"idle stored Session", service.RunRequest{SessionID: idle.ID(), Prompt: "wake"}},
+		{"idle stored Session", service.RunRequest{SessionID: idle.ID, Prompt: "wake"}},
 	}
 	for _, refusal := range refusals {
 		result, err := runner.Run(ctx, refusal.request)
@@ -93,7 +93,7 @@ func TestActivationLimitRefusesANewSessionBeforeItRuns(t *testing.T) {
 		if r, ok := e.(gotato.RunRejected); ok {
 			seen[r.SessionID] = true
 		}
-		return len(seen) >= 2 && seen[gotato.SessionID(idle.ID())]
+		return len(seen) >= 2 && seen[gotato.SessionID(idle.ID)]
 	}) {
 		t.Fatalf("want two run_rejected Events, one for the idle Session; got %v", instance.Kinds())
 	}
@@ -119,7 +119,7 @@ func TestActivationLimitRefusesANewSessionBeforeItRuns(t *testing.T) {
 	if len(sessionsAfter) != len(sessionsBefore) {
 		t.Fatalf("sessions in the store: %d before the refusals, %d after", len(sessionsBefore), len(sessionsAfter))
 	}
-	idleAfter, err := store.Records.Log(ctx, idle.ID(), 0, 0)
+	idleAfter, err := store.Records.Log(ctx, idle.ID, 0, 0)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -151,7 +151,7 @@ func TestActivationLimitRefusesANewSessionBeforeItRuns(t *testing.T) {
 	}
 
 	// Creating a Session activates nothing, so it still works at the limit.
-	if _, err := runner.CreateSession(ctx, "echo", nil); err != nil {
+	if _, err := runner.CreateSession(ctx, service.CreateSessionRequest{Agent: "echo"}); err != nil {
 		t.Fatalf("CreateSession at the limit: %v", err)
 	}
 
@@ -170,7 +170,7 @@ func TestActivationLimitRefusesANewSessionBeforeItRuns(t *testing.T) {
 	if got := runner.ActiveSessions(); got != 0 {
 		t.Fatalf("ActiveSessions after the Runs ended = %d, want 0", got)
 	}
-	if result, err := runner.Run(ctx, service.RunRequest{SessionID: idle.ID(), Prompt: "now"}); err != nil || result.Result.Status != gotato.RunStatusCompleted {
+	if result, err := runner.Run(ctx, service.RunRequest{SessionID: idle.ID, Prompt: "now"}); err != nil || result.Result.Status != gotato.RunStatusCompleted {
 		t.Fatalf("Run after the limit eased = %+v, %v", result, err)
 	}
 }
@@ -265,7 +265,7 @@ func TestRunnerSessionsPagesAndNeedsALister(t *testing.T) {
 	ctx := context.Background()
 	runner, _ := newRunner(t)
 	for range 3 {
-		if _, err := runner.CreateSession(ctx, "", nil); err != nil {
+		if _, err := runner.CreateSession(ctx, service.CreateSessionRequest{}); err != nil {
 			t.Fatal(err)
 		}
 	}

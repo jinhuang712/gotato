@@ -34,7 +34,7 @@ type toolRegistry struct {
 	loaded []string
 	// parked are the loaded Tools of a ToolSet that is unavailable now. They
 	// are not offered, and they come back when the ToolSet does. Only a
-	// Transcript that is not a LoadedToolSource needs them; a Record remembers.
+	// Transcript that declares no Loaded needs them; a Record remembers.
 	parked []string
 	// fresh is true until the first Run: NewSession just resolved every
 	// ToolSet, so that Run does not resolve them again.
@@ -58,7 +58,7 @@ type toolRegistry struct {
 	mu sync.Mutex
 }
 
-func newToolRegistry(ctx context.Context, cfg *sessionConfig) (*toolRegistry, error) {
+func newToolRegistry(ctx context.Context, cfg *sessionConfig, caps Capabilities) (*toolRegistry, error) {
 	registry := &toolRegistry{
 		sources:   cfg.toolSources,
 		maxEffect: cfg.maxEffect,
@@ -112,7 +112,7 @@ func newToolRegistry(ctx context.Context, cfg *sessionConfig) (*toolRegistry, er
 	}
 	registry.install(results)
 	registry.fresh = true
-	if source, ok := cfg.transcript.(LoadedToolSource); ok {
+	if source := caps.Loaded; source != nil {
 		recorded, err := loadedTools(source)
 		if err != nil {
 			return nil, err
@@ -251,7 +251,7 @@ type setReport struct {
 
 // apply installs a resolution (nil results keep the catalog as it is) and
 // the filter's answer kept for it, then settles the loaded Tools against it. recorded, when not nil, is the
-// Transcript's loaded list, read before the lock (a LoadedToolSource), so every
+// Transcript's loaded list, read before the lock (Capabilities.Loaded), so every
 // instance decides from the Record. A loaded Tool whose ToolSet answered
 // without it is gone: it leaves the loaded Tools, and the caller stores a
 // tool_unloaded Event so the Record says so too. A loaded Tool of a ToolSet

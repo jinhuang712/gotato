@@ -19,17 +19,17 @@ func TestSessionIsSingleFlightRejectPolicy(t *testing.T) {
 	model.Block = block
 	runner, _ := newRunner(t, service.Agent{Name: "slow", Model: model})
 	ctx := context.Background()
-	s, _ := runner.CreateSession(ctx, "slow", nil)
+	s, _ := runner.CreateSession(ctx, service.CreateSessionRequest{Agent: "slow"})
 
 	var wg sync.WaitGroup
 	wg.Add(1)
 	go func() {
 		defer wg.Done()
-		_, _ = runner.Run(ctx, service.RunRequest{SessionID: s.ID(), Prompt: "first"})
+		_, _ = runner.Run(ctx, service.RunRequest{SessionID: s.ID, Prompt: "first"})
 	}()
 	waitFor(t, func() bool { return model.Calls() == 1 })
 	// The Run holds the Session lock; a second Run is rejected, not queued.
-	_, err := runner.Run(ctx, service.RunRequest{SessionID: s.ID(), Prompt: "second"})
+	_, err := runner.Run(ctx, service.RunRequest{SessionID: s.ID, Prompt: "second"})
 	if !errors.Is(err, service.ErrBusy) && !gotato.IsCode(err, gotato.CodeBusy) {
 		t.Fatalf("second run err = %v, want busy", err)
 	}
@@ -51,17 +51,17 @@ func TestWaitPolicyQueuesAndAbortSessionAborts(t *testing.T) {
 		t.Fatal(err)
 	}
 	ctx := context.Background()
-	s, _ := runner.CreateSession(ctx, "slow", nil)
+	s, _ := runner.CreateSession(ctx, service.CreateSessionRequest{Agent: "slow"})
 
 	firstDone := make(chan service.RunResponse, 1)
 	go func() {
-		result, _ := runner.Run(ctx, service.RunRequest{SessionID: s.ID(), Prompt: "first"})
+		result, _ := runner.Run(ctx, service.RunRequest{SessionID: s.ID, Prompt: "first"})
 		firstDone <- result
 	}()
 	// Wait until the Run reached the Model so cancellation exercises the
 	// settled-canceled path instead of racing the initial Session load.
 	waitFor(t, func() bool { return model.Calls() == 1 })
-	if err := runner.AbortSession(ctx, s.ID()); err != nil {
+	if err := runner.AbortSession(ctx, s.ID); err != nil {
 		t.Fatal(err)
 	}
 	// Canceling the first run settles it as canceled and frees the lock.
@@ -70,7 +70,7 @@ func TestWaitPolicyQueuesAndAbortSessionAborts(t *testing.T) {
 		t.Fatalf("first status = %s err=%v", first.Result.Status, first.Result.Error)
 	}
 	close(block)
-	second, err := runner.Run(ctx, service.RunRequest{SessionID: s.ID(), Prompt: "second"})
+	second, err := runner.Run(ctx, service.RunRequest{SessionID: s.ID, Prompt: "second"})
 	if err != nil || second.Result.Status != gotato.RunStatusCompleted {
 		t.Fatalf("second = %+v err=%v", second, err)
 	}
@@ -91,20 +91,20 @@ func TestQueuedRunIsCancelable(t *testing.T) {
 		Admission: service.Admission{Queue: service.QueuePolicyWait, MaxActiveRuns: 4},
 	})
 	ctx := context.Background()
-	s, _ := runner.CreateSession(ctx, "slow", nil)
+	s, _ := runner.CreateSession(ctx, service.CreateSessionRequest{Agent: "slow"})
 
-	go func() { _, _ = runner.Run(ctx, service.RunRequest{SessionID: s.ID(), Prompt: "first"}) }()
+	go func() { _, _ = runner.Run(ctx, service.RunRequest{SessionID: s.ID, Prompt: "first"}) }()
 	waitFor(t, func() bool { return model.Calls() == 1 })
 
 	queued := make(chan service.RunResponse, 1)
 	go func() {
-		result, _ := runner.Run(ctx, service.RunRequest{SessionID: s.ID(), Prompt: "second"})
+		result, _ := runner.Run(ctx, service.RunRequest{SessionID: s.ID, Prompt: "second"})
 		queued <- result
 	}()
 	waitFor(t, func() bool { return runner.ActiveRuns() == 2 })
 
 	// The started Run is the one AbortSession prefers.
-	if err := runner.AbortSession(ctx, s.ID()); err != nil {
+	if err := runner.AbortSession(ctx, s.ID); err != nil {
 		t.Fatal(err)
 	}
 	select {
@@ -117,7 +117,7 @@ func TestQueuedRunIsCancelable(t *testing.T) {
 	// AbortSession can only match the queued Run (its handle is the only one
 	// registered), settling it as canceled instead of leaving it invisible.
 	waitFor(t, func() bool { return runner.ActiveRuns() == 1 })
-	waitFor(t, func() bool { return runner.AbortSession(ctx, s.ID()) == nil })
+	waitFor(t, func() bool { return runner.AbortSession(ctx, s.ID) == nil })
 	select {
 	case result := <-queued:
 		if result.Result.Status != gotato.RunStatusCanceled {
@@ -135,28 +135,28 @@ func TestSessionMutationsRespectTheLock(t *testing.T) {
 	model.Block = block
 	runner, _ := newRunner(t, service.Agent{Name: "slow", Model: model, Tools: []gotato.Tool{testkit.DemoEchoTool()}})
 	ctx := context.Background()
-	s, _ := runner.CreateSession(ctx, "slow", nil)
+	s, _ := runner.CreateSession(ctx, service.CreateSessionRequest{Agent: "slow"})
 
 	done := make(chan struct{})
 	go func() {
 		defer close(done)
-		_, _ = runner.Run(ctx, service.RunRequest{SessionID: s.ID(), Prompt: "first"})
+		_, _ = runner.Run(ctx, service.RunRequest{SessionID: s.ID, Prompt: "first"})
 	}()
 	// Calls() > 0 means the Run holds the Session lock and is talking to the Model.
 	waitFor(t, func() bool { return model.Calls() == 1 })
 
-	if _, err := runner.SetToolActive(ctx, s.ID(), testkit.DemoToolID, false); !gotato.IsCode(err, gotato.CodeBusy) {
+	if _, err := runner.SetToolActive(ctx, s.ID, testkit.DemoToolID, false); !gotato.IsCode(err, gotato.CodeBusy) {
 		t.Fatalf("SetToolActive during a run err = %v, want busy", err)
 	}
-	if err := runner.DeleteSession(ctx, s.ID()); !gotato.IsCode(err, gotato.CodeBusy) {
+	if err := runner.DeleteSession(ctx, s.ID); !gotato.IsCode(err, gotato.CodeBusy) {
 		t.Fatalf("DeleteSession during a run err = %v, want busy", err)
 	}
 	close(block)
 	<-done
-	if _, err := runner.SetToolActive(ctx, s.ID(), testkit.DemoToolID, false); err != nil {
+	if _, err := runner.SetToolActive(ctx, s.ID, testkit.DemoToolID, false); err != nil {
 		t.Fatalf("SetToolActive after the run: %v", err)
 	}
-	entry, err := runner.SetToolActive(ctx, s.ID(), testkit.DemoToolID, true)
+	entry, err := runner.SetToolActive(ctx, s.ID, testkit.DemoToolID, true)
 	if err != nil || !entry.Active {
 		t.Fatalf("reactivate: %+v err=%v", entry, err)
 	}
@@ -190,7 +190,7 @@ func TestAbortSessionReachesRunLoadingSession(t *testing.T) {
 
 	// The Session exists: the store lets an abort of a Run on it in, at
 	// whatever stage the Run is.
-	if _, err := runner.CreateSession(context.Background(), "echo", nil, session.WithID("loading-1")); err != nil {
+	if _, err := runner.CreateSession(context.Background(), service.CreateSessionRequest{Agent: "echo", ID: "loading-1"}); err != nil {
 		t.Fatal(err)
 	}
 	resultCh := make(chan error, 1)

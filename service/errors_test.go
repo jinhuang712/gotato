@@ -108,9 +108,7 @@ func TestLostReleaseKeepsTheRunCompletedAndWarns(t *testing.T) {
 // the Record, then fails before the live Session starts.
 func unbuildableSpec() service.Agent {
 	negative := -1.0
-	return service.Agent{Name: "echo", Model: testkit.EchoModel{}, Options: []gotato.SessionOption{
-		gotato.WithSampling(gotato.Sampling{Temperature: &negative}),
-	}}
+	return service.Agent{Name: "echo", Model: testkit.EchoModel{}, Sampling: gotato.Sampling{Temperature: &negative}}
 }
 
 func TestFailedOneShotLeavesNoSession(t *testing.T) {

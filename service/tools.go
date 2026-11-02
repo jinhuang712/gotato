@@ -6,7 +6,6 @@ import (
 	"slices"
 	"sort"
 	"strings"
-	"sync/atomic"
 
 	"github.com/jinhuang712/gotato/gotato"
 	"github.com/jinhuang712/gotato/modelctx"
@@ -22,21 +21,16 @@ import (
 type sessionTools struct {
 	spec    Agent
 	session *session.Record
-	// hasToolSets is set once the live Session is built and has a ToolSet,
-	// whose Tools can spill a result like any other.
-	hasToolSets atomic.Bool
 }
 
 // readBack is the gotato.ReadBack of a live Session of the Agent spec: the
 // default modelctx.ReadBack over the Runner's store, so the Messages a Segment
 // closed and the body of a spilled result are read back from the Record or
-// from the store, in the zone of the Segments' times. An Agent can replace it
-// with gotato.WithReadBack in its Options.
-func (r *Runner) readBack(spec Agent, record *session.Record, source *sessionTools) gotato.ReadBack {
+// from the store, in the zone of the Segments' times.
+func (r *Runner) readBack(spec Agent, record *session.Record) gotato.ReadBack {
 	return agentReadBack{
 		ReadBack: modelctx.ReadBack{Originals: modelctx.RecordOriginals(record, r.store.Records), Location: spec.Compact.Location},
-		hasTools: len(spec.Tools) > 0 || len(spec.ToolSources) > 0,
-		toolSets: &source.hasToolSets,
+		hasTools: len(spec.Tools) > 0 || len(spec.ToolSources) > 0 || len(spec.ToolSets) > 0,
 	}
 }
 
@@ -48,13 +42,12 @@ func (r *Runner) readBack(spec Agent, record *session.Record, source *sessionToo
 type agentReadBack struct {
 	modelctx.ReadBack
 	hasTools bool
-	toolSets *atomic.Bool
 }
 
 // Tools implements gotato.ToolSource.
 func (a agentReadBack) Tools(ctx context.Context) ([]gotato.Tool, error) {
 	tools, err := a.ReadBack.Tools(ctx)
-	if err != nil || len(tools) > 1 || a.hasTools || a.toolSets.Load() {
+	if err != nil || len(tools) > 1 || a.hasTools {
 		return tools, err
 	}
 	return nil, nil
@@ -121,7 +114,7 @@ func (t *sessionTools) active(id string) bool {
 	if t.session == nil {
 		return true
 	}
-	value, _ := t.session.Get(MetaToolPrefix + id)
+	value, _ := t.session.Get(metaToolPrefix + id)
 	return value != "inactive"
 }
 
@@ -137,7 +130,7 @@ func (r *Runner) Tools(ctx context.Context, agent, sessionID string) ([]ToolEntr
 			return nil, storeFailureOf(ctx, err, true)
 		}
 		if agent == "" {
-			agent, _ = s.Get(MetaAgent)
+			agent, _ = s.Get(metaAgent)
 		}
 	}
 	spec, ok := r.Agent(agent)
@@ -163,8 +156,7 @@ func (r *Runner) Tools(ctx context.Context, agent, sessionID string) ([]ToolEntr
 		entries = append(entries, ToolEntry{Spec: spec, Active: filter.active(spec.ID)})
 	}
 	if s != nil {
-		// A Session's ToolSets live in the Agent's Options, so the live Session
-		// says what they hold: every tool of every ToolSet, loaded or not,
+		// The live Session says what the Agent's ToolSets hold: every tool of every ToolSet, loaded or not,
 		// switched off or not, and search_tools, whose description is the catalog.
 		toolCtx, cancel := r.toolSetContext(ctx)
 		defer cancel()
@@ -218,7 +210,7 @@ func (r *Runner) SetToolActive(ctx context.Context, sessionID, toolID string, ac
 	if err != nil {
 		return ToolEntry{}, storeFailureOf(ctx, err, true)
 	}
-	agent, _ := read.Get(MetaAgent)
+	agent, _ := read.Get(metaAgent)
 	spec, ok := r.Agent(agent)
 	if !ok {
 		return ToolEntry{}, ErrUnknownAgent
@@ -255,12 +247,12 @@ func (r *Runner) SetToolActive(ctx context.Context, sessionID, toolID string, ac
 			return err
 		}
 		s := writer.Record()
-		held, _ := s.Get(MetaAgent)
+		held, _ := s.Get(metaAgent)
 		r.publishOpened(writer, early, held)
 		if active {
-			s.Set(MetaToolPrefix+toolID, "")
+			s.Set(metaToolPrefix+toolID, "")
 		} else {
-			s.Set(MetaToolPrefix+toolID, "inactive")
+			s.Set(metaToolPrefix+toolID, "inactive")
 		}
 		err = r.releaseWriter(ctx, writer)
 		if err == nil {

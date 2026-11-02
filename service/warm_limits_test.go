@@ -45,11 +45,11 @@ func warmedRunner(b *testing.B, sessions, messages int, ttl time.Duration) *serv
 				history[m] = gotato.AssistantMessage(text)
 			}
 		}
-		created, err := runner.CreateSession(ctx, "echo", nil, session.WithMessages(history...))
+		created, err := runner.CreateSession(ctx, service.CreateSessionRequest{Agent: "echo", Messages: history})
 		if err != nil {
 			b.Fatal(err)
 		}
-		if _, err := runner.Run(ctx, service.RunRequest{SessionID: created.ID(), Prompt: "go"}); err != nil {
+		if _, err := runner.Run(ctx, service.RunRequest{SessionID: created.ID, Prompt: "go"}); err != nil {
 			b.Fatal(err)
 		}
 	}
@@ -178,17 +178,17 @@ func TestRefusedCallerDoesNotEvictTheWarmSession(t *testing.T) {
 			runner := newRunnerOn(t, asStore(guarded{partsOf(memStore())}), service.Agent{Name: "a", Model: testkit.EchoModel{}})
 			ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 			defer cancel()
-			s, err := runner.CreateSession(ctx, "a", nil)
+			s, err := runner.CreateSession(ctx, service.CreateSessionRequest{Agent: "a"})
 			if err != nil {
 				t.Fatal(err)
 			}
-			if _, err := runner.Run(ctx, service.RunRequest{SessionID: s.ID(), Prompt: "hello"}); err != nil {
+			if _, err := runner.Run(ctx, service.RunRequest{SessionID: s.ID, Prompt: "hello"}); err != nil {
 				t.Fatal(err)
 			}
 			if runner.WarmSessions() != 1 {
 				t.Fatalf("warm sessions = %d, want 1 after the owner's Run", runner.WarmSessions())
 			}
-			err = call(context.WithValue(ctx, stranger{}, true), runner, s.ID())
+			err = call(context.WithValue(ctx, stranger{}, true), runner, s.ID)
 			if !gotato.IsCode(err, gotato.CodeNotFound) {
 				t.Fatalf("refused caller got %v, want not_found", err)
 			}

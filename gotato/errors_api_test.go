@@ -63,6 +63,8 @@ type panicJournal struct {
 	onWrite, onAppend bool
 }
 
+func (j *panicJournal) Capabilities() gotato.Capabilities { return gotato.Capabilities{Journal: j} }
+
 func (j *panicJournal) Write(ctx context.Context, events []gotato.Event) ([]gotato.Event, error) {
 	if j.onWrite {
 		panic("boom-write")
@@ -255,6 +257,7 @@ func TestExtensionPanicTextStaysOnTheCause(t *testing.T) {
 type hostileTranscript struct {
 	*holdJournal
 	panics string
+	calls  int
 }
 
 func (t *hostileTranscript) Len() int {
@@ -271,14 +274,20 @@ func (t *hostileTranscript) Messages() []gotato.Message {
 	return t.holdJournal.Messages()
 }
 
-func (t *hostileTranscript) Durable() bool {
-	if t.panics == "Durable" {
+// Capabilities declares a durable Journal, so that a panic in it is one the
+// Session meets again while it runs: the first call, NewSession's, answers.
+func (t *hostileTranscript) Capabilities() gotato.Capabilities {
+	t.calls++
+	if t.panics == "Capabilities" && t.calls > 1 {
 		panic("boom-durable")
 	}
-	return true
+	return gotato.Capabilities{Journal: t, Durable: true, Events: t, Loaded: t}
 }
 
-func (t *hostileTranscript) KeepsSpilledResults() bool { return false }
+// EventsAfter has nothing to read: the Session's Subscription does not need it here.
+func (t *hostileTranscript) EventsAfter(context.Context, uint64, int) ([]gotato.Event, error) {
+	return nil, nil
+}
 
 func (t *hostileTranscript) LoadedTools() []string {
 	if t.panics == "LoadedTools" {
@@ -302,8 +311,8 @@ func TestPanicInAHostReadFailsTheRun(t *testing.T) {
 		{"Messages", func() []gotato.SessionOption {
 			return []gotato.SessionOption{gotato.WithTranscript(&hostileTranscript{holdJournal: newHoldJournal(nil), panics: "Messages"})}
 		}, gotato.CodeInternalInvariant, "Transcript panic"},
-		{"Durable", func() []gotato.SessionOption {
-			return []gotato.SessionOption{gotato.WithTranscript(&hostileTranscript{holdJournal: newHoldJournal(nil), panics: "Durable"})}
+		{"Capabilities", func() []gotato.SessionOption {
+			return []gotato.SessionOption{gotato.WithTranscript(&hostileTranscript{holdJournal: newHoldJournal(nil), panics: "Capabilities"})}
 		}, gotato.CodeInternalInvariant, "Transcript panic"},
 		{"WithRunStart", func() []gotato.SessionOption {
 			return []gotato.SessionOption{gotato.WithRunStart(func(gotato.RunID) { panic("boom-start") })}

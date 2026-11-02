@@ -214,7 +214,7 @@ func TestWarmCopyOfARecreatedSessionIsDropped(t *testing.T) {
 	if err := b.DeleteSession(ctx, first.SessionID); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := b.CreateSessionExclusive(ctx, "echo", first.SessionID, nil); err != nil {
+	if _, err := b.CreateSession(ctx, service.CreateSessionRequest{Agent: "echo", ID: first.SessionID}); err != nil {
 		t.Fatal(err)
 	}
 	again := runOn(t, a, first.SessionID, "new")
@@ -354,7 +354,7 @@ func TestIdleWarmSessionIsCompactedBeforeItLeaves(t *testing.T) {
 					t.Fatal(err)
 				}
 				var whys []gotato.CompactionWhy
-				for _, event := range record.Events() {
+				for _, event := range record.Events {
 					if started, ok := event.(gotato.CompactionStarted); ok {
 						whys = append(whys, started.Why)
 					}

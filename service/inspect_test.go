@@ -9,7 +9,6 @@ import (
 	"github.com/jinhuang712/gotato/gotato"
 	"github.com/jinhuang712/gotato/modelctx"
 	"github.com/jinhuang712/gotato/service"
-	"github.com/jinhuang712/gotato/session"
 	"github.com/jinhuang712/gotato/testkit"
 )
 
@@ -31,15 +30,16 @@ func TestInspectMatchesTheNextRun(t *testing.T) {
 		Model:       model,
 		Instruction: "You track orders.",
 		Tools:       []gotato.Tool{testkit.NewFakeTool("orders.lookup", "shipped")},
-		Options:     []gotato.SessionOption{gotato.WithExtension(briefNote{}), gotato.WithSampling(maxTokens)},
+		Extensions:  []any{briefNote{}},
+		Sampling:    maxTokens,
 	})
 	ctx := context.Background()
-	s, err := runner.CreateSession(ctx, "orders", nil, session.WithMessages(gotato.UserMessage("where is order 42?")))
+	s, err := runner.CreateSession(ctx, service.CreateSessionRequest{Agent: "orders", Messages: []gotato.Message{gotato.UserMessage("where is order 42?")}})
 	if err != nil {
 		t.Fatal(err)
 	}
 
-	report, err := runner.Inspect(ctx, s.ID(), service.InspectConfig{})
+	report, err := runner.Inspect(ctx, s.ID, service.InspectConfig{})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -51,7 +51,7 @@ func TestInspectMatchesTheNextRun(t *testing.T) {
 	}
 
 	var prefix any
-	if _, err := runner.StreamRun(ctx, service.RunRequest{SessionID: s.ID(), Continue: true}, func(event gotato.Event) error {
+	if _, err := runner.StreamRun(ctx, service.RunRequest{SessionID: s.ID, Continue: true}, func(event gotato.Event) error {
 		if built, ok := event.(gotato.ContextBuilt); ok {
 			prefix = built.PrefixHash
 		}

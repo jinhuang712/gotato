@@ -23,8 +23,10 @@ const (
 
 // NewSession builds a live Session from an Agent's parts, given as options,
 // and starts it. A Model is required. The Session takes its ID from its
-// Transcript when the Transcript has an ID, as a session.Record does, and
-// generates one otherwise. Close it when it is no longer needed.
+// Transcript when the Transcript declares one (Capabilities.ID, as a
+// session.Record does), and generates one otherwise. A single-valued option
+// given twice fails with invalid_argument, naming it, and so does a Transcript
+// that declares Durable without a Journal, Events and Loaded. Close it when it is no longer needed.
 //
 // ctx covers the work NewSession does before the Session exists: resolving
 // the ToolSets installed active and the ones the Session's earlier Runs
@@ -65,19 +67,28 @@ func NewSession(ctx context.Context, options ...SessionOption) (*Session, error)
 	}
 	cfg.sampling = cfg.sampling.over(modelSampling)
 
-	registry, err := newToolRegistry(ctx, &cfg)
-	if err != nil {
-		return nil, err
-	}
 	if cfg.transcript == nil {
 		cfg.transcript = &memoryTranscript{}
+	}
+	// The Transcript declares what it can do; one that stores must declare
+	// every part a store needs, or it is refused here and not weeks later.
+	var caps Capabilities
+	if err := callHost("Transcript.Capabilities", func() error { caps = cfg.transcript.Capabilities(); return nil }); err != nil {
+		return nil, runtimeError(CodeInvalidArgument, "NewSession", "the Transcript's Capabilities failed", err)
+	}
+	if err := caps.check(); err != nil {
+		return nil, err
+	}
+	registry, err := newToolRegistry(ctx, &cfg, caps)
+	if err != nil {
+		return nil, err
 	}
 	if cfg.contextBuilder == nil {
 		cfg.contextBuilder = FullHistoryContext()
 	}
 	id := SessionID(nextID("session"))
-	if record, ok := cfg.transcript.(interface{ ID() string }); ok && record.ID() != "" {
-		id = SessionID(record.ID())
+	if caps.ID != "" {
+		id = SessionID(caps.ID)
 	}
 
 	a := &Session{
@@ -103,9 +114,8 @@ func NewSession(ctx context.Context, options ...SessionOption) (*Session, error)
 		handoff:        cfg.handoff,
 		requestID:      cfg.requestID,
 	}
-	if journal, ok := cfg.transcript.(Journal); ok {
-		a.journal = journal
-		a.durable = true
+	if caps.Journal != nil {
+		a.journal = caps.Journal
 	} else {
 		// A Transcript that keeps no Events: they are numbered in memory,
 		// after the last number of a Feed the host shares with other Runs.
@@ -119,8 +129,8 @@ func NewSession(ctx context.Context, options ...SessionOption) (*Session, error)
 	if a.feed == nil {
 		a.feed = NewFeed(nil)
 		a.ownFeed = true
-		if source, ok := cfg.transcript.(EventSource); ok {
-			a.feed.setSource(source)
+		if caps.Events != nil {
+			a.feed.setSource(caps.Events)
 		}
 	}
 	a.extensions.report = a.reportExtension
@@ -161,10 +171,9 @@ type Session struct {
 	transcript      Transcript
 	transcriptBytes uint64
 	contextBuilder  ContextBuilder
-	// journal keeps the Session's stored Events: the Transcript when it is a
-	// Journal (durable), and a numbering of its own otherwise.
+	// journal keeps the Session's stored Events: the Transcript's Journal when
+	// it declares one, and a numbering of its own otherwise.
 	journal Journal
-	durable bool
 	feed    *Feed
 	ownFeed bool
 	// staged holds the stored Events of the step in progress, on the Session
@@ -379,11 +388,15 @@ const settleGrace = 5 * time.Second
 // Transcript returns the Transcript this Session commits to.
 func (a *Session) Transcript() Transcript { return a.transcript }
 
+// capabilities is the Transcript's declaration now, guarded. It is asked again
+// where it can change, as Durable does for a Record that gets stored.
+func (a *Session) capabilities() (caps Capabilities, failure *RuntimeError) {
+	failure = transcriptCall(func() { caps = a.transcript.Capabilities() })
+	return caps, failure
+}
+
 // isDurable reports whether the Session's Events are stored.
 func (a *Session) isDurable() (stored bool, failure *RuntimeError) {
-	if d, ok := a.transcript.(durable); ok {
-		failure = transcriptCall(func() { stored = d.Durable() })
-		return stored, failure
-	}
-	return a.durable, nil
+	caps, failure := a.capabilities()
+	return caps.Durable && failure == nil, failure
 }

@@ -1,6 +1,7 @@
 package httpapi
 
 import (
+	"context"
 	"encoding/json"
 	"net/http"
 	"strconv"
@@ -35,23 +36,15 @@ func (h *Handler) createSession(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusBadRequest, err)
 		return
 	}
-	if in.ID != "" {
-		s, err := h.runner.CreateSessionExclusive(r.Context(), in.Agent, in.ID, in.Metadata)
-		if err != nil {
-			writeFailure(w, err)
-			return
-		}
-		w.Header().Set(SessionIDHeader, s.ID())
-		writeJSON(w, http.StatusCreated, summaryOf(s))
-		return
-	}
-	s, err := h.runner.CreateSession(r.Context(), in.Agent, in.Metadata)
+	// A key under "gotato." in the metadata is the Runner's: CreateSession
+	// refuses it, and writeFailure answers it 400 invalid_argument.
+	info, err := h.runner.CreateSession(r.Context(), service.CreateSessionRequest{Agent: in.Agent, ID: in.ID, Metadata: in.Metadata})
 	if err != nil {
 		writeFailure(w, err)
 		return
 	}
-	w.Header().Set(SessionIDHeader, s.ID())
-	writeJSON(w, http.StatusCreated, summaryOf(s))
+	w.Header().Set(SessionIDHeader, info.ID)
+	writeJSON(w, http.StatusCreated, h.summaryOf(r.Context(), info))
 }
 
 // sessionSummary is the answer to a create or a fork: the Session's listing
@@ -61,8 +54,15 @@ type sessionSummary struct {
 	RecordEpoch string `json:"record_epoch"`
 }
 
-func summaryOf(s *session.Record) sessionSummary {
-	return sessionSummary{RecordInfo: s.Info(), RecordEpoch: s.RecordEpoch()}
+// summaryOf adds the Record's epoch to a Session's listing columns. The create
+// calls return the columns alone, so the epoch is read from the Record just made;
+// a read that fails leaves it empty, and the client reads it with the Session.
+func (h *Handler) summaryOf(ctx context.Context, info session.RecordInfo) sessionSummary {
+	summary := sessionSummary{RecordInfo: info}
+	if doc, err := h.runner.Record(ctx, info.ID); err == nil {
+		summary.RecordEpoch = doc.RecordEpoch
+	}
+	return summary
 }
 
 // listSessions answers one page of Sessions: {"sessions": [...], "next": "..."},
@@ -91,12 +91,12 @@ func (h *Handler) listSessions(w http.ResponseWriter, r *http.Request) {
 }
 
 func (h *Handler) getSession(w http.ResponseWriter, r *http.Request) {
-	s, err := h.runner.Record(r.Context(), r.PathValue("id"))
+	doc, err := h.runner.Record(r.Context(), r.PathValue("id"))
 	if err != nil {
 		writeFailure(w, err)
 		return
 	}
-	writeJSON(w, http.StatusOK, s.Snapshot())
+	writeJSON(w, http.StatusOK, doc)
 }
 
 func (h *Handler) deleteSession(w http.ResponseWriter, r *http.Request) {
@@ -113,8 +113,8 @@ func (h *Handler) fork(w http.ResponseWriter, r *http.Request) {
 		writeFailure(w, err)
 		return
 	}
-	w.Header().Set(SessionIDHeader, child.ID())
-	writeJSON(w, http.StatusCreated, summaryOf(child))
+	w.Header().Set(SessionIDHeader, child.ID)
+	writeJSON(w, http.StatusCreated, h.summaryOf(r.Context(), child))
 }
 
 func (h *Handler) events(w http.ResponseWriter, r *http.Request) {
