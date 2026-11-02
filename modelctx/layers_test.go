@@ -16,9 +16,9 @@ import (
 // own layer or of a lower one, never of a higher one. The rule that matters:
 // rendering and inspection know nothing about compaction.
 const (
-	layerFoundation = 1 // capabilities, errors, tokens, inspection, and how a Segment's text is written
+	layerFoundation = 1 // capabilities, errors, tokens, inspection, the part interfaces, and how a Segment's text is written
 	layerSegments   = 2 // what builds or reads back one Segment or Recap
-	layerDecisions  = 3 // what compaction decides: the policy, the cut, the merge
+	layerDecisions  = 3 // what compaction decides: the policy, the Compactor and its default parts, the merge
 	layerCompact    = 4 // Compact, which runs the decisions
 	layerAuto       = 5 // AutoCompact, the TurnPreparer on top of Compact
 )
@@ -30,18 +30,23 @@ var fileLayer = map[string]int{
 	"errors.go":         layerFoundation,
 	"inspect.go":        layerFoundation,
 	"modelctx.go":       layerFoundation,
+	"parts.go":          layerFoundation,
 	"readerror.go":      layerFoundation,
 	"segment_render.go": layerFoundation,
 	"tokens.go":         layerFoundation,
 	// build and read-back
 	"merge_digest.go":  layerSegments,
+	"originals.go":     layerSegments,
 	"read_result.go":   layerSegments,
 	"read_segment.go":  layerSegments,
+	"readback.go":      layerSegments,
 	"recap.go":         layerSegments,
 	"segment_build.go": layerSegments,
 	// compaction decisions
 	"compact_cut.go":    layerDecisions,
+	"compact_parts.go":  layerDecisions,
 	"compact_policy.go": layerDecisions,
+	"compactor.go":      layerDecisions,
 	"merge.go":          layerDecisions,
 	// orchestration
 	"compact.go":      layerCompact,

@@ -182,12 +182,16 @@ type Agent struct {
 	// caller's context that comes sooner ends the Run sooner. The core sets
 	// no Run deadline of its own: there a Run's deadline is its ctx.
 	RunTimeout time.Duration
-	// Compact says when the Agent's Sessions compact by themselves: past the
-	// ceiling, which is the Model's window less a reserve unless CeilingTokens sets
-	// one (a negative CeilingTokens turns it off), and once when the provider refuses
-	// a request as too long. The ceiling is the Agent's alone: no Session
-	// overrides it.
-	Compact modelctx.CompactPolicy
+	// Compact is how the Agent's Sessions compact: the frame and its parts
+	// (modelctx.Compactor). Its numbers say when they compact by themselves:
+	// past the ceiling, which is the Model's window less a reserve unless
+	// CeilingTokens sets one (a negative CeilingTokens turns it off), and once
+	// when the provider refuses a request as too long. The ceiling is the
+	// Agent's alone: no Session overrides it. A part left nil is its default; a
+	// part the Agent sets replaces that step alone, and the frame keeps the
+	// guarantees whatever it returns. A Recap writer that names no Model gets
+	// the Agent's.
+	Compact modelctx.Compactor
 	// Warm says how long the Agent's idle Sessions stay in memory after a
 	// Run, and whether they are compacted while they idle. The zero value is
 	// the default: 60 minutes, and an idle compaction.

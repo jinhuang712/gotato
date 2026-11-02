@@ -8,6 +8,7 @@ import (
 
 	"github.com/jinhuang712/gotato/gotato"
 	"github.com/jinhuang712/gotato/internal/text"
+	"github.com/jinhuang712/gotato/ref"
 )
 
 // The defaults of a Segment built by code (FEATURES.md → G-F06, the Segment settings table).
@@ -26,11 +27,9 @@ const (
 	defaultTailTokens = 20000
 )
 
-// SegmentSettings are the settings of a Segment built by code. A zero value
-// takes the default.
+// SegmentSettings are the settings of a Segment built by code (CodeSegments).
+// A zero value takes the default.
 type SegmentSettings struct {
-	// Location is the time zone of the times a Segment shows. Nil means UTC.
-	Location *time.Location
 	// MessageTokens is the most a user Message or a final reply keeps, in
 	// estimated tokens (bytes ÷ 4); the rest is cut, and a line says so.
 	MessageTokens int
@@ -39,16 +38,6 @@ type SegmentSettings struct {
 	ToolLines int
 	// ArgChars is how many characters of a call's arguments a line quotes.
 	ArgChars int
-	// TailTokens is the most the kept tail holds by default, before the
-	// quarter of the window (or of the ceiling) caps it.
-	TailTokens int
-}
-
-func (s SegmentSettings) location() *time.Location {
-	if s.Location == nil {
-		return time.UTC
-	}
-	return s.Location
 }
 
 func orDefault(value, fallback int) int {
@@ -58,40 +47,34 @@ func orDefault(value, fallback int) int {
 	return value
 }
 
-// buildSegment renders the Messages a compaction closes as Segment number.
-// recap is the text that ends it, or empty. position says when a Message was
-// committed. The Record freezes the rendered Messages when it closes the
-// Segment, so every instance sends the same bytes.
-func buildSegment(number int, closed []gotato.Message, recap string, settings SegmentSettings, loaded []string, position func(gotato.MessageID) (gotato.MessagePosition, bool)) gotato.Segment {
-	loc := settings.location()
-	segment := gotato.Segment{Number: number}
-	var first, last gotato.MessagePosition
-	for _, message := range closed {
-		p, ok := position(message.ID)
-		if !ok {
-			continue
-		}
-		if !p.Time.IsZero() {
-			if segment.From.IsZero() || p.Time.Before(segment.From) {
-				segment.From = p.Time.UTC()
-			}
-			if p.Time.After(segment.To) {
-				segment.To = p.Time.UTC()
-			}
-		}
-		if p.Number > 0 {
-			if first.Number == 0 || p.Number < first.Number {
-				first = p
-			}
-			if p.Number > last.Number {
-				last = p
-			}
-		}
-	}
-	segment.Source = gotato.SegmentSource{FromNumber: first.Number, ToNumber: last.Number}
+// CodeSegments is the default Builder (decision 033, with the refs of 043): the
+// Segment shows the user's Messages and each Run's final reply word for word,
+// cut at SegmentSettings.MessageTokens; one line per tool call, counted by tool
+// past SegmentSettings.ToolLines; and the Notices a service wrote. It leaves out
+// tool results, a Run's other text and reasoning, and names what it leaves out
+// by a ref (package ref), so the original stays readable. The model writes only
+// the Recap, which the frame appends.
+type CodeSegments struct {
+	SegmentSettings
+}
 
-	items := collect(closed, settings, number, position)
-	limitLines(items, orDefault(settings.ToolLines, defaultToolLines))
+// Build implements Builder. It renders the closed Messages as Segment
+// info.Number. The Record freezes the rendered Messages when it closes the
+// Segment, so every instance sends the same bytes.
+func (c CodeSegments) Build(closed []gotato.Message, info SegmentInfo) (gotato.Segment, error) {
+	loc := info.Location
+	if loc == nil {
+		loc = time.UTC
+	}
+	number := info.Number
+	segment := gotato.Segment{Number: number, From: info.From, To: info.To}
+
+	position := info.Position
+	if position == nil {
+		position = func(gotato.MessageID) (gotato.MessagePosition, bool) { return gotato.MessagePosition{}, false }
+	}
+	items := collect(closed, c.SegmentSettings, number, position)
+	limitLines(items, orDefault(c.ToolLines, defaultToolLines))
 	for _, it := range items {
 		for _, line := range it.lines {
 			segment.ToolCalls = append(segment.ToolCalls, line.ToolCallLine)
@@ -99,7 +82,7 @@ func buildSegment(number int, closed []gotato.Message, recap string, settings Se
 	}
 
 	var out messageList
-	out.add(gotato.RoleUser, taggedPart(gotato.TagSegment, headerAttrs(number, segment, loc), headerText(number, recap != "")))
+	out.add(gotato.RoleUser, taggedPart(gotato.TagSegment, headerAttrs(number, segment, loc), headerText(number, info.Recap != "")))
 	for _, it := range items {
 		if !it.isCalls {
 			out.add(it.role, it.parts...)
@@ -117,16 +100,38 @@ func buildSegment(number int, closed []gotato.Message, recap string, settings Se
 		}
 		out.add(gotato.RoleAssistant, taggedPart(gotato.TagToolCalls, nil, strings.Join(text, "\n")))
 	}
-	if recap != "" {
-		out.add(gotato.RoleUser, taggedPart(gotato.TagRecap, numberAttr(number), text.EscapeTags(recap)))
-	}
-	for i := range out.messages {
-		out.messages[i].ID = gotato.MessageID(fmt.Sprintf("segment-%d-%d", number, i+1))
-	}
 	segment.Messages = out.messages
-	segment.Recap = recap
-	segment.LoadedTools = toolsCalled(closed, loaded)
-	return segment
+	return segment, nil
+}
+
+// stamps reads from the positions of the closed Messages when the stretch
+// began and ended, and the range of Entries it covers: what the frame stamps
+// on a Segment, so every Segment is readable back by its number.
+func stamps(closed []gotato.Message, position func(gotato.MessageID) (gotato.MessagePosition, bool)) (from, to time.Time, source gotato.SegmentSource) {
+	var first, last gotato.MessagePosition
+	for _, message := range closed {
+		p, ok := position(message.ID)
+		if !ok {
+			continue
+		}
+		if !p.Time.IsZero() {
+			if from.IsZero() || p.Time.Before(from) {
+				from = p.Time.UTC()
+			}
+			if p.Time.After(to) {
+				to = p.Time.UTC()
+			}
+		}
+		if p.Number > 0 {
+			if first.Number == 0 || p.Number < first.Number {
+				first = p
+			}
+			if p.Number > last.Number {
+				last = p
+			}
+		}
+	}
+	return from, to, gotato.SegmentSource{FromNumber: first.Number, ToNumber: last.Number}
 }
 
 // messageList builds Messages, joining a Part to the last Message when it has
@@ -215,8 +220,8 @@ func collect(closed []gotato.Message, settings SegmentSettings, number int, posi
 					}
 				}
 				var refs []string
-				if text.RefSafe(string(call.ID)) {
-					refs = []string{text.SpillRef(string(call.ID))}
+				if ref.Safe(string(call.ID)) {
+					refs = []string{ref.Result(string(call.ID)).String()}
 				}
 				if n := len(pending); n > 0 && sameCall(pending[n-1].ToolCallLine, line) {
 					pending[n-1].Count = max(pending[n-1].Count, 1) + 1
@@ -250,7 +255,7 @@ func noticePart(kind string, parts []gotato.ContentPart) gotato.ContentPart {
 			body.WriteString(part.Text)
 		}
 	}
-	return taggedPart(gotato.TagNotice, [][2]string{{"kind", kind}}, text.EscapeTags(body.String()))
+	return taggedPart(gotato.TagNotice, [][2]string{{"kind", text.EscapeTags(kind)}}, text.EscapeTags(body.String()))
 }
 
 // finalReplies marks each Run's final reply: its last assistant Message

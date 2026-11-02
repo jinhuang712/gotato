@@ -17,7 +17,7 @@ func TestToolCallLinesEscapeTheArgumentsTheyQuote(t *testing.T) {
 	f.reply("r1", "done", 3)
 	f.user("r2", "next", 4)
 	f.reply("r2", "ok", 5)
-	mustCompact(t, f.rec, modelctx.CompactConfig{})
+	mustCompact(t, f.rec, modelctx.Compactor{}, modelctx.CompactConfig{})
 	var block string
 	for _, m := range f.rec.Segments()[0].Messages {
 		for _, part := range m.Parts {
@@ -43,7 +43,7 @@ func TestToolCallLinesCutArgumentsCollapseRepeatsAndCountPastTheCap(t *testing.T
 	f.reply("r1", "done", 5)
 	f.user("r2", "next", 6)
 	f.reply("r2", "ok", 7)
-	mustCompact(t, f.rec, modelctx.CompactConfig{})
+	mustCompact(t, f.rec, modelctx.Compactor{}, modelctx.CompactConfig{})
 	text := dump(f.rec.Segments()[0].Messages)
 	lines := strings.Split(text, "\n")
 	var calls []string
@@ -81,7 +81,7 @@ func TestToolCallLinesCutArgumentsCollapseRepeatsAndCountPastTheCap(t *testing.T
 	g.reply("r1", "done", 3)
 	g.user("r2", "next", 4)
 	g.reply("r2", "ok", 5)
-	mustCompact(t, g.rec, modelctx.CompactConfig{})
+	mustCompact(t, g.rec, modelctx.Compactor{}, modelctx.CompactConfig{})
 	segment := g.rec.Segments()[0]
 	shown := strings.Count(dump(segment.Messages), " → ok")
 	if shown != 100 || len(segment.ToolCalls) != 100 {

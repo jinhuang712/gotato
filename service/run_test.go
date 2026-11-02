@@ -159,7 +159,7 @@ func TestStreamRunInspectCompactFork(t *testing.T) {
 }
 
 func TestAutoCompactFromSpecAndSession(t *testing.T) {
-	runner, store := newRunner(t, service.Agent{Name: "echo", Model: testkit.EchoModel{}, Compact: modelctx.CompactPolicy{CeilingTokens: 20000}})
+	runner, store := newRunner(t, service.Agent{Name: "echo", Model: testkit.EchoModel{}, Compact: modelctx.Compactor{CompactPolicy: modelctx.CompactPolicy{CeilingTokens: 20000}}})
 	ctx := context.Background()
 	var last service.RunResponse
 	for i := 0; i < 8 && !last.Compacted; i++ {
@@ -456,7 +456,7 @@ func TestCompactionLeavesOutReasoningForAModelSentOnlyTheCurrentRound(t *testing
 		}
 
 		// "b" is "a" with a ceiling of one token, which can never be met.
-		policy := modelctx.CompactPolicy{WindowTokens: 4000, SegmentSettings: modelctx.SegmentSettings{TailTokens: 70}}
+		policy := modelctx.Compactor{CompactPolicy: modelctx.CompactPolicy{WindowTokens: 4000}, Cut: modelctx.TailBudget{TailTokens: 70}}
 		tight := policy
 		tight.CeilingTokens = 1
 		sharedModel := model()
@@ -524,7 +524,7 @@ func TestTheModelsRecapIsOffUnlessTheAgentTurnsItOn(t *testing.T) {
 
 func TestAnAgentTurnsTheModelsRecapOnAndItAsksOnTheNextCallsContext(t *testing.T) {
 	model := recapModel()
-	agent := service.Agent{Name: "ops", Model: model, Instruction: "be brief", Compact: modelctx.CompactPolicy{Recap: modelctx.ModelRecap{}}}
+	agent := service.Agent{Name: "ops", Model: model, Instruction: "be brief", Compact: modelctx.Compactor{Recap: modelctx.ModelRecap{}}}
 	runner, store := newRunner(t, agent)
 	ctx := context.Background()
 	id := runThree(t, runner)
@@ -570,7 +570,7 @@ func TestAFailedModelRecapKeepsTheSegmentWithoutOne(t *testing.T) {
 	model := testkit.NewFuncModel(func(context.Context, gotato.ModelRequest) (testkit.Script, error) {
 		return testkit.Text("Sure, here you go: nothing."), nil
 	})
-	runner, _ := newRunner(t, service.Agent{Name: "ops", Model: model, Compact: modelctx.CompactPolicy{Recap: modelctx.ModelRecap{}}})
+	runner, _ := newRunner(t, service.Agent{Name: "ops", Model: model, Compact: modelctx.Compactor{Recap: modelctx.ModelRecap{}}})
 	id := runThree(t, runner)
 	result, err := runner.Compact(context.Background(), id, modelctx.CompactConfig{})
 	if err != nil || !result.Replaced || result.Compaction.Recap != "none" {
@@ -580,7 +580,7 @@ func TestAFailedModelRecapKeepsTheSegmentWithoutOne(t *testing.T) {
 
 func TestACompactionPastTheCeilingWritesTheRecapWithTheModelWhenTheAgentAsks(t *testing.T) {
 	model := recapModel()
-	agent := service.Agent{Name: "ops", Model: model, Compact: modelctx.CompactPolicy{CeilingTokens: 20000, Recap: modelctx.ModelRecap{}}}
+	agent := service.Agent{Name: "ops", Model: model, Compact: modelctx.Compactor{CompactPolicy: modelctx.CompactPolicy{CeilingTokens: 20000}, Recap: modelctx.ModelRecap{}}}
 	runner, store := newRunner(t, agent)
 	ctx := context.Background()
 	var last service.RunResponse

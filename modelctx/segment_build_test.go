@@ -19,7 +19,7 @@ func TestALongMessageIsCutWithALineThatNamesReadSegment(t *testing.T) {
 	f.reply("r2", "short answer", 4)
 	f.user("r3", "next", 5)
 	f.reply("r3", "ok", 6)
-	mustCompact(t, f.rec, modelctx.CompactConfig{})
+	mustCompact(t, f.rec, modelctx.Compactor{}, modelctx.CompactConfig{})
 	messages := f.rec.Segments()[0].Messages
 	for _, m := range []gotato.Message{messages[0], messages[1]} {
 		var kept, note string
@@ -48,7 +48,7 @@ func TestALongMessageIsCutWithALineThatNamesReadSegment(t *testing.T) {
 	g.reply("r1", "a", 2)
 	g.user("r2", "next", 3)
 	g.reply("r2", "ok", 4)
-	mustCompact(t, g.rec, modelctx.CompactConfig{CompactPolicy: modelctx.CompactPolicy{SegmentSettings: modelctx.SegmentSettings{MessageTokens: 10}}})
+	mustCompact(t, g.rec, modelctx.Compactor{Builder: modelctx.CodeSegments{SegmentSettings: modelctx.SegmentSettings{MessageTokens: 10}}}, modelctx.CompactConfig{})
 	if text := dump(g.rec.Segments()[0].Messages); !strings.Contains(text, strings.Repeat("x", 40)+"\n") || strings.Contains(text, strings.Repeat("x", 41)) {
 		t.Errorf("a limit of 10 tokens kept %s", text)
 	}
@@ -67,7 +67,7 @@ func TestAnImageOrAFileBecomesAPlaceholder(t *testing.T) {
 	f.reply("r1", "seen", 2)
 	f.user("r2", "next", 3)
 	f.reply("r2", "ok", 4)
-	mustCompact(t, f.rec, modelctx.CompactConfig{})
+	mustCompact(t, f.rec, modelctx.Compactor{}, modelctx.CompactConfig{})
 	text := dump(f.rec.Segments()[0].Messages)
 	for _, want := range []string{"[image: shot.png, 2048 bytes]", "[image: 10 bytes]", "[file: report.pdf, 7 bytes]", "look at this"} {
 		if !strings.Contains(text, want) {
@@ -90,7 +90,7 @@ func TestNoticesAreLeftOutUnlessTheServiceSentThem(t *testing.T) {
 	f.reply("r1", "done", 5)
 	f.user("r2", "next", 6)
 	f.reply("r2", "ok", 7)
-	mustCompact(t, f.rec, modelctx.CompactConfig{})
+	mustCompact(t, f.rec, modelctx.Compactor{}, modelctx.CompactConfig{})
 	text := dump(f.rec.Segments()[0].Messages)
 	if strings.Contains(text, "gotato's own") || strings.Contains(text, gotato.TruncatedContinuationText) {
 		t.Errorf("Gotato's own notices stayed:\n%s", text)
@@ -105,7 +105,7 @@ func TestSegmentTimesAreUTCUnlessTheAgentSetsAZone(t *testing.T) {
 	for _, loc := range []*time.Location{nil, zone} {
 		f := newFixture(t)
 		threeRuns(f)
-		mustCompact(t, f.rec, modelctx.CompactConfig{CompactPolicy: modelctx.CompactPolicy{SegmentSettings: modelctx.SegmentSettings{Location: loc}}})
+		mustCompact(t, f.rec, modelctx.Compactor{CompactPolicy: modelctx.CompactPolicy{Location: loc}}, modelctx.CompactConfig{})
 		text := dump(f.rec.Segments()[0].Messages)
 		if loc == nil && (!strings.Contains(text, "10:02 payments.get_batch") || !strings.Contains(text, `from="2026-10-19T10:01:00Z"`)) {
 			t.Errorf("UTC times:\n%s", text)
@@ -134,7 +134,7 @@ func TestFinalRepliesAreGroupedByRun(t *testing.T) {
 	f.commit(gotato.AssistantMessage("old answer"), 6)
 	f.user("r2", "next", 7)
 	f.reply("r2", "ok", 8)
-	mustCompact(t, f.rec, modelctx.CompactConfig{})
+	mustCompact(t, f.rec, modelctx.Compactor{}, modelctx.CompactConfig{})
 	text := dump(f.rec.Segments()[0].Messages)
 	if strings.Contains(text, "first part") || !strings.Contains(text, "the real final reply") {
 		t.Errorf("final reply:\n%s", text)

@@ -116,7 +116,7 @@ func TestRunIDSurvivesTheRecord(t *testing.T) {
 
 			rendered := rendered(0, "first", "reply")
 			rendered.Messages[0].RunID, rendered.Messages[1].RunID = "run-a", "run-a"
-			if _, err := record.CloseSegment(rendered); err != nil {
+			if _, err := record.CloseWithoutCheckpoint(rendered); err != nil {
 				t.Fatal(err)
 			}
 			if err := record.CheckpointSegments(gotato.CompactionWhyOnDemand, []int{1}, record.Tail()[2:], nil); err != nil {

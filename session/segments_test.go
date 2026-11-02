@@ -29,7 +29,7 @@ func TestLoadedContextDoesNotAliasClosedSegments(t *testing.T) {
 		From: time.Date(2026, 10, 24, 9, 0, 0, 0, time.UTC), To: time.Date(2026, 10, 24, 10, 0, 0, 0, time.UTC),
 		Messages: []gotato.Message{gotato.UserMessage("rendered")}, Recap: "recap",
 	}
-	closed, err := record.CloseSegment(segment)
+	closed, err := record.CloseWithoutCheckpoint(segment)
 	if err != nil {
 		t.Fatal(err)
 	}

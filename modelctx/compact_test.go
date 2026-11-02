@@ -11,14 +11,26 @@ import (
 	"github.com/jinhuang712/gotato/testkit"
 )
 
-// failWrites makes the write that closes a Segment fail, for the test.
-func failWrites(t *testing.T) {
-	t.Helper()
-	original := closeSegment
-	closeSegment = func(*session.Record, gotato.CompactionWhy, gotato.Segment, []int, []gotato.Message, *gotato.Compaction) (gotato.Segment, error) {
+// faultyStore is a SegmentStore whose batch writes fail, for the test: the
+// reads and the Events are the Record's, so what is checked afterwards is that
+// the failed write changed nothing.
+type faultyStore struct {
+	SegmentStore
+	closeFails, mergeFails bool
+}
+
+func (f faultyStore) CloseSegment(why gotato.CompactionWhy, segment gotato.Segment, tail []gotato.Message, compaction *gotato.Compaction) (gotato.Segment, error) {
+	if f.closeFails {
 		return gotato.Segment{}, gotato.ErrorOf(gotato.CodeStoreFailure, "disk gone")
 	}
-	t.Cleanup(func() { closeSegment = original })
+	return f.SegmentStore.CloseSegment(why, segment, tail, compaction)
+}
+
+func (f faultyStore) MergeSegments(why gotato.CompactionWhy, merged gotato.Segment, replaces []int, tail []gotato.Message, compaction *gotato.Compaction) (gotato.Segment, error) {
+	if f.mergeFails {
+		return gotato.Segment{}, gotato.ErrorOf(gotato.CodeStoreFailure, "disk gone")
+	}
+	return f.SegmentStore.MergeSegments(why, merged, replaces, tail, compaction)
 }
 
 func conversation(t *testing.T) *session.Record {
@@ -45,9 +57,8 @@ func conversation(t *testing.T) *session.Record {
 // A compaction whose write fails is dropped: an Event says so, the error
 // reaches an on-demand caller, and the Record, ToolSets included, is as it was.
 func TestACompactionWhoseWriteFailsIsDropped(t *testing.T) {
-	failWrites(t)
 	record := conversation(t)
-	_, err := Compact(context.Background(), record, CompactConfig{KeepMessages: 2})
+	_, err := Compact(context.Background(), faultyStore{SegmentStore: record, closeFails: true}, Compactor{}, CompactConfig{KeepMessages: 2})
 	if !gotato.IsCode(err, gotato.CodeStoreFailure) {
 		t.Fatalf("err = %v", err)
 	}
@@ -87,7 +98,6 @@ func runOnce(t *testing.T, record *session.Record, auto *AutoCompactor) (gotato.
 // estimate. The compaction is dropped and the Run goes on with the Context it
 // had.
 func TestARunGoesOnWhenItsCompactionIsDroppedAndTheEstimateFits(t *testing.T) {
-	failWrites(t)
 	record := conversation(t)
 	reported := gotato.AssistantMessage("a3")
 	reported.ID = "ma3"
@@ -95,7 +105,7 @@ func TestARunGoesOnWhenItsCompactionIsDroppedAndTheEstimateFits(t *testing.T) {
 	if err := record.Append(reported); err != nil {
 		t.Fatal(err)
 	}
-	auto := AutoCompact(record, CompactPolicy{CeilingTokens: 500})
+	auto := AutoCompact(faultyStore{SegmentStore: record, closeFails: true}, Compactor{CompactPolicy: CompactPolicy{CeilingTokens: 500}})
 	result, model, err := runOnce(t, record, auto)
 	if err != nil {
 		t.Fatalf("the Run failed with its compaction: %v", err)
@@ -123,9 +133,8 @@ func TestARunGoesOnWhenItsCompactionIsDroppedAndTheEstimateFits(t *testing.T) {
 // Still past the ceiling after the dropped compaction, the Run ends, and says
 // the compaction failed.
 func TestARunEndsWhenItsCompactionIsDroppedAndTheContextIsStillPastTheCeiling(t *testing.T) {
-	failWrites(t)
 	record := conversation(t)
-	auto := AutoCompact(record, CompactPolicy{CeilingTokens: 1})
+	auto := AutoCompact(faultyStore{SegmentStore: record, closeFails: true}, Compactor{CompactPolicy: CompactPolicy{CeilingTokens: 1}})
 	result, model, err := runOnce(t, record, auto)
 	if !gotato.IsCode(err, gotato.CodeLimitExceeded) || result.Status != gotato.RunStatusFailed || !strings.Contains(err.Error(), "compaction failed") {
 		t.Fatalf("result = %+v, err = %v; want limit_exceeded naming the failed compaction", result, err)
@@ -159,9 +168,10 @@ func reportingCall() testkit.Script {
 // Mid-Run, a compaction whose write fails is dropped and the Run goes on with
 // the Context it had, when the estimate of that Context fits the ceiling.
 func TestARunGoesOnWhenItsMidRunCompactionIsDropped(t *testing.T) {
-	failWrites(t)
 	model := testkit.NewFakeModel(reportingCall(), testkit.Text("all done"))
-	result, record, err := midRun(t, func(r *session.Record) *AutoCompactor { return AutoCompact(r, CompactPolicy{CeilingTokens: 500}) }, model)
+	result, record, err := midRun(t, func(r *session.Record) *AutoCompactor {
+		return AutoCompact(faultyStore{SegmentStore: r, closeFails: true}, Compactor{CompactPolicy: CompactPolicy{CeilingTokens: 500}})
+	}, model)
 	if err != nil || result.Status != gotato.RunStatusCompleted || model.Calls() != 2 {
 		t.Fatalf("result = %+v, err = %v, %d calls", result, err, model.Calls())
 	}
@@ -178,16 +188,6 @@ func TestARunGoesOnWhenItsMidRunCompactionIsDropped(t *testing.T) {
 	}
 }
 
-// failMerges makes the write that merges Segments fail, for the test.
-func failMerges(t *testing.T) {
-	t.Helper()
-	original := mergeSegments
-	mergeSegments = func(*session.Record, gotato.CompactionWhy, gotato.Segment, []int, []gotato.Message, *gotato.Compaction) (gotato.Segment, error) {
-		return gotato.Segment{}, gotato.ErrorOf(gotato.CodeStoreFailure, "disk gone")
-	}
-	t.Cleanup(func() { mergeSegments = original })
-}
-
 // threeSegments is a Record with three Segments closed and a Message after them.
 func threeSegments(t *testing.T) *session.Record {
 	t.Helper()
@@ -201,7 +201,7 @@ func threeSegments(t *testing.T) *session.Record {
 				}
 			}
 		}
-		if _, err := Compact(context.Background(), record, CompactConfig{CompactPolicy: CompactPolicy{SegmentSettings: SegmentSettings{TailTokens: 1}, SegmentBudgetTokens: 1 << 30}}); err != nil {
+		if _, err := Compact(context.Background(), record, Compactor{CompactPolicy: CompactPolicy{SegmentBudgetTokens: 1 << 30}, Cut: TailBudget{TailTokens: 1}}, CompactConfig{}); err != nil {
 			t.Fatal(err)
 		}
 	}
@@ -212,10 +212,9 @@ func threeSegments(t *testing.T) *session.Record {
 // as they were, an Event says why, and the Segment a compaction closed before
 // it stays closed.
 func TestAMergeWhoseWriteFailsLeavesTheSegmentsUnmerged(t *testing.T) {
-	failMerges(t)
 	record := threeSegments(t)
 	before := len(record.Events())
-	result, err := mergeOldest(context.Background(), record, MergeConfig{BudgetTokens: 1})
+	result, err := mergeOldest(context.Background(), faultyStore{SegmentStore: record, mergeFails: true}, Compactor{}, 1, "")
 	if err != nil || result.Merged || result.Reason != MergeReasonWriteFailed || !strings.Contains(result.Error, "disk gone") {
 		t.Fatalf("result = %+v, err = %v", result, err)
 	}
@@ -239,7 +238,7 @@ func TestAMergeWhoseWriteFailsLeavesTheSegmentsUnmerged(t *testing.T) {
 	if err := record.Append(more); err != nil {
 		t.Fatal(err)
 	}
-	compacted, err := Compact(context.Background(), record, CompactConfig{CompactPolicy: CompactPolicy{SegmentSettings: SegmentSettings{TailTokens: 1}, SegmentBudgetTokens: 1}})
+	compacted, err := Compact(context.Background(), faultyStore{SegmentStore: record, mergeFails: true}, Compactor{CompactPolicy: CompactPolicy{SegmentBudgetTokens: 1}, Cut: TailBudget{TailTokens: 1}}, CompactConfig{})
 	if err != nil || !compacted.Replaced || compacted.Merge == nil || compacted.Merge.Reason != MergeReasonWriteFailed || len(record.Segments()) != 4 {
 		t.Fatalf("compact = %+v, %d Segments; the closed Segment must stay", compacted, len(record.Segments()))
 	}
@@ -249,6 +248,9 @@ func TestAMergeWhoseWriteFailsLeavesTheSegmentsUnmerged(t *testing.T) {
 type stopper struct{ cancel context.CancelFunc }
 
 func (stopper) Name() string { return "stopper" }
+
+func (s stopper) WithAgentModel(gotato.Model) RecapWriter { return s }
+func (stopper) Validate() error                           { return nil }
 func (s stopper) WriteRecap(ctx context.Context, _ RecapRequest) (gotato.Message, error) {
 	s.cancel()
 	return gotato.Message{}, ctx.Err()
@@ -263,7 +265,7 @@ func TestARunStoppedDuringItsMidRunCompactionEndsCanceled(t *testing.T) {
 	model := testkit.NewFakeModel(reportingCall(), testkit.Text("never"))
 	agent, err := gotato.NewSession(context.Background(), gotato.WithModel(model), gotato.WithTranscript(record),
 		gotato.WithTools(testkit.NewFakeTool("demo.read", "ok")),
-		gotato.WithExtension(AutoCompact(record, CompactPolicy{CeilingTokens: 500, Recap: stopper{cancel}})))
+		gotato.WithExtension(AutoCompact(record, Compactor{CompactPolicy: CompactPolicy{CeilingTokens: 500}, Recap: stopper{cancel}})))
 	if err != nil {
 		t.Fatal(err)
 	}

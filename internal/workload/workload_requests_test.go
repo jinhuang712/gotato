@@ -15,6 +15,7 @@ import (
 	"github.com/jinhuang712/gotato/gotato"
 	"github.com/jinhuang712/gotato/internal/reftasks"
 	"github.com/jinhuang712/gotato/modelctx"
+	"github.com/jinhuang712/gotato/ref"
 	"github.com/jinhuang712/gotato/service"
 	"github.com/jinhuang712/gotato/session"
 	"github.com/jinhuang712/gotato/testkit"
@@ -575,7 +576,7 @@ func TestToolSearchRequestAcrossACompaction(t *testing.T) {
 		}
 		withoutSegment := func(request gotato.ModelRequest) map[string]string {
 			catalog := catalogOf(t, request)
-			delete(catalog, modelctx.ReadSegmentID)
+			delete(catalog, ref.ReadSegment)
 			return catalog
 		}
 		if before, after := withoutSegment(prev), withoutSegment(next); fmt.Sprint(before) != fmt.Sprint(after) {

@@ -2,6 +2,7 @@ package modelctx
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"regexp"
 	"sort"
@@ -10,54 +11,8 @@ import (
 
 	"github.com/jinhuang712/gotato/gotato"
 	"github.com/jinhuang712/gotato/internal/text"
-	"github.com/jinhuang712/gotato/session"
+	"github.com/jinhuang712/gotato/ref"
 )
-
-// ReadSegmentID is the ID of the built-in tool that reads a Segment back.
-const ReadSegmentID = "read_segment"
-
-// defaultReadSegmentPageBytes is the most one page of a read_segment result
-// holds, in bytes of text: about 8K tokens, so a
-// long Segment is read page by page and one call never fills the Context.
-const defaultReadSegmentPageBytes = gotato.SpillPageBytes
-
-// ReadSegmentConfig controls ReadSegmentTool.
-type ReadSegmentConfig struct {
-	// PageBytes is the most one page holds, in bytes. 0 means
-	// defaultReadSegmentPageBytes.
-	PageBytes int
-	// Location is the time zone of the times in the result; nil means UTC.
-	Location *time.Location
-}
-
-func (c ReadSegmentConfig) pageBytes() int {
-	if c.PageBytes <= 0 {
-		return defaultReadSegmentPageBytes
-	}
-	return max(c.PageBytes, 256)
-}
-
-// SegmentTools is the gotato.ToolSource that gives a Session the built-in
-// read_segment tool once it has a Segment, and no tool before: the tool list
-// comes from the Record's last Checkpoint, so every instance that loads the
-// Session offers the same one. log is where the Messages a Segment covers are
-// read back from, the Store of the Record.
-func SegmentTools(record *session.Record, log session.EntryLog, opts ReadSegmentConfig) gotato.ToolSource {
-	return segmentTools{record: record, tool: ReadSegmentTool(record, log, opts)}
-}
-
-type segmentTools struct {
-	record *session.Record
-	tool   gotato.Tool
-}
-
-// Tools implements gotato.ToolSource.
-func (s segmentTools) Tools(context.Context) ([]gotato.Tool, error) {
-	if s.record == nil || len(s.record.Segments()) == 0 {
-		return nil, nil
-	}
-	return []gotato.Tool{s.tool}, nil
-}
 
 // readSegmentInput is the input of read_segment.
 type readSegmentInput struct {
@@ -65,26 +20,24 @@ type readSegmentInput struct {
 	Page    int `json:"page,omitempty" description:"the page to read, from 1; a long segment is read page by page"`
 }
 
-// ReadSegmentTool returns the read_segment tool for record. It reads a
-// Segment's Messages back from the log by the range of Entries the Segment
-// records, tool calls and tool results included, so what a compaction left out
-// of the Context is still there to read, and a Segment that was merged stays
-// readable by its own number. Its Effect is read, so every Effect cap keeps it.
+// segmentTool returns the read_segment tool. It reads a Segment's Messages
+// back from the Originals, tool calls and tool results included, so what a
+// compaction left out of the Context is still there to read, and a Segment
+// that was merged stays readable by its own number. Its Effect is read, so
+// every Effect cap keeps it.
 //
 // The result is text that carries none of the four tags: a prefix says whose
 // each Message is, such as `[user]`, `[assistant]`, `[call payments.get_batch]`
 // and `[tool payments.get_batch]`; a line of the text that itself starts with
 // such a prefix is escaped with a backslash, and the tags in it are escaped as
 // in any Tool Result, so neither a user nor a tool can speak as the assistant
-// or the system in it. It is cut into pages of opts.PageBytes. When the log no
-// longer holds the Entries (the team pruned it), the result says so.
-func ReadSegmentTool(record *session.Record, log session.EntryLog, opts ReadSegmentConfig) gotato.Tool {
-	tool, err := gotato.NewFuncTool(ReadSegmentID,
+// or the system in it. It is cut into pages of PageBytes. When the store no
+// longer holds the Messages (the team pruned it), the result says so.
+func (r ReadBack) segmentTool() gotato.Tool {
+	tool, err := gotato.NewFuncTool(ref.ReadSegment,
 		"Returns the messages of a segment of this conversation word for word, tool calls and tool results included, as they were before the segment was closed or merged. "+
 			"Use it when a recap leaves out a detail you need, such as an ID or a number a tool returned.",
-		func(ctx context.Context, in readSegmentInput) (string, error) {
-			return readSegment(ctx, record, log, opts, in)
-		})
+		r.readSegment)
 	if err != nil {
 		panic(err)
 	}
@@ -117,63 +70,58 @@ func refsOf(segments []gotato.Segment) (refs []segmentRef, merged map[int][]int)
 	return refs, merged
 }
 
-func readSegment(ctx context.Context, record *session.Record, log session.EntryLog, opts ReadSegmentConfig, in readSegmentInput) (string, error) {
-	refs, merged := refsOf(record.Segments())
-	var ref *segmentRef
-	for i := range refs {
-		if refs[i].number == in.Segment {
-			ref = &refs[i]
+func (r ReadBack) readSegment(ctx context.Context, in readSegmentInput) (string, error) {
+	// With the Segments listed, a number no Segment has is answered with the
+	// numbers one can read, and a merged Segment's own number with the ones it
+	// stands for.
+	var found *segmentRef
+	segments, listed := r.segments()
+	refs, merged := refsOf(segments)
+	if listed {
+		for i := range refs {
+			if refs[i].number == in.Segment {
+				found = &refs[i]
+			}
 		}
-	}
-	if ref == nil {
-		numbers := make([]int, len(refs))
-		for i, r := range refs {
-			numbers[i] = r.number
+		if found == nil {
+			numbers := make([]int, len(refs))
+			for i, at := range refs {
+				numbers[i] = at.number
+			}
+			if standsFor, ok := merged[in.Segment]; ok {
+				return "", readErrorf("segment %d is the merge of segments %s; read one of them by its own number", in.Segment, rangeLabel(standsFor))
+			}
+			return "", readErrorf("there is no segment %d in this conversation; the segments you can read are %s", in.Segment, rangeLabel(numbers))
 		}
-		if standsFor, ok := merged[in.Segment]; ok {
-			return "", readErrorf("segment %d is the merge of segments %s; read one of them by its own number", in.Segment, rangeLabel(standsFor))
-		}
-		return "", readErrorf("there is no segment %d in this conversation; the segments you can read are %s", in.Segment, rangeLabel(numbers))
 	}
 	page := max(in.Page, 1)
 
-	id := record.ID()
-	if ref.source.SessionID != "" {
-		id = string(ref.source.SessionID)
-	}
-	// [DATA-LOSS] a Record deleted and created again under the same ID must not be read as the history a fork inherited.
-	same, err := session.SameRecord(ctx, log, id, ref.source.RecordEpoch)
-	if err != nil {
-		return "", readErrorf("segment %d could not be read", ref.number)
-	}
-	var messages []gotato.Message
-	complete := false
-	if same {
-		messages, complete, err = session.CommittedMessages(ctx, log, id, ref.source.FromNumber, ref.source.ToNumber)
-		if err != nil {
-			return "", readErrorf("segment %d could not be read", ref.number)
-		}
-	}
-	if len(messages) == 0 {
-		return fmt.Sprintf("The messages of segment %d were removed from the Record, so only what the conversation keeps of it is left: its recap and its tool call lines.", ref.number), nil
+	messages, complete, err := r.Originals.Segment(ctx, in.Segment)
+	switch {
+	case errors.Is(err, ErrNoOriginal):
+		return "", readErrorf("there is no segment %d in this conversation", in.Segment)
+	case err != nil && !errors.Is(err, ErrRemoved):
+		return "", readErrorf("segment %d could not be read", in.Segment)
+	case len(messages) == 0:
+		return fmt.Sprintf("The messages of segment %d were removed from the Record, so only what the conversation keeps of it is left: its recap and its tool call lines.", in.Segment), nil
 	}
 
-	loc := opts.Location
+	loc := r.Location
 	if loc == nil {
 		loc = time.UTC
 	}
-	limit := opts.pageBytes()
+	limit := r.PageBytes()
 	pages := text.Paginate(renderOriginals(messages, limit/2), limit)
 	if page > len(pages) {
-		return "", readErrorf("segment %d has %d pages; there is no page %d", ref.number, len(pages), page)
+		return "", readErrorf("segment %d has %d pages; there is no page %d", in.Segment, len(pages), page)
 	}
 
 	var b strings.Builder
-	fmt.Fprintf(&b, "Segment %d", ref.number)
-	if !ref.from.IsZero() {
-		fmt.Fprintf(&b, ", %s", ref.from.In(loc).Format(time.RFC3339))
-		if !ref.to.IsZero() {
-			fmt.Fprintf(&b, " to %s", ref.to.In(loc).Format(time.RFC3339))
+	fmt.Fprintf(&b, "Segment %d", in.Segment)
+	if found != nil && !found.from.IsZero() {
+		fmt.Fprintf(&b, ", %s", found.from.In(loc).Format(time.RFC3339))
+		if !found.to.IsZero() {
+			fmt.Fprintf(&b, " to %s", found.to.In(loc).Format(time.RFC3339))
 		}
 	}
 	fmt.Fprintf(&b, ". Its messages as they were, tool calls and tool results included; reasoning is left out. Page %d of %d.\n", page, len(pages))
@@ -182,9 +130,9 @@ func readSegment(ctx context.Context, record *session.Record, log session.EntryL
 	}
 	b.WriteString(strings.Join(pages[page-1], "\n"))
 	if page < len(pages) {
-		fmt.Fprintf(&b, "\nMore: read_segment(segment=%d, page=%d).", ref.number, page+1)
+		fmt.Fprintf(&b, "\nMore: %s(segment=%d, page=%d).", ref.ReadSegment, in.Segment, page+1)
 	} else {
-		fmt.Fprintf(&b, "\nEnd of segment %d.", ref.number)
+		fmt.Fprintf(&b, "\nEnd of segment %d.", in.Segment)
 	}
 	return b.String(), nil
 }

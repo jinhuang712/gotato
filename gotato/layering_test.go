@@ -28,10 +28,11 @@ const modulePath = "github.com/jinhuang712/gotato"
 // adapter/mcp is a module of its own, but it is a shipped package, so it is
 // held to the same table: it may import the core and nothing else.
 var allowedImports = map[string][]string{
-	"gotato":            {"internal/text"},
+	"gotato":            {"internal/text", "ref"},
 	"session":           {"gotato"},
 	"gateway":           {"gotato", "internal/text"}, // text.Cut: an error body is cut on a rune boundary
-	"modelctx":          {"gotato", "internal/text", "session"},
+	"modelctx":          {"gotato", "internal/text", "ref", "session"},
+	"ref":               {},
 	"testkit":           {"gotato", "internal/text", "session"}, // text.IsRecapAsk: the fake models recognize the Recap ask by the one definition
 	"session/storetest": {"gotato", "session"},
 	"service":           {"gotato", "modelctx", "session"},
@@ -41,7 +42,7 @@ var allowedImports = map[string][]string{
 
 // standardOnly lists the packages that may import the standard library alone
 // from outside this repository: the core, and the shared package it uses.
-var standardOnly = []string{"gotato", "internal/text"}
+var standardOnly = []string{"gotato", "internal/text", "ref"}
 
 // TestLayering enforces plan/decisions/010 (a light library): dependencies point inward: every shipped
 // package imports only what allowedImports lists for it, the core and the

@@ -37,6 +37,12 @@ type CoreLimits struct {
 	// deadline, so only the Run's ctx ends the call.
 	ModelCallDeadline time.Duration
 	ToolCallDeadline  time.Duration
+	// SpillPreviewBytes is the start of a spilled Tool Result that stays in the
+	// Context, in bytes, cut on a rune boundary. Zero means 8000, about 2K
+	// tokens. It never passes the ReadBack's page size, so the preview is
+	// always the start of page 1. The core writes the line after it that
+	// names the ref (WithReadBack).
+	SpillPreviewBytes uint32
 }
 
 // TruncatedContinuationText is the text of the continue notice a Run goes on
@@ -71,8 +77,14 @@ func defaultLimits() CoreLimits {
 		MaxParallelTools:    1,
 		ModelCallDeadline:   2 * time.Minute,
 		ToolCallDeadline:    2 * time.Minute,
+		SpillPreviewBytes:   defaultSpillPreviewBytes,
 	}
 }
+
+// defaultSpillPreviewBytes is CoreLimits.SpillPreviewBytes by default: the
+// start of a spilled result that stays in the Context, about 2K tokens (bytes
+// divided by 4).
+const defaultSpillPreviewBytes = 8000
 
 // A Tool's progress reports are bounded per call: past either cap they are
 // dropped, and the call goes on.
@@ -94,6 +106,7 @@ func (l CoreLimits) withDefaults() CoreLimits {
 	l.MaxParallelTools = orDefault(l.MaxParallelTools, d.MaxParallelTools)
 	l.ModelCallDeadline = orDefault(l.ModelCallDeadline, d.ModelCallDeadline)
 	l.ToolCallDeadline = orDefault(l.ToolCallDeadline, d.ToolCallDeadline)
+	l.SpillPreviewBytes = orDefault(l.SpillPreviewBytes, d.SpillPreviewBytes)
 	return l
 }
 

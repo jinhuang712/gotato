@@ -25,7 +25,7 @@ func calling(n string, input, output uint64) testkit.Script {
 // goes on: the Segment holds what came before, the latest Turn stays with its
 // tool call and result, and another instance builds the same request.
 func TestARunPastTheCeilingIsCompactedBetweenTurnsAndGoesOn(t *testing.T) {
-	l := newLive(t, modelctx.CompactPolicy{CeilingTokens: 5000})
+	l := newLive(t, modelctx.Compactor{CompactPolicy: modelctx.CompactPolicy{CeilingTokens: 5000}})
 	l.must(testkit.NewFakeModel(answering("earlier answer")), "an earlier question")
 	model := &stepModel{steps: []any{calling("1", 400, 10), calling("2", 9000, 1000), answering("all done")}}
 	result, err := l.run(model, "investigate", strings.Repeat("log line ", 350))
@@ -73,11 +73,11 @@ func TestARunPastTheCeilingIsCompactedBetweenTurnsAndGoesOn(t *testing.T) {
 // The provider refuses a request as too long: the Session is compacted and the
 // call is sent again, once. The Segments before keep their bytes.
 func TestARequestRefusedAsTooLongIsCompactedAndSentAgainOnce(t *testing.T) {
-	l := newLive(t, modelctx.CompactPolicy{})
+	l := newLive(t, modelctx.Compactor{})
 	for _, prompt := range []string{"one", "two", "three"} {
 		l.must(testkit.NewFakeModel(answering("reply to "+prompt)), prompt)
 	}
-	if result, err := modelctx.Compact(context.Background(), l.writer.Record(), modelctx.CompactConfig{KeepMessages: 2}); err != nil || !result.Replaced {
+	if result, err := modelctx.Compact(context.Background(), l.writer.Record(), modelctx.Compactor{}, modelctx.CompactConfig{KeepMessages: 2}); err != nil || !result.Replaced {
 		t.Fatalf("compact = %+v, %v", result, err)
 	}
 	// Two Runs that read a large result each: a Segment keeps a line per call.
@@ -118,7 +118,7 @@ func TestARequestRefusedAsTooLongIsCompactedAndSentAgainOnce(t *testing.T) {
 // A second refusal in the same Turn ends the Run with context_overflow, after
 // one compaction and one retry.
 func TestASecondRefusalEndsTheRunWithContextOverflow(t *testing.T) {
-	l := newLive(t, modelctx.CompactPolicy{})
+	l := newLive(t, modelctx.Compactor{})
 	for _, prompt := range []string{"one", "two", "three"} {
 		l.must(testkit.NewFakeModel(answering("reply to "+prompt)), prompt)
 	}
@@ -135,7 +135,7 @@ func TestASecondRefusalEndsTheRunWithContextOverflow(t *testing.T) {
 // A Turn compacts at most once: a refusal after the Turn compacted past the
 // ceiling is not compacted again.
 func TestATurnThatCompactedPastTheCeilingIsNotCompactedAgainOnAnOverflow(t *testing.T) {
-	l := newLive(t, modelctx.CompactPolicy{CeilingTokens: 5000})
+	l := newLive(t, modelctx.Compactor{CompactPolicy: modelctx.CompactPolicy{CeilingTokens: 5000}})
 	l.must(testkit.NewFakeModel(answering("earlier answer")), "an earlier question")
 	model := &stepModel{steps: []any{calling("1", 9000, 1000), refusal{}, answering("never")}}
 	result, err := l.run(model, "investigate", "ok")
@@ -151,7 +151,7 @@ func TestATurnThatCompactedPastTheCeilingIsNotCompactedAgainOnAnOverflow(t *test
 // limit_exceeded and no further call is made. One prompt too large for the
 // ceiling is the cause here: a large tool result is spilled, so it is not.
 func TestARunStillPastTheCeilingAfterItsCompactionEndsWithLimitExceeded(t *testing.T) {
-	l := newLive(t, modelctx.CompactPolicy{CeilingTokens: 5000})
+	l := newLive(t, modelctx.Compactor{CompactPolicy: modelctx.CompactPolicy{CeilingTokens: 5000}})
 	l.must(testkit.NewFakeModel(answering("earlier answer")), "an earlier question")
 	model := &stepModel{steps: []any{calling("1", 400, 10), answering("never")}}
 	result, err := l.run(model, strings.Repeat("a very large prompt ", 2000), "ok")
@@ -181,7 +181,7 @@ func TestTheCeilingComesFromTheWindowUnlessSet(t *testing.T) {
 		{"the ceiling wins", modelctx.CompactPolicy{WindowTokens: 200_000, CeilingTokens: 1234}, 1234},
 		{"a negative ceiling is off", modelctx.CompactPolicy{WindowTokens: 200_000, CeilingTokens: -1}, 0},
 	} {
-		if got := modelctx.AutoCompact(nil, tc.policy).CeilingTokens(); got != tc.want {
+		if got := modelctx.AutoCompact(nil, modelctx.Compactor{CompactPolicy: tc.policy}).CeilingTokens(); got != tc.want {
 			t.Errorf("%s: ceiling = %d, want %d", tc.name, got, tc.want)
 		}
 	}
@@ -190,11 +190,11 @@ func TestTheCeilingComesFromTheWindowUnlessSet(t *testing.T) {
 // After a compaction the usage of the old replies no longer counts: the kept
 // Messages carry none, so the size is estimated afresh.
 func TestACompactionClearsTheUsageOfTheMessagesItKeeps(t *testing.T) {
-	l := newLive(t, modelctx.CompactPolicy{})
+	l := newLive(t, modelctx.Compactor{})
 	for _, prompt := range []string{"one", "two", "three"} {
 		l.must(testkit.NewFakeModel(answering("reply to "+prompt)), prompt)
 	}
-	if _, err := modelctx.Compact(context.Background(), l.writer.Record(), modelctx.CompactConfig{KeepMessages: 2}); err != nil {
+	if _, err := modelctx.Compact(context.Background(), l.writer.Record(), modelctx.Compactor{}, modelctx.CompactConfig{KeepMessages: 2}); err != nil {
 		t.Fatal(err)
 	}
 	for _, message := range l.writer.Record().Tail() {
@@ -207,7 +207,7 @@ func TestACompactionClearsTheUsageOfTheMessagesItKeeps(t *testing.T) {
 // Without a Run in flight the Record is below the ceiling by its size, and
 // Pending says so by the same count the Loop uses.
 func TestPendingFollowsTheReportedUsage(t *testing.T) {
-	l := newLive(t, modelctx.CompactPolicy{CeilingTokens: 5000})
+	l := newLive(t, modelctx.Compactor{CompactPolicy: modelctx.CompactPolicy{CeilingTokens: 5000}})
 	l.must(testkit.NewFakeModel(answering("short")), "hi")
 	if l.auto.Pending() {
 		t.Fatal("a short Session is pending")
@@ -223,7 +223,7 @@ func TestPendingFollowsTheReportedUsage(t *testing.T) {
 // The instruction and the tools count toward the size before a model call, so
 // a request whose Messages fit the ceiling can still be past it.
 func TestPendingForCountsTheInstructionAndTheTools(t *testing.T) {
-	l := newLive(t, modelctx.CompactPolicy{CeilingTokens: 500})
+	l := newLive(t, modelctx.Compactor{CompactPolicy: modelctx.CompactPolicy{CeilingTokens: 500}})
 	l.must(testkit.NewFakeModel(testkit.Text("short")), "hi")
 	if l.auto.PendingFor(gotato.ModelRequest{}) {
 		t.Fatal("a short Session is pending")
@@ -250,7 +250,7 @@ func TestAutoCompactClosesASegmentAtRunStart(t *testing.T) {
 		f.reply(run, "answer "+run, i*3+2)
 	}
 	before := modelctx.EstimateTokens(f.rec.Messages())
-	auto := modelctx.AutoCompact(f.rec, modelctx.CompactPolicy{CeilingTokens: before / 2})
+	auto := modelctx.AutoCompact(f.rec, modelctx.Compactor{CompactPolicy: modelctx.CompactPolicy{CeilingTokens: before / 2}})
 	model := testkit.NewFakeModel(testkit.Text("ok"))
 	agent, err := gotato.NewSession(context.Background(), gotato.WithModel(model), gotato.WithTranscript(f.writer), gotato.WithExtension(auto))
 	if err != nil {
@@ -302,12 +302,12 @@ func (r limitedRefusal) ContextLimit() int   { return r.limit }
 
 // segmented is a stored Session with n Segments of about 450 tokens each,
 // closed on demand and never merged, whose later Runs compact by policy.
-func segmented(t *testing.T, n int, policy func(segments int) modelctx.CompactPolicy) *live {
+func segmented(t *testing.T, n int, policy func(segments int) modelctx.Compactor) *live {
 	t.Helper()
-	l := newLive(t, modelctx.CompactPolicy{})
+	l := newLive(t, modelctx.Compactor{})
 	for i := 1; i <= n; i++ {
 		l.must(testkit.NewFakeModel(answering(strings.Repeat("y", 800))), fmt.Sprintf("question %d: %s", i, strings.Repeat("x", 800)))
-		if result, err := modelctx.Compact(context.Background(), l.writer.Record(), modelctx.CompactConfig{CompactPolicy: modelctx.CompactPolicy{SegmentSettings: modelctx.SegmentSettings{TailTokens: 1}, SegmentBudgetTokens: 1 << 30}}); err != nil || !result.Replaced {
+		if result, err := modelctx.Compact(context.Background(), l.writer.Record(), modelctx.Compactor{CompactPolicy: modelctx.CompactPolicy{SegmentBudgetTokens: 1 << 30}, Cut: modelctx.TailBudget{TailTokens: 1}}, modelctx.CompactConfig{}); err != nil || !result.Replaced {
 			t.Fatalf("Segment %d: %+v, %v", i, result, err)
 		}
 	}
@@ -319,8 +319,8 @@ func segmented(t *testing.T, n int, policy func(segments int) modelctx.CompactPo
 // call, with no Segment to close, and the first request opens with the merged
 // Segment. A Run under the budget merges nothing.
 func TestSegmentsPastTheirBudgetAreMergedBeforeARunsFirstCall(t *testing.T) {
-	l := segmented(t, 4, func(tokens int) modelctx.CompactPolicy {
-		return modelctx.CompactPolicy{SegmentBudgetTokens: tokens - 100}
+	l := segmented(t, 4, func(tokens int) modelctx.Compactor {
+		return modelctx.Compactor{CompactPolicy: modelctx.CompactPolicy{SegmentBudgetTokens: tokens - 100}}
 	})
 	model := &stepModel{steps: []any{answering("hello again"), answering("and again")}}
 	result, err := l.run(model, "a new question", "ok")
@@ -350,8 +350,8 @@ func TestSegmentsPastTheirBudgetAreMergedBeforeARunsFirstCall(t *testing.T) {
 // goes on with the Segments as they were, and the next Run tries again.
 func TestAFailedMergeAtTheStartOfARunLetsTheRunGoOn(t *testing.T) {
 	broken := modelctx.ModelRecap{Model: errModel{errors.New("gateway down")}}
-	l := segmented(t, 4, func(tokens int) modelctx.CompactPolicy {
-		return modelctx.CompactPolicy{SegmentBudgetTokens: tokens - 100, Recap: broken}
+	l := segmented(t, 4, func(tokens int) modelctx.Compactor {
+		return modelctx.Compactor{CompactPolicy: modelctx.CompactPolicy{SegmentBudgetTokens: tokens - 100}, Recap: broken}
 	})
 	result, err := l.run(testkit.NewFakeModel(answering("fine")), "go on", "ok")
 	if err != nil || result.Status != gotato.RunStatusCompleted {
@@ -379,8 +379,8 @@ func TestAFailedMergeAtTheStartOfARunLetsTheRunGoOn(t *testing.T) {
 // A Run past the ceiling closes a Segment and, the Segments being past their
 // budget, merges the oldest, in the same Turn, and goes on.
 func TestARunPastTheCeilingMergesTheOldestSegmentsToo(t *testing.T) {
-	l := segmented(t, 3, func(tokens int) modelctx.CompactPolicy {
-		return modelctx.CompactPolicy{CeilingTokens: 5000, SegmentBudgetTokens: tokens + 30}
+	l := segmented(t, 3, func(tokens int) modelctx.Compactor {
+		return modelctx.Compactor{CompactPolicy: modelctx.CompactPolicy{CeilingTokens: 5000, SegmentBudgetTokens: tokens + 30}}
 	})
 	model := &stepModel{steps: []any{calling("1", 400, 10), calling("2", 9000, 1000), answering("all done")}}
 	result, err := l.run(model, "investigate", strings.Repeat("log line ", 350))
@@ -406,8 +406,8 @@ func TestARunPastTheCeilingMergesTheOldestSegmentsToo(t *testing.T) {
 // closes the first of them, which takes the Segments past their budget.
 func overflowFixture(t *testing.T, recap modelctx.RecapWriter) *live {
 	t.Helper()
-	l := segmented(t, 3, func(tokens int) modelctx.CompactPolicy {
-		return modelctx.CompactPolicy{SegmentBudgetTokens: tokens + 60, Recap: recap}
+	l := segmented(t, 3, func(tokens int) modelctx.Compactor {
+		return modelctx.Compactor{CompactPolicy: modelctx.CompactPolicy{SegmentBudgetTokens: tokens + 60}, Recap: recap}
 	})
 	l.must(testkit.NewFakeModel(answering("reply")), "question 4: "+strings.Repeat("x", 800))
 	l.must(testkit.NewFakeModel(answering("reply")), "question 5: "+strings.Repeat("x", 800))
@@ -452,7 +452,7 @@ func TestTheLimitARefusalNamesSizesTheMerge(t *testing.T) {
 		{"names a limit above the budget", limitedRefusal{limit: 100000}, false},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
-			l := segmented(t, 3, func(int) modelctx.CompactPolicy { return modelctx.CompactPolicy{} })
+			l := segmented(t, 3, func(int) modelctx.Compactor { return modelctx.Compactor{} })
 			model := &stepModel{steps: []any{tc.refusal, answering("fits now")}}
 			result, err := l.run(model, "four", "ok")
 			if tc.wantMerged {
@@ -495,7 +495,7 @@ func TestAFailedMergeRecapOnAnOverflowEndsTheRunWithContextOverflow(t *testing.T
 // With nothing to close, an overflow still merges the Segments that are past
 // the limit.
 func TestAnOverflowWithNothingToCloseStillMergesTheSegments(t *testing.T) {
-	l := segmented(t, 3, func(int) modelctx.CompactPolicy { return modelctx.CompactPolicy{} })
+	l := segmented(t, 3, func(int) modelctx.Compactor { return modelctx.Compactor{} })
 	model := &stepModel{steps: []any{limitedRefusal{limit: 600}, answering("fits now")}}
 	result, err := l.run(model, "four", "ok")
 	if err != nil || result.Status != gotato.RunStatusCompleted || !l.merged() {
@@ -509,8 +509,8 @@ func TestAnOverflowWithNothingToCloseStillMergesTheSegments(t *testing.T) {
 // A Turn compacts at most once: a Turn that merged at its start is not
 // compacted again by an overflow after it.
 func TestATurnThatMergedIsNotCompactedAgainOnAnOverflow(t *testing.T) {
-	l := segmented(t, 4, func(tokens int) modelctx.CompactPolicy {
-		return modelctx.CompactPolicy{SegmentBudgetTokens: tokens - 100}
+	l := segmented(t, 4, func(tokens int) modelctx.Compactor {
+		return modelctx.Compactor{CompactPolicy: modelctx.CompactPolicy{SegmentBudgetTokens: tokens - 100}}
 	})
 	model := &stepModel{steps: []any{refusal{}, answering("never")}}
 	result, err := l.run(model, "five", "ok")
@@ -526,8 +526,8 @@ func TestATurnThatMergedIsNotCompactedAgainOnAnOverflow(t *testing.T) {
 // budget) starts no compaction, so it does not use the Turn's: an overflow
 // after it still compacts and the call is sent again.
 func TestAnOverflowAfterANoOpMergeStillCompacts(t *testing.T) {
-	l := segmented(t, 1, func(tokens int) modelctx.CompactPolicy {
-		return modelctx.CompactPolicy{SegmentBudgetTokens: tokens - 100}
+	l := segmented(t, 1, func(tokens int) modelctx.Compactor {
+		return modelctx.Compactor{CompactPolicy: modelctx.CompactPolicy{SegmentBudgetTokens: tokens - 100}}
 	})
 	for i := range 3 {
 		l.must(testkit.NewFakeModel(answering(strings.Repeat("y", 800))), fmt.Sprintf("later %d %s", i, strings.Repeat("x", 800)))
@@ -596,7 +596,7 @@ func TestCompactLeavesTheReasoningOutOfTheKeptMessagesWhenAsked(t *testing.T) {
 		if err != nil {
 			t.Fatal(err)
 		}
-		result, err := modelctx.Compact(ctx, writer.Record(), modelctx.CompactConfig{CompactPolicy: modelctx.CompactPolicy{DropReasoning: drop}, KeepMessages: 4})
+		result, err := modelctx.Compact(ctx, writer.Record(), modelctx.Compactor{CompactPolicy: modelctx.CompactPolicy{DropReasoning: drop}}, modelctx.CompactConfig{KeepMessages: 4})
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -630,7 +630,7 @@ func TestCompactLeavesTheReasoningOutOfTheKeptMessagesWhenAsked(t *testing.T) {
 
 func TestAutoCompactLeavesTheReasoningOutWhenItsPolicySays(t *testing.T) {
 	s := reasoningSession(t)
-	auto := modelctx.AutoCompact(s, modelctx.CompactPolicy{CeilingTokens: 1, DropReasoning: true})
+	auto := modelctx.AutoCompact(s, modelctx.Compactor{CompactPolicy: modelctx.CompactPolicy{CeilingTokens: 1, DropReasoning: true}})
 	// A ceiling of one token is never met again, so the Run would end; the
 	// compaction itself is what this checks.
 	prepared, err := auto.PrepareTurn(context.Background(), gotato.PendingTurn{RunID: "r", Turn: 2})
@@ -651,7 +651,7 @@ func TestAutoCompactLeavesTheReasoningOutWhenItsPolicySays(t *testing.T) {
 func TestACompactionMidRunKeepsTheToolResultsBeforeANoticeOrASteer(t *testing.T) {
 	for _, interjection := range []string{"none", "notice", "steer"} {
 		t.Run(interjection, func(t *testing.T) {
-			l := newLive(t, modelctx.CompactPolicy{CeilingTokens: 5000})
+			l := newLive(t, modelctx.Compactor{CompactPolicy: modelctx.CompactPolicy{CeilingTokens: 5000}})
 			l.must(testkit.NewFakeModel(answering(strings.Repeat("earlier answer ", 1000))), "an earlier question")
 			var agent *gotato.Session
 			tool := testkit.NewFakeTool("demo.read", "")

@@ -41,9 +41,25 @@ type RecapRequest struct {
 // RecapWriter writes the Recap that ends a Segment. A writer that fails, or
 // returns no text, leaves the Segment without a Recap. The Message it returns
 // carries the Recap as its text and, for a model call, the call's Usage.
+//
+// A writer that asks a model has no model of its own to start with when an
+// Agent turns it on: WithAgentModel gives it the Agent's, and Validate says
+// whether it can work as set. A writer that needs neither returns itself and
+// nil. They are methods and not a match on ModelRecap's type, so a user's
+// writer that wraps a ModelRecap passes the Agent's model on, and a
+// *ModelRecap is treated like a ModelRecap.
+// [SEAM] a host writes the Recap its own way: another model, a template, a hand-written note.
 type RecapWriter interface {
 	Name() string
 	WriteRecap(context.Context, RecapRequest) (gotato.Message, error)
+	// WithAgentModel returns the writer set to use model, the Agent's Model, when
+	// it asks a model and names none; any other writer returns itself. It must
+	// not change the writer it is called on, which a Compactor shares.
+	WithAgentModel(model gotato.Model) RecapWriter
+	// Validate checks a writer that cannot work as set, such as a model Recap
+	// with no Model, so a misconfiguration is an error at first use, not a
+	// Segment that quietly has no Recap. nil means it can.
+	Validate() error
 }
 
 // TruncateRecap is the deterministic writer for tests and for use without a
@@ -55,6 +71,12 @@ type TruncateRecap struct {
 
 // Name implements RecapWriter.
 func (TruncateRecap) Name() string { return "truncate" }
+
+// WithAgentModel implements RecapWriter: TruncateRecap uses no model.
+func (t TruncateRecap) WithAgentModel(gotato.Model) RecapWriter { return t }
+
+// Validate implements RecapWriter.
+func (TruncateRecap) Validate() error { return nil }
 
 // WriteRecap implements RecapWriter.
 func (t TruncateRecap) WriteRecap(_ context.Context, request RecapRequest) (gotato.Message, error) {
@@ -115,6 +137,21 @@ type ModelRecap struct {
 	// refused (CompactPolicy.Validate).
 	Timeout time.Duration
 }
+
+// WithAgentModel implements RecapWriter: a ModelRecap that names no Model gets
+// the Agent's, so an Agent turns the model's Recap on with
+// Recap: modelctx.ModelRecap{}. The copy leaves the caller's writer as it was.
+func (m ModelRecap) WithAgentModel(model gotato.Model) RecapWriter {
+	if m.Model == nil {
+		m.Model = model
+	}
+	return m
+}
+
+// Validate implements RecapWriter: a ModelRecap needs a Model, and a negative
+// Timeout is refused. Compact and the AutoCompactor call it before they do
+// anything.
+func (m ModelRecap) Validate() error { return m.validate() }
 
 // validate refuses a ModelRecap that cannot work.
 func (m ModelRecap) validate() error {

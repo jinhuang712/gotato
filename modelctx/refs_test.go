@@ -15,7 +15,7 @@ import (
 // read runs read_result on ref against the fixture's Record and store.
 func (f *fixture) read(ref string, page int) (string, error) {
 	f.t.Helper()
-	tool := modelctx.ReadResultTool(f.rec, f.store, modelctx.ReadResultConfig{})
+	tool := resultToolOf(f.rec, f.store, 0)
 	return readResult(f.t, tool, fmt.Sprintf(`{"ref":%q,"page":%d}`, ref, page))
 }
 
@@ -25,7 +25,7 @@ func (f *fixture) read(ref string, page int) (string, error) {
 func TestASegmentCarriesRefsThatReadBackTheOriginals(t *testing.T) {
 	f := newFixture(t)
 	threeRuns(f)
-	mustCompact(t, f.rec, modelctx.CompactConfig{})
+	mustCompact(t, f.rec, modelctx.Compactor{}, modelctx.CompactConfig{})
 	text := dump(f.rec.Segments()[0].Messages)
 	for _, want := range []string{"→ ok [result:c1]", "→ error failed [result:c2]", "ref msg:m01"} {
 		if !strings.Contains(text, want) {
@@ -58,7 +58,7 @@ func TestARefReadsAnUnspilledResultAndACutMessageWhole(t *testing.T) {
 	call := gotato.Message{Role: gotato.RoleAssistant, RunID: "r1", StopReason: gotato.StopReasonToolCalls,
 		ToolCalls: []gotato.ToolCall{{ID: "big1", ToolID: "demo.read", Arguments: []byte(`{}`)}}}
 	f.commit(call, 2)
-	body := bigBody(gotato.SpillPageBytes - 1000) // under one page: not spilled
+	body := bigBody(modelctx.DefaultPageBytes - 1000) // under one page: not spilled
 	f.commit(gotato.Message{Role: gotato.RoleToolResult, RunID: "r1", ToolResult: &gotato.ToolResult{CallID: "big1", Status: gotato.ToolResultStatusOK},
 		Parts: []gotato.ContentPart{{Kind: gotato.ContentKindText, Text: body}}}, 3)
 	long := strings.Repeat("word ", 5000) // 25000 bytes, past the 8000 a Segment keeps
@@ -71,7 +71,7 @@ func TestARefReadsAnUnspilledResultAndACutMessageWhole(t *testing.T) {
 	f.reply("r2", "ok", 6)
 	f.user("r3", "last", 7)
 	f.reply("r3", "bye", 8)
-	mustCompact(t, f.rec, modelctx.CompactConfig{})
+	mustCompact(t, f.rec, modelctx.Compactor{}, modelctx.CompactConfig{})
 	if text := dump(f.rec.Segments()[0].Messages); !strings.Contains(text, "[result:big1]") || !strings.Contains(text, "ref msg:final1") {
 		t.Fatalf("Segment = %s", text)
 	}
@@ -105,10 +105,10 @@ func TestARefReadsAnUnspilledResultAndACutMessageWhole(t *testing.T) {
 func TestARefIntoPrunedEntriesReadsAsRemoved(t *testing.T) {
 	f := newFixture(t)
 	threeRuns(f)
-	mustCompact(t, f.rec, modelctx.CompactConfig{})
+	mustCompact(t, f.rec, modelctx.Compactor{}, modelctx.CompactConfig{})
 	fresh := f.reload()
 	empty := session.NewMemoryStore()
-	tool := modelctx.ReadResultTool(fresh, empty, modelctx.ReadResultConfig{})
+	tool := resultToolOf(fresh, empty, 0)
 	got, err := readResult(t, tool, `{"ref":"result:c1"}`)
 	if err != nil || !strings.Contains(got, "removed from the Record") {
 		t.Errorf("got %q, %v", got, err)
@@ -136,7 +136,7 @@ func TestASegmentWithoutRefsStillRendersAndDigests(t *testing.T) {
 func TestAMergeDigestAndTheMergeAskKeepRefs(t *testing.T) {
 	f := newFixture(t)
 	threeRuns(f)
-	mustCompact(t, f.rec, modelctx.CompactConfig{})
+	mustCompact(t, f.rec, modelctx.Compactor{}, modelctx.CompactConfig{})
 	segment := f.rec.Segments()[0]
 	digest := modelctx.MergeDigest([]gotato.Segment{segment}, nil)
 	for _, want := range []string{"msg:m01", "msg:m06", "result:c1", "result:c3"} {
@@ -162,14 +162,14 @@ func TestAMergeDigestAndTheMergeAskKeepRefs(t *testing.T) {
 func TestALaterCompactionLeavesAnEarlierSegmentsBytes(t *testing.T) {
 	f := newFixture(t)
 	threeRuns(f)
-	mustCompact(t, f.rec, modelctx.CompactConfig{})
+	mustCompact(t, f.rec, modelctx.Compactor{}, modelctx.CompactConfig{})
 	before, _ := json.Marshal(f.rec.Segments()[0])
 	f.user("r4", "more", 60)
 	f.calls("r4", "", 61, nil, `c9 a.b {}`)
 	f.reply("r4", "done", 62)
 	f.user("r5", "end", 70)
 	f.reply("r5", "bye", 71)
-	mustCompact(t, f.rec, modelctx.CompactConfig{})
+	mustCompact(t, f.rec, modelctx.Compactor{}, modelctx.CompactConfig{})
 	segments := f.rec.Segments()
 	if len(segments) < 2 {
 		t.Fatalf("segments = %d", len(segments))

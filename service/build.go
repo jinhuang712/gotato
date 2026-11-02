@@ -35,7 +35,7 @@ func (r *Runner) buildSession(ctx context.Context, spec Agent, s *session.Record
 	}
 	// Every Run has its Session compacted when the provider refuses a request
 	// as too long, and past the ceiling when there is one.
-	auto := modelctx.AutoCompact(s, compactPolicyFor(spec))
+	auto := modelctx.AutoCompact(s, compactorFor(spec))
 	options := []gotato.SessionOption{
 		gotato.WithModel(spec.Model),
 		gotato.WithInstruction(instruction),
@@ -61,8 +61,8 @@ func (r *Runner) buildSession(ctx context.Context, spec Agent, s *session.Record
 	if spec.ToolSearcher != nil {
 		options = append(options, gotato.WithToolSearcher(spec.ToolSearcher))
 	}
-	source := &sessionTools{spec: spec, session: s, segments: r.segmentTools(spec, s), results: r.resultTools(s)}
-	options = append(options, gotato.WithToolSource(source),
+	source := &sessionTools{spec: spec, session: s}
+	options = append(options, gotato.WithToolSource(source), gotato.WithReadBack(r.readBack(spec, s)),
 		// A Tool switched off for the Session is never in the catalog, found or loaded.
 		gotato.WithToolFilter(source.active))
 	if spec.MaxEffect != gotato.ToolEffectUnspecified {

@@ -55,6 +55,10 @@ func NewSession(ctx context.Context, options ...SessionOption) (*Session, error)
 		return nil, runtimeError(CodeInvalidArgument, "NewSession", "a Model is required", nil)
 	}
 	cfg.limits = cfg.limits.withDefaults()
+	spillPage, err := cfg.installReadBack()
+	if err != nil {
+		return nil, err
+	}
 	// The Model's own sampling defaults sit under what WithSampling sets, so
 	// every request carries the whole of it.
 	var modelSampling Sampling
@@ -96,6 +100,7 @@ func NewSession(ctx context.Context, options ...SessionOption) (*Session, error)
 		contextBuilder: cfg.contextBuilder,
 		extensions:     cfg.extensions,
 		limits:         cfg.limits,
+		spillPage:      spillPage,
 		sampling:       cfg.sampling,
 		cacheKey:       cfg.cacheKey,
 		commands:       make(chan sessionCommand),
@@ -152,6 +157,9 @@ type Session struct {
 	registryMu  sync.Mutex
 	extensions  extensionSet
 	limits      CoreLimits
+	// spillPage is the page size of the Session's ReadBack, the line past which
+	// a Tool Result is spilled; 0 with none, and then nothing is spilled.
+	spillPage int
 	// sampling is the Session's own override of the Model's default Sampling, and
 	// cacheKey is sent unchanged with every model call.
 	sampling Sampling

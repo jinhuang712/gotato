@@ -10,12 +10,13 @@ import (
 
 // Compact compacts a Session explicitly, under the Session lock, and closes a
 // Segment (modelctx.Compact), and merges the oldest Segments when they then pass
-// their budget. What opts leaves unset comes from the Session's
-// Agent: its Recap writer, its time zone and limits, the Model's window, the
-// ceiling in force, the Segments' budget and the size of the kept tail
-// (SegmentSettings.TailTokens). When the
-// Agent's Model is sent only the current Round's reasoning
-// (ModelFacts.RoundReasoning), the kept Messages lose their reasoning.
+// their budget. It runs the Session's Agent's Compactor: its parts, its
+// Recap writer, its time zone, the Model's window, the ceiling in force, the
+// Segments' budget and the size of the kept tail. opts changes this call only:
+// KeepMessages, MinTokens and a Recap writer, which like the Agent's gets the
+// Agent's model when it names none. When the Agent's Model is sent only the
+// current Round's reasoning (ModelFacts.RoundReasoning), the kept Messages lose
+// their reasoning.
 //
 // A draining Runner refuses it with ErrDraining (not run): it would claim an
 // idle Session for the length of a compaction, after the Instance said it
@@ -34,14 +35,16 @@ func (r *Runner) Compact(ctx context.Context, sessionID string, opts modelctx.Co
 		agentName, _ := writer.Record().Get(metaAgent)
 		r.publishOpened(writer, early, agentName)
 		spec, known := r.Agent(agentName)
+		var compactor modelctx.Compactor
 		var compactOpts []modelctx.CompactOption
 		if known {
-			opts = compactOptionsFor(spec, opts)
+			compactor = compactorFor(spec)
 			if opts.Recap != nil {
-				compactOpts = append(compactOpts, modelctx.WithRecapContext(r.recapContext(spec, writer.Record())))
+				opts.Recap = withAgentModel(opts.Recap, spec.Model)
 			}
+			compactOpts = append(compactOpts, modelctx.WithRecapContext(r.recapContext(spec, writer.Record())))
 		}
-		result, err = modelctx.Compact(ctx, writer.Record(), opts, compactOpts...)
+		result, err = modelctx.Compact(ctx, writer.Record(), compactor, opts, compactOpts...)
 		releaseErr := r.releaseWriter(ctx, writer)
 		if known && releaseErr == nil {
 			r.keepWarm(writer, spec)
@@ -57,58 +60,20 @@ func (r *Runner) Compact(ctx context.Context, sessionID string, opts modelctx.Co
 	return result, nil
 }
 
-// compactOptionsFor fills what opts leaves unset from the Agent's compaction
-// settings and its Model.
-func compactOptionsFor(spec Agent, opts modelctx.CompactConfig) modelctx.CompactConfig {
-	policy := compactPolicyFor(spec)
-	opts.DropReasoning = opts.DropReasoning || policy.DropReasoning
-	if opts.Recap == nil {
-		opts.Recap = policy.Recap
+// withAgentModel gives a RecapWriter that names no Model the Agent's own
+// (RecapWriter.WithAgentModel), so an Agent turns the model's Recap on with
+// Recap: modelctx.ModelRecap{}. A writer whose method panics is kept as it was:
+// its own failure is then the compaction's to drop, not the Runner's to crash on.
+func withAgentModel(writer modelctx.RecapWriter, model gotato.Model) (out modelctx.RecapWriter) {
+	if writer == nil {
+		return nil
 	}
-	opts.Recap = withAgentModel(opts.Recap, spec.Model)
-	if opts.WindowTokens <= 0 {
-		opts.WindowTokens = policy.WindowTokens
-	}
-	if opts.CeilingTokens <= 0 {
-		opts.CeilingTokens = policy.EffectiveCeilingTokens()
-	}
-	if opts.Location == nil {
-		opts.Location = policy.Location
-	}
-	if opts.SegmentBudgetTokens <= 0 {
-		opts.SegmentBudgetTokens = policy.SegmentBudgetTokens
-	}
-	opts.MessageTokens = cmpPositive(opts.MessageTokens, policy.MessageTokens)
-	opts.ToolLines = cmpPositive(opts.ToolLines, policy.ToolLines)
-	opts.ArgChars = cmpPositive(opts.ArgChars, policy.ArgChars)
-	opts.TailTokens = cmpPositive(opts.TailTokens, policy.TailTokens)
-	return opts
-}
-
-func cmpPositive(a, b int) int {
-	if a > 0 {
-		return a
-	}
-	return b
-}
-
-// withAgentModel gives a modelctx.ModelRecap that names no Model the Agent's
-// own, so an Agent turns the model's Recap on with Recap: modelctx.ModelRecap{}.
-func withAgentModel(writer modelctx.RecapWriter, model gotato.Model) modelctx.RecapWriter {
-	switch recap := writer.(type) {
-	case modelctx.ModelRecap:
-		if recap.Model == nil {
-			recap.Model = model
-			return recap
+	defer func() {
+		if recover() != nil {
+			out = writer
 		}
-	case *modelctx.ModelRecap:
-		if recap != nil && recap.Model == nil {
-			filled := *recap // a copy, so the caller's writer is not changed
-			filled.Model = model
-			return filled
-		}
-	}
-	return writer
+	}()
+	return writer.WithAgentModel(model)
 }
 
 // recapContext returns what a Recap written by a model sends as its prefix:
@@ -129,15 +94,16 @@ func (r *Runner) recapContext(spec Agent, record *session.Record) func(context.C
 	}
 }
 
-// compactPolicyFor is the Agent's CompactPolicy with the Model's window
-// applied. The ceiling is the Agent's alone.
-func compactPolicyFor(spec Agent) modelctx.CompactPolicy {
-	policy := spec.Compact
+// compactorFor is the Agent's Compactor with the Model's window applied, and its
+// Recap writer given the Agent's Model when it names none. The ceiling is the
+// Agent's alone.
+func compactorFor(spec Agent) modelctx.Compactor {
+	compactor := spec.Compact
 	facts := spec.Model.Config().Facts
-	policy.Recap = withAgentModel(policy.Recap, spec.Model)
-	policy.DropReasoning = policy.DropReasoning || facts.RoundReasoning
-	if policy.WindowTokens <= 0 {
-		policy.WindowTokens = facts.Window.Tokens()
+	compactor.Recap = withAgentModel(compactor.Recap, spec.Model)
+	compactor.DropReasoning = compactor.DropReasoning || facts.RoundReasoning
+	if compactor.WindowTokens <= 0 {
+		compactor.WindowTokens = facts.Window.Tokens()
 	}
-	return policy
+	return compactor
 }

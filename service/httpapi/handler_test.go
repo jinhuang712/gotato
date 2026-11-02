@@ -649,7 +649,7 @@ func TestCompactTakesMinTokensAndKeepsTheLatestRun(t *testing.T) {
 func TestCompactAnswersWithTheMergeOfTheOldestSegments(t *testing.T) {
 	ctx := context.Background()
 	runner, err := service.New(service.Config{Store: memStore(), Agents: []service.Agent{{
-		Name: "echo", Model: testkit.EchoModel{}, ModelName: "echo", Compact: modelctx.CompactPolicy{SegmentBudgetTokens: 1},
+		Name: "echo", Model: testkit.EchoModel{}, ModelName: "echo", Compact: modelctx.Compactor{CompactPolicy: modelctx.CompactPolicy{SegmentBudgetTokens: 1}},
 	}}})
 	if err != nil {
 		t.Fatal(err)

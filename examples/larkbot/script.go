@@ -11,7 +11,7 @@ import (
 	"time"
 
 	"github.com/jinhuang712/gotato/gotato"
-	"github.com/jinhuang712/gotato/modelctx"
+	"github.com/jinhuang712/gotato/ref"
 	"github.com/jinhuang712/gotato/testkit"
 )
 
@@ -155,7 +155,7 @@ func playScript(name, arg string, r gotato.ModelRequest, run []gotato.Message) (
 		return testkit.Text(ansLoadDone), nil
 	case "readseg":
 		if last == nil {
-			return toolCall("seg-"+next, modelctx.ReadSegmentID, map[string]int{"segment": 1}), nil
+			return toolCall("seg-"+next, ref.ReadSegment, map[string]int{"segment": 1}), nil
 		}
 		if last.Status != gotato.ToolResultStatusOK {
 			return testkit.Text(ansSegError + " " + last.SafeError), nil

@@ -6,6 +6,16 @@ import (
 	"testing"
 )
 
+// testPage is the page of the test ReadBack: the line past which a result is
+// spilled.
+const testPage = 1 << 10
+
+// testReadBack is a ReadBack with a page of page bytes and no tool.
+type testReadBack struct{ page int }
+
+func (testReadBack) Tools(context.Context) ([]Tool, error) { return nil, nil }
+func (r testReadBack) PageBytes() int                      { return r.page }
+
 // spillCtxJournal is a spill-keeping Journal that, like a real store, refuses a
 // write whose context has ended.
 type spillCtxJournal struct{ journalTranscript }
@@ -35,7 +45,7 @@ func TestCanceledRunStillCommitsALargeToolResult(t *testing.T) {
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
 	session, err := NewSession(context.Background(), WithModel(echoToolModel("call-1")),
-		WithTools(bigTool{size: SpillPageBytes * 2}), WithExtension(cancelAfterTool{cancel}), WithTranscript(&spillCtxJournal{}))
+		WithTools(bigTool{size: testPage * 2}), WithExtension(cancelAfterTool{cancel}), WithTranscript(&spillCtxJournal{}), WithReadBack(testReadBack{testPage}))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -74,7 +84,7 @@ func (j *queueingJournal) Write(ctx context.Context, events []Event) ([]Event, e
 // Journal returns Events it had queued before it.
 func TestSpilledSeqPointsAtTheSpilledEvent(t *testing.T) {
 	journal := &queueingJournal{}
-	session, err := NewSession(context.Background(), WithModel(echoToolModel("call-1")), WithTools(bigTool{size: SpillPageBytes * 2}), WithTranscript(journal))
+	session, err := NewSession(context.Background(), WithModel(echoToolModel("call-1")), WithTools(bigTool{size: testPage * 2}), WithTranscript(journal), WithReadBack(testReadBack{testPage}))
 	if err != nil {
 		t.Fatal(err)
 	}

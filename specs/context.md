@@ -81,7 +81,7 @@ The queue is shared with Steers, so Notices and Steers go in the order they arri
 
 ## A big result stays out
 
-A Tool Result over one page is written to the Record first, and the Context keeps only its start.
+A Tool Result over one page is written to the Record first, and the Context keeps only its start. A Session does this only when a `ReadBack` is installed, so every ref it writes has a reader.
 
 ```text
  Loop                          Record                  Context              Model
@@ -92,7 +92,9 @@ A Tool Result over one page is written to the Record first, and the Context keep
   │ 3 read the body at N ◀────── │                        │   one page back ──▶ │
 ```
 
-The body goes in before the Message that points to it, so a crash between the two leaves a log Entry nobody points at and nothing worse. The Message holds a preview and the ref `result:<call_id>`, and it is written once, so the bytes already sent stay the same. A load does not read the body; `read_result` does, one page at a time, and it reads only results of its own Session. If the team has pruned the body, the tool says only the preview is left. `read_segment` is its sibling for Segments.
+The body goes in before the Message that points to it, so a crash between the two leaves a log Entry nobody points at and nothing worse. The Message holds a preview and the ref `result:<call_id>`, and it is written once, so the bytes already sent stay the same. A load does not read the body; `read_result` does, one page at a time, and it reads only results of its own Session. `read_segment` is its sibling for Segments.
+
+Three numbers would break the preview if they disagreed: the line past which a result is spilled, the page the preview counts its pages by, and the page the read tools return. They are one number, the page size, and the `ReadBack` owns it (`gotato.WithReadBack`; `modelctx.ReadBack{PageSize}`, 32 KiB by default). The preview is the first `CoreLimits.SpillPreviewBytes` of the body (8,000 by default, never above the page), so it is always the start of page 1. The core writes the line after it, `[Result cut: 412 KiB, 13 pages. Read it page by page with read_result(ref="result:call_9a2", page=1); ...]`, so the line is the same on every Instance. With no `ReadBack`, or over a Transcript that keeps no Entries, a result is not spilled and goes in whole. If the team has pruned the body, `read_result` says `result:<id> was removed from the Record, so only what the conversation keeps of it is left.`; it says the same of a message.
 
 ## What this buys you
 - The cache keeps hitting: the top of the request is the same from Turn to Turn, and only the end grows.
