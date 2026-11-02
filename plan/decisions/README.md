@@ -66,3 +66,10 @@ Decided: YYYY-MM-DD    Status: current | superseded by NNN
 | [041](041-a-read-only-bash-for-large-results-is-another-project.md) | 2026-10-27 | A bash for large results lives in its own project |
 | [042](042-a-models-profile-is-its-own-value-apart-from-the-connection.md) | 2026-11-02 | A model's profile is its own value, apart from the connection to it |
 | [043](043-compaction-moves-content-out-and-never-makes-it-unreadable.md) | 2026-11-02 | Compaction moves content out of the Context and never makes it unreadable |
+| [044](044-an-agent-profile-and-a-task-spec-are-registered-inline-or-from-a-store.md) | 2026-11-02 | An Agent profile and a task spec are registered inline or from a store |
+| [045](045-the-gateway-is-layered-and-each-layer-can-be-replaced.md) | 2026-11-02 | The gateway is four layers a team can replace, over one core description of the model |
+| [046](046-compaction-is-a-fixed-frame-around-parts-a-user-can-replace.md) | 2026-11-02 | Compaction and read-back are a fixed frame that keeps the guarantees, around parts a user can replace |
+| [047](047-a-value-a-layer-owns-is-set-only-through-that-layer.md) | 2026-11-02 | A value a layer owns is set only through that layer, and any other way is refused |
+| [048](048-the-runner-and-the-session-are-built-from-parts-and-host-plumbing-is-internal.md) | 2026-11-02 | The Runner and the Session are built from parts with one job each, and host plumbing leaves the public API |
+| [049](049-the-store-contract-holds-only-what-every-store-must-do.md) | 2026-11-02 | The store contract holds only what every store must do |
+| [050](050-each-package-is-one-layer-named-for-its-job.md) | 2026-11-02 | Each package is one layer, named for its job |
