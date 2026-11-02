@@ -7,7 +7,7 @@ import (
 
 	"github.com/jinhuang712/gotato/record"
 
-	"github.com/jinhuang712/gotato/session"
+	"github.com/jinhuang712/gotato/store"
 )
 
 // releaseSet holds the Sessions whose release write failed. The Claim still
@@ -34,7 +34,7 @@ func (r *Runner) markUnreleased(sessionID string) {
 // goes on renewing, so no other Instance could take it. The Session is
 // remembered, and the heartbeat opens it again from the store and releases it
 // (repairReleases). Every exit that claims a Session ends with it.
-func (r *Runner) settle(writer *session.Writer, releaseErr error) {
+func (r *Runner) settle(writer *store.Writer, releaseErr error) {
 	if releaseErr == nil && writer.Failed() == nil {
 		return
 	}
@@ -47,7 +47,7 @@ func (r *Runner) settle(writer *session.Writer, releaseErr error) {
 
 // releaseWriter gives back the Claim of writer and settles the result. Every
 // exit that held a Claim ends here, so none can skip the settle.
-func (r *Runner) releaseWriter(ctx context.Context, writer *session.Writer) error {
+func (r *Runner) releaseWriter(ctx context.Context, writer *store.Writer) error {
 	err := writer.Release(ctx)
 	r.settle(writer, err)
 	return err
@@ -86,7 +86,7 @@ func (r *Runner) repairReleases() {
 // a Session with a Run on it is not waited for and stays marked. It reports
 // whether the Session needs no more attempts.
 func (r *Runner) repairRelease(ctx context.Context, sessionID string) bool {
-	rec, err := session.Open(ctx, r.store.Records, sessionID)
+	rec, err := store.Open(ctx, r.store.Records, sessionID)
 	if err != nil {
 		// A Session that is gone has nothing to release.
 		return errors.Is(err, record.ErrNotFound)

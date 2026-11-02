@@ -47,17 +47,17 @@ import (
 	"github.com/jinhuang712/gotato/service/internal/heartbeat"
 	"github.com/jinhuang712/gotato/service/internal/runs"
 	"github.com/jinhuang712/gotato/service/internal/warm"
-	"github.com/jinhuang712/gotato/session"
+	"github.com/jinhuang712/gotato/store"
 )
 
 // persistContext returns a context for a write that must happen even when ctx
 // is canceled: it keeps ctx's values, drops its cancellation, and ends after
-// session.WriteTimeout, so a stalled Store cannot pin a settled Run. It bounds
+// store.WriteTimeout, so a stalled Store cannot pin a settled Run. It bounds
 // the terminal Session write and the cleanup delete, as the Writer bounds each
 // of its own writes.
 func persistContext(ctx context.Context) (context.Context, context.CancelFunc) {
 	// [DATA-LOSS] the terminal write of a canceled Run still happens, and a stalled Store cannot hold it for good.
-	return context.WithTimeout(context.WithoutCancel(ctx), session.WriteTimeout)
+	return context.WithTimeout(context.WithoutCancel(ctx), store.WriteTimeout)
 }
 
 // DefaultDrainTimeout is how long Drain waits for the Runs in flight when
@@ -160,7 +160,7 @@ const DefaultMaxWarmSessions = 10000
 type Config struct {
 	// Store keeps the Sessions' Records. It may be shared by several
 	// processes (see above).
-	Store session.Store
+	Store store.Store
 	// Profiles holds the AgentProfiles and TaskSpecs the Runner serves
 	// (profile.Registry). A Session looks its AgentProfile up by name each time
 	// it is built, so one registered or replaced later reaches the Sessions
@@ -256,7 +256,7 @@ type Runner struct {
 	// AgentProfile a request that names none runs.
 	profiles     *profile.Registry
 	defaultAgent string
-	store        session.Store
+	store        store.Store
 
 	// The settings of the Runner (Config): what the Liveness row and the wait
 	// for another Instance's Session take, the bounds that guard the Instance,
@@ -375,7 +375,7 @@ func (r *Runner) Instance() string { return r.id() }
 // facts, Runs, usage and Events. It is a copy and changes nothing: a Set on what
 // it returns would be stored nowhere, so it has none.
 func (r *Runner) Record(ctx context.Context, sessionID string) (record.Document, error) {
-	rec, err := session.View(ctx, r.store.Records, sessionID)
+	rec, err := store.View(ctx, r.store.Records, sessionID)
 	if err != nil {
 		return record.Document{}, storeFailureOf(ctx, err, true)
 	}
@@ -385,19 +385,19 @@ func (r *Runner) Record(ctx context.Context, sessionID string) (record.Document,
 // Events reads a Session's stored Events from the store: every Entry of its
 // Record that is an Event, in the order of their numbers, as typed Events.
 func (r *Runner) Events(ctx context.Context, sessionID string) ([]gotato.Event, error) {
-	events, err := session.StoredEvents(ctx, r.store.Records, sessionID, 0, 0)
+	events, err := store.StoredEvents(ctx, r.store.Records, sessionID, 0, 0)
 	return events, storeFailureOf(ctx, err, true)
 }
 
 // Sessions lists the stored Sessions, the most recently updated first, a page
 // at a time: the first for a zero ListQuery, and the next for the Cursor a page
 // names as its Next. A page may repeat or skip a Session updated while a caller
-// pages. It needs a store whose Records is a session.Lister; without one it is
+// pages. It needs a store whose Records is a store.Lister; without one it is
 // not_supported.
-func (r *Runner) Sessions(ctx context.Context, q session.ListQuery) (session.ListPage, error) {
-	lister, ok := r.store.Records.(session.Lister)
+func (r *Runner) Sessions(ctx context.Context, q store.ListQuery) (store.ListPage, error) {
+	lister, ok := r.store.Records.(store.Lister)
 	if !ok {
-		return session.ListPage{}, gotato.ErrorOf(gotato.CodeNotSupported, "service: the store does not list Sessions (its Records is not a session.Lister)")
+		return store.ListPage{}, gotato.ErrorOf(gotato.CodeNotSupported, "service: the store does not list Sessions (its Records is not a session.Lister)")
 	}
 	page, err := lister.List(ctx, q)
 	return page, storeFailureOf(ctx, err, true)

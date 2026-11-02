@@ -11,7 +11,7 @@ import (
 
 	"github.com/jinhuang712/gotato/gotato"
 	"github.com/jinhuang712/gotato/service"
-	"github.com/jinhuang712/gotato/session"
+	"github.com/jinhuang712/gotato/store"
 )
 
 func (c *cli) cmdSession(args []string) int {
@@ -245,12 +245,12 @@ func (c *cli) loadSession(args []string, name string) (*record.Record, context.C
 		return nil, nil, nil, c.usageError(name + " needs exactly one session id")
 	}
 	ctx, cancel := c.ctx()
-	store, _, err := c.store()
+	st, _, err := c.store()
 	if err != nil {
 		cancel()
 		return nil, nil, nil, c.failErr(err)
 	}
-	s, err := session.View(ctx, store.Records, positionals[0])
+	s, err := store.View(ctx, st.Records, positionals[0])
 	if err != nil {
 		cancel()
 		return nil, nil, nil, c.failErr(err)

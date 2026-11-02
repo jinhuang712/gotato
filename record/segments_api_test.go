@@ -11,16 +11,16 @@ import (
 	"github.com/jinhuang712/gotato/record"
 
 	"github.com/jinhuang712/gotato/gotato"
-	"github.com/jinhuang712/gotato/session"
+	"github.com/jinhuang712/gotato/store"
 )
 
 // A Segment is written once as its own Entry; the Checkpoint lists its number
 // and keeps the tail, and a load resolves the number to the stored Messages.
 func TestCheckpointSegmentsPointsToTheStoredSegment(t *testing.T) {
-	for name, store := range segmentStores(t) {
+	for name, st := range segmentStores(t) {
 		t.Run(name, func(t *testing.T) {
 			ctx := context.Background()
-			writer, err := session.CreateWriter(ctx, store, record.New(record.WithID("seg-1")), "instance-a")
+			writer, err := store.CreateWriter(ctx, st, record.New(record.WithID("seg-1")), "instance-a")
 			if err != nil {
 				t.Fatal(err)
 			}
@@ -43,7 +43,7 @@ func TestCheckpointSegmentsPointsToTheStoredSegment(t *testing.T) {
 			}
 			commit(t, writer, idMessage("u3", "user", "three"))
 
-			entries, err := store.Log(ctx, "seg-1", 0, 0)
+			entries, err := st.Log(ctx, "seg-1", 0, 0)
 			if err != nil {
 				t.Fatal(err)
 			}
@@ -63,7 +63,7 @@ func TestCheckpointSegmentsPointsToTheStoredSegment(t *testing.T) {
 					t.Fatalf("kinds = %v, want %v", kinds, want)
 				}
 			}
-			loaded, err := store.Load(ctx, "seg-1")
+			loaded, err := st.Load(ctx, "seg-1")
 			if err != nil {
 				t.Fatal(err)
 			}
@@ -71,7 +71,7 @@ func TestCheckpointSegmentsPointsToTheStoredSegment(t *testing.T) {
 				t.Fatalf("Load = facts from %s, %d segment Entries; want the Checkpoint and one segment_closed Entry before it", loaded.Entries[0].Kind, len(loaded.Segments))
 			}
 
-			reopened, err := session.Open(ctx, store, "seg-1")
+			reopened, err := store.Open(ctx, st, "seg-1")
 			if err != nil {
 				t.Fatal(err)
 			}
@@ -96,10 +96,10 @@ func TestCheckpointSegmentsPointsToTheStoredSegment(t *testing.T) {
 // A second compaction appends a new Segment and leaves the first as it was:
 // the bytes of its Messages do not change, and the original Entries stay.
 func TestASegmentIsNeverRewrittenByTheNextCompaction(t *testing.T) {
-	for name, store := range segmentStores(t) {
+	for name, st := range segmentStores(t) {
 		t.Run(name, func(t *testing.T) {
 			ctx := context.Background()
-			writer, err := session.CreateWriter(ctx, store, record.New(record.WithID("seg-2")), "instance-a")
+			writer, err := store.CreateWriter(ctx, st, record.New(record.WithID("seg-2")), "instance-a")
 			if err != nil {
 				t.Fatal(err)
 			}
@@ -133,7 +133,7 @@ func TestASegmentIsNeverRewrittenByTheNextCompaction(t *testing.T) {
 			if !bytes.Equal(before, bytesOf(rec)) {
 				t.Fatal("Segment 1's Messages changed when Segment 2 was closed")
 			}
-			reopened, err := session.Open(ctx, store, "seg-2")
+			reopened, err := store.Open(ctx, st, "seg-2")
 			if err != nil {
 				t.Fatal(err)
 			}
@@ -144,11 +144,11 @@ func TestASegmentIsNeverRewrittenByTheNextCompaction(t *testing.T) {
 				t.Fatalf("Context = %d Messages", reopened.Len())
 			}
 			// The original Entries stay, and the whole log reads to the same Context.
-			view, err := session.View(ctx, store, "seg-2")
+			view, err := store.View(ctx, st, "seg-2")
 			if err != nil || view.Len() != reopened.Len() || len(view.Segments()) != 2 {
 				t.Fatalf("View = %v, %v", view, err)
 			}
-			events, err := session.StoredEvents(ctx, store, "seg-2", 0, 0)
+			events, err := store.StoredEvents(ctx, st, "seg-2", 0, 0)
 			if err != nil {
 				t.Fatal(err)
 			}
@@ -167,8 +167,8 @@ func TestASegmentIsNeverRewrittenByTheNextCompaction(t *testing.T) {
 
 func TestRecordKeepsWhereMessagesWereCommitted(t *testing.T) {
 	ctx := context.Background()
-	store := session.NewMemoryStore()
-	writer, err := session.CreateWriter(ctx, store, record.New(record.WithID("pos-1")), "instance-a")
+	st := store.NewMemoryStore()
+	writer, err := store.CreateWriter(ctx, st, record.New(record.WithID("pos-1")), "instance-a")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -200,7 +200,7 @@ func TestRecordKeepsWhereMessagesWereCommitted(t *testing.T) {
 	if !ok || again.Number == 0 {
 		t.Fatalf("Position(u2) = %+v, %v after the Checkpoint", again, ok)
 	}
-	reopened, err := session.Open(ctx, store, "pos-1")
+	reopened, err := store.Open(ctx, st, "pos-1")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -208,7 +208,7 @@ func TestRecordKeepsWhereMessagesWereCommitted(t *testing.T) {
 		t.Fatalf("a load lost the kept tail's position: %+v, %v, want %+v", loaded, ok, again)
 	}
 	commit(t, writer, idMessage("u3", "user", "three"))
-	reopened, err = session.Open(ctx, store, "pos-1")
+	reopened, err = store.Open(ctx, st, "pos-1")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -237,8 +237,8 @@ func TestCheckpointSegmentsRefusesWhatIsNotClosed(t *testing.T) {
 // no Segments in it.
 func TestCheckpointWithMessagesLeavesNoSegments(t *testing.T) {
 	ctx := context.Background()
-	store := session.NewMemoryStore()
-	writer, err := session.CreateWriter(ctx, store, record.New(record.WithID("seg-3")), "instance-a")
+	st := store.NewMemoryStore()
+	writer, err := store.CreateWriter(ctx, st, record.New(record.WithID("seg-3")), "instance-a")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -254,7 +254,7 @@ func TestCheckpointWithMessagesLeavesNoSegments(t *testing.T) {
 	if err := writer.Flush(ctx); err != nil {
 		t.Fatal(err)
 	}
-	reopened, err := session.Open(ctx, store, "seg-3")
+	reopened, err := store.Open(ctx, st, "seg-3")
 	if err != nil || len(reopened.Segments()) != 0 || reopened.Len() != 1 || reopened.NextSegment() != 2 {
 		t.Fatalf("reopened: %d Segments, %d Messages, next %d, %v", len(reopened.Segments()), reopened.Len(), reopened.NextSegment(), err)
 	}
@@ -264,7 +264,7 @@ func TestCheckpointWithMessagesLeavesNoSegments(t *testing.T) {
 // Session in its Source. They are stored in the fork's own log, so a load of
 // the fork finds them after a later Checkpoint too.
 func TestForkCopiesSegments(t *testing.T) {
-	for name, store := range segmentStores(t) {
+	for name, st := range segmentStores(t) {
 		t.Run(name, func(t *testing.T) {
 			ctx := context.Background()
 			parent := record.New(record.WithID("parent-1"))
@@ -283,7 +283,7 @@ func TestForkCopiesSegments(t *testing.T) {
 			if parent.Segments()[0].Source.SessionID != "" {
 				t.Fatal("forking changed the parent's Segment")
 			}
-			writer, err := session.CreateWriter(ctx, store, child, "instance-a")
+			writer, err := store.CreateWriter(ctx, st, child, "instance-a")
 			if err != nil {
 				t.Fatal(err)
 			}
@@ -297,7 +297,7 @@ func TestForkCopiesSegments(t *testing.T) {
 			if err := writer.Flush(ctx); err != nil {
 				t.Fatal(err)
 			}
-			reopened, err := session.Open(ctx, store, "child-1")
+			reopened, err := store.Open(ctx, st, "child-1")
 			if err != nil {
 				t.Fatal(err)
 			}
@@ -306,7 +306,7 @@ func TestForkCopiesSegments(t *testing.T) {
 				t.Fatalf("reopened fork: %+v, %d Messages", got, reopened.Len())
 			}
 			// A load from the fork's first Entry reads the same.
-			view, err := session.View(ctx, store, "child-1")
+			view, err := store.View(ctx, st, "child-1")
 			if err != nil || view.Len() != 4 {
 				t.Fatalf("View = %v, %v", view, err)
 			}
@@ -376,10 +376,10 @@ func TestCheckpointSegmentsRefusesDuplicateOutOfOrderAndUnclosed(t *testing.T) {
 // neighbouring Entries of one batch, so nothing stored holds the one without
 // the other.
 func TestCloseSegmentWritesBothTogether(t *testing.T) {
-	for name, store := range segmentStores(t) {
+	for name, st := range segmentStores(t) {
 		t.Run(name, func(t *testing.T) {
 			ctx := context.Background()
-			writer, err := session.CreateWriter(ctx, store, record.New(record.WithID("seg-both")), "instance-a")
+			writer, err := store.CreateWriter(ctx, st, record.New(record.WithID("seg-both")), "instance-a")
 			if err != nil {
 				t.Fatal(err)
 			}
@@ -397,7 +397,7 @@ func TestCloseSegmentWritesBothTogether(t *testing.T) {
 			if err := writer.Flush(ctx); err != nil {
 				t.Fatal(err)
 			}
-			entries, err := store.Log(ctx, "seg-both", 0, 0)
+			entries, err := st.Log(ctx, "seg-both", 0, 0)
 			if err != nil {
 				t.Fatal(err)
 			}
@@ -474,10 +474,10 @@ func mergedOf(numbers ...int) gotato.Segment {
 // A merge replaces the oldest Segments with one merged Segment that opens the
 // Context; the Segments after keep their bytes, and a load reads the same.
 func TestMergeSegmentsPutsOneMergedSegmentFirst(t *testing.T) {
-	for name, store := range segmentStores(t) {
+	for name, st := range segmentStores(t) {
 		t.Run(name, func(t *testing.T) {
 			ctx := context.Background()
-			writer, err := session.CreateWriter(ctx, store, record.New(record.WithID("merge-1")), "instance-a")
+			writer, err := store.CreateWriter(ctx, st, record.New(record.WithID("merge-1")), "instance-a")
 			if err != nil {
 				t.Fatal(err)
 			}
@@ -504,7 +504,7 @@ func TestMergeSegmentsPutsOneMergedSegmentFirst(t *testing.T) {
 			if err := writer.Flush(ctx); err != nil {
 				t.Fatal(err)
 			}
-			reopened, err := session.Open(ctx, store, "merge-1")
+			reopened, err := store.Open(ctx, st, "merge-1")
 			if err != nil {
 				t.Fatal(err)
 			}

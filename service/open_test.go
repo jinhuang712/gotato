@@ -12,7 +12,7 @@ import (
 	"github.com/jinhuang712/gotato/gotato"
 	"github.com/jinhuang712/gotato/profile"
 	"github.com/jinhuang712/gotato/service"
-	"github.com/jinhuang712/gotato/session"
+	"github.com/jinhuang712/gotato/store"
 	"github.com/jinhuang712/gotato/testkit"
 )
 
@@ -272,28 +272,28 @@ func TestRunnerSessionsPagesAndNeedsALister(t *testing.T) {
 			t.Fatal(err)
 		}
 	}
-	first, err := runner.Sessions(ctx, session.ListQuery{Limit: 2})
+	first, err := runner.Sessions(ctx, store.ListQuery{Limit: 2})
 	if err != nil || len(first.Infos) != 2 || first.Next == "" {
 		t.Fatalf("first page = %+v, %v; want 2 Sessions and a Next", first, err)
 	}
-	rest, err := runner.Sessions(ctx, session.ListQuery{Limit: 2, Cursor: first.Next})
+	rest, err := runner.Sessions(ctx, store.ListQuery{Limit: 2, Cursor: first.Next})
 	if err != nil || len(rest.Infos) != 1 || rest.Next != "" {
 		t.Fatalf("second page = %+v, %v; want the last Session", rest, err)
 	}
-	if _, err := runner.Sessions(ctx, session.ListQuery{Cursor: "nonsense"}); !gotato.IsCode(err, gotato.CodeInvalidArgument) {
+	if _, err := runner.Sessions(ctx, store.ListQuery{Cursor: "nonsense"}); !gotato.IsCode(err, gotato.CodeInvalidArgument) {
 		t.Fatalf("a cursor the store did not make = %v, want invalid_argument", err)
 	}
 
-	m := session.NewMemoryStore()
+	m := store.NewMemoryStore()
 	hidden, err := service.New(service.Config{
-		Store:    session.Store{Records: struct{ session.Records }{m}, Liveness: m},
+		Store:    store.Store{Records: struct{ store.Records }{m}, Liveness: m},
 		Profiles: registry(t, profile.AgentProfile{Name: "echo", Model: testkit.EchoModel{}}), DefaultAgent: "echo",
 	})
 	if err != nil {
 		t.Fatal(err)
 	}
 	t.Cleanup(func() { _ = hidden.Close(ctx) })
-	if _, err := hidden.Sessions(ctx, session.ListQuery{}); !gotato.IsCode(err, gotato.CodeNotSupported) {
+	if _, err := hidden.Sessions(ctx, store.ListQuery{}); !gotato.IsCode(err, gotato.CodeNotSupported) {
 		t.Fatalf("Sessions over Records that do not list = %v, want not_supported", err)
 	}
 }

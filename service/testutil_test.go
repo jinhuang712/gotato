@@ -17,7 +17,7 @@ import (
 	itext "github.com/jinhuang712/gotato/internal/text"
 	"github.com/jinhuang712/gotato/profile"
 	"github.com/jinhuang712/gotato/service"
-	"github.com/jinhuang712/gotato/session"
+	"github.com/jinhuang712/gotato/store"
 	"github.com/jinhuang712/gotato/testkit"
 )
 
@@ -33,9 +33,9 @@ const (
 // claimOf is the Claim that the facts of a stored Session last name. It reads
 // the Record through the store: the Runner's Record answers a Document, which
 // carries no Claim.
-func claimOf(t *testing.T, store session.Store, id string) record.Claim {
+func claimOf(t *testing.T, st store.Store, id string) record.Claim {
 	t.Helper()
-	rcd, err := session.View(context.Background(), store.Records, id)
+	rcd, err := store.View(context.Background(), st.Records, id)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -44,9 +44,9 @@ func claimOf(t *testing.T, store session.Store, id string) record.Claim {
 
 // viewOf reads a stored Session's whole Record, for the methods a Document does
 // not have (Segments, SpilledResults, Claim, Len).
-func viewOf(t *testing.T, store session.Store, id string) *record.Record {
+func viewOf(t *testing.T, st store.Store, id string) *record.Record {
 	t.Helper()
-	rcd, err := session.View(context.Background(), store.Records, id)
+	rcd, err := store.View(context.Background(), st.Records, id)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -55,10 +55,10 @@ func viewOf(t *testing.T, store session.Store, id string) *record.Record {
 
 // plant stores a Record as an earlier version, a migration or another process
 // would, bypassing the Runner, and returns its ID.
-func plant(t *testing.T, store session.Store, options ...record.Option) string {
+func plant(t *testing.T, st store.Store, options ...record.Option) string {
 	t.Helper()
 	rcd := record.New(options...)
-	if _, err := session.CreateWriter(context.Background(), store.Records, rcd, "planter", session.WithIdle()); err != nil {
+	if _, err := store.CreateWriter(context.Background(), st.Records, rcd, "planter", store.WithIdle()); err != nil {
 		t.Fatal(err)
 	}
 	return rcd.ID()
@@ -76,7 +76,7 @@ func registry(t testing.TB, agents ...profile.AgentProfile) *profile.Registry {
 	return reg
 }
 
-func newRunner(t *testing.T, specs ...profile.AgentProfile) (*service.Runner, session.Store) {
+func newRunner(t *testing.T, specs ...profile.AgentProfile) (*service.Runner, store.Store) {
 	t.Helper()
 	return newRunnerWith(t, nil, specs...)
 }
@@ -85,13 +85,13 @@ func newRunner(t *testing.T, specs ...profile.AgentProfile) (*service.Runner, se
 func noWarm(cfg *service.Config) { cfg.Warm = service.WarmPolicy{TTL: -1} }
 
 // newRunnerWith is newRunner with a hook that sets the Config.
-func newRunnerWith(t *testing.T, mutate func(*service.Config), specs ...profile.AgentProfile) (*service.Runner, session.Store) {
+func newRunnerWith(t *testing.T, mutate func(*service.Config), specs ...profile.AgentProfile) (*service.Runner, store.Store) {
 	t.Helper()
-	store := memStore()
+	st := memStore()
 	if len(specs) == 0 {
 		specs = []profile.AgentProfile{{Name: "echo", Model: testkit.EchoModel{}, ModelName: "echo"}}
 	}
-	cfg := service.Config{Store: store, Profiles: registry(t, specs...), DefaultAgent: specs[0].Name}
+	cfg := service.Config{Store: st, Profiles: registry(t, specs...), DefaultAgent: specs[0].Name}
 	if mutate != nil {
 		mutate(&cfg)
 	}
@@ -99,7 +99,7 @@ func newRunnerWith(t *testing.T, mutate func(*service.Config), specs ...profile.
 	if err != nil {
 		t.Fatal(err)
 	}
-	return runner, store
+	return runner, st
 }
 
 // instanceRecorder records the Runner's Instance stream from now on.
@@ -183,7 +183,7 @@ func (s *faultStore) Append(ctx context.Context, id string, after uint64, entrie
 	return s.parts.Append(ctx, id, after, entries, summary)
 }
 
-func (s *faultStore) Beat(ctx context.Context, row session.InstanceRow, ttl time.Duration) error {
+func (s *faultStore) Beat(ctx context.Context, row store.InstanceRow, ttl time.Duration) error {
 	if s.failing("Beat") {
 		return errConnReset
 	}
@@ -204,9 +204,9 @@ func (s *faultStore) Log(ctx context.Context, id string, after uint64, limit int
 	return s.parts.Log(ctx, id, after, limit)
 }
 
-func (s *faultStore) Instance(ctx context.Context, id string) (session.InstanceState, error) {
+func (s *faultStore) Instance(ctx context.Context, id string) (store.InstanceState, error) {
 	if s.failing("Instance") {
-		return session.InstanceState{}, errConnReset
+		return store.InstanceState{}, errConnReset
 	}
 	return s.parts.Instance(ctx, id)
 }
@@ -272,9 +272,9 @@ func waitUntil(t *testing.T, what string, cond func() bool) {
 
 // newRunnerOn is newRunner on the given store, with a short liveness, closed
 // with the test.
-func newRunnerOn(t *testing.T, store session.Store, agent profile.AgentProfile, mutate ...func(*service.Config)) *service.Runner {
+func newRunnerOn(t *testing.T, st store.Store, agent profile.AgentProfile, mutate ...func(*service.Config)) *service.Runner {
 	t.Helper()
-	cfg := service.Config{Store: store, Profiles: registry(t, agent), DefaultAgent: agent.Name, Heartbeat: service.Heartbeat{TTL: time.Second, Wait: 30 * time.Millisecond}}
+	cfg := service.Config{Store: st, Profiles: registry(t, agent), DefaultAgent: agent.Name, Heartbeat: service.Heartbeat{TTL: time.Second, Wait: 30 * time.Millisecond}}
 	for _, m := range mutate {
 		m(&cfg)
 	}
@@ -305,8 +305,8 @@ type kindGate struct {
 
 type hold struct{ entered, proceed chan struct{} }
 
-func newKindGate(store session.Store, kinds ...gotato.EventKind) *kindGate {
-	g := &kindGate{parts: partsOf(store), holds: map[gotato.EventKind]*hold{}}
+func newKindGate(st store.Store, kinds ...gotato.EventKind) *kindGate {
+	g := &kindGate{parts: partsOf(st), holds: map[gotato.EventKind]*hold{}}
 	for _, k := range kinds {
 		g.holds[k] = &hold{entered: make(chan struct{}), proceed: make(chan struct{})}
 	}
@@ -478,7 +478,7 @@ func (s *tallyStore) Append(ctx context.Context, id string, after uint64, entrie
 		return errors.New("the store could not write the checkpoint")
 	}
 	err := s.parts.Append(ctx, id, after, entries, summary)
-	if errors.Is(err, session.ErrConflict) {
+	if errors.Is(err, store.ErrConflict) {
 		s.mu.Lock()
 		s.conflicts++
 		s.mu.Unlock()
@@ -513,9 +513,9 @@ func runOn(t *testing.T, runner *service.Runner, id, prompt string) service.RunR
 	return result
 }
 
-func storedKinds(t *testing.T, store session.Store, id string) []gotato.EventKind {
+func storedKinds(t *testing.T, st store.Store, id string) []gotato.EventKind {
 	t.Helper()
-	events, err := session.StoredEvents(context.Background(), store.Records, id, 0, 0)
+	events, err := store.StoredEvents(context.Background(), st.Records, id, 0, 0)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -594,28 +594,28 @@ func (m *gatedEcho) Config() gotato.ModelConfig { return gotato.ModelConfig{} }
 
 // sharedStores returns a function that opens handles on one new store of the
 // given kind, as several instances share one database.
-func sharedStores(t *testing.T, kind string) func() session.Store {
+func sharedStores(t *testing.T, kind string) func() store.Store {
 	t.Helper()
 	if kind == "memory" {
 		backing := memStore()
-		return func() session.Store { return backing }
+		return func() store.Store { return backing }
 	}
 	dir := t.TempDir()
-	return func() session.Store {
-		store, err := session.NewFileStore(dir)
+	return func() store.Store {
+		st, err := store.NewFileStore(dir)
 		if err != nil {
 			t.Fatal(err)
 		}
-		return asStore(store)
+		return asStore(st)
 	}
 }
 
 // checkReleased fails unless instance released the Session after its last
 // Run ended, and the store no longer marks it busy.
-func checkReleased(t *testing.T, store session.Store, id, instance string) {
+func checkReleased(t *testing.T, st store.Store, id, instance string) {
 	t.Helper()
 	ctx := context.Background()
-	entries, err := store.Records.Log(ctx, id, 0, 0)
+	entries, err := st.Records.Log(ctx, id, 0, 0)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -631,7 +631,7 @@ func checkReleased(t *testing.T, store session.Store, id, instance string) {
 	if runEnd.Seq == 0 || release.Seq < runEnd.Seq || !isInstance(release.Instance, instance) {
 		t.Fatalf("Session %s: run_ended at %d, release at %d by %q; want a release by %s after the Run", id, runEnd.Seq, release.Seq, release.Instance, instance)
 	}
-	if loaded, err := store.Records.Load(ctx, id); err != nil || stateOf(loaded).Busy || stateOf(loaded).Running != "" {
+	if loaded, err := st.Records.Load(ctx, id); err != nil || stateOf(loaded).Busy || stateOf(loaded).Running != "" {
 		t.Fatalf("Session %s summary = %+v, %v; want idle", id, loaded.Header.Info, err)
 	}
 }
@@ -651,10 +651,10 @@ func isInstance(got, label string) bool {
 	return ok && len(suffix) == 8
 }
 
-func instanceRunner(t *testing.T, store session.Store, instance string, model gotato.Model, liveness service.Heartbeat) *service.Runner {
+func instanceRunner(t *testing.T, st store.Store, instance string, model gotato.Model, liveness service.Heartbeat) *service.Runner {
 	t.Helper()
 	runner, err := service.New(service.Config{
-		Store: store, Instance: instance, Heartbeat: liveness,
+		Store: st, Instance: instance, Heartbeat: liveness,
 		Bounds:   service.Bounds{Queue: service.QueuePolicyWait},
 		Profiles: registry(t, profile.AgentProfile{Name: "echo", Model: model}), DefaultAgent: "echo",
 	})
@@ -705,7 +705,7 @@ func (s *killableStore) Append(ctx context.Context, id string, after uint64, ent
 	return s.parts.Append(ctx, id, after, entries, summary)
 }
 
-func (s *killableStore) Beat(ctx context.Context, row session.InstanceRow, ttl time.Duration) error {
+func (s *killableStore) Beat(ctx context.Context, row store.InstanceRow, ttl time.Duration) error {
 	if s.dead.Load() {
 		return errKilled
 	}
@@ -717,7 +717,7 @@ func (s *killableStore) Beat(ctx context.Context, row session.InstanceRow, ttl t
 // model fails.
 type ownerModel struct {
 	instance   string
-	store      session.Store
+	store      store.Store
 	dead       *atomic.Bool
 	violations *atomic.Int64
 	calls      *atomic.Int64
@@ -730,7 +730,7 @@ func (m ownerModel) Stream(ctx context.Context, request gotato.ModelRequest) (go
 	m.calls.Add(1)
 	prompt := gotato.TextOf(request.Messages[len(request.Messages)-1])
 	id, _, _ := strings.Cut(prompt, "/")
-	stored, err := session.Open(ctx, m.store.Records, id)
+	stored, err := store.Open(ctx, m.store.Records, id)
 	if err != nil {
 		return nil, err
 	}
@@ -780,10 +780,10 @@ func (h *holdAtTheEnd) hook() {
 }
 
 // holdBeforeReleaseOn is holdBeforeRelease over the given Store.
-func holdBeforeReleaseOn(t *testing.T, store session.Store) (runner *service.Runner, id string, hold *holdAtTheEnd, done chan service.RunResponse) {
+func holdBeforeReleaseOn(t *testing.T, st store.Store) (runner *service.Runner, id string, hold *holdAtTheEnd, done chan service.RunResponse) {
 	t.Helper()
 	runner, err := service.New(service.Config{
-		Store:    store,
+		Store:    st,
 		Profiles: registry(t, profile.AgentProfile{Name: "echo", Model: testkit.EchoModel{}}), DefaultAgent: "echo",
 	})
 	if err != nil {
@@ -926,10 +926,10 @@ func transcriptOf(t *testing.T, runner *service.Runner, id string) []string {
 	return texts(rcd.Messages)
 }
 
-func messageRunner(t *testing.T, store session.Store, instance, address string, model gotato.Model) *service.Runner {
+func messageRunner(t *testing.T, st store.Store, instance, address string, model gotato.Model) *service.Runner {
 	t.Helper()
 	runner, err := service.New(service.Config{
-		Store: store, Instance: instance, Address: address, Heartbeat: steadyLiveness, Bounds: service.Bounds{Queue: service.QueuePolicyWait},
+		Store: st, Instance: instance, Address: address, Heartbeat: steadyLiveness, Bounds: service.Bounds{Queue: service.QueuePolicyWait},
 		Profiles: registry(t, profile.AgentProfile{Name: "echo", Model: model}), DefaultAgent: "echo",
 	})
 	if err != nil {
@@ -966,10 +966,10 @@ func consecutive(from uint64, count int) []uint64 {
 	return out
 }
 
-func recreatedRunner(t *testing.T, name string, store session.Store, poll time.Duration) *service.Runner {
+func recreatedRunner(t *testing.T, name string, st store.Store, poll time.Duration) *service.Runner {
 	t.Helper()
 	runner, err := service.New(service.Config{
-		Store: store, Instance: name, StreamPoll: poll,
+		Store: st, Instance: name, StreamPoll: poll,
 		Profiles: registry(t, profile.AgentProfile{Name: "echo", Model: testkit.EchoModel{}, ToolSources: []gotato.ToolSource{toolList{testkit.NewFakeTool("probe", "ok")}}}), DefaultAgent: "echo",
 	})
 	if err != nil {

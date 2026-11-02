@@ -15,7 +15,7 @@ import (
 
 	"github.com/jinhuang712/gotato/gotato"
 	"github.com/jinhuang712/gotato/service"
-	"github.com/jinhuang712/gotato/session"
+	"github.com/jinhuang712/gotato/store"
 	"github.com/jinhuang712/gotato/testkit"
 )
 
@@ -114,7 +114,7 @@ type pausableStore struct {
 	paused atomic.Bool
 }
 
-func (s *pausableStore) Beat(ctx context.Context, row session.InstanceRow, ttl time.Duration) error {
+func (s *pausableStore) Beat(ctx context.Context, row store.InstanceRow, ttl time.Duration) error {
 	if s.paused.Load() {
 		return errors.New("store unreachable")
 	}
@@ -160,18 +160,18 @@ func TestManyInstancesOneWriter(t *testing.T) {
 	for _, kind := range []string{"memory", "file"} {
 		t.Run(kind, func(t *testing.T) {
 			ctx := context.Background()
-			var open func() session.Store
+			var open func() store.Store
 			if kind == "memory" {
 				backing := memStore()
-				open = func() session.Store { return backing }
+				open = func() store.Store { return backing }
 			} else {
 				dir := t.TempDir()
-				open = func() session.Store {
-					store, err := session.NewFileStore(dir)
+				open = func() store.Store {
+					st, err := store.NewFileStore(dir)
 					if err != nil {
 						t.Fatal(err)
 					}
-					return asStore(store)
+					return asStore(st)
 				}
 			}
 			var violations, calls atomic.Int64
@@ -247,7 +247,7 @@ func TestManyInstancesOneWriter(t *testing.T) {
 			}
 			seen := map[string]int{}
 			for _, id := range ids {
-				view, err := session.View(ctx, open().Records, id)
+				view, err := store.View(ctx, open().Records, id)
 				if err != nil {
 					t.Fatal(err)
 				}
@@ -355,7 +355,7 @@ func TestTwoInstancesOpenOneIdleSessionAtOnce(t *testing.T) {
 			if len(failed) > 0 {
 				t.Fatalf("%d of %d Runs failed, first: %v", len(failed), 2*kind.rounds, failed[0])
 			}
-			view, err := session.View(ctx, open().Records, s.ID)
+			view, err := store.View(ctx, open().Records, s.ID)
 			if err != nil {
 				t.Fatal(err)
 			}
@@ -370,9 +370,9 @@ func TestTwoInstancesOpenOneIdleSessionAtOnce(t *testing.T) {
 // it, fails and writes nothing into the new Record.
 func TestRunOfADeletedSessionNeverWritesToTheSessionCreatedAgain(t *testing.T) {
 	ctx := context.Background()
-	store := memStore()
+	st := memStore()
 	held := &gateModel{gate: make(chan struct{}), started: make(chan struct{})}
-	a := instanceRunner(t, store, "instance-a", held, steadyLiveness)
+	a := instanceRunner(t, st, "instance-a", held, steadyLiveness)
 	s, err := a.CreateSession(ctx, service.CreateSessionRequest{Agent: "echo"})
 	if err != nil {
 		t.Fatal(err)
@@ -383,22 +383,22 @@ func TestRunOfADeletedSessionNeverWritesToTheSessionCreatedAgain(t *testing.T) {
 		done <- err
 	}()
 	<-held.started
-	old, err := store.Records.Load(ctx, s.ID)
+	old, err := st.Records.Load(ctx, s.ID)
 	if err != nil {
 		t.Fatal(err)
 	}
 
 	// Another process deletes the Record and creates it again, as long as the
 	// old one is now.
-	if err := store.Records.Delete(ctx, s.ID); err != nil {
+	if err := st.Records.Delete(ctx, s.ID); err != nil {
 		t.Fatal(err)
 	}
-	fresh, err := session.CreateWriter(ctx, store.Records, record.New(record.WithID(s.ID)), "other", session.WithIdle())
+	fresh, err := store.CreateWriter(ctx, st.Records, record.New(record.WithID(s.ID)), "other", store.WithIdle())
 	if err != nil {
 		t.Fatal(err)
 	}
 	for {
-		loaded, err := store.Records.Load(ctx, s.ID)
+		loaded, err := st.Records.Load(ctx, s.ID)
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -410,7 +410,7 @@ func TestRunOfADeletedSessionNeverWritesToTheSessionCreatedAgain(t *testing.T) {
 		}
 		commit(t, fresh, gotato.UserMessage("x"))
 	}
-	before, err := store.Records.Log(ctx, s.ID, 0, 0)
+	before, err := st.Records.Log(ctx, s.ID, 0, 0)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -419,17 +419,17 @@ func TestRunOfADeletedSessionNeverWritesToTheSessionCreatedAgain(t *testing.T) {
 	if err := <-done; err == nil {
 		t.Fatal("the Run of the deleted Session succeeded")
 	}
-	after, err := store.Records.Log(ctx, s.ID, 0, 0)
+	after, err := st.Records.Log(ctx, s.ID, 0, 0)
 	if err != nil || len(after) != len(before) {
 		t.Fatalf("the new Record holds %d Entries after the Run (%v), want %d", len(after), err, len(before))
 	}
-	loaded, err := store.Records.Load(ctx, s.ID)
+	loaded, err := st.Records.Load(ctx, s.ID)
 	if err != nil || loaded.Header.Epoch != fresh.Record().RecordEpoch() {
 		t.Fatalf("the new Record's epoch = %q (%v), want %q", loaded.Header.Epoch, err, fresh.Record().RecordEpoch())
 	}
 }
 
-func commit(t *testing.T, w *session.Writer, message gotato.Message) {
+func commit(t *testing.T, w *store.Writer, message gotato.Message) {
 	t.Helper()
 	if err := w.Append(message); err != nil {
 		t.Fatal(err)
@@ -532,9 +532,9 @@ type deadHolders struct {
 	self string
 }
 
-func (s deadHolders) Instance(ctx context.Context, id string) (session.InstanceState, error) {
+func (s deadHolders) Instance(ctx context.Context, id string) (store.InstanceState, error) {
 	if !isInstance(id, s.self) {
-		return session.InstanceState{ID: id}, nil
+		return store.InstanceState{ID: id}, nil
 	}
 	return s.parts.Instance(ctx, id)
 }

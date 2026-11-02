@@ -21,7 +21,7 @@ import (
 	"github.com/jinhuang712/gotato/profile"
 	"github.com/jinhuang712/gotato/service"
 	"github.com/jinhuang712/gotato/service/httpapi"
-	"github.com/jinhuang712/gotato/session"
+	"github.com/jinhuang712/gotato/store"
 	"github.com/jinhuang712/gotato/testkit"
 	lark "github.com/larksuite/oapi-sdk-go/v3"
 	larkcore "github.com/larksuite/oapi-sdk-go/v3/core"
@@ -86,11 +86,11 @@ func run() error {
 		agent.Model = scriptModel{agent.Model}
 	}
 	agent.Model = withDelay(agent.Model, *delay)
-	store, err := session.NewFileStore(*storeDir)
+	st, err := store.NewFileStore(*storeDir)
 	if err != nil {
 		return err
 	}
-	runner, err := service.New(service.Config{Store: session.Store{Records: store, Liveness: store}, Profiles: registryOf(agent), DefaultAgent: agent.Name, Instance: *instance, Address: advertiseAddr(*advertise, *addr)})
+	runner, err := service.New(service.Config{Store: store.Store{Records: st, Liveness: st}, Profiles: registryOf(agent), DefaultAgent: agent.Name, Instance: *instance, Address: advertiseAddr(*advertise, *addr)})
 	if err != nil {
 		return err
 	}
@@ -105,7 +105,7 @@ func run() error {
 		opts = append(opts, lark.WithOpenBaseUrl(*larkBase))
 	}
 	api := lark.NewClient(appID, appSecret, opts...)
-	b := newBot(runner, store, larkSender{api}, agent.Name, agent.ModelName, lbl, log)
+	b := newBot(runner, st, larkSender{api}, agent.Name, agent.ModelName, lbl, log)
 	b.retry = defaultRetry(*retryBudget)
 	b.ackDelay = *ackDelay
 

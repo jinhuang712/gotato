@@ -8,13 +8,13 @@ import (
 	"github.com/jinhuang712/gotato/record"
 
 	"github.com/jinhuang712/gotato/gotato"
-	"github.com/jinhuang712/gotato/session"
+	"github.com/jinhuang712/gotato/store"
 )
 
 func TestTakeoverEndsAnInterruptedRun(t *testing.T) {
 	ctx := context.Background()
-	store := session.NewMemoryStore()
-	first, err := session.CreateWriter(ctx, store, record.New(), "instance-a")
+	st := store.NewMemoryStore()
+	first, err := store.CreateWriter(ctx, st, record.New(), "instance-a")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -24,10 +24,10 @@ func TestTakeoverEndsAnInterruptedRun(t *testing.T) {
 	commit(t, first, gotato.UserMessage("hi"))
 	// instance-a stops here, and never ends its Run.
 	id := first.Record().ID()
-	if _, err := session.OpenWriter(ctx, store, id, "instance-b"); err != nil {
+	if _, err := store.OpenWriter(ctx, st, id, "instance-b"); err != nil {
 		t.Fatal(err)
 	}
-	view, err := session.View(ctx, store, id)
+	view, err := store.View(ctx, st, id)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -35,11 +35,11 @@ func TestTakeoverEndsAnInterruptedRun(t *testing.T) {
 	if len(runs) != 1 || runs[0].Status != gotato.RunStatusFailed || runs[0].Error != "interrupted" {
 		t.Fatalf("runs = %+v, want run-1 ended as interrupted", runs)
 	}
-	page, err := store.List(ctx, session.ListQuery{})
+	page, err := st.List(ctx, store.ListQuery{})
 	if list := page.Infos; err != nil || len(list) != 1 || list[0].Runs != 1 {
 		t.Fatalf("summary = %+v, %v; want one Run", list, err)
 	}
-	loaded, err := store.Load(ctx, id)
+	loaded, err := st.Load(ctx, id)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -59,8 +59,8 @@ func toolCallReply() gotato.Message {
 
 func TestOpeningAnswersToolCallsLeftWithoutResult(t *testing.T) {
 	ctx := context.Background()
-	store := session.NewMemoryStore()
-	writer, err := session.CreateWriter(ctx, store, record.New(), "instance-a")
+	st := store.NewMemoryStore()
+	writer, err := store.CreateWriter(ctx, st, record.New(), "instance-a")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -71,8 +71,8 @@ func TestOpeningAnswersToolCallsLeftWithoutResult(t *testing.T) {
 		t.Fatal(err)
 	}
 	for _, open := range []func() (*record.Record, error){
-		func() (*record.Record, error) { return session.Open(ctx, store, writer.ID()) },
-		func() (*record.Record, error) { return session.View(ctx, store, writer.ID()) },
+		func() (*record.Record, error) { return store.Open(ctx, st, writer.ID()) },
+		func() (*record.Record, error) { return store.View(ctx, st, writer.ID()) },
 	} {
 		r, err := open()
 		if err != nil {
@@ -91,7 +91,7 @@ func TestOpeningAnswersToolCallsLeftWithoutResult(t *testing.T) {
 		}
 	}
 	// Nothing was written for the answers: the store still holds the facts.
-	loaded, err := store.Load(ctx, writer.ID())
+	loaded, err := st.Load(ctx, writer.ID())
 	if err != nil {
 		t.Fatal(err)
 	}

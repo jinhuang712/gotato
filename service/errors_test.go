@@ -11,7 +11,7 @@ import (
 	"github.com/jinhuang712/gotato/profile"
 	"github.com/jinhuang712/gotato/record"
 	"github.com/jinhuang712/gotato/service"
-	"github.com/jinhuang712/gotato/session"
+	"github.com/jinhuang712/gotato/store"
 	"github.com/jinhuang712/gotato/testkit"
 )
 
@@ -23,9 +23,9 @@ func TestEverySentinelCarriesACode(t *testing.T) {
 		code gotato.ErrorCode
 	}{
 		{record.ErrNotFound, gotato.CodeNotFound},
-		{session.ErrExists, gotato.CodeInvalidState},
-		{session.ErrConflict, gotato.CodeConflict},
-		{session.ErrExpired, gotato.CodeInvalidState},
+		{store.ErrExists, gotato.CodeInvalidState},
+		{store.ErrConflict, gotato.CodeConflict},
+		{store.ErrExpired, gotato.CodeInvalidState},
 		{service.ErrNotPersisted, gotato.CodeStoreFailure},
 		{service.ErrBusy, gotato.CodeBusy},
 		{record.ErrBadRecap, gotato.CodeModelProtocolFailure},
@@ -43,17 +43,17 @@ func TestEverySentinelCarriesACode(t *testing.T) {
 // TestSentinelsThatShareACodeAreToldApart: errors.Is matches a sentinel by
 // identity, and gotato.IsCode matches by code.
 func TestSentinelsThatShareACodeAreToldApart(t *testing.T) {
-	if errors.Is(session.ErrExpired, session.ErrExists) || errors.Is(session.ErrExists, session.ErrExpired) {
-		t.Error("session.ErrExpired and session.ErrExists match each other")
+	if errors.Is(store.ErrExpired, store.ErrExists) || errors.Is(store.ErrExists, store.ErrExpired) {
+		t.Error("store.ErrExpired and store.ErrExists match each other")
 	}
-	if !errors.Is(fmt.Errorf("x: %w", session.ErrExpired), session.ErrExpired) {
-		t.Error("a wrapped session.ErrExpired does not match itself")
+	if !errors.Is(fmt.Errorf("x: %w", store.ErrExpired), store.ErrExpired) {
+		t.Error("a wrapped store.ErrExpired does not match itself")
 	}
 	if errors.Is(service.ErrNoRun, service.ErrSessionExists) || errors.Is(service.ErrSessionExists, service.ErrNoRun) {
 		t.Error("service.ErrNoRun and service.ErrSessionExists match each other")
 	}
-	if !gotato.IsCode(session.ErrExpired, gotato.CodeInvalidState) {
-		t.Error("session.ErrExpired does not carry invalid_state")
+	if !gotato.IsCode(store.ErrExpired, gotato.CodeInvalidState) {
+		t.Error("store.ErrExpired does not carry invalid_state")
 	}
 	if gotato.Retryable(service.ErrNotPersisted) {
 		t.Error("service.ErrNotPersisted is retryable; it was a plain error before it carried a code")

@@ -12,7 +12,7 @@ import (
 	"github.com/jinhuang712/gotato/internal/reftasks"
 	"github.com/jinhuang712/gotato/profile"
 	"github.com/jinhuang712/gotato/service"
-	"github.com/jinhuang712/gotato/session"
+	"github.com/jinhuang712/gotato/store"
 )
 
 // RecapCheckConfig says how to run the Recap check (GOALS.md G-E01).
@@ -22,7 +22,7 @@ type RecapCheckConfig struct {
 	// ModelName names the Model in the report.
 	ModelName string
 	// Store holds the Session. Nil uses a memory store.
-	Store session.Store
+	Store store.Store
 	// MaxTokens is the Recap's output limit; 0 keeps the default (8K).
 	MaxTokens uint32
 }
@@ -88,9 +88,9 @@ func RunRecapCheck(ctx context.Context, cfg RecapCheckConfig, check reftasks.Rec
 	if model == nil {
 		return RecapReport{}, errors.New("workload: the Recap check has no Model")
 	}
-	store := cfg.Store
-	if store.Records == nil || store.Liveness == nil {
-		store = memoryStore()
+	st := cfg.Store
+	if st.Records == nil || st.Liveness == nil {
+		st = memoryStore()
 	}
 	switchedOff := make([]gotato.Tool, len(check.Tools))
 	for i, tool := range check.Tools {
@@ -104,7 +104,7 @@ func RunRecapCheck(ctx context.Context, cfg RecapCheckConfig, check reftasks.Rec
 	// conversation's prefix from the cache; only the tools' results differ.
 	questions := conversation
 	questions.Name, questions.Tools, questions.Compact = check.Name+"-questions", switchedOff, record.Compactor{}
-	runner, err := service.New(withAgents(service.Config{Store: store}, []profile.AgentProfile{conversation, questions}...))
+	runner, err := service.New(withAgents(service.Config{Store: st}, []profile.AgentProfile{conversation, questions}...))
 	if err != nil {
 		return RecapReport{}, err
 	}
@@ -149,7 +149,7 @@ func RunRecapCheck(ctx context.Context, cfg RecapCheckConfig, check reftasks.Rec
 		report.RecapWritten = compacted.Compaction.Recap != "none"
 		report.RecapUsage = compacted.Compaction.RecapUsage
 	}
-	if rec, err := session.View(ctx, store.Records, id); err == nil {
+	if rec, err := store.View(ctx, st.Records, id); err == nil {
 		if segments := rec.Segments(); len(segments) > 0 {
 			report.Recap = segments[len(segments)-1].Recap
 		}

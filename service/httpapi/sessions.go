@@ -8,7 +8,7 @@ import (
 	"github.com/jinhuang712/gotato/gotato"
 	"github.com/jinhuang712/gotato/record"
 	"github.com/jinhuang712/gotato/service"
-	"github.com/jinhuang712/gotato/session"
+	"github.com/jinhuang712/gotato/store"
 )
 
 type createSessionRequest struct {
@@ -66,9 +66,9 @@ func (h *Handler) summaryOf(ctx context.Context, info record.Info) sessionSummar
 
 // listSessions answers one page of Sessions: {"sessions": [...], "next": "..."},
 // with next left out after the last page. limit and cursor are the query
-// parameters of session.ListQuery; the cursor is the previous page's next.
+// parameters of store.ListQuery; the cursor is the previous page's next.
 func (h *Handler) listSessions(w http.ResponseWriter, r *http.Request) {
-	var q session.ListQuery
+	var q store.ListQuery
 	if raw := r.URL.Query().Get("limit"); raw != "" {
 		limit, err := strconv.Atoi(raw)
 		if err != nil || limit < 0 {

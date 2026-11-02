@@ -13,19 +13,19 @@ import (
 	"github.com/jinhuang712/gotato/profile"
 	"github.com/jinhuang712/gotato/record"
 	"github.com/jinhuang712/gotato/service"
-	"github.com/jinhuang712/gotato/session"
+	"github.com/jinhuang712/gotato/store"
 	"github.com/jinhuang712/gotato/testkit"
 )
 
 // warmInstance is an Instance over store with the warm Session's clock. Its
 // Agent compacts an idle Session of any size, so a few short Runs are enough.
-func warmInstance(t *testing.T, store session.Store, name string, clock service.Clock, model gotato.Model, warm service.WarmPolicy) *service.Runner {
+func warmInstance(t *testing.T, st store.Store, name string, clock service.Clock, model gotato.Model, warm service.WarmPolicy) *service.Runner {
 	t.Helper()
 	if warm.IdleMinTokens == 0 {
 		warm.IdleMinTokens = -1
 	}
 	runner, err := service.New(service.WithClock(service.Config{
-		Store: store, Instance: name,
+		Store: st, Instance: name,
 		Bounds:   service.Bounds{Queue: service.QueuePolicyWait},
 		Profiles: registry(t, profile.AgentProfile{Name: "echo", Model: model}), DefaultAgent: "echo", Warm: warm,
 	}, clock))
@@ -44,8 +44,8 @@ var storeKinds = []string{"memory", "file"}
 func TestWarmSessionIsReusedWhenTheHeadIsUnchanged(t *testing.T) {
 	for _, kind := range storeKinds {
 		t.Run(kind, func(t *testing.T) {
-			store := &tallyStore{parts: partsOf(sharedStores(t, kind)())}
-			runner := warmInstance(t, asStore(store), "a", newFakeClock(), testkit.EchoModel{}, service.WarmPolicy{})
+			st := &tallyStore{parts: partsOf(sharedStores(t, kind)())}
+			runner := warmInstance(t, asStore(st), "a", newFakeClock(), testkit.EchoModel{}, service.WarmPolicy{})
 			instance := instanceRecorder(t, runner)
 
 			first := runOn(t, runner, "", "one")
@@ -55,7 +55,7 @@ func TestWarmSessionIsReusedWhenTheHeadIsUnchanged(t *testing.T) {
 			second := runOn(t, runner, first.SessionID, "two")
 			third := runOn(t, runner, first.SessionID, "three")
 
-			if loads := store.Loads(); loads != 0 {
+			if loads := st.Loads(); loads != 0 {
 				t.Fatalf("the store loaded the Session %d times, want 0: the copy was warm", loads)
 			}
 			if second.FinalText != "echo: two" || third.Messages != 6 {
@@ -67,7 +67,7 @@ func TestWarmSessionIsReusedWhenTheHeadIsUnchanged(t *testing.T) {
 				}
 			}
 			// The copy is the stored Session: a reader that loads it sees the same.
-			view, err := session.Open(context.Background(), store.Records, first.SessionID)
+			view, err := store.Open(context.Background(), st.Records, first.SessionID)
 			if err != nil {
 				t.Fatal(err)
 			}
@@ -192,7 +192,7 @@ func TestStaleWarmCopyIsReloaded(t *testing.T) {
 			if a.WarmSessions() != 1 {
 				t.Fatalf("A keeps %d warm Sessions after the Run, want 1", a.WarmSessions())
 			}
-			view, err := session.Open(context.Background(), open().Records, first.SessionID)
+			view, err := store.Open(context.Background(), open().Records, first.SessionID)
 			if err != nil {
 				t.Fatal(err)
 			}
@@ -208,9 +208,9 @@ func TestStaleWarmCopyIsReloaded(t *testing.T) {
 // Record's length.
 func TestWarmCopyOfARecreatedSessionIsDropped(t *testing.T) {
 	ctx := context.Background()
-	store := memStore()
-	a := warmInstance(t, store, "a", newFakeClock(), testkit.EchoModel{}, service.WarmPolicy{})
-	b := warmInstance(t, store, "b", newFakeClock(), testkit.EchoModel{}, service.WarmPolicy{})
+	st := memStore()
+	a := warmInstance(t, st, "a", newFakeClock(), testkit.EchoModel{}, service.WarmPolicy{})
+	b := warmInstance(t, st, "b", newFakeClock(), testkit.EchoModel{}, service.WarmPolicy{})
 	first := runOn(t, a, "", "old")
 	if err := b.DeleteSession(ctx, first.SessionID); err != nil {
 		t.Fatal(err)
@@ -222,7 +222,7 @@ func TestWarmCopyOfARecreatedSessionIsDropped(t *testing.T) {
 	if again.Messages != 2 {
 		t.Fatalf("the Run ended with %d messages, want 2: it ran on the old Record", again.Messages)
 	}
-	view, err := session.Open(ctx, store.Records, first.SessionID)
+	view, err := store.Open(ctx, st.Records, first.SessionID)
 	if err != nil {
 		t.Fatal(err)
 	}

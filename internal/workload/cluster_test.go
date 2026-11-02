@@ -28,7 +28,7 @@ import (
 	"github.com/jinhuang712/gotato/profile"
 	"github.com/jinhuang712/gotato/service"
 	"github.com/jinhuang712/gotato/service/httpapi"
-	"github.com/jinhuang712/gotato/session"
+	"github.com/jinhuang712/gotato/store"
 )
 
 // ---- the instances ----------------------------------------------------------
@@ -36,12 +36,12 @@ import (
 // killStore is an instance's view of the shared store. Once dead it fails
 // every call, as a store does for a process that is gone.
 type killStore struct {
-	session.Records
-	session.Liveness
+	store.Records
+	store.Liveness
 	dead atomic.Bool
 }
 
-func (s *killStore) store() session.Store { return session.Store{Records: s, Liveness: s} }
+func (s *killStore) store() store.Store { return store.Store{Records: s, Liveness: s} }
 
 func (s *killStore) alive() error {
 	if s.dead.Load() {
@@ -78,7 +78,7 @@ func (s *killStore) Log(ctx context.Context, id string, after uint64, limit int)
 	return s.Records.Log(ctx, id, after, limit)
 }
 
-func (s *killStore) Beat(ctx context.Context, row session.InstanceRow, ttl time.Duration) error {
+func (s *killStore) Beat(ctx context.Context, row store.InstanceRow, ttl time.Duration) error {
 	if err := s.alive(); err != nil {
 		return err
 	}
@@ -98,7 +98,7 @@ type instance struct {
 // them that hashes on the session-id header.
 type cluster struct {
 	t         *testing.T
-	backing   session.Store
+	backing   store.Store
 	instances []*instance
 	proxy     *hashProxy
 	front     *httptest.Server

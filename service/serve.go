@@ -9,7 +9,7 @@ import (
 
 	"github.com/jinhuang712/gotato/gotato"
 	"github.com/jinhuang712/gotato/profile"
-	"github.com/jinhuang712/gotato/session"
+	"github.com/jinhuang712/gotato/store"
 )
 
 // runState is what one serve call shares between its phases: the Session it
@@ -22,8 +22,8 @@ type runState struct {
 	follow  *followOn
 
 	s         *record.Record
-	writer    *session.Writer
-	saved     session.WriteStats
+	writer    *store.Writer
+	saved     store.WriteStats
 	feed      *gotato.Feed
 	track     *tracker
 	sessionID string

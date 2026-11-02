@@ -12,7 +12,7 @@ import (
 	"github.com/jinhuang712/gotato/profile"
 	"github.com/jinhuang712/gotato/record"
 	"github.com/jinhuang712/gotato/service"
-	"github.com/jinhuang712/gotato/session"
+	"github.com/jinhuang712/gotato/store"
 	"github.com/jinhuang712/gotato/testkit"
 )
 
@@ -49,7 +49,7 @@ func TestForkTreatsStoreErrorAsFailure(t *testing.T) {
 	if _, err := runner.Fork(ctx, parent.ID, "child"); !errors.Is(err, getErr) {
 		t.Fatalf("fork err = %v, want the store error", err)
 	}
-	if _, err := session.View(ctx, backing.Records, "child"); !errors.Is(err, record.ErrNotFound) {
+	if _, err := store.View(ctx, backing.Records, "child"); !errors.Is(err, record.ErrNotFound) {
 		t.Fatalf("fork saved a session despite a store error: %v", err)
 	}
 }

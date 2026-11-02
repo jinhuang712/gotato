@@ -13,7 +13,7 @@ import (
 	"github.com/jinhuang712/gotato/record"
 
 	"github.com/jinhuang712/gotato/gotato"
-	"github.com/jinhuang712/gotato/session"
+	"github.com/jinhuang712/gotato/store"
 	"github.com/jinhuang712/gotato/testkit"
 )
 
@@ -23,7 +23,7 @@ var spillPreviewBytes = int(gotato.DefaultLimits().SpillPreviewBytes)
 // countingStore counts the reads of the log, to tell a body read from the
 // store from one served by the live Record.
 type countingStore struct {
-	session.Records
+	store.Records
 	logs atomic.Int64
 }
 
@@ -36,17 +36,17 @@ func (s *countingStore) Log(ctx context.Context, id string, after uint64, limit 
 type spillFixture struct {
 	t      *testing.T
 	store  *countingStore
-	writer *session.Writer
+	writer *store.Writer
 }
 
 func newSpillFixture(t *testing.T, id string) *spillFixture {
 	t.Helper()
-	store := &countingStore{Records: session.NewMemoryStore()}
-	writer, err := session.CreateWriter(context.Background(), store, record.New(record.WithID(id)), "instance-a")
+	st := &countingStore{Records: store.NewMemoryStore()}
+	writer, err := store.CreateWriter(context.Background(), st, record.New(record.WithID(id)), "instance-a")
 	if err != nil {
 		t.Fatal(err)
 	}
-	return &spillFixture{t: t, store: store, writer: writer}
+	return &spillFixture{t: t, store: st, writer: writer}
 }
 
 // call runs one prompt in which the model calls demo.read once (call ID id) and
@@ -152,11 +152,11 @@ func TestALargeToolResultIsSpilledAndReadInPages(t *testing.T) {
 			t.Fatalf("a load read entry %d (%s, %d bytes)", entry.Seq, entry.Kind, len(entry.Data))
 		}
 	}
-	a, err := session.Open(context.Background(), f.store, "big")
+	a, err := store.Open(context.Background(), f.store, "big")
 	if err != nil {
 		t.Fatal(err)
 	}
-	b, err := session.Open(context.Background(), f.store, "big")
+	b, err := store.Open(context.Background(), f.store, "big")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -311,7 +311,7 @@ func TestARefOfNoResultOfThisSessionFailsAsAToolResult(t *testing.T) {
 // read_result is a sibling of read_segment: it declares read, and offers both
 // the ref and the page.
 func TestReadResultDeclaresReadAndItsInput(t *testing.T) {
-	tool := resultToolOf(record.New(), session.NewMemoryStore(), 0)
+	tool := resultToolOf(record.New(), store.NewMemoryStore(), 0)
 	spec := tool.Spec()
 	if spec.ID != "read_result" || spec.Effect != gotato.ToolEffectRead || !strings.Contains(string(spec.InputSchema), `"ref"`) || !strings.Contains(string(spec.InputSchema), `"page"`) {
 		t.Fatalf("spec = %+v", spec)

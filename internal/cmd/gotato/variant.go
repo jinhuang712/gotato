@@ -12,7 +12,7 @@ import (
 
 	"github.com/jinhuang712/gotato/profile"
 	"github.com/jinhuang712/gotato/service"
-	"github.com/jinhuang712/gotato/session"
+	"github.com/jinhuang712/gotato/store"
 )
 
 // agentKey is the Session metadata key that names a Session's Agent, which the
@@ -66,7 +66,7 @@ func (rt *cliRuntime) agentFor(ctx context.Context, flags modelFlags, env func(s
 		return name, err
 	}
 	if name == "" && sessionID != "" {
-		s, err := session.Open(ctx, rt.store.Records, sessionID)
+		s, err := store.Open(ctx, rt.store.Records, sessionID)
 		if err != nil {
 			return "", err
 		}

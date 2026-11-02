@@ -15,7 +15,7 @@ import (
 	"github.com/jinhuang712/gotato/internal/reftasks"
 	"github.com/jinhuang712/gotato/profile"
 	"github.com/jinhuang712/gotato/service"
-	"github.com/jinhuang712/gotato/session"
+	"github.com/jinhuang712/gotato/store"
 )
 
 // G-G11 (GOALS.md): a failure leaves the Session usable. Every test below
@@ -47,7 +47,7 @@ type rigFault struct {
 type rig struct {
 	t      *testing.T
 	runner *service.Runner
-	store  session.Records
+	store  store.Records
 
 	mu       sync.Mutex
 	fault    rigFault
@@ -154,15 +154,15 @@ func (t rigTool) Execute(ctx context.Context, _ gotato.ToolUse, _ gotato.ToolPro
 // the Messages the store held after each, and fails the write numbered
 // failAt (from 1) once.
 type flakyStore struct {
-	session.Records
-	session.Liveness
+	store.Records
+	store.Liveness
 	mu     sync.Mutex
 	writes int
 	failAt int
 	states [][]gotato.Message
 }
 
-func (s *flakyStore) store() session.Store { return session.Store{Records: s, Liveness: s} }
+func (s *flakyStore) store() store.Store { return store.Store{Records: s, Liveness: s} }
 
 func (s *flakyStore) reset(failAt int) {
 	s.mu.Lock()
@@ -181,7 +181,7 @@ func (s *flakyStore) write(ctx context.Context, id string, do func() error) erro
 	if err := do(); err != nil {
 		return err
 	}
-	stored, err := session.Open(ctx, s.Records, id)
+	stored, err := store.Open(ctx, s.Records, id)
 	if err != nil {
 		return err
 	}
@@ -201,10 +201,10 @@ func (s *flakyStore) Append(ctx context.Context, id string, after uint64, entrie
 
 func newRig(t *testing.T) (*rig, *flakyStore) {
 	t.Helper()
-	mem := session.NewMemoryStore()
-	store := &flakyStore{Records: mem, Liveness: mem}
-	r := &rig{t: t, store: store}
-	runner, err := service.New(withAgents(service.Config{Store: store.store()}, []profile.AgentProfile{{
+	mem := store.NewMemoryStore()
+	st := &flakyStore{Records: mem, Liveness: mem}
+	r := &rig{t: t, store: st}
+	runner, err := service.New(withAgents(service.Config{Store: st.store()}, []profile.AgentProfile{{
 		Name: "probe", Model: rigModel{r}, Tools: []gotato.Tool{rigTool{r}},
 	}}...))
 	if err != nil {
@@ -213,7 +213,7 @@ func newRig(t *testing.T) (*rig, *flakyStore) {
 	t.Cleanup(func() { _ = runner.Close(context.Background()) })
 	r.runner = runner
 	r.heal()
-	return r, store
+	return r, st
 }
 
 // seed creates a Session and plays one finished Run on it, so the fault
@@ -233,7 +233,7 @@ func (r *rig) seed() (string, []gotato.Message) {
 
 func (r *rig) load(id string) []gotato.Message {
 	r.t.Helper()
-	loaded, err := session.Open(context.Background(), r.store, id)
+	loaded, err := store.Open(context.Background(), r.store, id)
 	if err != nil {
 		r.t.Fatalf("the Session did not load: %v", err)
 	}
@@ -542,8 +542,8 @@ func unrepaired(messages []gotato.Message) []gotato.Message {
 // Sessions over without waiting for a TTL. When record is set, it keeps the
 // Transcript the store held after each write.
 type faultStore struct {
-	session.Records
-	session.Liveness
+	store.Records
+	store.Liveness
 	crashAfter int
 	rec        bool
 
@@ -554,7 +554,7 @@ type faultStore struct {
 	buried   bool
 }
 
-func (s *faultStore) store() session.Store { return session.Store{Records: s, Liveness: s} }
+func (s *faultStore) store() store.Store { return store.Store{Records: s, Liveness: s} }
 
 // bury removes the dead instance's row once, as its expiry would.
 func (s *faultStore) bury(ctx context.Context) {
@@ -563,7 +563,7 @@ func (s *faultStore) bury(ctx context.Context) {
 	s.buried = true
 	s.mu.Unlock()
 	if row != "" && !buried {
-		_ = s.Liveness.Beat(ctx, session.InstanceRow{ID: row}, 0)
+		_ = s.Liveness.Beat(ctx, store.InstanceRow{ID: row}, 0)
 	}
 }
 
@@ -582,7 +582,7 @@ func (s *faultStore) write(ctx context.Context, id string, do func() error) erro
 	defer s.mu.Unlock()
 	s.writes++
 	if s.rec {
-		stored, err := session.Open(ctx, s.Records, id)
+		stored, err := store.Open(ctx, s.Records, id)
 		if err != nil {
 			return err
 		}
@@ -591,7 +591,7 @@ func (s *faultStore) write(ctx context.Context, id string, do func() error) erro
 	return nil
 }
 
-func (s *faultStore) Beat(ctx context.Context, row session.InstanceRow, ttl time.Duration) error {
+func (s *faultStore) Beat(ctx context.Context, row store.InstanceRow, ttl time.Duration) error {
 	s.mu.Lock()
 	s.instance = row.ID
 	dead := s.crashAfter > 0 && s.writes >= s.crashAfter
@@ -619,7 +619,7 @@ func TestCrashAtEveryWriteRebuildsTheLastStep(t *testing.T) {
 	ctx := context.Background()
 	for _, task := range reftasks.ReferenceTasks() {
 		t.Run(task.Name, func(t *testing.T) {
-			cleanMem := session.NewMemoryStore()
+			cleanMem := store.NewMemoryStore()
 			clean := &faultStore{Records: cleanMem, Liveness: cleanMem, rec: true}
 			if _, err := play(ctx, taskRunner(t, clean.store(), task, "clean"), task); err != nil {
 				t.Fatalf("a clean play failed: %v", err)
@@ -653,7 +653,7 @@ func TestCrashAtEveryWriteRebuildsTheLastStep(t *testing.T) {
 
 				// Another instance opens the Session: it holds what the
 				// n-th write left, with every Tool call answered.
-				rebuilt, err := session.Open(ctx, backing.Records, id)
+				rebuilt, err := store.Open(ctx, backing.Records, id)
 				if err != nil {
 					t.Fatalf("crash after write %d: %v", n, err)
 				}

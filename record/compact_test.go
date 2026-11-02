@@ -9,7 +9,7 @@ import (
 	"github.com/jinhuang712/gotato/record"
 
 	"github.com/jinhuang712/gotato/gotato"
-	"github.com/jinhuang712/gotato/session"
+	"github.com/jinhuang712/gotato/store"
 	"github.com/jinhuang712/gotato/testkit"
 )
 
@@ -50,7 +50,7 @@ func conversation(t *testing.T) *record.Record {
 		}
 	}
 	// Store the Record, so that it keeps its Events as a stored Record does.
-	if _, err := session.CreateWriter(context.Background(), session.NewMemoryStore(), rec, "instance-a"); err != nil {
+	if _, err := store.CreateWriter(context.Background(), store.NewMemoryStore(), rec, "instance-a"); err != nil {
 		t.Fatal(err)
 	}
 	return rec

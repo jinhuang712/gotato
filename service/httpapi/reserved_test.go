@@ -8,7 +8,7 @@ import (
 	"testing"
 
 	"github.com/jinhuang712/gotato/service/httpapi"
-	"github.com/jinhuang712/gotato/session"
+	"github.com/jinhuang712/gotato/store"
 )
 
 // A key under "gotato." is the Runner's. Creating a Session with one answers 400
@@ -39,7 +39,7 @@ func TestAReservedMetadataKeyAnswers400(t *testing.T) {
 			}
 		}
 	}
-	page, err := runner.Sessions(context.Background(), session.ListQuery{})
+	page, err := runner.Sessions(context.Background(), store.ListQuery{})
 	if err != nil || len(page.Infos) != 0 {
 		t.Fatalf("a refused create left %d Sessions (err=%v)", len(page.Infos), err)
 	}

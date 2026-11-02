@@ -30,25 +30,25 @@ const modulePath = "github.com/jinhuang712/gotato"
 // adapter/mcp is a module of its own, but it is a shipped package, so it is
 // held to the same table: it may import the core and nothing else.
 var allowedImports = map[string][]string{
-	"gotato":            {"internal/hostlink", "internal/text", "ref"},
-	"record":            {"gotato", "internal/text", "ref"},
-	"session":           {"gotato", "record"},
-	"gateway":           {"gotato", "internal/text"}, // text.Cut: an error body is cut on a rune boundary
-	"ref":               {},
-	"testkit":           {"gotato", "internal/hostlink", "internal/text", "record"}, // text.IsRecapAsk: the fake models recognize the Recap ask by the one definition
-	"session/storetest": {"gotato", "record", "session"},
+	"gotato":          {"internal/hostlink", "internal/text", "ref"},
+	"record":          {"gotato", "internal/text", "ref"},
+	"store":           {"gotato", "record"},
+	"gateway":         {"gotato", "internal/text"}, // text.Cut: an error body is cut on a rune boundary
+	"ref":             {},
+	"testkit":         {"gotato", "internal/hostlink", "internal/text", "record"}, // text.IsRecapAsk: the fake models recognize the Recap ask by the one definition
+	"store/storetest": {"gotato", "record", "store"},
 	// profile is optional: the definitions a host runs, and where they come from
 	// (decision 044). It sits between the service and the layers below it, and
 	// imports no service.
-	"profile": {"gotato", "record", "session"},
-	"service": {"gotato", "internal/hostlink", "profile", "record", "service/internal/clock", "service/internal/heartbeat", "service/internal/runs", "service/internal/warm", "session"},
+	"profile": {"gotato", "record", "store"},
+	"service": {"gotato", "internal/hostlink", "profile", "record", "service/internal/clock", "service/internal/heartbeat", "service/internal/runs", "service/internal/warm", "store"},
 	// service/internal holds the parts of the Runner (decision 048): each is
 	// standard library only, or the core, and none imports another.
 	"service/internal/clock":     {},
-	"service/internal/heartbeat": {"gotato", "record", "service/internal/clock", "session"},
+	"service/internal/heartbeat": {"gotato", "record", "service/internal/clock", "store"},
 	"service/internal/runs":      {"service/internal/warm"},
 	"service/internal/warm":      {"service/internal/clock"},
-	"service/httpapi":            {"gotato", "record", "service", "session"},
+	"service/httpapi":            {"gotato", "record", "service", "store"},
 	"adapter/mcp":                {"gotato"},
 }
 
@@ -199,9 +199,9 @@ func TestLayeringProblems(t *testing.T) {
 		contains string
 	}{
 		{"exact", []string{"fmt", p("gotato"), "gopkg.in/yaml.v3"}, []string{"gotato"}, 0, ""},
-		{"edge outside the table", []string{p("gotato"), p("session")}, []string{"gotato"}, 1, "extend the table"},
+		{"edge outside the table", []string{p("gotato"), p("store")}, []string{"gotato"}, 1, "extend the table"},
 		{"test tool", []string{p("internal/reftasks")}, []string{}, 1, "internal/reftasks"},
-		{"stale entry", []string{p("gotato")}, []string{"gotato", "session"}, 1, "remove the entry"},
+		{"stale entry", []string{p("gotato")}, []string{"gotato", "store"}, 1, "remove the entry"},
 	}
 	for _, tc := range cases {
 		got := layeringProblems("pkg", tc.imported, tc.allowed)

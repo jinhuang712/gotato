@@ -12,7 +12,7 @@ import (
 	"github.com/jinhuang712/gotato/gotato"
 	"github.com/jinhuang712/gotato/profile"
 	"github.com/jinhuang712/gotato/service"
-	"github.com/jinhuang712/gotato/session"
+	"github.com/jinhuang712/gotato/store"
 	"github.com/jinhuang712/gotato/testkit"
 )
 
@@ -32,9 +32,9 @@ func (t taskTool) Execute(context.Context, gotato.ToolUse, gotato.ToolProgressFu
 
 // taskRunner is a Runner over store whose registry holds profiles, the first of
 // them the default.
-func taskRunner(t *testing.T, store session.Store, instance string, profiles *profile.Registry, mutate ...func(*service.Config)) *service.Runner {
+func taskRunner(t *testing.T, st store.Store, instance string, profiles *profile.Registry, mutate ...func(*service.Config)) *service.Runner {
 	t.Helper()
-	cfg := service.Config{Store: store, Instance: instance, Heartbeat: steadyLiveness, Profiles: profiles, DefaultAgent: "writer"}
+	cfg := service.Config{Store: st, Instance: instance, Heartbeat: steadyLiveness, Profiles: profiles, DefaultAgent: "writer"}
 	for _, m := range mutate {
 		m(&cfg)
 	}
@@ -192,8 +192,8 @@ func TestARunRefusesAWideningTaskSpecAndWritesNothing(t *testing.T) {
 	if err := reg.RegisterTaskSpecInline(profile.TaskSpec{Name: "wide", Profile: "writer", MaxEffect: gotato.ToolEffectDestructive}); err != nil {
 		t.Fatal(err)
 	}
-	store := memStore()
-	runner := taskRunner(t, store, "a", reg)
+	st := memStore()
+	runner := taskRunner(t, st, "a", reg)
 	for name, request := range map[string]service.RunRequest{
 		"tools":       {TaskSpec: &profile.TaskSpec{Name: "w", Profile: "writer", Tools: []string{"other"}}},
 		"max_effect":  {Task: "wide"},
@@ -218,7 +218,7 @@ func TestARunRefusesAWideningTaskSpecAndWritesNothing(t *testing.T) {
 	if model.Calls() != 0 {
 		t.Fatalf("a refused Run called the model %d times", model.Calls())
 	}
-	if page, err := runner.Sessions(ctx, session.ListQuery{}); err != nil || len(page.Infos) != 0 {
+	if page, err := runner.Sessions(ctx, store.ListQuery{}); err != nil || len(page.Infos) != 0 {
 		t.Fatalf("a refused Run left Sessions: %+v, %v", page, err)
 	}
 }
@@ -309,7 +309,7 @@ func TestAStoredProfileIsReadWhenASessionIsBuilt(t *testing.T) {
 		t.Fatal(err)
 	}
 	reg := profile.NewRegistry(catalog)
-	defs := session.NewMemoryDefinitions()
+	defs := store.NewMemoryDefinitions()
 	save := func(doc string) {
 		t.Helper()
 		if err := defs.SaveDefinition(ctx, profile.KindAgentProfile, "writer", []byte(doc)); err != nil {

@@ -8,7 +8,7 @@ import (
 
 	"github.com/jinhuang712/gotato/gotato"
 	"github.com/jinhuang712/gotato/profile"
-	"github.com/jinhuang712/gotato/session"
+	"github.com/jinhuang712/gotato/store"
 )
 
 // detach ends a settled Run's live Session: the messages it left in its
@@ -160,7 +160,7 @@ func (r *Runner) noteFailure(err error, sessionID, agent string) {
 	}
 	header := gotato.NewHeader(gotato.SessionID(sessionID), "", 0)
 	switch {
-	case errors.Is(err, session.ErrConflict):
+	case errors.Is(err, store.ErrConflict):
 		r.notice(SessionFenced{Header: header, Instance: r.id()}, agent)
 	case gotato.IsCode(err, gotato.CodeStoreFailure):
 		r.notice(StoreWriteFailed{Header: header, Code: gotato.CodeStoreFailure}, agent)

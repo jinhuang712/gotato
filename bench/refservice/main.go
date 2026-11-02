@@ -22,7 +22,7 @@ import (
 	"github.com/jinhuang712/gotato/profile"
 	"github.com/jinhuang712/gotato/service"
 	"github.com/jinhuang712/gotato/service/httpapi"
-	"github.com/jinhuang712/gotato/session"
+	"github.com/jinhuang712/gotato/store"
 )
 
 func main() {
@@ -46,7 +46,7 @@ func run(addr, storeDir, endpoint, modelName string) error {
 		defer func() { _ = os.RemoveAll(dir) }()
 		storeDir = dir
 	}
-	store, err := session.NewFileStore(storeDir)
+	st, err := store.NewFileStore(storeDir)
 	if err != nil {
 		return err
 	}
@@ -60,7 +60,7 @@ func run(addr, storeDir, endpoint, modelName string) error {
 		return err
 	}
 	runner, err := service.New(service.Config{
-		Store:    session.Store{Records: store, Liveness: store},
+		Store:    store.Store{Records: st, Liveness: st},
 		Profiles: profiles, DefaultAgent: "assistant",
 	})
 	if err != nil {

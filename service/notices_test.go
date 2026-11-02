@@ -12,7 +12,7 @@ import (
 	"github.com/jinhuang712/gotato/profile"
 	"github.com/jinhuang712/gotato/record"
 	"github.com/jinhuang712/gotato/service"
-	"github.com/jinhuang712/gotato/session"
+	"github.com/jinhuang712/gotato/store"
 	"github.com/jinhuang712/gotato/testkit"
 )
 
@@ -301,20 +301,20 @@ func TestTimeAwayShowsTheTimeInTheAgentsZone(t *testing.T) {
 // another one still gets it, after the prompt, and commits it once.
 func TestANoticeBetweenRunsOutlivesItsInstance(t *testing.T) {
 	ctx := context.Background()
-	stores := map[string]func(t *testing.T) session.Store{
-		"memory": func(*testing.T) session.Store { return memStore() },
-		"file": func(t *testing.T) session.Store {
-			store, err := session.NewFileStore(t.TempDir())
+	stores := map[string]func(t *testing.T) store.Store{
+		"memory": func(*testing.T) store.Store { return memStore() },
+		"file": func(t *testing.T) store.Store {
+			st, err := store.NewFileStore(t.TempDir())
 			if err != nil {
 				t.Fatal(err)
 			}
-			return asStore(store)
+			return asStore(st)
 		},
 	}
 	for name, newStore := range stores {
 		t.Run(name, func(t *testing.T) {
-			store := newStore(t)
-			first, err := service.New(service.Config{Store: store, Instance: "first", Heartbeat: steadyLiveness, Profiles: registry(t, profile.AgentProfile{Name: "echo", Model: testkit.EchoModel{}}), DefaultAgent: "echo"})
+			st := newStore(t)
+			first, err := service.New(service.Config{Store: st, Instance: "first", Heartbeat: steadyLiveness, Profiles: registry(t, profile.AgentProfile{Name: "echo", Model: testkit.EchoModel{}}), DefaultAgent: "echo"})
 			if err != nil {
 				t.Fatal(err)
 			}
@@ -328,7 +328,7 @@ func TestANoticeBetweenRunsOutlivesItsInstance(t *testing.T) {
 			}
 
 			model := testkit.NewFakeModel(testkit.Text("one"), testkit.Text("two"))
-			second, err := service.New(service.Config{Store: store, Instance: "second", Heartbeat: steadyLiveness, Profiles: registry(t, profile.AgentProfile{Name: "echo", Model: model}), DefaultAgent: "echo"})
+			second, err := service.New(service.Config{Store: st, Instance: "second", Heartbeat: steadyLiveness, Profiles: registry(t, profile.AgentProfile{Name: "echo", Model: model}), DefaultAgent: "echo"})
 			if err != nil {
 				t.Fatal(err)
 			}
@@ -383,9 +383,9 @@ func TestANoticeLeftByAStoppedRunWaitsForTheNextRun(t *testing.T) {
 // own, afresh, from the last Run that did end.
 func TestATimeAwayOfACrashedRunIsNotKept(t *testing.T) {
 	ctx := context.Background()
-	store := memStore()
+	st := memStore()
 	clock := &fakeClock{now: time.Now().UTC().Truncate(time.Second)}
-	first, model := timeAwayRunner2(t, store, "first", clock)
+	first, model := timeAwayRunner2(t, st, "first", clock)
 	s, _ := first.CreateSession(ctx, service.CreateSessionRequest{Agent: "echo"})
 	runOn(t, first, s.ID, "hello")
 	if err := first.Close(ctx); err != nil {
@@ -393,7 +393,7 @@ func TestATimeAwayOfACrashedRunIsNotKept(t *testing.T) {
 	}
 
 	// A writer that queued a time_away and died: no run_ended, no release.
-	dead, err := session.OpenWriter(ctx, store.Records, s.ID, "dead")
+	dead, err := store.OpenWriter(ctx, st.Records, s.ID, "dead")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -405,7 +405,7 @@ func TestATimeAwayOfACrashedRunIsNotKept(t *testing.T) {
 	}
 
 	clock.Advance(73 * time.Hour)
-	second, _ := timeAwayRunner2(t, store, "second", clock)
+	second, _ := timeAwayRunner2(t, st, "second", clock)
 	_ = model
 	runOn(t, second, s.ID, "back")
 	rcd, _ := second.Record(ctx, s.ID)
@@ -423,11 +423,11 @@ func TestATimeAwayOfACrashedRunIsNotKept(t *testing.T) {
 	}
 }
 
-func timeAwayRunner2(t *testing.T, store session.Store, name string, clock *fakeClock) (*service.Runner, *testkit.FakeModel) {
+func timeAwayRunner2(t *testing.T, st store.Store, name string, clock *fakeClock) (*service.Runner, *testkit.FakeModel) {
 	t.Helper()
 	model := testkit.NewFakeModel(testkit.Text("ok"), testkit.Text("ok"), testkit.Text("ok"))
 	runner, err := service.New(service.WithClock(service.Config{
-		Store: store, Instance: name, Heartbeat: steadyLiveness,
+		Store: st, Instance: name, Heartbeat: steadyLiveness,
 		Bounds:   service.Bounds{Queue: service.QueuePolicyWait},
 		Profiles: registry(t, profile.AgentProfile{Name: "echo", Model: model}), DefaultAgent: "echo", Warm: service.WarmPolicy{NoIdleCompaction: true},
 	}, clock))
@@ -451,7 +451,7 @@ type failOnceStore struct {
 	ticks    chan struct{}
 }
 
-func (s *failOnceStore) Beat(ctx context.Context, row session.InstanceRow, ttl time.Duration) error {
+func (s *failOnceStore) Beat(ctx context.Context, row store.InstanceRow, ttl time.Duration) error {
 	err := s.parts.Beat(ctx, row, ttl)
 	if err == nil && ttl > 0 && s.armed.Load() && s.beats.Add(1) == 3 {
 		close(s.ticks)

@@ -6,13 +6,13 @@ import (
 	"time"
 
 	"github.com/jinhuang712/gotato/service/internal/clock"
-	"github.com/jinhuang712/gotato/session"
+	"github.com/jinhuang712/gotato/store"
 )
 
 // drainStopWait is how long Drain waits, after its ctx ended and it stopped the
 // Runs, for them to settle: a Run that ignores its ctx returns from Prompt after
-// 5 seconds, and its end is written within session.WriteTimeout.
-const drainStopWait = 5*time.Second + session.WriteTimeout
+// 5 seconds, and its end is written within store.WriteTimeout.
+const drainStopWait = 5*time.Second + store.WriteTimeout
 
 // stopWait returns drainStopWait, or the value a test set.
 func (r *Runner) stopWait() time.Duration {

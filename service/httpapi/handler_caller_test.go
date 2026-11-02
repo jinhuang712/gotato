@@ -19,7 +19,7 @@ import (
 	"github.com/jinhuang712/gotato/profile"
 	"github.com/jinhuang712/gotato/service"
 	"github.com/jinhuang712/gotato/service/httpapi"
-	"github.com/jinhuang712/gotato/session"
+	"github.com/jinhuang712/gotato/store"
 	"github.com/jinhuang712/gotato/testkit"
 )
 
@@ -27,7 +27,7 @@ import (
 // request's context.
 type callerKey struct{}
 
-// ownerStore is the access rule of an application, as a session.Store
+// ownerStore is the access rule of an application, as a store.Store
 // wrapper: it answers not_found for a Record whose "owner" metadata is not
 // the caller. It also notes which calls saw a caller in their ctx.
 type ownerStore struct {
@@ -244,7 +244,7 @@ type beatOutage struct {
 	down atomic.Bool
 }
 
-func (s *beatOutage) Beat(ctx context.Context, row session.InstanceRow, ttl time.Duration) error {
+func (s *beatOutage) Beat(ctx context.Context, row store.InstanceRow, ttl time.Duration) error {
 	if s.down.Load() {
 		return errors.New("store unreachable")
 	}

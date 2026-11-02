@@ -10,7 +10,7 @@ import (
 	"github.com/jinhuang712/gotato/gotato"
 	"github.com/jinhuang712/gotato/profile"
 	"github.com/jinhuang712/gotato/record"
-	"github.com/jinhuang712/gotato/session"
+	"github.com/jinhuang712/gotato/store"
 )
 
 // sessionTools is the ToolSource a live Session sees: its Agent's
@@ -130,7 +130,7 @@ func (r *Runner) Tools(ctx context.Context, agent, sessionID string) ([]ToolEntr
 	var s *record.Record
 	if sessionID != "" {
 		var err error
-		s, err = session.Open(ctx, r.store.Records, sessionID)
+		s, err = store.Open(ctx, r.store.Records, sessionID)
 		if err != nil {
 			return nil, storeFailureOf(ctx, err, true)
 		}
@@ -214,7 +214,7 @@ func (r *Runner) SetToolActive(ctx context.Context, sessionID, toolID string, ac
 	// The lookup may ask the ToolSets over the network, so it is made before
 	// the Session lock, on a read of the Record, and under its own bound.
 	// What the lock guards is the write of the switch.
-	read, err := session.Open(ctx, r.store.Records, sessionID)
+	read, err := store.Open(ctx, r.store.Records, sessionID)
 	if err != nil {
 		return ToolEntry{}, storeFailureOf(ctx, err, true)
 	}

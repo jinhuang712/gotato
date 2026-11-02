@@ -9,7 +9,7 @@ import (
 	"time"
 
 	"github.com/jinhuang712/gotato/service/internal/clock"
-	"github.com/jinhuang712/gotato/session"
+	"github.com/jinhuang712/gotato/store"
 )
 
 // manual is a clock a test advances itself; its timers fire inside Advance, on
@@ -78,18 +78,18 @@ func (m *manual) Advance(d time.Duration) {
 
 // flaky is a Liveness store a test can make refuse a renewal.
 type flaky struct {
-	session.Liveness
+	store.Liveness
 	down atomic.Bool
-	// expire makes a renewal of the named row answer session.ErrExpired.
+	// expire makes a renewal of the named row answer store.ErrExpired.
 	expire atomic.Value
 }
 
-func (f *flaky) Beat(ctx context.Context, row session.InstanceRow, ttl time.Duration) error {
+func (f *flaky) Beat(ctx context.Context, row store.InstanceRow, ttl time.Duration) error {
 	if f.down.Load() {
 		return errors.New("store is down")
 	}
 	if name, _ := f.expire.Load().(string); name != "" && name == row.ID && ttl > 0 {
-		return session.ErrExpired
+		return store.ErrExpired
 	}
 	return f.Liveness.Beat(ctx, row, ttl)
 }
@@ -101,9 +101,9 @@ type recorder struct {
 	beats   int
 }
 
-func (r *recorder) config(store session.Liveness, c clock.Clock) Config {
+func (r *recorder) config(st store.Liveness, c clock.Clock) Config {
 	return Config{
-		Store: store, Clock: c, Label: "pod", Address: "http://pod:8080", TTL: 9 * time.Second,
+		Store: st, Clock: c, Label: "pod", Address: "http://pod:8080", TTL: 9 * time.Second,
 		OnLapse:  func(name string) { r.mu.Lock(); r.lapsed = append(r.lapsed, name); r.mu.Unlock() },
 		OnRename: func() { r.mu.Lock(); r.renamed++; r.mu.Unlock() },
 		OnBeat:   func() { r.mu.Lock(); r.beats++; r.mu.Unlock() },
@@ -113,12 +113,12 @@ func (r *recorder) config(store session.Liveness, c clock.Clock) Config {
 func TestLiveWritesTheRowOnceAndRenewsItEveryThirdOfTheTTL(t *testing.T) {
 	ctx := context.Background()
 	c := &manual{now: time.Unix(1000, 0)}
-	store := &flaky{Liveness: session.NewMemoryStore()}
+	st := &flaky{Liveness: store.NewMemoryStore()}
 	rec := &recorder{}
-	row := New(rec.config(store, c))
+	row := New(rec.config(st, c))
 	t.Cleanup(func() { _ = row.Close(ctx) })
 
-	if state, _ := store.Instance(ctx, row.Name()); state.Alive {
+	if state, _ := st.Instance(ctx, row.Name()); state.Alive {
 		t.Fatal("a Row wrote its row before Live")
 	}
 	if row.Lapsed() {
@@ -127,7 +127,7 @@ func TestLiveWritesTheRowOnceAndRenewsItEveryThirdOfTheTTL(t *testing.T) {
 	if err := row.Live(ctx); err != nil {
 		t.Fatal(err)
 	}
-	state, _ := store.Instance(ctx, row.Name())
+	state, _ := st.Instance(ctx, row.Name())
 	if !state.Alive || state.Address != "http://pod:8080" {
 		t.Fatalf("row = %+v, want alive with the address", state)
 	}
@@ -143,15 +143,15 @@ func TestLiveWritesTheRowOnceAndRenewsItEveryThirdOfTheTTL(t *testing.T) {
 func TestGuardRefusesOnceRenewalsFailAndTellsOnce(t *testing.T) {
 	ctx := context.Background()
 	c := &manual{now: time.Unix(1000, 0)}
-	store := &flaky{Liveness: session.NewMemoryStore()}
+	st := &flaky{Liveness: store.NewMemoryStore()}
 	rec := &recorder{}
-	row := New(rec.config(store, c))
+	row := New(rec.config(st, c))
 	t.Cleanup(func() { _ = row.Close(ctx) })
 	if err := row.Live(ctx); err != nil {
 		t.Fatal(err)
 	}
 
-	store.down.Store(true)
+	st.down.Store(true)
 	c.Advance(9 * time.Second)
 	for range 3 {
 		if err := row.Guard(row.Name()); err != ErrLapsed {
@@ -165,7 +165,7 @@ func TestGuardRefusesOnceRenewalsFailAndTellsOnce(t *testing.T) {
 		t.Fatalf("OnLapse calls = %v, want one for %s", rec.lapsed, row.Name())
 	}
 
-	store.down.Store(false)
+	st.down.Store(false)
 	c.Advance(3 * time.Second)
 	if err := row.Guard(row.Name()); err != nil {
 		t.Fatalf("Guard after the store answered again = %v", err)
@@ -175,16 +175,16 @@ func TestGuardRefusesOnceRenewalsFailAndTellsOnce(t *testing.T) {
 func TestExpiredRowTakesANewNameAndRefusesTheOldOne(t *testing.T) {
 	ctx := context.Background()
 	c := &manual{now: time.Unix(1000, 0)}
-	store := &flaky{Liveness: session.NewMemoryStore()}
+	st := &flaky{Liveness: store.NewMemoryStore()}
 	rec := &recorder{}
-	row := New(rec.config(store, c))
+	row := New(rec.config(st, c))
 	t.Cleanup(func() { _ = row.Close(ctx) })
 	if err := row.Live(ctx); err != nil {
 		t.Fatal(err)
 	}
 	old := row.Name()
 
-	store.expire.Store(old)
+	st.expire.Store(old)
 	c.Advance(3 * time.Second)
 	if row.Name() == old {
 		t.Fatal("the Row kept its name after its row expired")
@@ -198,7 +198,7 @@ func TestExpiredRowTakesANewNameAndRefusesTheOldOne(t *testing.T) {
 	if err := row.Guard(row.Name()); err != nil {
 		t.Fatalf("Guard of the new name = %v", err)
 	}
-	if state, _ := store.Instance(ctx, row.Name()); !state.Alive {
+	if state, _ := st.Instance(ctx, row.Name()); !state.Alive {
 		t.Fatal("the new name has no live row")
 	}
 }
@@ -206,8 +206,8 @@ func TestExpiredRowTakesANewNameAndRefusesTheOldOne(t *testing.T) {
 func TestMarkDrainingIsCarriedByTheRow(t *testing.T) {
 	ctx := context.Background()
 	c := &manual{now: time.Unix(1000, 0)}
-	store := &flaky{Liveness: session.NewMemoryStore()}
-	row := New((&recorder{}).config(store, c))
+	st := &flaky{Liveness: store.NewMemoryStore()}
+	row := New((&recorder{}).config(st, c))
 	t.Cleanup(func() { _ = row.Close(ctx) })
 
 	// Before the first write there is no row to mark: the mark rides on the first renewal.
@@ -217,7 +217,7 @@ func TestMarkDrainingIsCarriedByTheRow(t *testing.T) {
 	if err := row.Live(ctx); err != nil {
 		t.Fatal(err)
 	}
-	if state, _ := store.Instance(ctx, row.Name()); !state.Draining {
+	if state, _ := st.Instance(ctx, row.Name()); !state.Draining {
 		t.Fatal("the row does not say draining")
 	}
 }
@@ -225,9 +225,9 @@ func TestMarkDrainingIsCarriedByTheRow(t *testing.T) {
 func TestCloseRemovesTheRowAndRefusesLaterWrites(t *testing.T) {
 	ctx := context.Background()
 	c := &manual{now: time.Unix(1000, 0)}
-	store := &flaky{Liveness: session.NewMemoryStore()}
+	st := &flaky{Liveness: store.NewMemoryStore()}
 	rec := &recorder{}
-	row := New(rec.config(store, c))
+	row := New(rec.config(st, c))
 	if err := row.Live(ctx); err != nil {
 		t.Fatal(err)
 	}
@@ -238,7 +238,7 @@ func TestCloseRemovesTheRowAndRefusesLaterWrites(t *testing.T) {
 	if err := row.Close(ctx); err != nil {
 		t.Fatalf("closing twice = %v", err)
 	}
-	if state, _ := store.Instance(ctx, name); state.Alive {
+	if state, _ := st.Instance(ctx, name); state.Alive {
 		t.Fatal("the row is alive after Close")
 	}
 	if err := row.Live(ctx); err != ErrClosed {
@@ -255,7 +255,7 @@ func TestLapsedAndNotRunIfLapsedTellTheGuardFromOtherConflicts(t *testing.T) {
 	if !Lapsed(ErrLapsed) || !Lapsed(ErrLapsedNotRun) {
 		t.Fatal("Lapsed missed the guard's own refusal")
 	}
-	if Lapsed(ErrClosed) || Lapsed(session.ErrConflict) || Lapsed(nil) {
+	if Lapsed(ErrClosed) || Lapsed(store.ErrConflict) || Lapsed(nil) {
 		t.Fatal("Lapsed matched a refusal that is not the guard's")
 	}
 	if got := NotRunIfLapsed(ErrLapsed); got != ErrLapsedNotRun || !ErrLapsedNotRun.NotRun {
@@ -264,7 +264,7 @@ func TestLapsedAndNotRunIfLapsedTellTheGuardFromOtherConflicts(t *testing.T) {
 	if got := NotRunIfLapsed(ErrClosed); got != ErrClosed {
 		t.Fatalf("NotRunIfLapsed changed another error: %v", got)
 	}
-	if !errors.Is(ErrLapsed, session.ErrConflict) {
+	if !errors.Is(ErrLapsed, store.ErrConflict) {
 		t.Fatal("ErrLapsed does not match session.ErrConflict, so a lost-race check would miss it")
 	}
 }

@@ -10,7 +10,7 @@ import (
 	"github.com/jinhuang712/gotato/record"
 
 	"github.com/jinhuang712/gotato/gotato"
-	"github.com/jinhuang712/gotato/session"
+	"github.com/jinhuang712/gotato/store"
 )
 
 func TestCompactBuildsASegmentFromTheConversationAndOneLinePerCall(t *testing.T) {
@@ -149,7 +149,7 @@ func TestSegmentBytesAreStableAndEveryInstanceBuildsTheSameRequest(t *testing.T)
 	if err := f.writer.Release(f.ctx); err != nil {
 		t.Fatal(err)
 	}
-	loaded, err := session.Open(f.ctx, f.store, f.rec.ID())
+	loaded, err := store.Open(f.ctx, f.store, f.rec.ID())
 	if err != nil {
 		t.Fatal(err)
 	}

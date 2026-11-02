@@ -8,7 +8,7 @@ import (
 	"github.com/jinhuang712/gotato/gotato"
 	"github.com/jinhuang712/gotato/record"
 	"github.com/jinhuang712/gotato/service"
-	"github.com/jinhuang712/gotato/session"
+	"github.com/jinhuang712/gotato/store"
 )
 
 func (c *cli) cmdContext(args []string) int {
@@ -113,7 +113,7 @@ func (c *cli) contextCompact(args []string) int {
 			return c.failErr(err)
 		}
 		if agent == "" {
-			s, err := session.Open(ctx, rt.store.Records, positionals[0])
+			s, err := store.Open(ctx, rt.store.Records, positionals[0])
 			if err != nil {
 				return c.failErr(err)
 			}

@@ -17,7 +17,7 @@ import (
 	"github.com/jinhuang712/gotato/gotato"
 	"github.com/jinhuang712/gotato/service"
 	"github.com/jinhuang712/gotato/service/httpapi"
-	"github.com/jinhuang712/gotato/session"
+	"github.com/jinhuang712/gotato/store"
 	lark "github.com/larksuite/oapi-sdk-go/v3"
 	larkim "github.com/larksuite/oapi-sdk-go/v3/service/im/v1"
 )
@@ -103,7 +103,7 @@ type bot struct {
 	// records is the store the Runner runs on. The bot reads a Record through it
 	// to see whether a Session is held (idle), which the Runner's own read, a
 	// Document, does not say.
-	records session.Records
+	records store.Records
 	send    sender
 	agent   string
 	model   string // shown in the card footer
@@ -124,7 +124,7 @@ type bot struct {
 	ackDelay time.Duration // test only: hold the event's HTTP answer this long, so the sender sees a late ack
 }
 
-func newBot(runner *service.Runner, records session.Records, send sender, agent, model, label string, log *slog.Logger) *bot {
+func newBot(runner *service.Runner, records store.Records, send sender, agent, model, label string, log *slog.Logger) *bot {
 	return &bot{runner: runner, records: records, send: send, agent: agent, model: model, label: label, log: log,
 		client: &http.Client{Timeout: 10 * time.Minute, // a forward can start a Run and wait for it
 			Transport: &http.Transport{DialContext: (&net.Dialer{Timeout: 3 * time.Second}).DialContext, MaxIdleConnsPerHost: 4}},

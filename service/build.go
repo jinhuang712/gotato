@@ -9,7 +9,7 @@ import (
 
 	"github.com/jinhuang712/gotato/gotato"
 	"github.com/jinhuang712/gotato/profile"
-	"github.com/jinhuang712/gotato/session"
+	"github.com/jinhuang712/gotato/store"
 )
 
 // buildSession builds the live Session for one Run from its AgentProfile: every
@@ -19,7 +19,7 @@ import (
 // step of a Run is written as it happens; without one the Record is, and keeps
 // the Session's Events in memory. extra options come after the Agent's own, and
 // NewSession refuses one that repeats a single-valued option.
-func (r *Runner) buildSession(ctx context.Context, spec profile.AgentProfile, s *record.Record, writer *session.Writer, override InspectConfig, extra ...gotato.SessionOption) (*gotato.Session, *record.AutoCompactor, error) {
+func (r *Runner) buildSession(ctx context.Context, spec profile.AgentProfile, s *record.Record, writer *store.Writer, override InspectConfig, extra ...gotato.SessionOption) (*gotato.Session, *record.AutoCompactor, error) {
 	// Without a writer nothing is stored: the live Session numbers its Events
 	// on its own stream, and does not use the Record's numbers, which are
 	// positions in the log that this Run does not write.

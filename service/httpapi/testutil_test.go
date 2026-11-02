@@ -15,7 +15,7 @@ import (
 	"github.com/jinhuang712/gotato/profile"
 	"github.com/jinhuang712/gotato/service"
 	"github.com/jinhuang712/gotato/service/httpapi"
-	"github.com/jinhuang712/gotato/session"
+	"github.com/jinhuang712/gotato/store"
 	"github.com/jinhuang712/gotato/testkit"
 )
 
@@ -100,7 +100,7 @@ type instance struct {
 	requests atomic.Int64
 }
 
-func newInstance(t *testing.T, store session.Store, name string, model gotato.Model, advertise bool, options ...httpapi.Option) *instance {
+func newInstance(t *testing.T, st store.Store, name string, model gotato.Model, advertise bool, options ...httpapi.Option) *instance {
 	t.Helper()
 	in := &instance{}
 	in.server = httptest.NewUnstartedServer(nil)
@@ -109,7 +109,7 @@ func newInstance(t *testing.T, store session.Store, name string, model gotato.Mo
 		address = "http://" + in.server.Listener.Addr().String()
 	}
 	runner, err := service.New(withAgents(service.Config{
-		Store: store, Instance: name, Address: address,
+		Store: st, Instance: name, Address: address,
 		Heartbeat: service.Heartbeat{TTL: 5 * time.Second, Wait: 3 * time.Second},
 	}, []profile.AgentProfile{{Name: "echo", Model: model}}...))
 	if err != nil {

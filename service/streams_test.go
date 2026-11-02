@@ -13,7 +13,7 @@ import (
 	"github.com/jinhuang712/gotato/gotato"
 	"github.com/jinhuang712/gotato/profile"
 	"github.com/jinhuang712/gotato/service"
-	"github.com/jinhuang712/gotato/session"
+	"github.com/jinhuang712/gotato/store"
 	"github.com/jinhuang712/gotato/testkit"
 )
 
@@ -445,8 +445,8 @@ type gatedLog struct {
 	release chan struct{}
 }
 
-func newGatedLog(store session.Store) *gatedLog {
-	return &gatedLog{parts: partsOf(store), entered: make(chan struct{}, 4), release: make(chan struct{})}
+func newGatedLog(st store.Store) *gatedLog {
+	return &gatedLog{parts: partsOf(st), entered: make(chan struct{}, 4), release: make(chan struct{})}
 }
 
 func (g *gatedLog) Log(ctx context.Context, id string, after uint64, limit int) ([]record.Entry, error) {

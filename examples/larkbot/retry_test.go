@@ -12,7 +12,7 @@ import (
 	"github.com/jinhuang712/gotato/gotato"
 	"github.com/jinhuang712/gotato/service"
 	"github.com/jinhuang712/gotato/service/httpapi"
-	"github.com/jinhuang712/gotato/session"
+	"github.com/jinhuang712/gotato/store"
 	"github.com/jinhuang712/gotato/testkit"
 )
 
@@ -27,14 +27,14 @@ func echoText(text string) *testkit.FuncModel {
 // its Liveness row expires. Closing release ends A's Run, so B may take the Session over.
 func deadWriter(t *testing.T, wrap func(http.Handler) http.Handler) (a, b *instance, id string, release chan struct{}, aDone chan struct{}) {
 	t.Helper()
-	store, err := session.NewFileStore(t.TempDir())
+	st, err := store.NewFileStore(t.TempDir())
 	if err != nil {
 		t.Fatal(err)
 	}
 	started := make(chan struct{})
 	release = make(chan struct{})
-	a = newInstanceWith(t, store, "pod-a", gatedModel(started, release), wrap)
-	b = newInstance(t, store, "pod-b", echoText("from b"))
+	a = newInstanceWith(t, st, "pod-a", gatedModel(started, release), wrap)
+	b = newInstance(t, st, "pod-b", echoText("from b"))
 	b.bot.retry = fastRetry
 	ctx := context.Background()
 	id = sessionIDFor(rootMsg)

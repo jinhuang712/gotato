@@ -5,7 +5,7 @@ import (
 	"sync"
 
 	"github.com/jinhuang712/gotato/gotato"
-	"github.com/jinhuang712/gotato/session"
+	"github.com/jinhuang712/gotato/store"
 )
 
 // feedSet is the Runner's Feeds: the Instance's own stream, and the Feeds of
@@ -90,7 +90,7 @@ func (r *Runner) publisher(key feedKey, agent string) func(gotato.Event) {
 
 // publishOpened hands the Events that open wrote, and every later write of
 // writer, to the Feed of the Record it opened.
-func (r *Runner) publishOpened(writer *session.Writer, early []gotato.Event, agent string) {
+func (r *Runner) publishOpened(writer *store.Writer, early []gotato.Event, agent string) {
 	publish := r.publisher(feedKey{writer.ID(), writer.Record().RecordEpoch()}, agent)
 	writer.SetPublisher(publish)
 	for _, event := range early {
@@ -107,12 +107,12 @@ func (r *Runner) notice(event gotato.Event, agent string) {
 // storeSource reads a Session's stored Events again from the store, for a
 // subscriber that fell behind or that starts after a number.
 type storeSource struct {
-	store session.Records
+	store store.Records
 	id    string
 }
 
 func (s storeSource) EventsAfter(ctx context.Context, after uint64, limit int) ([]gotato.Event, error) {
-	return session.StoredEvents(ctx, s.store, s.id, after, limit)
+	return store.StoredEvents(ctx, s.store, s.id, after, limit)
 }
 
 // SubscribeInstance starts a Subscription to the Instance's stream: every

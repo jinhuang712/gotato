@@ -8,7 +8,7 @@ import (
 
 	"github.com/jinhuang712/gotato/gotato"
 	"github.com/jinhuang712/gotato/profile"
-	"github.com/jinhuang712/gotato/session"
+	"github.com/jinhuang712/gotato/store"
 )
 
 // CreateSessionRequest is the one way to make a Session. The Session starts
@@ -52,7 +52,7 @@ func (r *Runner) CreateSession(ctx context.Context, request CreateSessionRequest
 	}
 	// Nothing runs against a Session that is only created: it is released in
 	// the write that creates it.
-	if _, err := r.create(ctx, s, spec.Name, session.WithIdle()); err != nil {
+	if _, err := r.create(ctx, s, spec.Name, store.WithIdle()); err != nil {
 		return record.Info{}, err
 	}
 	return s.Info(), nil
@@ -131,7 +131,7 @@ func (r *Runner) DeleteSession(ctx context.Context, sessionID string) error {
 // columns. An explicit newID must be free: a fork never overwrites an existing
 // Session, and a taken ID is ErrSessionExists, as CreateSession reports it.
 func (r *Runner) Fork(ctx context.Context, sessionID, newID string) (record.Info, error) {
-	parent, err := session.View(ctx, r.store.Records, sessionID)
+	parent, err := store.View(ctx, r.store.Records, sessionID)
 	if err != nil {
 		return record.Info{}, storeFailureOf(ctx, err, true)
 	}
@@ -146,7 +146,7 @@ func (r *Runner) Fork(ctx context.Context, sessionID, newID string) (record.Info
 	// The store's Create is the existence check, so two concurrent forks with
 	// the same explicit newID cannot both succeed.
 	childAgent, _ := child.Get(metaAgent)
-	if _, err := r.create(ctx, child, childAgent, session.WithIdle()); err != nil {
+	if _, err := r.create(ctx, child, childAgent, store.WithIdle()); err != nil {
 		return record.Info{}, err
 	}
 	return child.Info(), nil

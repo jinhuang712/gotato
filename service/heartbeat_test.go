@@ -9,7 +9,7 @@ import (
 
 	"github.com/jinhuang712/gotato/gotato"
 	"github.com/jinhuang712/gotato/service"
-	"github.com/jinhuang712/gotato/session"
+	"github.com/jinhuang712/gotato/store"
 	"github.com/jinhuang712/gotato/testkit"
 )
 
@@ -24,7 +24,7 @@ type deadStore struct {
 	dead atomic.Bool
 }
 
-func (d *deadStore) Beat(ctx context.Context, row session.InstanceRow, ttl time.Duration) error {
+func (d *deadStore) Beat(ctx context.Context, row store.InstanceRow, ttl time.Duration) error {
 	if d.dead.Load() {
 		return nil
 	}
@@ -34,7 +34,7 @@ func (d *deadStore) Beat(ctx context.Context, row session.InstanceRow, ttl time.
 // die ends the Liveness row of instance, as its expiry would.
 func (d *deadStore) die(ctx context.Context, instance string) error {
 	d.dead.Store(true)
-	return d.parts.Beat(ctx, session.InstanceRow{ID: instance}, 0)
+	return d.parts.Beat(ctx, store.InstanceRow{ID: instance}, 0)
 }
 
 // A process that died without Close leaves its Liveness row to expire. The

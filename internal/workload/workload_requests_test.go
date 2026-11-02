@@ -17,7 +17,7 @@ import (
 	"github.com/jinhuang712/gotato/record"
 	"github.com/jinhuang712/gotato/ref"
 	"github.com/jinhuang712/gotato/service"
-	"github.com/jinhuang712/gotato/session"
+	"github.com/jinhuang712/gotato/store"
 	"github.com/jinhuang712/gotato/testkit"
 )
 
@@ -97,7 +97,7 @@ var extraPrompts = []string{"Thanks. And where is order 17?", "Which order numbe
 // instance a, and the cycle repeats. A Runner is closed before the next
 // takes over. It returns the Session's ID and every request the model got,
 // in order, over all Runners.
-func playAcross(t *testing.T, store session.Store, task reftasks.Task, options playOptions) (string, [][]byte) {
+func playAcross(t *testing.T, st store.Store, task reftasks.Task, options playOptions) (string, [][]byte) {
 	t.Helper()
 	ctx := context.Background()
 	log := &requestLog{}
@@ -111,7 +111,7 @@ func playAcross(t *testing.T, store session.Store, task reftasks.Task, options p
 		prompts = append(prompts, extraPrompts[len(prompts)-len(task.Prompts)])
 	}
 	stages := []string{"a", "a", "b", "a"}
-	runner := taskRunner(t, store, logged, "a")
+	runner := taskRunner(t, st, logged, "a")
 	s, err := runner.CreateSession(ctx, service.CreateSessionRequest{Agent: task.Name, Messages: task.History})
 	if err != nil {
 		t.Fatal(err)
@@ -123,7 +123,7 @@ func playAcross(t *testing.T, store session.Store, task reftasks.Task, options p
 				if err := runner.Close(ctx); err != nil {
 					t.Fatal(err)
 				}
-				runner = taskRunner(t, store, logged, stages[i%len(stages)])
+				runner = taskRunner(t, st, logged, stages[i%len(stages)])
 			}
 		}
 		result, err := runner.Run(ctx, service.RunRequest{SessionID: s.ID, Prompt: prompt})
@@ -153,9 +153,9 @@ func TestSameRecordSameRequest(t *testing.T) {
 	ctx := context.Background()
 	for _, task := range reftasks.ReferenceTasks() {
 		t.Run(task.Name, func(t *testing.T) {
-			store := memStore()
-			id, sent := playAcross(t, store, task, playOptions{})
-			final, err := session.Open(ctx, store.Records, id)
+			st := memStore()
+			id, sent := playAcross(t, st, task, playOptions{})
+			final, err := store.Open(ctx, st.Records, id)
 			if err != nil {
 				t.Fatal(err)
 			}
@@ -168,9 +168,9 @@ func TestSameRecordSameRequest(t *testing.T) {
 				t.Fatalf("%s compacted; the reference workload is played without compaction", task.Name)
 			}
 
-			viewA := taskRunner(t, store, task, "a")
-			viewB := taskRunner(t, store, task, "b")
-			reloaded := taskRunner(t, store, task, "a")
+			viewA := taskRunner(t, st, task, "a")
+			viewB := taskRunner(t, st, task, "b")
+			reloaded := taskRunner(t, st, task, "a")
 			views := []struct {
 				name   string
 				runner *service.Runner
@@ -189,7 +189,7 @@ func TestSameRecordSameRequest(t *testing.T) {
 				// The Record as it stood at this Turn: a copy of its first n
 				// Messages under the same cache key, which is the only part of
 				// the Record's identity that reaches the request.
-				prefixID := plantRecord(t, store, task.Name, cacheKey, stored[:n])
+				prefixID := plantRecord(t, st, task.Name, cacheKey, stored[:n])
 				for _, view := range views {
 					report, err := view.runner.Inspect(ctx, prefixID, service.InspectConfig{})
 					if err != nil {
@@ -236,9 +236,9 @@ func TestRequestOnlyGrowsAtItsEnd(t *testing.T) {
 		}
 		for _, task := range reftasks.ReferenceTasks() {
 			t.Run(name+"/"+task.Name, func(t *testing.T) {
-				store := memStore()
-				id, sent := playAcross(t, store, task, playOptions{reasoning: withReasoning})
-				final, err := session.Open(ctx, store.Records, id)
+				st := memStore()
+				id, sent := playAcross(t, st, task, playOptions{reasoning: withReasoning})
+				final, err := store.Open(ctx, st.Records, id)
 				if err != nil {
 					t.Fatal(err)
 				}
@@ -522,11 +522,11 @@ func TestWireRequestOnlyGrowsAtItsEnd(t *testing.T) {
 
 // compactingToolSearch plays the tool_search task with an explicit compaction
 // after Run 5, and returns the Session's ID, the store and the requests.
-func compactingToolSearch(t *testing.T) (session.Store, string, []gotato.ModelRequest) {
+func compactingToolSearch(t *testing.T) (store.Store, string, []gotato.ModelRequest) {
 	t.Helper()
-	store := memStore()
-	id, sent := playAcross(t, store, reftasks.ToolSearchTask(), playOptions{compactAfter: 5})
-	return store, id, decodeRequests(t, sent)
+	st := memStore()
+	id, sent := playAcross(t, st, reftasks.ToolSearchTask(), playOptions{compactAfter: 5})
+	return st, id, decodeRequests(t, sent)
 }
 
 // TestToolSearchRequestAcrossACompaction checks the other half of G-G07 for
@@ -536,15 +536,15 @@ func compactingToolSearch(t *testing.T) (session.Store, string, []gotato.ModelRe
 // loaded Tools are fewer, and the Segment's read_segment may join the Tools.
 func TestToolSearchRequestAcrossACompaction(t *testing.T) {
 	ctx := context.Background()
-	store, id, requests := compactingToolSearch(t)
-	final, err := session.Open(ctx, store.Records, id)
+	st, id, requests := compactingToolSearch(t)
+	final, err := store.Open(ctx, st.Records, id)
 	if err != nil {
 		t.Fatal(err)
 	}
 	if len(final.Compactions()) != 1 {
 		t.Fatalf("%d compactions, want 1", len(final.Compactions()))
 	}
-	events, err := session.StoredEvents(ctx, store.Records, id, 0, 0)
+	events, err := store.StoredEvents(ctx, st.Records, id, 0, 0)
 	if err != nil {
 		t.Fatal(err)
 	}

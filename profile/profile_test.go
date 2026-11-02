@@ -9,7 +9,7 @@ import (
 
 	"github.com/jinhuang712/gotato/gotato"
 	"github.com/jinhuang712/gotato/profile"
-	"github.com/jinhuang712/gotato/session"
+	"github.com/jinhuang712/gotato/store"
 	"github.com/jinhuang712/gotato/testkit"
 )
 
@@ -48,9 +48,9 @@ func inline() profile.AgentProfile {
 	}
 }
 
-func store(t *testing.T, kind, name, doc string) *session.MemoryDefinitions {
+func definitionsWith(t *testing.T, kind, name, doc string) *store.MemoryDefinitions {
 	t.Helper()
-	defs := session.NewMemoryDefinitions()
+	defs := store.NewMemoryDefinitions()
 	if err := defs.SaveDefinition(context.Background(), kind, name, []byte(doc)); err != nil {
 		t.Fatal(err)
 	}
@@ -63,7 +63,7 @@ func TestInlineAndStoredRegistration(t *testing.T) {
 	if err := reg.RegisterAgentProfileInline(inline()); err != nil {
 		t.Fatal(err)
 	}
-	defs := store(t, profile.KindAgentProfile, "stored", `{"model":"b","instruction":"from a row","tools":["search"],"toolsets":[{"name":"mail","mode":"active"}],"max_effect":"read","run_timeout":"5m","sampling":{"max_tokens":50},"compact":{"ceiling_tokens":9000,"location":"UTC"}}`)
+	defs := definitionsWith(t, profile.KindAgentProfile, "stored", `{"model":"b","instruction":"from a row","tools":["search"],"toolsets":[{"name":"mail","mode":"active"}],"max_effect":"read","run_timeout":"5m","sampling":{"max_tokens":50},"compact":{"ceiling_tokens":9000,"location":"UTC"}}`)
 	if err := reg.RegisterAgentProfileWithStore("stored", defs); err != nil {
 		t.Fatal(err)
 	}
@@ -92,7 +92,7 @@ func TestInlineAndStoredRegistration(t *testing.T) {
 func TestStoredIsReadAtEveryLookupAndNeedsItsRow(t *testing.T) {
 	ctx := context.Background()
 	reg := profile.NewRegistry(catalog(t))
-	defs := session.NewMemoryDefinitions()
+	defs := store.NewMemoryDefinitions()
 	if err := reg.RegisterAgentProfileWithStore("late", defs); err != nil {
 		t.Fatal(err)
 	}
@@ -128,7 +128,7 @@ func TestALaterRegistrationReplaces(t *testing.T) {
 	if p, _ := reg.AgentProfile(ctx, "writer"); p.Instruction != "second" {
 		t.Fatalf("inline over inline: %q", p.Instruction)
 	}
-	defs := store(t, profile.KindAgentProfile, "writer", `{"model":"b","instruction":"third"}`)
+	defs := definitionsWith(t, profile.KindAgentProfile, "writer", `{"model":"b","instruction":"third"}`)
 	if err := reg.RegisterAgentProfileWithStore("writer", defs); err != nil {
 		t.Fatal(err)
 	}
@@ -149,7 +149,7 @@ func TestALaterRegistrationReplaces(t *testing.T) {
 	if err := reg.RegisterTaskSpecInline(task); err != nil {
 		t.Fatal(err)
 	}
-	if err := reg.RegisterTaskSpecWithStore("daily", store(t, profile.KindTaskSpec, "daily", `{"profile":"writer","background":"two"}`)); err != nil {
+	if err := reg.RegisterTaskSpecWithStore("daily", definitionsWith(t, profile.KindTaskSpec, "daily", `{"profile":"writer","background":"two"}`)); err != nil {
 		t.Fatal(err)
 	}
 	if got, err := reg.TaskSpec(ctx, "daily"); err != nil || got.Background != "two" {
@@ -187,7 +187,7 @@ func TestRegistrationsRefuseWhatCannotWork(t *testing.T) {
 	if err := reg.RegisterAgentProfileWithStore("p", nil); err == nil {
 		t.Error("a nil store was accepted")
 	}
-	if err := reg.RegisterTaskSpecWithStore(" ", session.NewMemoryDefinitions()); err == nil {
+	if err := reg.RegisterTaskSpecWithStore(" ", store.NewMemoryDefinitions()); err == nil {
 		t.Error("a blank name was accepted")
 	}
 }
@@ -200,7 +200,7 @@ func TestAStoredDefinitionNamesOnlyWhatTheCatalogOffers(t *testing.T) {
 		"toolset": `{"model":"a","toolsets":[{"name":"vault"}]}`,
 	} {
 		reg := profile.NewRegistry(catalog(t))
-		if err := reg.RegisterAgentProfileWithStore("p", store(t, profile.KindAgentProfile, "p", doc)); err != nil {
+		if err := reg.RegisterAgentProfileWithStore("p", definitionsWith(t, profile.KindAgentProfile, "p", doc)); err != nil {
 			t.Fatal(err)
 		}
 		_, err := reg.AgentProfile(ctx, "p")
@@ -227,7 +227,7 @@ func TestAStoredDocumentMustBeWhatItSays(t *testing.T) {
 		"not json":      `model: a`,
 	} {
 		reg := profile.NewRegistry(catalog(t))
-		if err := reg.RegisterAgentProfileWithStore("p", store(t, profile.KindAgentProfile, "p", doc)); err != nil {
+		if err := reg.RegisterAgentProfileWithStore("p", definitionsWith(t, profile.KindAgentProfile, "p", doc)); err != nil {
 			t.Fatal(err)
 		}
 		if _, err := reg.AgentProfile(ctx, "p"); !gotato.IsCode(err, gotato.CodeInvalidArgument) {

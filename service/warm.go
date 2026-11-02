@@ -9,7 +9,7 @@ import (
 	"github.com/jinhuang712/gotato/gotato"
 	"github.com/jinhuang712/gotato/profile"
 	"github.com/jinhuang712/gotato/service/internal/warm"
-	"github.com/jinhuang712/gotato/session"
+	"github.com/jinhuang712/gotato/store"
 )
 
 // Defaults of a warm Session (WarmPolicy).
@@ -100,7 +100,7 @@ func (p WarmPolicy) idleSchedule(retention time.Duration) (after time.Duration, 
 // warmCopy is what a warm entry keeps: the Writer that wrote the Session, and
 // the Agent it ran with. It holds no Claim.
 type warmCopy struct {
-	writer *session.Writer
+	writer *store.Writer
 	spec   profile.AgentProfile
 }
 
@@ -113,7 +113,7 @@ func (r *Runner) WarmSessions() int { return r.warm.Len() }
 // keepWarm keeps the Session writer wrote, released and healthy, in memory for
 // the Agent's TTL, and arms its timers. A Writer that failed, a draining or
 // closed Runner and a negative TTL keep nothing.
-func (r *Runner) keepWarm(writer *session.Writer, spec profile.AgentProfile) {
+func (r *Runner) keepWarm(writer *store.Writer, spec profile.AgentProfile) {
 	ttl := r.warmPolicy.ttl()
 	// [DATA-LOSS] a failed Writer's copy may differ from the store and must not serve the next Run.
 	if ttl < 0 || writer == nil || writer.Failed() != nil {

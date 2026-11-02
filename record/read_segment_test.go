@@ -10,7 +10,7 @@ import (
 	"github.com/jinhuang712/gotato/record"
 
 	"github.com/jinhuang712/gotato/gotato"
-	"github.com/jinhuang712/gotato/session"
+	"github.com/jinhuang712/gotato/store"
 )
 
 // readSegment calls the tool the way the Loop does, and returns its text.
@@ -277,7 +277,7 @@ func TestAForkReadsItsInheritedSegmentsFromItsParent(t *testing.T) {
 
 // prunedLog is a store whose log lost its first Entries.
 type prunedLog struct {
-	session.Records
+	store.Records
 	through uint64
 }
 
@@ -324,7 +324,7 @@ func TestReadSegmentSaysWhenTheEntriesWerePruned(t *testing.T) {
 	}
 }
 
-func commitTexts(t *testing.T, w *session.Writer, run string, texts ...string) {
+func commitTexts(t *testing.T, w *store.Writer, run string, texts ...string) {
 	t.Helper()
 	ctx := context.Background()
 	for i, text := range texts {
@@ -345,10 +345,10 @@ func commitTexts(t *testing.T, w *session.Writer, run string, texts ...string) {
 	}
 }
 
-func readSegmentOf(t *testing.T, rcd *record.Record, store session.Records, segment int) string {
+func readSegmentOf(t *testing.T, rcd *record.Record, st store.Records, segment int) string {
 	t.Helper()
 	ctx := context.Background()
-	res, err := segmentToolOf(rcd, store, 0).Execute(ctx, gotato.ToolUse{Arguments: []byte(`{"segment":` + string(rune('0'+segment)) + `}`)}, nil)
+	res, err := segmentToolOf(rcd, st, 0).Execute(ctx, gotato.ToolUse{Arguments: []byte(`{"segment":` + string(rune('0'+segment)) + `}`)}, nil)
 	var out strings.Builder
 	for _, p := range res.Content {
 		out.WriteString(p.Text)
@@ -364,9 +364,9 @@ func readSegmentOf(t *testing.T, rcd *record.Record, store session.Records, segm
 // removed, not the other Session's Messages; a fork of the fork is the same.
 func TestInheritedSegmentOfARecreatedParentIsNotRead(t *testing.T) {
 	ctx := context.Background()
-	store := session.NewMemoryStore()
+	st := store.NewMemoryStore()
 	parent := record.New(record.WithID("shared-id"))
-	w, err := session.CreateWriter(ctx, store, parent, "a")
+	w, err := store.CreateWriter(ctx, st, parent, "a")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -377,12 +377,12 @@ func TestInheritedSegmentOfARecreatedParentIsNotRead(t *testing.T) {
 	if err := w.Flush(ctx); err != nil {
 		t.Fatal(err)
 	}
-	view, err := session.View(ctx, store, "shared-id")
+	view, err := store.View(ctx, st, "shared-id")
 	if err != nil || len(view.Segments()) == 0 {
 		t.Fatalf("view: %v segments=%d", err, len(view.Segments()))
 	}
 	child := record.Fork(view, record.WithID("child"))
-	cw, err := session.CreateWriter(ctx, store, child, "a")
+	cw, err := store.CreateWriter(ctx, st, child, "a")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -391,14 +391,14 @@ func TestInheritedSegmentOfARecreatedParentIsNotRead(t *testing.T) {
 	}
 	grandchild := record.Fork(child, record.WithID("grandchild"))
 	seg := child.Segments()[0].Number
-	if out := readSegmentOf(t, grandchild, store, seg); !strings.Contains(out, "q1 original") {
+	if out := readSegmentOf(t, grandchild, st, seg); !strings.Contains(out, "q1 original") {
 		t.Fatalf("before the delete the grandchild should read the original:\n%s", out)
 	}
 
-	if err := store.Delete(ctx, "shared-id"); err != nil {
+	if err := st.Delete(ctx, "shared-id"); err != nil {
 		t.Fatal(err)
 	}
-	w2, err := session.CreateWriter(ctx, store, record.New(record.WithID("shared-id")), "a")
+	w2, err := store.CreateWriter(ctx, st, record.New(record.WithID("shared-id")), "a")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -407,7 +407,7 @@ func TestInheritedSegmentOfARecreatedParentIsNotRead(t *testing.T) {
 		t.Fatal(err)
 	}
 	for name, rcd := range map[string]*record.Record{"child": child, "grandchild": grandchild} {
-		out := readSegmentOf(t, rcd, store, seg)
+		out := readSegmentOf(t, rcd, st, seg)
 		if strings.Contains(out, "SECRET-OF-ANOTHER-TENANT") {
 			t.Fatalf("%s read another Session's Messages through a stale parent reference:\n%s", name, out)
 		}

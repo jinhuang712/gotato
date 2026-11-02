@@ -13,7 +13,7 @@ import (
 	"github.com/jinhuang712/gotato/record"
 
 	"github.com/jinhuang712/gotato/gotato"
-	"github.com/jinhuang712/gotato/session"
+	"github.com/jinhuang712/gotato/store"
 	"github.com/jinhuang712/gotato/testkit"
 )
 
@@ -22,8 +22,8 @@ import (
 type fixture struct {
 	t      *testing.T
 	ctx    context.Context
-	store  session.Records
-	writer *session.Writer
+	store  store.Records
+	writer *store.Writer
 	rec    *record.Record
 	base   time.Time
 	n      int
@@ -31,9 +31,9 @@ type fixture struct {
 
 func newFixture(t *testing.T) *fixture {
 	t.Helper()
-	f := &fixture{t: t, ctx: context.Background(), store: session.NewMemoryStore(), base: time.Date(2026, 10, 19, 10, 0, 0, 0, time.UTC)}
+	f := &fixture{t: t, ctx: context.Background(), store: store.NewMemoryStore(), base: time.Date(2026, 10, 19, 10, 0, 0, 0, time.UTC)}
 	f.rec = record.New(record.WithID("fx"))
-	writer, err := session.CreateWriter(f.ctx, f.store, f.rec, "instance-a")
+	writer, err := store.CreateWriter(f.ctx, f.store, f.rec, "instance-a")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -110,7 +110,7 @@ func (f *fixture) reload() *record.Record {
 	if err := f.writer.Flush(f.ctx); err != nil {
 		f.t.Fatal(err)
 	}
-	rec, err := session.View(f.ctx, f.store, f.rec.ID())
+	rec, err := store.View(f.ctx, f.store, f.rec.ID())
 	if err != nil {
 		f.t.Fatal(err)
 	}
@@ -209,19 +209,19 @@ func (l *live) run(model gotato.Model, prompt, result string) (gotato.RunResult,
 
 func newLive(t *testing.T, compactor record.Compactor) *live {
 	t.Helper()
-	store := session.NewMemoryStore()
-	writer, err := session.CreateWriter(context.Background(), store, record.New(record.WithID("long")), "instance-a")
+	st := store.NewMemoryStore()
+	writer, err := store.CreateWriter(context.Background(), st, record.New(record.WithID("long")), "instance-a")
 	if err != nil {
 		t.Fatal(err)
 	}
-	return &live{t: t, store: store, writer: writer, auto: record.AutoCompact(writer.Record(), compactor)}
+	return &live{t: t, store: st, writer: writer, auto: record.AutoCompact(writer.Record(), compactor)}
 }
 
 // live is a stored Session whose Runs a test plays one after another.
 type live struct {
 	t      *testing.T
-	store  session.Records
-	writer *session.Writer
+	store  store.Records
+	writer *store.Writer
 	auto   *record.AutoCompactor
 }
 
@@ -407,9 +407,9 @@ func kindsOf(events []gotato.Event) []gotato.EventKind {
 	return out
 }
 
-func storedKinds(t *testing.T, store session.Records, id string, after uint64) []gotato.EventKind {
+func storedKinds(t *testing.T, st store.Records, id string, after uint64) []gotato.EventKind {
 	t.Helper()
-	events, err := session.StoredEvents(context.Background(), store, id, after, 0)
+	events, err := store.StoredEvents(context.Background(), st, id, after, 0)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -457,11 +457,11 @@ func rendered(number int, texts ...string) gotato.Segment {
 	return segment
 }
 
-func segmentStores(t *testing.T) map[string]session.Records {
+func segmentStores(t *testing.T) map[string]store.Records {
 	t.Helper()
-	files, err := session.NewFileStore(t.TempDir())
+	files, err := store.NewFileStore(t.TempDir())
 	if err != nil {
 		t.Fatal(err)
 	}
-	return map[string]session.Records{"memory": session.NewMemoryStore(), "file": files}
+	return map[string]store.Records{"memory": store.NewMemoryStore(), "file": files}
 }

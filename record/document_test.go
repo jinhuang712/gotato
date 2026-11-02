@@ -9,7 +9,7 @@ import (
 	"github.com/jinhuang712/gotato/record"
 
 	"github.com/jinhuang712/gotato/gotato"
-	"github.com/jinhuang712/gotato/session"
+	"github.com/jinhuang712/gotato/store"
 )
 
 func TestLoadRejectsFutureSchema(t *testing.T) {
@@ -98,10 +98,10 @@ func sameRunIDs(t *testing.T, label string, got []gotato.Message, want ...gotato
 // rendered Messages, a reload, a Fork and a Document round trip; a Message
 // with none comes back with none.
 func TestRunIDSurvivesTheRecord(t *testing.T) {
-	for name, store := range segmentStores(t) {
+	for name, st := range segmentStores(t) {
 		t.Run(name, func(t *testing.T) {
 			ctx := context.Background()
-			writer, err := session.CreateWriter(ctx, store, record.New(record.WithID("run-1")), "instance-a")
+			writer, err := store.CreateWriter(ctx, st, record.New(record.WithID("run-1")), "instance-a")
 			if err != nil {
 				t.Fatal(err)
 			}
@@ -110,7 +110,7 @@ func TestRunIDSurvivesTheRecord(t *testing.T) {
 			commit(t, writer, runMessage("a1", "assistant", "ok one", "run-a"))
 			commit(t, writer, runMessage("u2", "user", "two", "run-b"))
 			commit(t, writer, idMessage("a2", "assistant", "ok two")) // outside a Run
-			reloaded, err := session.Open(ctx, store, "run-1")
+			reloaded, err := store.Open(ctx, st, "run-1")
 			if err != nil {
 				t.Fatal(err)
 			}
@@ -128,7 +128,7 @@ func TestRunIDSurvivesTheRecord(t *testing.T) {
 				t.Fatal(err)
 			}
 			sameRunIDs(t, "checkpointed", rec.Messages(), "run-a", "run-a", "run-b", "")
-			reopened, err := session.Open(ctx, store, "run-1")
+			reopened, err := store.Open(ctx, st, "run-1")
 			if err != nil {
 				t.Fatal(err)
 			}
@@ -138,12 +138,12 @@ func TestRunIDSurvivesTheRecord(t *testing.T) {
 			child := record.Fork(reopened, record.WithID("run-child"))
 			sameRunIDs(t, "fork", child.Messages(), "run-a", "run-a", "run-b", "")
 			sameRunIDs(t, "fork Segment", child.Segments()[0].Messages, "run-a", "run-a")
-			childWriter, err := session.CreateWriter(ctx, store, child, "instance-a")
+			childWriter, err := store.CreateWriter(ctx, st, child, "instance-a")
 			if err != nil {
 				t.Fatal(err)
 			}
 			_ = childWriter
-			stored, err := session.Open(ctx, store, "run-child")
+			stored, err := store.Open(ctx, st, "run-child")
 			if err != nil {
 				t.Fatal(err)
 			}
@@ -184,8 +184,8 @@ func TestMessageWithoutRunIDLoadsEmpty(t *testing.T) {
 // that wrote them.
 func TestCutOffReplyRebuiltFromPartsKeepsItsRun(t *testing.T) {
 	ctx := context.Background()
-	store := session.NewMemoryStore()
-	writer, err := session.CreateWriter(ctx, store, record.New(record.WithID("run-cut")), "instance-a")
+	st := store.NewMemoryStore()
+	writer, err := store.CreateWriter(ctx, st, record.New(record.WithID("run-cut")), "instance-a")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -196,7 +196,7 @@ func TestCutOffReplyRebuiltFromPartsKeepsItsRun(t *testing.T) {
 	if err := writer.Flush(ctx); err != nil {
 		t.Fatal(err)
 	}
-	view, err := session.View(ctx, store, "run-cut")
+	view, err := store.View(ctx, st, "run-cut")
 	if err != nil {
 		t.Fatal(err)
 	}

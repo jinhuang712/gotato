@@ -10,7 +10,7 @@ import (
 	"github.com/jinhuang712/gotato/profile"
 	"github.com/jinhuang712/gotato/record"
 	"github.com/jinhuang712/gotato/service"
-	"github.com/jinhuang712/gotato/session"
+	"github.com/jinhuang712/gotato/store"
 	"github.com/jinhuang712/gotato/testkit"
 )
 
@@ -35,7 +35,7 @@ func (listBuilder) Build(closed []gotato.Message, info record.SegmentInfo) (gota
 // guarantees around them (the Segment is stamped and written once).
 func TestAnAgentsCompactorPartsAreUsedOnDemand(t *testing.T) {
 	agent := profile.AgentProfile{Name: "echo", Model: testkit.EchoModel{}, Compact: record.Compactor{Cut: keepLast{}, Builder: listBuilder{}}}
-	runner, store := newRunner(t, agent)
+	runner, st := newRunner(t, agent)
 	ctx := context.Background()
 	var id string
 	for _, prompt := range []string{"one", "two", "three"} {
@@ -49,7 +49,7 @@ func TestAnAgentsCompactorPartsAreUsedOnDemand(t *testing.T) {
 	if err != nil || !result.Replaced {
 		t.Fatalf("compact = %+v, %v", result, err)
 	}
-	rec, err := session.View(ctx, store.Records, id)
+	rec, err := store.View(ctx, st.Records, id)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -71,7 +71,7 @@ func TestAnAgentsCompactorPartsAreUsedOnDemand(t *testing.T) {
 	if result, err = runner.Compact(ctx, more.SessionID, record.CompactConfig{KeepMessages: 2}); err != nil || !result.Replaced {
 		t.Fatalf("compact = %+v, %v", result, err)
 	}
-	if rec, err = session.View(ctx, store.Records, id); err != nil || len(rec.Tail()) != 2 {
+	if rec, err = store.View(ctx, st.Records, id); err != nil || len(rec.Tail()) != 2 {
 		t.Fatalf("KeepMessages 2 kept %d Messages, %v", len(rec.Tail()), err)
 	}
 }

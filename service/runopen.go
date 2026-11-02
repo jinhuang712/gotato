@@ -7,7 +7,7 @@ import (
 	"github.com/jinhuang712/gotato/gotato"
 	"github.com/jinhuang712/gotato/profile"
 	"github.com/jinhuang712/gotato/service/internal/clock"
-	"github.com/jinhuang712/gotato/session"
+	"github.com/jinhuang712/gotato/store"
 )
 
 // createSession creates and claims the Record of a new, saved Run. The Run's
@@ -26,7 +26,7 @@ func (st *runState) createSession(ctx, runCtx context.Context) error {
 		return err
 	}
 	st.writer, err = r.create(runCtx, fresh, spec.Name)
-	stats := session.WriteStats{}
+	stats := store.WriteStats{}
 	if st.writer != nil {
 		stats = st.writer.Stats()
 		st.saved = stats
@@ -68,7 +68,7 @@ func (st *runState) openSession(ctx, runCtx context.Context) (openedSession, err
 		if err := r.streamTo(ctx, st.feed, st.stream, st.track); err != nil {
 			return opened, err
 		}
-		st.s, err = session.Open(runCtx, r.store.Records, st.sessionID)
+		st.s, err = store.Open(runCtx, r.store.Records, st.sessionID)
 		err = storeFailureOf(runCtx, err, true)
 		opened.loadTime = clock.Since(r.clock, began)
 	} else {
@@ -128,7 +128,7 @@ func (st *runState) applyUpdate(spec profile.AgentProfile) {
 // when the head still matches, else a load from the Store. It reports the time
 // the open took and whether a warm copy served.
 func (st *runState) openWriter(runCtx context.Context, began time.Time) (loadTime time.Duration, early []gotato.Event, reused bool, err error) {
-	var before *session.WriteStats
+	var before *store.WriteStats
 	st.writer, early, before, err = st.r.acquire(runCtx, st.sessionID)
 	if before != nil {
 		// A warm copy has written for earlier Runs: this Run's

@@ -11,7 +11,7 @@ import (
 	"github.com/jinhuang712/gotato/profile"
 	"github.com/jinhuang712/gotato/record"
 	"github.com/jinhuang712/gotato/service"
-	"github.com/jinhuang712/gotato/session"
+	"github.com/jinhuang712/gotato/store"
 	"github.com/jinhuang712/gotato/testkit"
 )
 
@@ -30,7 +30,7 @@ func (m windowedEcho) Config() gotato.ModelConfig {
 func TestRunnerCompactTakesTheAgentsCompactionSettings(t *testing.T) {
 	zone := time.FixedZone("UTC+8", 8*3600)
 	agent := profile.AgentProfile{Name: "echo", Model: windowedEcho{window: 1 << 20}, Compact: record.Compactor{CompactPolicy: record.CompactPolicy{Location: zone}, Recap: record.TruncateRecap{}}}
-	runner, store := newRunner(t, agent)
+	runner, st := newRunner(t, agent)
 	ctx := context.Background()
 	var id string
 	for _, prompt := range []string{"one", "two", "three"} {
@@ -48,7 +48,7 @@ func TestRunnerCompactTakesTheAgentsCompactionSettings(t *testing.T) {
 	if err != nil || !result.Replaced || result.Compaction.Recap != "truncate" {
 		t.Fatalf("compact = %+v, %v", result, err)
 	}
-	rec, err := session.View(ctx, store.Records, id)
+	rec, err := store.View(ctx, st.Records, id)
 	if err != nil {
 		t.Fatal(err)
 	}

@@ -12,7 +12,7 @@ import (
 	"github.com/jinhuang712/gotato/gotato"
 	"github.com/jinhuang712/gotato/profile"
 	"github.com/jinhuang712/gotato/service"
-	"github.com/jinhuang712/gotato/session"
+	"github.com/jinhuang712/gotato/store"
 )
 
 // holdingOwner is an ownerModel whose calls all wait for a gate, so a Run on
@@ -38,10 +38,10 @@ func (m *holdingOwner) Stream(ctx context.Context, request gotato.ModelRequest) 
 // Config states nothing: no window, no retention, no sampling.
 func (m *holdingOwner) Config() gotato.ModelConfig { return gotato.ModelConfig{} }
 
-func addressedRunner(t *testing.T, store session.Store, instance string, model gotato.Model) *service.Runner {
+func addressedRunner(t *testing.T, st store.Store, instance string, model gotato.Model) *service.Runner {
 	t.Helper()
 	runner, err := service.New(service.Config{
-		Store: store, Instance: instance, Address: "http://" + instance + ".example:8080", Heartbeat: steadyLiveness,
+		Store: st, Instance: instance, Address: "http://" + instance + ".example:8080", Heartbeat: steadyLiveness,
 		Bounds:   service.Bounds{Queue: service.QueuePolicyWait},
 		Profiles: registry(t, profile.AgentProfile{Name: "echo", Model: model}), DefaultAgent: "echo",
 	})
@@ -54,9 +54,9 @@ func addressedRunner(t *testing.T, store session.Store, instance string, model g
 
 // messageEvents returns, per source, the message IDs in the order they were
 // queued, and the order they were committed, and the IDs that were dropped.
-func messageEvents(t *testing.T, store session.Store, id string) (queued, committed map[gotato.MessageSource][]gotato.MessageID, dropped map[gotato.MessageID]bool) {
+func messageEvents(t *testing.T, st store.Store, id string) (queued, committed map[gotato.MessageSource][]gotato.MessageID, dropped map[gotato.MessageID]bool) {
 	t.Helper()
-	events, err := session.StoredEvents(context.Background(), store.Records, id, 0, 0)
+	events, err := store.StoredEvents(context.Background(), st.Records, id, 0, 0)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -82,17 +82,17 @@ func messageEvents(t *testing.T, store session.Store, id string) (queued, commit
 // and no instance but the writer calls the model (GOALS.md G-G08).
 func TestMessagesMidRunLandOnceOnTheWriter(t *testing.T) {
 	ctx := context.Background()
-	store := memStore()
+	st := memStore()
 	var violations, calls atomic.Int64
 	var dead atomic.Bool
 	hold := &holdingOwner{
-		ownerModel: ownerModel{instance: "instance-0", store: store, dead: &dead, violations: &violations, calls: &calls},
+		ownerModel: ownerModel{instance: "instance-0", store: st, dead: &dead, violations: &violations, calls: &calls},
 		gate:       make(chan struct{}), started: make(chan struct{}),
 	}
 	runners := []*service.Runner{
-		addressedRunner(t, store, "instance-0", hold),
-		addressedRunner(t, store, "instance-1", ownerModel{instance: "instance-1", store: store, dead: &dead, violations: &violations, calls: &calls}),
-		addressedRunner(t, store, "instance-2", ownerModel{instance: "instance-2", store: store, dead: &dead, violations: &violations, calls: &calls}),
+		addressedRunner(t, st, "instance-0", hold),
+		addressedRunner(t, st, "instance-1", ownerModel{instance: "instance-1", store: st, dead: &dead, violations: &violations, calls: &calls}),
+		addressedRunner(t, st, "instance-2", ownerModel{instance: "instance-2", store: st, dead: &dead, violations: &violations, calls: &calls}),
 	}
 	s, err := runners[0].CreateSession(ctx, service.CreateSessionRequest{Agent: "echo"})
 	if err != nil {
@@ -148,7 +148,7 @@ func TestMessagesMidRunLandOnceOnTheWriter(t *testing.T) {
 		}
 	}
 
-	queued, committed, dropped := messageEvents(t, store, id)
+	queued, committed, dropped := messageEvents(t, st, id)
 	for source, order := range queued {
 		var got []gotato.MessageID
 		for _, messageID := range committed[source] {
@@ -171,7 +171,7 @@ func TestMessagesMidRunLandOnceOnTheWriter(t *testing.T) {
 			t.Fatalf("message %s: committed %d times, dropped %v; want committed once", messageID, committedOnce[messageID], dropped[messageID])
 		}
 	}
-	view, err := session.View(ctx, store.Records, id)
+	view, err := store.View(ctx, st.Records, id)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -195,18 +195,18 @@ func TestManyInstancesOneWriterWithMessages(t *testing.T) {
 	for _, kind := range []string{"memory", "file"} {
 		t.Run(kind, func(t *testing.T) {
 			ctx := context.Background()
-			var open func() session.Store
+			var open func() store.Store
 			if kind == "memory" {
 				backing := memStore()
-				open = func() session.Store { return backing }
+				open = func() store.Store { return backing }
 			} else {
 				dir := t.TempDir()
-				open = func() session.Store {
-					store, err := session.NewFileStore(dir)
+				open = func() store.Store {
+					st, err := store.NewFileStore(dir)
 					if err != nil {
 						t.Fatal(err)
 					}
-					return asStore(store)
+					return asStore(st)
 				}
 			}
 			var violations, calls atomic.Int64
@@ -292,7 +292,7 @@ func TestManyInstancesOneWriterWithMessages(t *testing.T) {
 				for messageID := range dropped {
 					ended[id][messageID] = true
 				}
-				view, err := session.View(ctx, open().Records, id)
+				view, err := store.View(ctx, open().Records, id)
 				if err != nil {
 					t.Fatal(err)
 				}

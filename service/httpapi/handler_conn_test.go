@@ -22,7 +22,7 @@ import (
 	"github.com/jinhuang712/gotato/profile"
 	"github.com/jinhuang712/gotato/service"
 	"github.com/jinhuang712/gotato/service/httpapi"
-	"github.com/jinhuang712/gotato/session"
+	"github.com/jinhuang712/gotato/store"
 	"github.com/jinhuang712/gotato/testkit"
 )
 
@@ -691,7 +691,7 @@ func fullServer(t *testing.T) (*httptest.Server, *service.Runner, func()) {
 // run.
 func TestActivationLimitAnswers503MarkedNotRun(t *testing.T) {
 	server, runner, _ := fullServer(t)
-	before, _ := runner.Sessions(context.Background(), session.ListQuery{})
+	before, _ := runner.Sessions(context.Background(), store.ListQuery{})
 
 	// A stored idle Session is refused; nothing is activated.
 	idle, err := runner.CreateSession(context.Background(), service.CreateSessionRequest{Agent: "gated"})
@@ -709,7 +709,7 @@ func TestActivationLimitAnswers503MarkedNotRun(t *testing.T) {
 	if err := json.Unmarshal(data, &body); err != nil || body.Code != "overloaded" || !body.NotRun {
 		t.Fatalf("body = %s", data)
 	}
-	after, _ := runner.Sessions(context.Background(), session.ListQuery{})
+	after, _ := runner.Sessions(context.Background(), store.ListQuery{})
 	if len(after.Infos) != len(before.Infos)+1 {
 		t.Fatalf("Sessions before %d, after %d: the refusals created one", len(before.Infos), len(after.Infos))
 	}

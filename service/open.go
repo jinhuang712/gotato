@@ -10,7 +10,7 @@ import (
 
 	"github.com/jinhuang712/gotato/gotato"
 	"github.com/jinhuang712/gotato/service/internal/clock"
-	"github.com/jinhuang712/gotato/session"
+	"github.com/jinhuang712/gotato/store"
 )
 
 // holderCheck runs before this Runner claims a Session another Instance
@@ -38,16 +38,16 @@ func (r *Runner) holderCheck(ctx context.Context, holder record.Claim, busy bool
 // Runner creates one too: creating writes the store and activates nothing. The
 // Events it writes go to the new Record's Feed, if this Instance has one, and
 // to the Instance's otherwise, with agent's name.
-func (r *Runner) create(ctx context.Context, s *record.Record, agent string, options ...session.WriterOption) (*session.Writer, error) {
+func (r *Runner) create(ctx context.Context, s *record.Record, agent string, options ...store.WriterOption) (*store.Writer, error) {
 	if err := r.live(ctx); err != nil {
 		return nil, err
 	}
 	name := r.id()
 	mark := r.streamMark()
 	publish := r.publisher(feedKey{s.ID(), s.RecordEpoch()}, agent)
-	options = append([]session.WriterOption{session.WithGuard(func() error { return r.guardFor(name) }), session.WithPublisher(publish)}, options...)
-	writer, err := session.CreateWriter(ctx, r.store.Records, s, name, options...)
-	if errors.Is(err, session.ErrExists) {
+	options = append([]store.WriterOption{store.WithGuard(func() error { return r.guardFor(name) }), store.WithPublisher(publish)}, options...)
+	writer, err := store.CreateWriter(ctx, r.store.Records, s, name, options...)
+	if errors.Is(err, store.ErrExists) {
 		return nil, ErrSessionExists
 	}
 	if err == nil {
@@ -64,7 +64,7 @@ func (r *Runner) create(ctx context.Context, s *record.Record, agent string, opt
 // returns them, for the caller to publish to the Feed of the Record it opened,
 // whose epoch only the load tells (publishOpened). The caller sets the
 // Writer's publisher before it writes again.
-func (r *Runner) open(ctx context.Context, sessionID string) (*session.Writer, []gotato.Event, error) {
+func (r *Runner) open(ctx context.Context, sessionID string) (*store.Writer, []gotato.Event, error) {
 	if err := r.live(ctx); err != nil {
 		return nil, nil, err
 	}
@@ -75,19 +75,19 @@ func (r *Runner) open(ctx context.Context, sessionID string) (*session.Writer, [
 		name := r.id()
 		var early []gotato.Event
 		keep := func(event gotato.Event) { early = append(early, event) }
-		options := []session.WriterOption{session.WithGuard(func() error { return r.guardFor(name) }), session.WithHolderCheck(r.holderCheck), session.WithPublisher(keep)}
+		options := []store.WriterOption{store.WithGuard(func() error { return r.guardFor(name) }), store.WithHolderCheck(r.holderCheck), store.WithPublisher(keep)}
 		if waited {
-			options = append(options, session.WithWaited())
+			options = append(options, store.WithWaited())
 		}
 		mark := r.streamMark()
-		writer, err := session.OpenWriter(ctx, r.store.Records, sessionID, name, options...)
+		writer, err := store.OpenWriter(ctx, r.store.Records, sessionID, name, options...)
 		// A conflict here means another Instance claimed or wrote first:
 		// look again, as for a busy holder.
 		if err == nil {
 			r.cutStreams(ctx, sessionID, writer.Record().RecordEpoch(), writer.Record().Head(), mark)
 			return writer, early, nil
 		}
-		if (!errors.Is(err, errHolderBusy) && !errors.Is(err, session.ErrConflict)) || lapsed(err) {
+		if (!errors.Is(err, errHolderBusy) && !errors.Is(err, store.ErrConflict)) || lapsed(err) {
 			if gotato.IsCode(err, gotato.CodeStoreFailure) {
 				// [LIVENESS] a Claim that landed with no Writer would hold the Session busy under this Instance for good.
 				r.markUnreleased(sessionID)
@@ -128,7 +128,7 @@ func busyElsewhere(retryAfter time.Duration) error {
 // its work with the store before the claim, which a copy that has written for
 // earlier Runs needs to count this Run's writes alone. The Events the claim
 // wrote come back for the caller to publish, as open returns them.
-func (r *Runner) acquire(ctx context.Context, sessionID string) (writer *session.Writer, early []gotato.Event, before *session.WriteStats, err error) {
+func (r *Runner) acquire(ctx context.Context, sessionID string) (writer *store.Writer, early []gotato.Event, before *store.WriteStats, err error) {
 	if entry := r.warm.Take(sessionID); entry != nil {
 		kept := copyOf(entry)
 		w := kept.writer
@@ -181,5 +181,5 @@ func (r *Runner) acquire(ctx context.Context, sessionID string) (writer *session
 // or deleted it, first. A write this Instance's own Liveness row refused is
 // not one.
 func lostRace(err error) bool {
-	return !lapsed(err) && (errors.Is(err, session.ErrConflict) || errors.Is(err, record.ErrNotFound))
+	return !lapsed(err) && (errors.Is(err, store.ErrConflict) || errors.Is(err, record.ErrNotFound))
 }

@@ -12,7 +12,7 @@ import (
 	"github.com/jinhuang712/gotato/profile"
 	"github.com/jinhuang712/gotato/record"
 	"github.com/jinhuang712/gotato/service"
-	"github.com/jinhuang712/gotato/session"
+	"github.com/jinhuang712/gotato/store"
 	"github.com/jinhuang712/gotato/testkit"
 )
 
@@ -431,8 +431,8 @@ type holdStore struct {
 	releaseAppend, releaseLoad chan struct{}
 }
 
-func newHoldStore(store session.Store) *holdStore {
-	return &holdStore{parts: partsOf(store), held: make(chan struct{}, 4), releaseAppend: make(chan struct{}), releaseLoad: make(chan struct{})}
+func newHoldStore(st store.Store) *holdStore {
+	return &holdStore{parts: partsOf(st), held: make(chan struct{}, 4), releaseAppend: make(chan struct{}), releaseLoad: make(chan struct{})}
 }
 
 func (h *holdStore) hold(release <-chan struct{}) {

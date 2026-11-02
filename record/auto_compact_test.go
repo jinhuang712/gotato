@@ -11,7 +11,7 @@ import (
 	"github.com/jinhuang712/gotato/record"
 
 	"github.com/jinhuang712/gotato/gotato"
-	"github.com/jinhuang712/gotato/session"
+	"github.com/jinhuang712/gotato/store"
 	"github.com/jinhuang712/gotato/testkit"
 )
 
@@ -62,7 +62,7 @@ func TestARunPastTheCeilingIsCompactedBetweenTurnsAndGoesOn(t *testing.T) {
 	if err := l.writer.Flush(context.Background()); err != nil {
 		t.Fatal(err)
 	}
-	reloaded, err := session.View(context.Background(), l.store, "long")
+	reloaded, err := store.View(context.Background(), l.store, "long")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -591,9 +591,9 @@ func reasoningParts(messages []gotato.Message) int {
 func TestCompactLeavesTheReasoningOutOfTheKeptMessagesWhenAsked(t *testing.T) {
 	ctx := context.Background()
 	for _, drop := range []bool{false, true} {
-		store := session.NewMemoryStore()
+		st := store.NewMemoryStore()
 		s := reasoningSession(t)
-		writer, err := session.CreateWriter(ctx, store, s, "test")
+		writer, err := store.CreateWriter(ctx, st, s, "test")
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -619,7 +619,7 @@ func TestCompactLeavesTheReasoningOutOfTheKeptMessagesWhenAsked(t *testing.T) {
 		if gotato.TextOf(last) != "a2" || len(kept) != 4 || len(kept[1].ToolCalls) != 1 {
 			t.Errorf("drop=%v: compaction changed more than the reasoning: %+v", drop, kept)
 		}
-		reloaded, err := session.Open(ctx, store, s.ID())
+		reloaded, err := store.Open(ctx, st, s.ID())
 		if err != nil {
 			t.Fatal(err)
 		}

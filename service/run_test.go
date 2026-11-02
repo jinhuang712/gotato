@@ -15,12 +15,12 @@ import (
 	"github.com/jinhuang712/gotato/profile"
 	"github.com/jinhuang712/gotato/record"
 	"github.com/jinhuang712/gotato/service"
-	"github.com/jinhuang712/gotato/session"
+	"github.com/jinhuang712/gotato/store"
 	"github.com/jinhuang712/gotato/testkit"
 )
 
 func TestRunDisposesOfTheLiveSession(t *testing.T) {
-	runner, store := newRunner(t)
+	runner, st := newRunner(t)
 	ctx := context.Background()
 	first, err := runner.Run(ctx, service.RunRequest{Prompt: "hello", Metadata: map[string]string{"tenant": "a"}})
 	if err != nil {
@@ -33,7 +33,7 @@ func TestRunDisposesOfTheLiveSession(t *testing.T) {
 	if runner.ActiveRuns() != 0 {
 		t.Fatalf("active runs after completion = %d", runner.ActiveRuns())
 	}
-	s, err := session.View(ctx, store.Records, first.SessionID)
+	s, err := store.View(ctx, st.Records, first.SessionID)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -53,7 +53,7 @@ func TestRunDisposesOfTheLiveSession(t *testing.T) {
 	if runs := s.Runs(); len(runs) != 1 {
 		t.Fatalf("stale handle should not see the second run: %d", len(runs))
 	}
-	fresh, _ := session.View(ctx, store.Records, first.SessionID)
+	fresh, _ := store.View(ctx, st.Records, first.SessionID)
 	if len(fresh.Runs()) != 2 {
 		t.Fatalf("store has %d runs, want 2", len(fresh.Runs()))
 	}
@@ -64,14 +64,14 @@ func TestAnAgentOwnsItsInstructionAndAStoredSettingIsIgnored(t *testing.T) {
 		testkit.ToolCalls(gotato.ToolCall{ID: "c1", ToolID: testkit.DemoToolID, Arguments: []byte(`{"value":"v"}`)}),
 		testkit.Text("done"),
 	)
-	runner, store := newRunner(t,
+	runner, st := newRunner(t,
 		profile.AgentProfile{Name: "echo", Model: testkit.EchoModel{}},
 		profile.AgentProfile{Name: "tools", Model: model, Instruction: "spec instruction", Tools: []gotato.Tool{testkit.DemoEchoTool()}},
 	)
 	ctx := context.Background()
 	// A Session of an earlier version may still carry an instruction, a
 	// ceiling and a panel of its own; the Runner ignores them all.
-	id := plant(t, store, record.WithMetadata(map[string]string{
+	id := plant(t, st, record.WithMetadata(map[string]string{
 		metaAgentKey:       "tools",
 		metaInstructionKey: "session instruction",
 		metaCeilingKey:     "1",
@@ -96,7 +96,7 @@ func TestAnAgentOwnsItsInstructionAndAStoredSettingIsIgnored(t *testing.T) {
 			t.Fatalf("a request carries a panel: %+v", message)
 		}
 	}
-	stored, _ := session.View(ctx, store.Records, id)
+	stored, _ := store.View(ctx, st.Records, id)
 	if len(stored.Messages()) != 4 {
 		t.Fatalf("stored %d messages, want 4", len(stored.Messages()))
 	}
@@ -106,7 +106,7 @@ func TestAnAgentOwnsItsInstructionAndAStoredSettingIsIgnored(t *testing.T) {
 }
 
 func TestStreamRunInspectCompactFork(t *testing.T) {
-	runner, store := newRunner(t)
+	runner, st := newRunner(t)
 	ctx := context.Background()
 	var kinds []gotato.EventKind
 	var classes []gotato.EventClass
@@ -150,10 +150,10 @@ func TestStreamRunInspectCompactFork(t *testing.T) {
 	if err != nil || child.ParentID != result.SessionID {
 		t.Fatalf("fork = %v err=%v", child, err)
 	}
-	if forked := viewOf(t, store, child.ID); forked.Len() != 8 || len(forked.Segments()) != 1 {
+	if forked := viewOf(t, st, child.ID); forked.Len() != 8 || len(forked.Segments()) != 1 {
 		t.Fatalf("the fork holds %d Messages and %d Segments, want 8 and 1", forked.Len(), len(forked.Segments()))
 	}
-	if _, err := session.View(ctx, store.Records, child.ID); err != nil {
+	if _, err := store.View(ctx, st.Records, child.ID); err != nil {
 		t.Fatal("fork not saved")
 	}
 	if _, err := runner.Inspect(ctx, "missing", service.InspectConfig{}); !errors.Is(err, record.ErrNotFound) {
@@ -162,7 +162,7 @@ func TestStreamRunInspectCompactFork(t *testing.T) {
 }
 
 func TestAutoCompactFromSpecAndSession(t *testing.T) {
-	runner, store := newRunner(t, profile.AgentProfile{Name: "echo", Model: testkit.EchoModel{}, Compact: record.Compactor{CompactPolicy: record.CompactPolicy{CeilingTokens: 20000}}})
+	runner, st := newRunner(t, profile.AgentProfile{Name: "echo", Model: testkit.EchoModel{}, Compact: record.Compactor{CompactPolicy: record.CompactPolicy{CeilingTokens: 20000}}})
 	ctx := context.Background()
 	var last service.RunResponse
 	for i := 0; i < 8 && !last.Compacted; i++ {
@@ -176,7 +176,7 @@ func TestAutoCompactFromSpecAndSession(t *testing.T) {
 	if !last.Compacted {
 		t.Fatalf("spec compaction never triggered: %+v", last)
 	}
-	s, _ := session.View(ctx, store.Records, last.SessionID)
+	s, _ := store.View(ctx, st.Records, last.SessionID)
 	if len(s.Compactions()) == 0 {
 		t.Fatal("no compaction recorded")
 	}
@@ -186,7 +186,7 @@ func TestCallerCancelReportsCanceled(t *testing.T) {
 	block := make(chan struct{})
 	model := testkit.NewFakeModel(testkit.Text("slow"))
 	model.Block = block
-	runner, store := newRunner(t, profile.AgentProfile{Name: "slow", Model: model})
+	runner, st := newRunner(t, profile.AgentProfile{Name: "slow", Model: model})
 
 	ctx, cancel := context.WithCancel(context.Background())
 	done := make(chan service.RunResponse, 1)
@@ -200,7 +200,7 @@ func TestCallerCancelReportsCanceled(t *testing.T) {
 	if result.Result.Status != gotato.RunStatusCanceled {
 		t.Fatalf("caller cancel status = %q err=%v, want canceled", result.Result.Status, result.Result.Error)
 	}
-	stored, err := session.View(context.Background(), store.Records, result.SessionID)
+	stored, err := store.View(context.Background(), st.Records, result.SessionID)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -253,7 +253,7 @@ func TestCanceledRunKeepsItsRunID(t *testing.T) {
 	defer close(block)
 	model := testkit.NewFakeModel(testkit.Text("slow"))
 	model.Block = block
-	runner, store := newRunner(t, profile.AgentProfile{Name: "slow", Model: model})
+	runner, st := newRunner(t, profile.AgentProfile{Name: "slow", Model: model})
 	ctx := context.Background()
 	s, err := runner.CreateSession(ctx, service.CreateSessionRequest{Agent: "slow"})
 	if err != nil {
@@ -279,7 +279,7 @@ func TestCanceledRunKeepsItsRunID(t *testing.T) {
 	if result.Result.Status != gotato.RunStatusCanceled || result.Result.RunID != runID || result.Result.Metrics.Turns != 1 {
 		t.Fatalf("canceled result = %+v, want status canceled, RunID %s, one Turn", result.Result, runID)
 	}
-	saved, err := session.View(ctx, store.Records, s.ID)
+	saved, err := store.View(ctx, st.Records, s.ID)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -290,7 +290,7 @@ func TestCanceledRunKeepsItsRunID(t *testing.T) {
 }
 
 func TestRunUpdateSetsMetadataUnlessSkipSave(t *testing.T) {
-	runner, store := newRunner(t)
+	runner, st := newRunner(t)
 	ctx := context.Background()
 	s, err := runner.CreateSession(ctx, service.CreateSessionRequest{Agent: "echo"})
 	if err != nil {
@@ -302,7 +302,7 @@ func TestRunUpdateSetsMetadataUnlessSkipSave(t *testing.T) {
 	if _, err := runner.Run(ctx, service.RunRequest{SessionID: s.ID, Prompt: "hi", Update: map[string]string{"team": "billing"}, SkipSave: true}); err != nil {
 		t.Fatal(err)
 	}
-	stored, err := session.View(ctx, store.Records, s.ID)
+	stored, err := store.View(ctx, st.Records, s.ID)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -313,7 +313,7 @@ func TestRunUpdateSetsMetadataUnlessSkipSave(t *testing.T) {
 
 // A Run refused for its Agent writes nothing, the Update included.
 func TestRunRefusedForItsAgentDoesNotApplyTheUpdate(t *testing.T) {
-	runner, store := newRunner(t)
+	runner, st := newRunner(t)
 	ctx := context.Background()
 	s, err := runner.CreateSession(ctx, service.CreateSessionRequest{Agent: "echo"})
 	if err != nil {
@@ -323,7 +323,7 @@ func TestRunRefusedForItsAgentDoesNotApplyTheUpdate(t *testing.T) {
 	if !errors.Is(err, service.ErrUnknownAgent) {
 		t.Fatalf("err = %v, want ErrUnknownAgent", err)
 	}
-	stored, err := session.View(ctx, store.Records, s.ID)
+	stored, err := store.View(ctx, st.Records, s.ID)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -369,7 +369,7 @@ func ExampleRunner_Run() {
 		panic(err)
 	}
 	runner, err := service.New(service.Config{
-		Store:        memStore(), // session.NewFileStore(dir), or your own session.Store
+		Store:        memStore(), // store.NewFileStore(dir), or your own store.Store
 		Profiles:     profiles,
 		DefaultAgent: "default",
 	})
@@ -412,9 +412,9 @@ func thinkingReply(text string) testkit.Script {
 	}
 }
 
-func storedReasoning(t *testing.T, store session.Store, id string) int {
+func storedReasoning(t *testing.T, st store.Store, id string) int {
 	t.Helper()
-	s, err := session.Open(context.Background(), store.Records, id)
+	s, err := store.Open(context.Background(), st.Records, id)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -533,7 +533,7 @@ func TestTheModelsRecapIsOffUnlessTheAgentTurnsItOn(t *testing.T) {
 func TestAnAgentTurnsTheModelsRecapOnAndItAsksOnTheNextCallsContext(t *testing.T) {
 	model := recapModel()
 	agent := profile.AgentProfile{Name: "ops", Model: model, Instruction: "be brief", Compact: record.Compactor{Recap: record.ModelRecap{}}}
-	runner, store := newRunner(t, agent)
+	runner, st := newRunner(t, agent)
 	ctx := context.Background()
 	id := runThree(t, runner)
 	before, err := runner.Inspect(ctx, id, service.InspectConfig{})
@@ -560,7 +560,7 @@ func TestAnAgentTurnsTheModelsRecapOnAndItAsksOnTheNextCallsContext(t *testing.T
 	if sent[0].CacheKey == "" || sent[0].CacheKey != before.Request.CacheKey {
 		t.Errorf("cache key = %q, want %q", sent[0].CacheKey, before.Request.CacheKey)
 	}
-	rec, err := session.View(ctx, store.Records, id)
+	rec, err := store.View(ctx, st.Records, id)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -589,7 +589,7 @@ func TestAFailedModelRecapKeepsTheSegmentWithoutOne(t *testing.T) {
 func TestACompactionPastTheCeilingWritesTheRecapWithTheModelWhenTheAgentAsks(t *testing.T) {
 	model := recapModel()
 	agent := profile.AgentProfile{Name: "ops", Model: model, Compact: record.Compactor{CompactPolicy: record.CompactPolicy{CeilingTokens: 20000}, Recap: record.ModelRecap{}}}
-	runner, store := newRunner(t, agent)
+	runner, st := newRunner(t, agent)
 	ctx := context.Background()
 	var last service.RunResponse
 	for i := 0; i < 8 && !last.Compacted; i++ {
@@ -599,7 +599,7 @@ func TestACompactionPastTheCeilingWritesTheRecapWithTheModelWhenTheAgentAsks(t *
 			t.Fatal(err)
 		}
 	}
-	rec, err := session.View(ctx, store.Records, last.SessionID)
+	rec, err := store.View(ctx, st.Records, last.SessionID)
 	if err != nil || len(rec.Compactions()) == 0 {
 		t.Fatalf("no compaction: %v", err)
 	}
@@ -641,7 +641,7 @@ func TestSkipSaveRunReportsItsEvents(t *testing.T) {
 // number its Events as Record positions: it numbers them from 1, on its own
 // stream, and the next saved Run goes on from the Record's head.
 func TestSkipSaveRunDoesNotUseRecordNumbers(t *testing.T) {
-	runner, store := newRunner(t)
+	runner, st := newRunner(t)
 	ctx := context.Background()
 	first, err := runner.Run(ctx, service.RunRequest{Prompt: "one"})
 	if err != nil {
@@ -664,7 +664,7 @@ func TestSkipSaveRunDoesNotUseRecordNumbers(t *testing.T) {
 	if len(stored) == 0 || stored[0].Head().Number != 1 {
 		t.Fatalf("the unsaved Run's first stored Event is numbered %v, want 1: its numbers are not Record positions", numbered(stored))
 	}
-	if after, err := session.StoredEvents(ctx, store.Records, first.SessionID, head, 0); err != nil || len(after) != 0 {
+	if after, err := store.StoredEvents(ctx, st.Records, first.SessionID, head, 0); err != nil || len(after) != 0 {
 		t.Fatalf("the unsaved Run wrote %d Events (%v)", len(after), err)
 	}
 

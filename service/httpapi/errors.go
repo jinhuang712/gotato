@@ -9,7 +9,7 @@ import (
 
 	"github.com/jinhuang712/gotato/gotato"
 	"github.com/jinhuang712/gotato/service"
-	"github.com/jinhuang712/gotato/session"
+	"github.com/jinhuang712/gotato/store"
 )
 
 // Codes the HTTP layer adds to a body, where the runtime's ErrorCode is shared
@@ -126,7 +126,7 @@ func failureOf(err error) errorResponse {
 // notSavedStatus is the status of a Run whose result was not kept: 409 when
 // another writer took the Session during the Run, 500 otherwise.
 func notSavedStatus(err error) int {
-	if errors.Is(err, session.ErrConflict) {
+	if errors.Is(err, store.ErrConflict) {
 		return http.StatusConflict
 	}
 	return http.StatusInternalServerError

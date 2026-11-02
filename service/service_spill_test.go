@@ -11,7 +11,7 @@ import (
 	"github.com/jinhuang712/gotato/profile"
 	"github.com/jinhuang712/gotato/record"
 	"github.com/jinhuang712/gotato/service"
-	"github.com/jinhuang712/gotato/session"
+	"github.com/jinhuang712/gotato/store"
 	"github.com/jinhuang712/gotato/testkit"
 )
 
@@ -248,10 +248,10 @@ func load(id string) testkit.Script {
 	return testkit.ToolCalls(gotato.ToolCall{ID: gotato.ToolCallID("load-" + id), ToolID: gotato.SearchToolName, Arguments: arguments})
 }
 
-func segmentRunner(t *testing.T, store session.Store, model gotato.Model) *service.Runner {
+func segmentRunner(t *testing.T, st store.Store, model gotato.Model) *service.Runner {
 	t.Helper()
 	runner, err := service.New(service.Config{
-		Store: store,
+		Store: st,
 		Profiles: registry(t, profile.AgentProfile{Name: "a", Model: model, ToolSets: []profile.ToolSet{
 			{Set: filesToolSet{}}, {Set: gitToolSet{}},
 		}}), DefaultAgent: "a",
@@ -281,7 +281,7 @@ func inspectJSON(t *testing.T, runner *service.Runner, id string) (string, []str
 // builds the same request.
 func TestReadSegmentIsOfferedAndEveryInstanceOffersTheSameTools(t *testing.T) {
 	ctx := context.Background()
-	store := memStore()
+	st := memStore()
 	readCall := testkit.ToolCalls(gotato.ToolCall{ID: "read-1", ToolID: "read_segment", Arguments: []byte(`{"segment":1}`)})
 	model := testkit.NewFakeModel(
 		load("files.read"), testkit.ToolCalls(gotato.ToolCall{ID: "files-1", ToolID: "files.read", Arguments: []byte(`{}`)}), testkit.Text("opened"), // Run 1
@@ -290,7 +290,7 @@ func TestReadSegmentIsOfferedAndEveryInstanceOffersTheSameTools(t *testing.T) {
 		testkit.Text("fourth"),                     // Run 4
 		load("git.log"), testkit.Text("git is on"), // Run 5, after the merge
 	)
-	runner := segmentRunner(t, store, model)
+	runner := segmentRunner(t, st, model)
 
 	first, err := runner.Run(ctx, service.RunRequest{Prompt: "open the files"})
 	if err != nil {
@@ -322,7 +322,7 @@ func TestReadSegmentIsOfferedAndEveryInstanceOffersTheSameTools(t *testing.T) {
 	if _, err := runner.Run(ctx, service.RunRequest{SessionID: id, Prompt: "what did I open first?"}); err != nil {
 		t.Fatal(err)
 	}
-	rec, err := session.View(ctx, store.Records, id)
+	rec, err := store.View(ctx, st.Records, id)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -345,7 +345,7 @@ func TestReadSegmentIsOfferedAndEveryInstanceOffersTheSameTools(t *testing.T) {
 	if closed, err = runner.Compact(ctx, id, record.CompactConfig{CompactPolicy: record.CompactPolicy{SegmentBudgetTokens: 1}}); err != nil || !closed.Replaced || closed.Merge == nil || !closed.Merge.Merged {
 		t.Fatalf("compact = %+v, %v", closed, err)
 	}
-	if rec, err = session.View(ctx, store.Records, id); err != nil {
+	if rec, err = store.View(ctx, st.Records, id); err != nil {
 		t.Fatal(err)
 	}
 	if segments := rec.Segments(); len(segments) != 1 || len(segments[0].Merged) < 2 {
@@ -354,13 +354,13 @@ func TestReadSegmentIsOfferedAndEveryInstanceOffersTheSameTools(t *testing.T) {
 
 	// Another instance, from the Checkpoint of the merge: the same request, the
 	// same Tools, the same ToolSets.
-	other := segmentRunner(t, store, testkit.NewFakeModel())
+	other := segmentRunner(t, st, testkit.NewFakeModel())
 	wantRequest, wantTools := inspectJSON(t, runner, id)
 	gotRequest, gotTools := inspectJSON(t, other, id)
 	if gotRequest != wantRequest || !slices.Equal(gotTools, wantTools) || !slices.Contains(gotTools, "read_segment") {
 		t.Fatalf("another instance builds another request after the merge:\n got %s\nwant %s", gotRequest, wantRequest)
 	}
-	viewed, err := session.View(ctx, store.Records, id)
+	viewed, err := store.View(ctx, st.Records, id)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -370,13 +370,13 @@ func TestReadSegmentIsOfferedAndEveryInstanceOffersTheSameTools(t *testing.T) {
 	if _, err := runner.Run(ctx, service.RunRequest{SessionID: id, Prompt: "show the history"}); err != nil {
 		t.Fatal(err)
 	}
-	later := segmentRunner(t, store, testkit.NewFakeModel())
+	later := segmentRunner(t, st, testkit.NewFakeModel())
 	wantRequest, wantTools = inspectJSON(t, runner, id)
 	gotRequest, gotTools = inspectJSON(t, later, id)
 	if gotRequest != wantRequest || !slices.Equal(gotTools, wantTools) || !slices.Contains(gotTools, "git.log") {
 		t.Fatalf("another instance builds another request between two Checkpoints:\n got %s\nwant %s", gotRequest, wantRequest)
 	}
-	if viewed, err = session.View(ctx, store.Records, id); err != nil {
+	if viewed, err = store.View(ctx, st.Records, id); err != nil {
 		t.Fatal(err)
 	}
 	if got := viewed.LoadedTools(); !slices.Equal(got, append(wantSets, "git.log")) {

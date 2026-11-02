@@ -17,7 +17,7 @@ import (
 	"github.com/jinhuang712/gotato/profile"
 	"github.com/jinhuang712/gotato/record"
 	"github.com/jinhuang712/gotato/service"
-	"github.com/jinhuang712/gotato/session"
+	"github.com/jinhuang712/gotato/store"
 	"github.com/jinhuang712/gotato/testkit"
 )
 
@@ -406,7 +406,7 @@ func TestRunnerKeysEachSessionsPromptCache(t *testing.T) {
 
 func TestForkKeepsTheParentsCacheKey(t *testing.T) {
 	model := testkit.NewFakeModel(testkit.Text("a"), testkit.Text("b"), testkit.Text("c"))
-	runner, store := newRunner(t, profile.AgentProfile{Name: "echo", Model: model})
+	runner, st := newRunner(t, profile.AgentProfile{Name: "echo", Model: model})
 	ctx := context.Background()
 	parent, err := runner.Run(ctx, service.RunRequest{Prompt: "one"})
 	if err != nil {
@@ -433,7 +433,7 @@ func TestForkKeepsTheParentsCacheKey(t *testing.T) {
 			t.Fatalf("request %d cache key = %q, want the parent's %q", i, request.CacheKey, want)
 		}
 	}
-	stored, err := session.View(ctx, store.Records, grandchild.ID)
+	stored, err := store.View(ctx, st.Records, grandchild.ID)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -600,7 +600,7 @@ func TestANegativeRequestTimeoutIsRefused(t *testing.T) {
 // peekingModel calls a tool on its first call, and on its second reads the
 // store to see what the Run has written so far.
 type peekingModel struct {
-	store session.Store
+	store store.Store
 	mu    sync.Mutex
 	id    string
 	calls int
@@ -615,7 +615,7 @@ func (m *peekingModel) Stream(ctx context.Context, _ gotato.ModelRequest) (gotat
 	if call == 1 {
 		return testkit.NewFakeModel(testkit.ToolCalls(gotato.ToolCall{ID: "call-1", ToolID: "lookup", Arguments: []byte(`{}`)})).Stream(ctx, gotato.ModelRequest{})
 	}
-	stored, err := session.Open(ctx, m.store.Records, id)
+	stored, err := store.Open(ctx, m.store.Records, id)
 	if err != nil {
 		return nil, err
 	}
@@ -662,7 +662,7 @@ type crashingStore struct {
 	crashed bool
 }
 
-func (s *crashingStore) Beat(ctx context.Context, row session.InstanceRow, ttl time.Duration) error {
+func (s *crashingStore) Beat(ctx context.Context, row store.InstanceRow, ttl time.Duration) error {
 	s.mu.Lock()
 	crashed := s.crashed
 	s.mu.Unlock()

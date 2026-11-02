@@ -13,7 +13,7 @@ import (
 	"github.com/jinhuang712/gotato/gotato"
 	"github.com/jinhuang712/gotato/profile"
 	"github.com/jinhuang712/gotato/service"
-	"github.com/jinhuang712/gotato/session"
+	"github.com/jinhuang712/gotato/store"
 	"github.com/jinhuang712/gotato/testkit"
 )
 
@@ -321,7 +321,7 @@ func TestAFollowingRunThatFailsDropsItsMessages(t *testing.T) {
 
 // vanishingDefinitions are Definitions whose rows can be dropped.
 type vanishingDefinitions struct {
-	session.Definitions
+	store.Definitions
 	gone atomic.Bool
 }
 
@@ -338,7 +338,7 @@ func (d *vanishingDefinitions) LoadDefinition(ctx context.Context, kind, name st
 // the drops in the Record, where the message_queued Events are, and they reach
 // the Session's subscribers too.
 func TestAFollowingRunWithoutItsAgentDropsInTheRecord(t *testing.T) {
-	defs := &vanishingDefinitions{Definitions: session.NewMemoryDefinitions()}
+	defs := &vanishingDefinitions{Definitions: store.NewMemoryDefinitions()}
 	if err := defs.SaveDefinition(context.Background(), profile.KindAgentProfile, "echo", []byte(`{"model":"echo"}`)); err != nil {
 		t.Fatal(err)
 	}

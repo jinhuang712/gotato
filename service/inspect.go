@@ -5,7 +5,7 @@ import (
 
 	"github.com/jinhuang712/gotato/record"
 
-	"github.com/jinhuang712/gotato/session"
+	"github.com/jinhuang712/gotato/store"
 )
 
 // InspectConfig overrides what one inspection shows, as a what-if: it changes
@@ -21,7 +21,7 @@ type InspectConfig struct {
 // compacts the Session first. config overrides the Agent's instruction for this
 // inspection alone. The Session is not changed.
 func (r *Runner) Inspect(ctx context.Context, sessionID string, config InspectConfig) (record.Report, error) {
-	s, err := session.Open(ctx, r.store.Records, sessionID)
+	s, err := store.Open(ctx, r.store.Records, sessionID)
 	if err != nil {
 		return record.Report{}, storeFailureOf(ctx, err, true)
 	}

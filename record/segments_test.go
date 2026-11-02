@@ -7,15 +7,15 @@ import (
 
 	"github.com/jinhuang712/gotato/gotato"
 	"github.com/jinhuang712/gotato/record"
-	"github.com/jinhuang712/gotato/session"
+	"github.com/jinhuang712/gotato/store"
 )
 
 // After a load, the Messages of the Context that stand for a closed Segment
 // must not share their Parts with the Segment, which is immutable.
 func TestLoadedContextDoesNotAliasClosedSegments(t *testing.T) {
 	ctx := context.Background()
-	store := session.NewMemoryStore()
-	writer, err := session.CreateWriter(ctx, store, record.New(record.WithID("alias")), "instance-a")
+	st := store.NewMemoryStore()
+	writer, err := store.CreateWriter(ctx, st, record.New(record.WithID("alias")), "instance-a")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -41,7 +41,7 @@ func TestLoadedContextDoesNotAliasClosedSegments(t *testing.T) {
 	if err := writer.Flush(ctx); err != nil {
 		t.Fatal(err)
 	}
-	reopened, err := session.Open(ctx, store, "alias")
+	reopened, err := store.Open(ctx, st, "alias")
 	if err != nil {
 		t.Fatal(err)
 	}

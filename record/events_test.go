@@ -10,7 +10,7 @@ import (
 	"github.com/jinhuang712/gotato/record"
 
 	"github.com/jinhuang712/gotato/gotato"
-	"github.com/jinhuang712/gotato/session"
+	"github.com/jinhuang712/gotato/store"
 	"github.com/jinhuang712/gotato/testkit"
 )
 
@@ -18,8 +18,8 @@ import (
 // queued before them come first.
 func TestWriteReturnsQueuedEventsFirst(t *testing.T) {
 	ctx := context.Background()
-	store := session.NewMemoryStore()
-	writer, err := session.CreateWriter(ctx, store, record.New(record.WithID("w1")), "instance-a")
+	st := store.NewMemoryStore()
+	writer, err := store.CreateWriter(ctx, st, record.New(record.WithID("w1")), "instance-a")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -37,15 +37,15 @@ func TestWriteReturnsQueuedEventsFirst(t *testing.T) {
 			t.Fatalf("event %d = %s numbered %d for %q, want number %d", i, event.Kind(), event.Head().Number, event.Head().SessionID, 3+i)
 		}
 	}
-	if got := storedKinds(t, store, "w1", 2); len(got) != 3 || got[0] != wantKinds[0] || got[2] != wantKinds[2] {
+	if got := storedKinds(t, st, "w1", 2); len(got) != 3 || got[0] != wantKinds[0] || got[2] != wantKinds[2] {
 		t.Fatalf("stored %v", got)
 	}
 }
 
 func TestEventsAfterReadsStoredEventsByNumber(t *testing.T) {
 	ctx := context.Background()
-	store := session.NewMemoryStore()
-	writer, err := session.CreateWriter(ctx, store, record.New(record.WithID("e1")), "instance-a")
+	st := store.NewMemoryStore()
+	writer, err := store.CreateWriter(ctx, st, record.New(record.WithID("e1")), "instance-a")
 	if err != nil {
 		t.Fatal(err)
 	}

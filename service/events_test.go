@@ -14,7 +14,7 @@ import (
 	"github.com/jinhuang712/gotato/gotato"
 	"github.com/jinhuang712/gotato/profile"
 	"github.com/jinhuang712/gotato/service"
-	"github.com/jinhuang712/gotato/session"
+	"github.com/jinhuang712/gotato/store"
 	"github.com/jinhuang712/gotato/testkit"
 )
 
@@ -360,7 +360,7 @@ func TestSubscribeInstanceSeesAllAgentsAndForAgentsFilters(t *testing.T) {
 // Session's Record.
 func TestStoreEventsAreInstanceEvents(t *testing.T) {
 	// No warm copy, so the second Run loads the Session and times the load.
-	runner, store := newRunnerWith(t, noWarm, profile.AgentProfile{Name: "echo", Model: testkit.EchoModel{}, ModelName: "echo"})
+	runner, st := newRunnerWith(t, noWarm, profile.AgentProfile{Name: "echo", Model: testkit.EchoModel{}, ModelName: "echo"})
 	instance := instanceRecorder(t, runner)
 	ctx := context.Background()
 	first, err := runner.Run(ctx, service.RunRequest{Prompt: "one"})
@@ -414,7 +414,7 @@ func TestStoreEventsAreInstanceEvents(t *testing.T) {
 	}
 
 	// They time the store; they are not part of the Session's own Record.
-	stored, err := session.StoredEvents(ctx, store.Records, first.SessionID, 0, 0)
+	stored, err := store.StoredEvents(ctx, st.Records, first.SessionID, 0, 0)
 	if err != nil {
 		t.Fatal(err)
 	}

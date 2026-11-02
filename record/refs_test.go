@@ -8,7 +8,7 @@ import (
 
 	"github.com/jinhuang712/gotato/record"
 
-	"github.com/jinhuang712/gotato/session"
+	"github.com/jinhuang712/gotato/store"
 
 	"github.com/jinhuang712/gotato/gotato"
 )
@@ -108,7 +108,7 @@ func TestARefIntoPrunedEntriesReadsAsRemoved(t *testing.T) {
 	threeRuns(f)
 	mustCompact(t, f.rec, record.Compactor{}, record.CompactConfig{})
 	fresh := f.reload()
-	empty := session.NewMemoryStore()
+	empty := store.NewMemoryStore()
 	tool := resultToolOf(fresh, empty, 0)
 	got, err := readResult(t, tool, `{"ref":"result:c1"}`)
 	if err != nil || !strings.Contains(got, "removed from the Record") {

@@ -14,7 +14,7 @@ import (
 	"github.com/jinhuang712/gotato/profile"
 	"github.com/jinhuang712/gotato/record"
 	"github.com/jinhuang712/gotato/service"
-	"github.com/jinhuang712/gotato/session"
+	"github.com/jinhuang712/gotato/store"
 	"github.com/jinhuang712/gotato/testkit"
 )
 
@@ -41,11 +41,11 @@ func (s *shrinkingToolSet) Tools(context.Context) ([]gotato.Tool, error) {
 // whatever its own ToolSet answers.
 func TestAGoneToolIsUnloadedInTheRecordForEveryInstance(t *testing.T) {
 	ctx := context.Background()
-	store := memStore()
+	st := memStore()
 	set := &shrinkingToolSet{names: []string{"read"}}
 	model := testkit.NewFakeModel(loadFiles(), testkit.Text("opened"), testkit.Text("second"))
 	runner, err := service.New(service.Config{
-		Store:    store,
+		Store:    st,
 		Profiles: registry(t, profile.AgentProfile{Name: "a", Model: model, ToolSets: []profile.ToolSet{{Set: set}}}), DefaultAgent: "a",
 	})
 	if err != nil {
@@ -55,7 +55,7 @@ func TestAGoneToolIsUnloadedInTheRecordForEveryInstance(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	rec, err := session.Open(ctx, store.Records, first.SessionID)
+	rec, err := store.Open(ctx, st.Records, first.SessionID)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -72,7 +72,7 @@ func TestAGoneToolIsUnloadedInTheRecordForEveryInstance(t *testing.T) {
 	if ids := toolIDsOf(model.Requests()[2]); slices.Contains(ids, "files.read") {
 		t.Fatalf("a gone tool is still offered: %v", ids)
 	}
-	rec, err = session.Open(ctx, store.Records, first.SessionID)
+	rec, err = store.Open(ctx, st.Records, first.SessionID)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -156,10 +156,10 @@ func loadFiles() testkit.Script {
 	return testkit.ToolCalls(gotato.ToolCall{ID: "load-1", ToolID: gotato.SearchToolName, Arguments: arguments})
 }
 
-func toolSetRunner(t *testing.T, store session.Store, model gotato.Model) *service.Runner {
+func toolSetRunner(t *testing.T, st store.Store, model gotato.Model) *service.Runner {
 	t.Helper()
 	runner, err := service.New(service.Config{
-		Store:    store,
+		Store:    st,
 		Profiles: registry(t, profile.AgentProfile{Name: "a", Model: model, ToolSets: []profile.ToolSet{{Set: filesToolSet{}}}}), DefaultAgent: "a",
 	})
 	if err != nil {
@@ -174,10 +174,10 @@ func toolSetRunner(t *testing.T, store session.Store, model gotato.Model) *servi
 // fork and a compaction.
 func TestLoadedToolStaysLoadedInLaterRuns(t *testing.T) {
 	ctx := context.Background()
-	store := memStore()
+	st := memStore()
 	model := testkit.NewFakeModel(loadFiles(), testkit.Text("opened"), testkit.Text("second"),
 		testkit.ToolCalls(gotato.ToolCall{ID: "read-1", ToolID: "files.read", Arguments: []byte(`{}`)}), testkit.Text("third"), testkit.Text("fourth"))
-	runner := toolSetRunner(t, store, model)
+	runner := toolSetRunner(t, st, model)
 
 	first, err := runner.Run(ctx, service.RunRequest{Prompt: "open the files"})
 	if err != nil {
@@ -202,7 +202,7 @@ func TestLoadedToolStaysLoadedInLaterRuns(t *testing.T) {
 	}
 
 	// Run 3, a second Runner (another process) on the same store.
-	other := toolSetRunner(t, store, model)
+	other := toolSetRunner(t, st, model)
 	if _, err := other.Run(ctx, service.RunRequest{SessionID: first.SessionID, Prompt: "third"}); err != nil {
 		t.Fatal(err)
 	}
@@ -221,7 +221,7 @@ func TestLoadedToolStaysLoadedInLaterRuns(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if got := viewOf(t, store, fork.ID).LoadedTools(); !slices.Equal(got, []string{"files.read"}) {
+	if got := viewOf(t, st, fork.ID).LoadedTools(); !slices.Equal(got, []string{"files.read"}) {
 		t.Fatalf("fork LoadedTools = %v", got)
 	}
 	if _, err := other.Run(ctx, service.RunRequest{SessionID: fork.ID, Prompt: "in the fork"}); err != nil {
@@ -231,7 +231,7 @@ func TestLoadedToolStaysLoadedInLaterRuns(t *testing.T) {
 	if !slices.Contains(toolIDsOf(requests[5]), "files.read") {
 		t.Fatalf("the fork's first request tools = %v", toolIDsOf(requests[5]))
 	}
-	reopened, err := session.Open(ctx, store.Records, first.SessionID)
+	reopened, err := store.Open(ctx, st.Records, first.SessionID)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -247,8 +247,8 @@ func TestLoadedToolStaysLoadedInLaterRuns(t *testing.T) {
 func TestAToolSwitchedOffForASessionIsNeverInTheCatalogOrLoaded(t *testing.T) {
 	ctx := context.Background()
 	model := testkit.NewFakeModel(loadFiles(), testkit.Text("done"))
-	store := memStore()
-	runner := toolSetRunner(t, store, model)
+	st := memStore()
+	runner := toolSetRunner(t, st, model)
 	created, err := runner.CreateSession(ctx, service.CreateSessionRequest{})
 	if err != nil {
 		t.Fatal(err)
@@ -266,7 +266,7 @@ func TestAToolSwitchedOffForASessionIsNeverInTheCatalogOrLoaded(t *testing.T) {
 	if got := toolIDsOf(requests[0]); slices.Contains(got, "files.read") || !slices.Contains(got, gotato.SearchToolName) {
 		t.Fatalf("tools = %v, want search_tools and no files.read", got)
 	}
-	rec, err := session.View(ctx, store.Records, result.SessionID)
+	rec, err := store.View(ctx, st.Records, result.SessionID)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -310,13 +310,13 @@ func entryOf(entries []service.ToolEntry, id string) (service.ToolEntry, bool) {
 // down is shown as unavailable.
 func TestAToolOfAToolSetIsListedAndSwitchedByID(t *testing.T) {
 	ctx := context.Background()
-	store := memStore()
+	st := memStore()
 	arguments := `{"names":["files.write"]}`
 	model := testkit.NewFakeModel(
 		testkit.ToolCalls(gotato.ToolCall{ID: "load-1", ToolID: gotato.SearchToolName, Arguments: []byte(arguments)}),
 		testkit.Text("loaded"))
 	agent := profile.AgentProfile{Name: "a", Model: model, ToolSets: []profile.ToolSet{{Set: twoToolSet{}}, {Set: downToolSet{}}}}
-	runner, err := service.New(service.Config{Store: store, Profiles: registry(t, agent), DefaultAgent: agent.Name})
+	runner, err := service.New(service.Config{Store: st, Profiles: registry(t, agent), DefaultAgent: agent.Name})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -352,7 +352,7 @@ func TestAToolOfAToolSetIsListedAndSwitchedByID(t *testing.T) {
 	if err != nil || entry.Active || entry.ToolSet != "files" {
 		t.Fatalf("SetToolActive off = %+v, %v", entry, err)
 	}
-	rec, err := session.View(ctx, store.Records, id)
+	rec, err := store.View(ctx, st.Records, id)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -382,7 +382,7 @@ func TestAToolOfAToolSetIsListedAndSwitchedByID(t *testing.T) {
 	}
 
 	// Another Runner on the same store reads the same facts.
-	other, err := service.New(service.Config{Store: store, Profiles: registry(t, agent), DefaultAgent: agent.Name})
+	other, err := service.New(service.Config{Store: st, Profiles: registry(t, agent), DefaultAgent: agent.Name})
 	if err != nil {
 		t.Fatal(err)
 	}

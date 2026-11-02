@@ -8,14 +8,14 @@ import (
 	"github.com/jinhuang712/gotato/record"
 
 	"github.com/jinhuang712/gotato/gotato"
-	"github.com/jinhuang712/gotato/session"
+	"github.com/jinhuang712/gotato/store"
 	"github.com/jinhuang712/gotato/testkit"
 )
 
 var (
 	_ gotato.Transcript = (*record.Record)(nil)
 	_ gotato.Journal    = (*record.Record)(nil)
-	_ gotato.Journal    = (*session.Writer)(nil)
+	_ gotato.Journal    = (*store.Writer)(nil)
 )
 
 // A Record is a Journal in memory: a live Session over record.New() writes
@@ -98,8 +98,8 @@ func TestRecordIsAJournalInMemory(t *testing.T) {
 // with, and a later load starts there, not at the first Entry.
 func TestCheckpointWritesCompactionEndedAndALoadStartsThere(t *testing.T) {
 	ctx := context.Background()
-	store := session.NewMemoryStore()
-	writer, err := session.CreateWriter(ctx, store, record.New(record.WithID("cp-1")), "instance-a")
+	st := store.NewMemoryStore()
+	writer, err := store.CreateWriter(ctx, st, record.New(record.WithID("cp-1")), "instance-a")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -114,7 +114,7 @@ func TestCheckpointWritesCompactionEndedAndALoadStartsThere(t *testing.T) {
 	}
 	commit(t, writer, gotato.UserMessage("four"))
 
-	entries, err := store.Log(ctx, "cp-1", 0, 0)
+	entries, err := st.Log(ctx, "cp-1", 0, 0)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -135,14 +135,14 @@ func TestCheckpointWritesCompactionEndedAndALoadStartsThere(t *testing.T) {
 	if ended.Why != gotato.CompactionWhyBeforeUnload || ended.Compaction == nil || ended.Compaction.ReplacedMessages != 2 || len(ended.Messages) != 2 || len(ended.History) != 1 {
 		t.Fatalf("compaction_ended = %+v", ended)
 	}
-	loaded, err := store.Load(ctx, "cp-1")
+	loaded, err := st.Load(ctx, "cp-1")
 	if err != nil {
 		t.Fatal(err)
 	}
 	if loaded.Entries[0].Seq != checkpoint.Seq || loaded.Seq != 7 {
 		t.Fatalf("Load starts at %d with head %d, want a load from the checkpoint at %d", loaded.Entries[0].Seq, loaded.Seq, checkpoint.Seq)
 	}
-	reopened, err := session.Open(ctx, store, "cp-1")
+	reopened, err := store.Open(ctx, st, "cp-1")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -154,11 +154,11 @@ func TestCheckpointWritesCompactionEndedAndALoadStartsThere(t *testing.T) {
 		t.Fatal("a Record loaded from a checkpoint lost its creation time")
 	}
 	// Everything before the checkpoint stays in the store, for View.
-	view, err := session.View(ctx, store, "cp-1")
+	view, err := store.View(ctx, st, "cp-1")
 	if err != nil || view.Len() != 3 || view.Head() != 7 {
 		t.Fatalf("View = %v, %v", view, err)
 	}
-	if kinds := storedKinds(t, store, "cp-1", 0); len(kinds) != 7 || kinds[2] != gotato.EventKindMessageCommitted {
+	if kinds := storedKinds(t, st, "cp-1", 0); len(kinds) != 7 || kinds[2] != gotato.EventKindMessageCommitted {
 		t.Fatalf("stored kinds = %v", kinds)
 	}
 }
@@ -168,8 +168,8 @@ func TestCheckpointWritesCompactionEndedAndALoadStartsThere(t *testing.T) {
 // which leaves the Messages as they were.
 func TestCompactWritesItsEventsToTheStoredRecord(t *testing.T) {
 	ctx := context.Background()
-	store := session.NewMemoryStore()
-	writer, err := session.CreateWriter(ctx, store, record.New(record.WithID("cmp-1")), "instance-a")
+	st := store.NewMemoryStore()
+	writer, err := store.CreateWriter(ctx, st, record.New(record.WithID("cmp-1")), "instance-a")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -177,7 +177,7 @@ func TestCompactWritesItsEventsToTheStoredRecord(t *testing.T) {
 		commit(t, writer, gotato.UserMessage(text))
 		commit(t, writer, gotato.AssistantMessage("ok "+text))
 	}
-	before := storedKinds(t, store, "cmp-1", 0)
+	before := storedKinds(t, st, "cmp-1", 0)
 	stopped, stop := context.WithCancel(ctx)
 	stop()
 	if _, err := record.Compact(stopped, writer.Record(), record.Compactor{Recap: failingRecap{}}, record.CompactConfig{KeepMessages: 2}); err == nil {
@@ -189,7 +189,7 @@ func TestCompactWritesItsEventsToTheStoredRecord(t *testing.T) {
 	if writer.Record().Len() != 6 {
 		t.Fatalf("a failed compaction changed the Messages: %d", writer.Record().Len())
 	}
-	got := storedKinds(t, store, "cmp-1", uint64(len(before)))
+	got := storedKinds(t, st, "cmp-1", uint64(len(before)))
 	if len(got) != 2 || got[0] != gotato.EventKindCompactionStarted || got[1] != gotato.EventKindCompactionFailed {
 		t.Fatalf("after a failed compaction: %v", got)
 	}
@@ -200,18 +200,18 @@ func TestCompactWritesItsEventsToTheStoredRecord(t *testing.T) {
 	if err := writer.Flush(ctx); err != nil {
 		t.Fatal(err)
 	}
-	got = storedKinds(t, store, "cmp-1", uint64(len(before)+2))
+	got = storedKinds(t, st, "cmp-1", uint64(len(before)+2))
 	if len(got) != 3 || got[0] != gotato.EventKindCompactionStarted || got[1] != gotato.EventKindSegmentClosed || got[2] != gotato.EventKindCompactionEnded {
 		t.Fatalf("after a compaction: %v", got)
 	}
-	events, err := session.StoredEvents(ctx, store, "cmp-1", uint64(len(before)+2), 0)
+	events, err := store.StoredEvents(ctx, st, "cmp-1", uint64(len(before)+2), 0)
 	if err != nil {
 		t.Fatal(err)
 	}
 	if events[0].(gotato.CompactionStarted).Why != gotato.CompactionWhyPastCeiling || events[2].(gotato.CompactionEnded).Why != gotato.CompactionWhyPastCeiling {
 		t.Fatalf("events = %+v", events)
 	}
-	loaded, err := store.Load(ctx, "cmp-1")
+	loaded, err := st.Load(ctx, "cmp-1")
 	if err != nil || loaded.Entries[0].Kind != gotato.EventKindCompactionEnded {
 		t.Fatalf("a load starts at %v, %v; want the compaction_ended Checkpoint", loaded.Entries[0].Kind, err)
 	}
@@ -331,8 +331,8 @@ func TestLoadedToolsAreFactsOfTheRecord(t *testing.T) {
 		t.Fatal("tool_loaded is not a fact")
 	}
 	ctx := context.Background()
-	store := session.NewMemoryStore()
-	w, err := session.CreateWriter(ctx, store, record.New(), "i1")
+	st := store.NewMemoryStore()
+	w, err := store.CreateWriter(ctx, st, record.New(), "i1")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -345,7 +345,7 @@ func TestLoadedToolsAreFactsOfTheRecord(t *testing.T) {
 	if err := w.Release(ctx); err != nil {
 		t.Fatal(err)
 	}
-	opened, err := session.Open(ctx, store, w.ID())
+	opened, err := store.Open(ctx, st, w.ID())
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -359,8 +359,8 @@ func TestAnUnloadIsAFactAndRemovesTheTool(t *testing.T) {
 		t.Fatal("tool_unloaded is not a fact")
 	}
 	ctx := context.Background()
-	store := session.NewMemoryStore()
-	w, err := session.CreateWriter(ctx, store, record.New(), "i1")
+	st := store.NewMemoryStore()
+	w, err := store.CreateWriter(ctx, st, record.New(), "i1")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -370,7 +370,7 @@ func TestAnUnloadIsAFactAndRemovesTheTool(t *testing.T) {
 	if err := w.Release(ctx); err != nil {
 		t.Fatal(err)
 	}
-	opened, err := session.Open(ctx, store, w.ID())
+	opened, err := store.Open(ctx, st, w.ID())
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -381,8 +381,8 @@ func TestAnUnloadIsAFactAndRemovesTheTool(t *testing.T) {
 
 func TestCheckpointKeepsLoadedTools(t *testing.T) {
 	ctx := context.Background()
-	store := session.NewMemoryStore()
-	w, err := session.CreateWriter(ctx, store, record.New(), "i1")
+	st := store.NewMemoryStore()
+	w, err := store.CreateWriter(ctx, st, record.New(), "i1")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -399,14 +399,14 @@ func TestCheckpointKeepsLoadedTools(t *testing.T) {
 	}
 	// The load starts at the Checkpoint, so "files" comes from it, and "git"
 	// from the fact after it.
-	opened, err := session.Open(ctx, store, w.ID())
+	opened, err := store.Open(ctx, st, w.ID())
 	if err != nil {
 		t.Fatal(err)
 	}
 	if got := opened.LoadedTools(); !reflect.DeepEqual(got, []string{"files.read", "mail.send"}) {
 		t.Fatalf("LoadedTools after a Checkpoint = %v", got)
 	}
-	viewed, err := session.View(ctx, store, w.ID())
+	viewed, err := store.View(ctx, st, w.ID())
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -477,5 +477,5 @@ func TestARecordWithoutLoadsRestoresNone(t *testing.T) {
 
 var (
 	_ gotato.LoadedToolSource = (*record.Record)(nil)
-	_ gotato.LoadedToolSource = (*session.Writer)(nil)
+	_ gotato.LoadedToolSource = (*store.Writer)(nil)
 )

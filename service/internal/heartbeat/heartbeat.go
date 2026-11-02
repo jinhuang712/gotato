@@ -20,7 +20,7 @@ import (
 
 	"github.com/jinhuang712/gotato/gotato"
 	"github.com/jinhuang712/gotato/service/internal/clock"
-	"github.com/jinhuang712/gotato/session"
+	"github.com/jinhuang712/gotato/store"
 )
 
 // ErrLapsed refuses a write once this Instance cannot show that its row is
@@ -40,16 +40,16 @@ var ErrLapsedNotRun = func() *gotato.RuntimeError {
 var ErrClosed = lostRow("service: the runner is closed")
 
 // lostRow builds a refusal of a write that carries conflict and wraps
-// session.ErrConflict, so the checks for a lost race match it as they match a
+// store.ErrConflict, so the checks for a lost race match it as they match a
 // store's conflict.
 func lostRow(message string) *gotato.RuntimeError {
 	e := gotato.ErrorOf(gotato.CodeConflict, message)
-	e.Cause = session.ErrConflict
+	e.Cause = store.ErrConflict
 	return e
 }
 
 // Lapsed reports whether err is ErrLapsed itself. errors.Is cannot tell it
-// from ErrClosed or a store's conflict, which all match session.ErrConflict.
+// from ErrClosed or a store's conflict, which all match store.ErrConflict.
 func Lapsed(err error) bool {
 	var runtimeErr *gotato.RuntimeError
 	return errors.As(err, &runtimeErr) && (runtimeErr == ErrLapsed || runtimeErr == ErrLapsedNotRun)
@@ -67,7 +67,7 @@ func NotRunIfLapsed(err error) error {
 
 // Config says what a Row writes and what it tells its Instance.
 type Config struct {
-	Store session.Liveness
+	Store store.Liveness
 	Clock clock.Clock
 	// Label is the human-readable part of the Instance's name: the name is the
 	// label and a random suffix, or a generated one when the label is empty.
@@ -172,7 +172,7 @@ func (r *Row) Live(ctx context.Context) error {
 	if r.closed {
 		// Closed while this first renewal was on its way: remove the row it
 		// may have written.
-		_ = r.cfg.Store.Beat(ctx, session.InstanceRow{ID: r.instance}, 0)
+		_ = r.cfg.Store.Beat(ctx, store.InstanceRow{ID: r.instance}, 0)
 		return ErrClosed
 	}
 	if r.started {
@@ -197,7 +197,7 @@ func (r *Row) tick() {
 // renew renews the row once. The time it was sent, not answered, is what the
 // guard counts from, since the store may have timed it as early as that.
 //
-// A row that expired never comes back (session.ErrExpired), and the Sessions
+// A row that expired never comes back (store.ErrExpired), and the Sessions
 // it held may belong to other Instances by now. A store that was out of reach
 // longer than the TTL therefore ends this name, and renew registers a new one
 // instead of leaving the Instance without writes for good: the Runs and warm
@@ -206,13 +206,13 @@ func (r *Row) tick() {
 // written, the Row is Lapsed.
 func (r *Row) renew(ctx context.Context) error {
 	r.mu.Lock()
-	row := session.InstanceRow{ID: r.instance, Draining: r.draining, Address: r.cfg.Address}
+	row := store.InstanceRow{ID: r.instance, Draining: r.draining, Address: r.cfg.Address}
 	r.mu.Unlock()
 	sent := r.cfg.Clock.Now()
 	err := r.cfg.Store.Beat(ctx, row, r.cfg.TTL)
 	r.mu.Lock()
 	switch {
-	case errors.Is(err, session.ErrExpired):
+	case errors.Is(err, store.ErrExpired):
 		r.expired = true
 	case err == nil && sent.After(r.lastSent):
 		r.lastSent = sent
@@ -220,7 +220,7 @@ func (r *Row) renew(ctx context.Context) error {
 	closed := r.closed
 	r.mu.Unlock()
 	// [OWNERSHIP] an expired Liveness row is written again, or this Instance's Claims would be taken over.
-	if errors.Is(err, session.ErrExpired) && !closed {
+	if errors.Is(err, store.ErrExpired) && !closed {
 		return r.reregister(ctx, row)
 	}
 	return err
@@ -228,7 +228,7 @@ func (r *Row) renew(ctx context.Context) error {
 
 // reregister gives the Instance a new name after its row expired, and writes
 // that name's row. The old name's expired row is removed, best effort.
-func (r *Row) reregister(ctx context.Context, old session.InstanceRow) error {
+func (r *Row) reregister(ctx context.Context, old store.InstanceRow) error {
 	row := old
 	row.ID = r.newName()
 	sent := r.cfg.Clock.Now()
@@ -240,7 +240,7 @@ func (r *Row) reregister(ctx context.Context, old session.InstanceRow) error {
 		// Closed meanwhile, or another renewal registered a name first: the
 		// row just written belongs to no one.
 		r.mu.Unlock()
-		_ = r.cfg.Store.Beat(ctx, session.InstanceRow{ID: row.ID}, 0)
+		_ = r.cfg.Store.Beat(ctx, store.InstanceRow{ID: row.ID}, 0)
 		return nil
 	}
 	r.instance = row.ID
@@ -248,7 +248,7 @@ func (r *Row) reregister(ctx context.Context, old session.InstanceRow) error {
 	r.reported = false
 	r.lastSent = sent
 	r.mu.Unlock()
-	_ = r.cfg.Store.Beat(ctx, session.InstanceRow{ID: old.ID}, 0)
+	_ = r.cfg.Store.Beat(ctx, store.InstanceRow{ID: old.ID}, 0)
 	// A warm copy holds no Claim, but resumes with the old name.
 	if r.cfg.OnRename != nil {
 		r.cfg.OnRename()
@@ -319,8 +319,8 @@ func (r *Row) Close(ctx context.Context) error {
 		return nil
 	}
 	ticker.Stop()
-	err := r.cfg.Store.Beat(ctx, session.InstanceRow{ID: name}, 0)
-	if errors.Is(err, session.ErrExpired) {
+	err := r.cfg.Store.Beat(ctx, store.InstanceRow{ID: name}, 0)
+	if errors.Is(err, store.ErrExpired) {
 		// A store that keeps an ended row refuses an expired one.
 		return nil
 	}

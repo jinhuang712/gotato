@@ -8,7 +8,7 @@ import (
 	"github.com/jinhuang712/gotato/record"
 
 	"github.com/jinhuang712/gotato/gotato"
-	"github.com/jinhuang712/gotato/session"
+	"github.com/jinhuang712/gotato/store"
 )
 
 // A RecordInfo's times are time.Time. They go through a store's JSON and come
@@ -16,7 +16,7 @@ import (
 // whatever digits the time carries and in whatever zone it was written.
 func TestRecordInfoTimesSurviveASaveAndLoad(t *testing.T) {
 	ctx := context.Background()
-	store, err := session.NewFileStore(t.TempDir())
+	st, err := store.NewFileStore(t.TempDir())
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -28,15 +28,15 @@ func TestRecordInfoTimesSurviveASaveAndLoad(t *testing.T) {
 		{Seq: 1, Kind: gotato.EventKindSessionCreated, Layer: record.LayerFact, Data: []byte(`{}`)},
 		{Seq: 2, Kind: gotato.EventKindMessageCommitted, Layer: record.LayerFact, Data: []byte(`{}`)},
 	}
-	if err := store.Create(ctx, "r", entries, h); err != nil {
+	if err := st.Create(ctx, "r", entries, h); err != nil {
 		t.Fatal(err)
 	}
 
-	loaded, err := store.Load(ctx, "r")
+	loaded, err := st.Load(ctx, "r")
 	if err != nil {
 		t.Fatal(err)
 	}
-	page, err := store.List(ctx, session.ListQuery{})
+	page, err := st.List(ctx, store.ListQuery{})
 	if err != nil || len(page.Infos) != 1 {
 		t.Fatalf("List = %v, %v", page, err)
 	}
@@ -54,11 +54,11 @@ func TestRecordInfoTimesSurviveASaveAndLoad(t *testing.T) {
 // the usage, and the Record loaded from it knows them.
 func TestStateTimesSurviveASaveAndLoad(t *testing.T) {
 	ctx := context.Background()
-	store, err := session.NewFileStore(t.TempDir())
+	st, err := store.NewFileStore(t.TempDir())
 	if err != nil {
 		t.Fatal(err)
 	}
-	w, err := session.CreateWriter(ctx, store, record.New(record.WithID("st")), "a")
+	w, err := store.CreateWriter(ctx, st, record.New(record.WithID("st")), "a")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -75,7 +75,7 @@ func TestStateTimesSurviveASaveAndLoad(t *testing.T) {
 	if ended.IsZero() {
 		t.Fatal("the Record has no last Run end after a Run ended")
 	}
-	loaded, err := store.Load(ctx, "st")
+	loaded, err := st.Load(ctx, "st")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -89,7 +89,7 @@ func TestStateTimesSurviveASaveAndLoad(t *testing.T) {
 	if loaded.Header.Info.Runs != 1 || loaded.Header.Info.Usage.InputTokens != 7 {
 		t.Fatalf("Info = %+v, want the listing columns for one Run and 7 input tokens", loaded.Header.Info)
 	}
-	opened, err := session.Open(ctx, store, "st")
+	opened, err := store.Open(ctx, st, "st")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -101,16 +101,16 @@ func TestStateTimesSurviveASaveAndLoad(t *testing.T) {
 // A Record's stored times and epoch are the ones the Record had.
 func TestStoredInfoTimesAreTheRecordsOwn(t *testing.T) {
 	ctx := context.Background()
-	store, err := session.NewFileStore(t.TempDir())
+	st, err := store.NewFileStore(t.TempDir())
 	if err != nil {
 		t.Fatal(err)
 	}
-	w, err := session.CreateWriter(ctx, store, record.New(record.WithID("same")), "a", session.WithIdle())
+	w, err := store.CreateWriter(ctx, st, record.New(record.WithID("same")), "a", store.WithIdle())
 	if err != nil {
 		t.Fatal(err)
 	}
 	before := w.Record().Info()
-	loaded, err := store.Load(ctx, "same")
+	loaded, err := st.Load(ctx, "same")
 	if err != nil {
 		t.Fatal(err)
 	}

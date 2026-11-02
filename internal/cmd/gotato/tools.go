@@ -7,7 +7,7 @@ import (
 
 	"github.com/jinhuang712/gotato/gotato"
 	"github.com/jinhuang712/gotato/service"
-	"github.com/jinhuang712/gotato/session"
+	"github.com/jinhuang712/gotato/store"
 )
 
 // toolView renders a Tool for the CLI with the schema as JSON, not bytes.
@@ -93,7 +93,7 @@ func (c *cli) listTools(ctx context.Context, rt *cliRuntime, flags modelFlags, s
 		return toolListing{}, err
 	}
 	if agent == "" && sessionID != "" {
-		s, err := session.Open(ctx, rt.store.Records, sessionID)
+		s, err := store.Open(ctx, rt.store.Records, sessionID)
 		if err != nil {
 			return toolListing{}, err
 		}

@@ -48,7 +48,7 @@ import (
 	"github.com/jinhuang712/gotato/internal/cmd/gatewayconf"
 	"github.com/jinhuang712/gotato/internal/reftasks"
 	"github.com/jinhuang712/gotato/internal/workload"
-	"github.com/jinhuang712/gotato/session"
+	"github.com/jinhuang712/gotato/store"
 )
 
 const (
@@ -133,12 +133,12 @@ func run(ctx context.Context, args []string, stdout, stderr io.Writer, getenv fu
 		}
 	}
 	if *storeDir != "" {
-		store, err := session.NewFileStore(*storeDir)
+		st, err := store.NewFileStore(*storeDir)
 		if err != nil {
 			fmt.Fprintln(stderr, "gotato-workload:", err)
 			return exitError
 		}
-		cfg.Store = session.Store{Records: store, Liveness: store}
+		cfg.Store = store.Store{Records: st, Liveness: st}
 	}
 
 	if *recapCheck {

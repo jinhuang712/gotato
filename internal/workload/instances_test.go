@@ -16,7 +16,7 @@ import (
 	"github.com/jinhuang712/gotato/gotato"
 	"github.com/jinhuang712/gotato/internal/reftasks"
 	"github.com/jinhuang712/gotato/service"
-	"github.com/jinhuang712/gotato/session"
+	"github.com/jinhuang712/gotato/store"
 	"github.com/jinhuang712/gotato/testkit"
 )
 
@@ -32,14 +32,14 @@ type view struct {
 	runs       int
 }
 
-func viewOf(t *testing.T, store session.Store, id string) view {
+func viewOf(t *testing.T, st store.Store, id string) view {
 	t.Helper()
 	ctx := context.Background()
-	rec, err := session.View(ctx, store.Records, id)
+	rec, err := store.View(ctx, st.Records, id)
 	if err != nil {
 		t.Fatal(err)
 	}
-	events, err := session.StoredEvents(ctx, store.Records, id, 0, 0)
+	events, err := store.StoredEvents(ctx, st.Records, id, 0, 0)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -214,7 +214,7 @@ func TestRandomInstancesGiveWhatOneInstanceGives(t *testing.T) {
 					if len(p.task.Prompts) < 2 {
 						continue
 					}
-					if _, err := session.OpenWriter(context.Background(), victim.store, p.id, victim.name); err != nil {
+					if _, err := store.OpenWriter(context.Background(), victim.store, p.id, victim.name); err != nil {
 						t.Fatal(err)
 					}
 					held[p.id] = true
@@ -296,9 +296,9 @@ func withoutHeldClaim(t *testing.T, events []string) []string {
 
 // assertTakenOver fails unless another instance claimed the Session from the
 // dead holder.
-func assertTakenOver(t *testing.T, store session.Store, id, dead string) {
+func assertTakenOver(t *testing.T, st store.Store, id, dead string) {
 	t.Helper()
-	events, err := session.StoredEvents(context.Background(), store.Records, id, 0, 0)
+	events, err := store.StoredEvents(context.Background(), st.Records, id, 0, 0)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -331,11 +331,11 @@ func TestProxyKeepsASessionOnItsWriter(t *testing.T) {
 			t.Fatalf("prompt = %d %s", r.status, r.body)
 		}
 	}
-	rec, err := session.View(context.Background(), c.backing.Records, id)
+	rec, err := store.View(context.Background(), c.backing.Records, id)
 	if err != nil {
 		t.Fatal(err)
 	}
-	events, _ := session.StoredEvents(context.Background(), c.backing.Records, id, 0, 0)
+	events, _ := store.StoredEvents(context.Background(), c.backing.Records, id, 0, 0)
 	writers := map[string]bool{}
 	for _, event := range events {
 		if claimed, ok := event.(gotato.SessionClaimed); ok && claimed.Why != gotato.ClaimWhyNewSession {
@@ -391,7 +391,7 @@ func TestConcurrentMessagesToOneSessionAreNeverInterleaved(t *testing.T) {
 	if len(answered) == 0 {
 		t.Fatal("no message was answered")
 	}
-	rec, err := session.View(context.Background(), c.backing.Records, id)
+	rec, err := store.View(context.Background(), c.backing.Records, id)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -512,7 +512,7 @@ func TestKilledInstanceMidTrafficLosesOnlyTheStepInFlight(t *testing.T) {
 	}
 	total := 0
 	for id, prompts := range answered {
-		view, err := session.View(context.Background(), c.backing.Records, id)
+		view, err := store.View(context.Background(), c.backing.Records, id)
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -633,7 +633,7 @@ func TestProxyRetriesAFullInstancesRefusalElsewhere(t *testing.T) {
 	if got := c.proxy.retries.Load() - before; got != int64(toFull) {
 		t.Fatalf("%d requests retried, want %d: one for each that hashed to the full instance", got, toFull)
 	}
-	page, err := c.backing.Records.(session.Lister).List(context.Background(), session.ListQuery{Limit: 1000})
+	page, err := c.backing.Records.(store.Lister).List(context.Background(), store.ListQuery{Limit: 1000})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -662,7 +662,7 @@ func TestProxyRetriesAFullInstancesRefusalElsewhere(t *testing.T) {
 			continue // created while looking for ids, never run
 		}
 		checked++
-		rec, err := session.Open(context.Background(), c.backing.Records, summary.ID)
+		rec, err := store.Open(context.Background(), c.backing.Records, summary.ID)
 		if err != nil {
 			t.Fatal(err)
 		}

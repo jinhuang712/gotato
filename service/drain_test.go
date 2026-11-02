@@ -13,7 +13,7 @@ import (
 	"github.com/jinhuang712/gotato/profile"
 	"github.com/jinhuang712/gotato/record"
 	"github.com/jinhuang712/gotato/service"
-	"github.com/jinhuang712/gotato/session"
+	"github.com/jinhuang712/gotato/store"
 	"github.com/jinhuang712/gotato/testkit"
 )
 
@@ -62,7 +62,7 @@ func TestDrainCommitsRunsAndReleasesClaims(t *testing.T) {
 
 			// The row says draining, so every instance can see it. Drain sets
 			// its own flag first and then writes the row, so wait for the row.
-			var state session.InstanceState
+			var state store.InstanceState
 			waitFor(t, func() bool {
 				var err error
 				state, err = open().Liveness.Instance(ctx, a.Instance())
@@ -110,7 +110,7 @@ func TestDrainCommitsRunsAndReleasesClaims(t *testing.T) {
 			// instance leaves: its row is still alive, yet another instance
 			// claims each Session without waiting.
 			for i, id := range ids {
-				view, err := session.View(ctx, open().Records, id)
+				view, err := store.View(ctx, open().Records, id)
 				if err != nil {
 					t.Fatal(err)
 				}
@@ -148,10 +148,10 @@ func TestDrainCommitsRunsAndReleasesClaims(t *testing.T) {
 // with a reconnect hint only after every Run of the drain is released.
 func TestDrainDeadlineStopsRunsAndSaysReconnect(t *testing.T) {
 	ctx := context.Background()
-	store := memStore()
+	st := memStore()
 	model := &gatedEcho{gate: make(chan struct{}), started: make(chan string, 8)}
 	defer close(model.gate)
-	a := instanceRunner(t, store, "instance-a", model, steadyLiveness)
+	a := instanceRunner(t, st, "instance-a", model, steadyLiveness)
 
 	const runs = 2
 	ids := make([]string, runs)
@@ -177,7 +177,7 @@ func TestDrainDeadlineStopsRunsAndSaysReconnect(t *testing.T) {
 			// released.
 			var busy []string
 			for _, id := range ids {
-				if loaded, err := store.Records.Load(ctx, id); err != nil || stateOf(loaded).Busy {
+				if loaded, err := st.Records.Load(ctx, id); err != nil || stateOf(loaded).Busy {
 					busy = append(busy, id)
 				}
 			}
@@ -206,14 +206,14 @@ func TestDrainDeadlineStopsRunsAndSaysReconnect(t *testing.T) {
 		}
 	}
 	for _, id := range ids {
-		view, err := session.View(ctx, store.Records, id)
+		view, err := store.View(ctx, st.Records, id)
 		if err != nil {
 			t.Fatal(err)
 		}
 		if runs := view.Runs(); len(runs) != 1 || runs[0].Status != gotato.RunStatusCanceled {
 			t.Fatalf("runs = %+v, want one canceled", runs)
 		}
-		checkReleased(t, store, id, "instance-a")
+		checkReleased(t, st, id, "instance-a")
 	}
 }
 
@@ -338,7 +338,7 @@ type slowBeatStore struct {
 	hold atomic.Bool
 }
 
-func (s *slowBeatStore) Beat(ctx context.Context, row session.InstanceRow, ttl time.Duration) error {
+func (s *slowBeatStore) Beat(ctx context.Context, row store.InstanceRow, ttl time.Duration) error {
 	if s.hold.Load() {
 		<-ctx.Done()
 		return ctx.Err()

@@ -31,7 +31,7 @@ import (
 	"github.com/jinhuang712/gotato/profile"
 	"github.com/jinhuang712/gotato/record"
 	"github.com/jinhuang712/gotato/service"
-	"github.com/jinhuang712/gotato/session"
+	"github.com/jinhuang712/gotato/store"
 )
 
 // Config says how to drive the workload.
@@ -44,7 +44,7 @@ type Config struct {
 	Price Price
 	// Store holds the Sessions. Nil uses a memory store; a file store times
 	// loads and saves from disk.
-	Store session.Store
+	Store store.Store
 	// Plays is how many times each task is played. Zero plays it once.
 	Plays int
 	// Concurrency is how many plays of a task run at once on one Runner.
@@ -207,7 +207,7 @@ type build struct {
 	prefix   string
 }
 
-func playTask(ctx context.Context, runner *service.Runner, store session.Store, task reftasks.Task) play {
+func playTask(ctx context.Context, runner *service.Runner, st store.Store, task reftasks.Task) play {
 	p := play{stats: &stats{}}
 	s, err := runner.CreateSession(ctx, service.CreateSessionRequest{Agent: task.Name, Messages: task.History})
 	if err != nil {
@@ -307,7 +307,7 @@ func playTask(ctx context.Context, runner *service.Runner, store session.Store, 
 	// The committed tool results add the text of each failure to the
 	// report; the Events have already decided its cause.
 	results := map[gotato.ToolCallID]gotato.ToolResult{}
-	final, err := session.Open(ctx, store.Records, s.ID)
+	final, err := store.Open(ctx, st.Records, s.ID)
 	if err != nil {
 		p.failures = append(p.failures, failure{kind: KindSetup, cause: CauseStore, message: "reading the Session back: " + err.Error()})
 	} else {
@@ -367,7 +367,7 @@ type toolCall struct {
 // checkContext inspects, for every Turn, the Transcript that Turn was built
 // from (the Session's first Messages, since a reference task never compacts)
 // and compares its prefix hash with the Turn's context_built Event (G-G03).
-func checkContext(ctx context.Context, inspector *service.Runner, store session.Store, final *record.Record, builds []build, report *TaskReport) {
+func checkContext(ctx context.Context, inspector *service.Runner, st store.Store, final *record.Record, builds []build, report *TaskReport) {
 	messages := final.Messages()
 	mismatch := func(detail string) {
 		report.ContextMismatches++
@@ -382,12 +382,12 @@ func checkContext(ctx context.Context, inspector *service.Runner, store session.
 			continue
 		}
 		s := record.New(record.WithMetadata(final.Metadata()), record.WithMessages(messages[:b.messages]...), reftasks.WithLoadedToolsOf(messages[:b.messages]))
-		if _, err := session.CreateWriter(ctx, store.Records, s, inspector.Instance()); err != nil {
+		if _, err := store.CreateWriter(ctx, st.Records, s, inspector.Instance()); err != nil {
 			mismatch("saving the Transcript to inspect: " + err.Error())
 			continue
 		}
 		inspection, err := inspector.Inspect(ctx, s.ID(), service.InspectConfig{})
-		_ = store.Records.Delete(ctx, s.ID())
+		_ = st.Records.Delete(ctx, s.ID())
 		switch {
 		case err != nil:
 			mismatch("inspecting: " + err.Error())
@@ -408,9 +408,9 @@ func addUsage(a, b gotato.Usage) gotato.Usage {
 }
 
 // memoryStore is a Store of one MemoryStore, for a play that was given none.
-func memoryStore() session.Store {
-	m := session.NewMemoryStore()
-	return session.Store{Records: m, Liveness: m}
+func memoryStore() store.Store {
+	m := store.NewMemoryStore()
+	return store.Store{Records: m, Liveness: m}
 }
 
 // withAgents registers agents as the Config's AgentProfiles, the first the

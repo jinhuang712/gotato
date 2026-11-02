@@ -6,7 +6,7 @@ import (
 	"math"
 
 	"github.com/jinhuang712/gotato/gotato"
-	"github.com/jinhuang712/gotato/session"
+	"github.com/jinhuang712/gotato/store"
 )
 
 // notWriter answers a message for a Run that another Instance writes. It was
@@ -53,7 +53,7 @@ func (r *Runner) checkWriter(ctx context.Context, sessionID string) error {
 			return nil
 		}
 	}
-	rec, err := session.Open(ctx, r.store.Records, sessionID)
+	rec, err := store.Open(ctx, r.store.Records, sessionID)
 	if err != nil {
 		return storeFailureOf(ctx, err, true)
 	}

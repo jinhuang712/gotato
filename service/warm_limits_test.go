@@ -13,7 +13,7 @@ import (
 	"github.com/jinhuang712/gotato/profile"
 	"github.com/jinhuang712/gotato/record"
 	"github.com/jinhuang712/gotato/service"
-	"github.com/jinhuang712/gotato/session"
+	"github.com/jinhuang712/gotato/store"
 	"github.com/jinhuang712/gotato/testkit"
 )
 
@@ -200,10 +200,10 @@ func TestRefusedCallerDoesNotEvictTheWarmSession(t *testing.T) {
 
 // limitedInstance is an Instance over store that keeps at most limit Sessions,
 // warm ones included, and queues a Run on a busy Session.
-func limitedInstance(t *testing.T, store session.Store, clock service.Clock, model gotato.Model, limit int) *service.Runner {
+func limitedInstance(t *testing.T, st store.Store, clock service.Clock, model gotato.Model, limit int) *service.Runner {
 	t.Helper()
 	runner, err := service.New(service.WithClock(service.Config{
-		Store: store, Instance: "a",
+		Store: st, Instance: "a",
 		Bounds:   service.Bounds{MaxActiveSessions: limit, Queue: service.QueuePolicyWait},
 		Profiles: registry(t, profile.AgentProfile{Name: "echo", Model: model}), DefaultAgent: "echo", Warm: service.WarmPolicy{NoIdleCompaction: true},
 	}, clock))

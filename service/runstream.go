@@ -7,7 +7,7 @@ import (
 	"time"
 
 	"github.com/jinhuang712/gotato/gotato"
-	"github.com/jinhuang712/gotato/session"
+	"github.com/jinhuang712/gotato/store"
 )
 
 // runStream is the Run's stream of a StreamRun: it is handed the Subscription
@@ -89,7 +89,7 @@ func loadedEvent(sessionID string, messages int, elapsed time.Duration, err erro
 	}
 }
 
-func savedEvent(sessionID string, runID gotato.RunID, messages int, stats session.WriteStats, err error) SessionSaved {
+func savedEvent(sessionID string, runID gotato.RunID, messages int, stats store.WriteStats, err error) SessionSaved {
 	return SessionSaved{
 		Header:    gotato.NewHeader(gotato.SessionID(sessionID), runID, 0),
 		Messages:  messages,

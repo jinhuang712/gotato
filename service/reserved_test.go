@@ -12,14 +12,14 @@ import (
 	"github.com/jinhuang712/gotato/gotato"
 	"github.com/jinhuang712/gotato/profile"
 	"github.com/jinhuang712/gotato/service"
-	"github.com/jinhuang712/gotato/session"
+	"github.com/jinhuang712/gotato/store"
 	"github.com/jinhuang712/gotato/testkit"
 )
 
 // storedMetadata is the metadata of a stored Session.
-func storedMetadata(t *testing.T, store session.Store, id string) map[string]string {
+func storedMetadata(t *testing.T, st store.Store, id string) map[string]string {
 	t.Helper()
-	rec, err := session.View(context.Background(), store.Records, id)
+	rec, err := store.View(context.Background(), st.Records, id)
 	if err != nil {
 		t.Fatal(err)
 	}

@@ -22,7 +22,7 @@ import (
 	"github.com/jinhuang712/gotato/record"
 	"github.com/jinhuang712/gotato/service"
 	"github.com/jinhuang712/gotato/service/httpapi"
-	"github.com/jinhuang712/gotato/session"
+	"github.com/jinhuang712/gotato/store"
 	"github.com/jinhuang712/gotato/testkit"
 )
 
@@ -145,7 +145,7 @@ func TestSessionLifecycleOverHTTP(t *testing.T) {
 	}
 
 	status, body = call(t, server, http.MethodGet, "/v1/sessions", nil)
-	var list session.ListPage
+	var list store.ListPage
 	_ = json.Unmarshal(body, &list)
 	if status != http.StatusOK || len(list.Infos) != 2 || list.Next != "" {
 		t.Fatalf("list = %d %s", status, body)
@@ -484,9 +484,9 @@ func TestForwardDoesNotFollowARedirectOutOfTheAllowList(t *testing.T) {
 	}
 }
 
-func forwardRunner(t *testing.T, store session.Store, agent profile.AgentProfile, mutate func(*service.Config)) *service.Runner {
+func forwardRunner(t *testing.T, st store.Store, agent profile.AgentProfile, mutate func(*service.Config)) *service.Runner {
 	t.Helper()
-	cfg := withAgents(service.Config{Store: store, Heartbeat: service.Heartbeat{TTL: time.Second, Wait: 30 * time.Millisecond}}, []profile.AgentProfile{agent}...)
+	cfg := withAgents(service.Config{Store: st, Heartbeat: service.Heartbeat{TTL: time.Second, Wait: 30 * time.Millisecond}}, []profile.AgentProfile{agent}...)
 	mutate(&cfg)
 	r, err := service.New(cfg)
 	if err != nil {
@@ -697,7 +697,7 @@ func TestListSessionsPagesWithLimitAndCursor(t *testing.T) {
 	pages := 0
 	for {
 		status, body := call(t, server, http.MethodGet, path, nil)
-		var page session.ListPage
+		var page store.ListPage
 		if err := json.Unmarshal(body, &page); err != nil || status != http.StatusOK {
 			t.Fatalf("list = %d %s (%v)", status, body, err)
 		}
@@ -732,20 +732,20 @@ func TestListSessionsRefusesABadLimitAndCursor(t *testing.T) {
 }
 
 // onlyRecords hides what a Records may also be, so that it is not a Lister.
-type onlyRecords struct{ session.Records }
+type onlyRecords struct{ store.Records }
 
 // A store that does not list leaves Sessions not_supported, which is a 400.
 func TestListSessionsNeedsAStoreThatLists(t *testing.T) {
-	m := session.NewMemoryStore()
+	m := store.NewMemoryStore()
 	runner, err := service.New(withAgents(service.Config{
-		Store: session.Store{Records: onlyRecords{m}, Liveness: m},
+		Store: store.Store{Records: onlyRecords{m}, Liveness: m},
 	}, []profile.AgentProfile{{Name: "echo", Model: testkit.EchoModel{}}}...))
 	if err != nil {
 		t.Fatal(err)
 	}
 	server := httptest.NewServer(httpapi.New(runner))
 	t.Cleanup(server.Close)
-	if _, err := runner.Sessions(context.Background(), session.ListQuery{}); !gotato.IsCode(err, gotato.CodeNotSupported) {
+	if _, err := runner.Sessions(context.Background(), store.ListQuery{}); !gotato.IsCode(err, gotato.CodeNotSupported) {
 		t.Fatalf("Runner.Sessions = %v, want not_supported", err)
 	}
 	status, body := call(t, server, http.MethodGet, "/v1/sessions", nil)

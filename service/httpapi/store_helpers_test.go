@@ -9,14 +9,14 @@ import (
 	"github.com/jinhuang712/gotato/record"
 
 	"github.com/jinhuang712/gotato/gotato"
-	"github.com/jinhuang712/gotato/session"
+	"github.com/jinhuang712/gotato/store"
 )
 
 // claimOf is the Claim that the facts of a stored Session last name, read
 // through the store: the Runner's Record answers a Document, which has none.
-func claimOf(t *testing.T, store session.Store, id string) record.Claim {
+func claimOf(t *testing.T, st store.Store, id string) record.Claim {
 	t.Helper()
-	rec, err := session.View(context.Background(), store.Records, id)
+	rec, err := store.View(context.Background(), st.Records, id)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -25,31 +25,31 @@ func claimOf(t *testing.T, store session.Store, id string) record.Claim {
 
 // storeValue is a value that is both seams of a Store.
 type storeValue interface {
-	session.Records
-	session.Liveness
+	store.Records
+	store.Liveness
 }
 
 // asStore makes a Store of one value that is both Records and Liveness.
-func asStore(s storeValue) session.Store { return session.Store{Records: s, Liveness: s} }
+func asStore(s storeValue) store.Store { return store.Store{Records: s, Liveness: s} }
 
 // memStore is a Store of one new MemoryStore.
-func memStore() session.Store { return asStore(session.NewMemoryStore()) }
+func memStore() store.Store { return asStore(store.NewMemoryStore()) }
 
 // parts is a Store as one value with every method, for a test double that
 // wraps a Store and overrides some. Its List passes through when the Records
 // it holds list.
 type parts struct {
-	session.Records
-	session.Liveness
+	store.Records
+	store.Liveness
 }
 
 // partsOf makes the parts of a Store.
-func partsOf(s session.Store) parts { return parts{Records: s.Records, Liveness: s.Liveness} }
+func partsOf(s store.Store) parts { return parts{Records: s.Records, Liveness: s.Liveness} }
 
-func (p parts) List(ctx context.Context, q session.ListQuery) (session.ListPage, error) {
-	lister, ok := p.Records.(session.Lister)
+func (p parts) List(ctx context.Context, q store.ListQuery) (store.ListPage, error) {
+	lister, ok := p.Records.(store.Lister)
 	if !ok {
-		return session.ListPage{}, errors.New("the Records do not list")
+		return store.ListPage{}, errors.New("the Records do not list")
 	}
 	return lister.List(ctx, q)
 }

@@ -9,7 +9,7 @@ import (
 	"time"
 
 	"github.com/jinhuang712/gotato/service"
-	"github.com/jinhuang712/gotato/session"
+	"github.com/jinhuang712/gotato/store"
 )
 
 // runOnce sends one prompt through a Runner with an in-memory store and prints
@@ -22,8 +22,8 @@ func runOnce(model, prompt string) error {
 	if c, ok := agent.Model.(io.Closer); ok {
 		defer func() { _ = c.Close() }()
 	}
-	store := session.NewMemoryStore()
-	runner, err := service.New(service.Config{Store: session.Store{Records: store, Liveness: store}, Profiles: registryOf(agent), DefaultAgent: agent.Name})
+	st := store.NewMemoryStore()
+	runner, err := service.New(service.Config{Store: store.Store{Records: st, Liveness: st}, Profiles: registryOf(agent), DefaultAgent: agent.Name})
 	if err != nil {
 		return err
 	}

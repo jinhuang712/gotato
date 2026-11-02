@@ -16,22 +16,22 @@ import (
 	"github.com/jinhuang712/gotato/internal/reftasks"
 	"github.com/jinhuang712/gotato/profile"
 	"github.com/jinhuang712/gotato/service"
-	"github.com/jinhuang712/gotato/session"
+	"github.com/jinhuang712/gotato/store"
 )
 
 // memStore is a Store of one MemoryStore.
-func memStore() session.Store {
-	m := session.NewMemoryStore()
-	return session.Store{Records: m, Liveness: m}
+func memStore() store.Store {
+	m := store.NewMemoryStore()
+	return store.Store{Records: m, Liveness: m}
 }
 
 // taskRunner runs a task with a Liveness TTL that a loaded machine does not
 // outrun: a Runner refuses a write once its last renewal is older than 4/5 of
 // the TTL. A test that kills an instance does it through faultStore, which
 // removes the dead instance's row, so no short TTL is needed to wait it out.
-func taskRunner(t *testing.T, store session.Store, task reftasks.Task, instance string) *service.Runner {
+func taskRunner(t *testing.T, st store.Store, task reftasks.Task, instance string) *service.Runner {
 	t.Helper()
-	runner, err := service.New(withAgents(service.Config{Store: store, Instance: instance, Heartbeat: service.Heartbeat{TTL: 5 * time.Second, Wait: 2 * time.Second}}, []profile.AgentProfile{{
+	runner, err := service.New(withAgents(service.Config{Store: st, Instance: instance, Heartbeat: service.Heartbeat{TTL: 5 * time.Second, Wait: 2 * time.Second}}, []profile.AgentProfile{{
 		Name: task.Name, Model: task.Model, Instruction: task.Instruction, Tools: task.Tools, ToolSets: task.ToolSets, Limits: task.Limits,
 	}}...))
 	if err != nil {
@@ -147,14 +147,14 @@ func stripCacheControl(v any) any {
 // Tools they loaded and, when cacheKey is not empty, that cache key, as another
 // process or an earlier version would have left it, and returns its ID. It
 // writes through the store: the Runner's own calls refuse the keys it sets.
-func plantRecord(t *testing.T, store session.Store, agent, cacheKey string, messages []gotato.Message) string {
+func plantRecord(t *testing.T, st store.Store, agent, cacheKey string, messages []gotato.Message) string {
 	t.Helper()
 	metadata := map[string]string{service.ReservedPrefix + "agent": agent}
 	if cacheKey != "" {
 		metadata[service.ReservedPrefix+"cache_key"] = cacheKey
 	}
 	rec := record.New(record.WithMetadata(metadata), record.WithMessages(messages...), reftasks.WithLoadedToolsOf(messages))
-	if _, err := session.CreateWriter(context.Background(), store.Records, rec, "planter", session.WithIdle()); err != nil {
+	if _, err := store.CreateWriter(context.Background(), st.Records, rec, "planter", store.WithIdle()); err != nil {
 		t.Fatal(err)
 	}
 	return rec.ID()
