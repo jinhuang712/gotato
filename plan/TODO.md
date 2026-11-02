@@ -19,7 +19,7 @@ Findings from real use, each checked against the code (first pass on 2026-10-29)
 - [ ] **D-034 · A long Run never compacted mid-Run because the model window was left unset.** Confirmed. No core change; it is another reason for D-020's warning.
 - [ ] **D-038 · A compaction ceiling is a hard failure line, and a low one ends Runs.** Document it in the compaction section: the ceiling is a hard line, not a cost knob, and must stay above the floor after a compaction (instruction and tool definitions, kept tail, the largest Tool Result of one Turn; mark the rule of thumb a guess). A cost cap is a team's own `TurnStopper`. Decided: no code.
 - [ ] **D-039 · After a compaction a loaded tool the Session never called is unloaded, and its first call fails once.** Confirmed by measurement, expected. One sentence in the compaction and tool-search sections; running the call on the spot is the second half of D-018.
-- [ ] **D-035 · `compaction_ended` shows no window and hides a ceiling of 0; `context_built` has no per-part size.** Needs a decision first: carrying the two numbers to the Checkpoint changes the arguments of three public `Record` methods. Then an estimate per part.
+- [ ] **D-035 · Show what part of a Turn's Context is what.** Decided 2026-11-02: add an estimate per part (instruction, tool definitions, Segments, history, Tool Results; bytes over 4, named an estimate) to `context_built`, and show the same parts and their share in `inspect`. Additive only; `compaction_ended` and the public `Record` methods stay as they are. It is the measurement behind decision 043.
 - [ ] **D-036 · Clearing old Tool Results in the middle of a Run is answered by the draft decision 043 (a reference instead of a loss).**
 
 ## Decisions
