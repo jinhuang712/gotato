@@ -20,10 +20,11 @@ Findings from real use, each checked against the code (first pass on 2026-10-29)
 - [ ] **D-038 · A compaction ceiling is a hard failure line, and a low one ends Runs.** Document it in the compaction section with the rule of thumb for how low is too low (mark it a guess); decide whether a team-set ceiling below the window should end a Run or only compact.
 - [ ] **D-039 · After a compaction a loaded tool the Session never called is unloaded, and its first call fails once.** Confirmed by measurement, expected. One sentence in the compaction and tool-search sections; running the call on the spot is the second half of D-018.
 - [ ] **D-035 · `compaction_ended` shows no window and hides a ceiling of 0; `context_built` has no per-part size.** Needs a decision first: carrying the two numbers to the Checkpoint changes the arguments of three public `Record` methods. Then an estimate per part.
-- [ ] **D-036 · Decide whether to clear old Tool Results in the middle of a Run.** Write the decision first; check whether the compaction ceiling already answers it.
+- [ ] **D-036 · Clearing old Tool Results in the middle of a Run is answered by the draft decision 043 (a reference instead of a loss).**
 
 ## Decisions
 
+- [ ] **Compaction moves content out and never makes it unreadable (draft [043](decisions/043-compaction-moves-content-out-and-never-makes-it-unreadable.md)).** A reference for every Tool Result and Message a compaction or merge removes from the Context; reasoning is not read back. Answers D-036.
 - [ ] **Model profile: describe a model apart from its connection, with the window stated (draft [042](decisions/042-a-models-profile-is-its-own-value-apart-from-the-connection.md)).** Answers D-020 and D-034 at the root; no pool, no routing.
 - [ ] **D-005 · Cost: documentation only, or a hook?** `Usage` has no price. Either state in FEATURES.md that a team converts `Usage` itself (with an example), or add a price table or an `Event` hook.
 - [ ] **D-019 · Should the chat wire send `cache_control`?** Today it sends none, and `provider: anthropic` does not change that on chat. Either keep it a gateway matter and document it, or add the field.
