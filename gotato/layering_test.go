@@ -37,7 +37,11 @@ var allowedImports = map[string][]string{
 	"ref":               {},
 	"testkit":           {"gotato", "internal/hostlink", "internal/text", "session"}, // text.IsRecapAsk: the fake models recognize the Recap ask by the one definition
 	"session/storetest": {"gotato", "session"},
-	"service":           {"gotato", "internal/hostlink", "modelctx", "service/internal/clock", "service/internal/heartbeat", "service/internal/runs", "service/internal/warm", "session"},
+	// profile is optional: the definitions a host runs, and where they come from
+	// (decision 044). It sits between the service and the layers below it, and
+	// imports no service.
+	"profile": {"gotato", "modelctx", "session"},
+	"service": {"gotato", "internal/hostlink", "modelctx", "service/internal/clock", "service/internal/heartbeat", "service/internal/runs", "service/internal/warm", "session"},
 	// service/internal holds the parts of the Runner (decision 048): each is
 	// standard library only, or the core, and none imports another.
 	"service/internal/clock":     {},
