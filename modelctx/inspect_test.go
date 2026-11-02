@@ -3,6 +3,7 @@ package modelctx_test
 import (
 	"context"
 	"encoding/json"
+	"strings"
 	"testing"
 
 	"github.com/jinhuang712/gotato/gotato"
@@ -62,6 +63,57 @@ func TestReportAlwaysCarriesTheCeiling(t *testing.T) {
 		got, ok := fields["compact_ceiling_tokens"]
 		if !ok || got != float64(ceiling) {
 			t.Fatalf("ceiling %d: compact_ceiling_tokens = %v, present %v", ceiling, got, ok)
+		}
+	}
+}
+
+// TestReportPartsAddUpToTheWhole: for a Context with a Segment, a Tool call
+// and a Tool Result, the parts add up to the estimate of the whole request,
+// within the rounding of bytes over 4 (up to 3 bytes lost per part).
+func TestReportPartsAddUpToTheWhole(t *testing.T) {
+	segment := gotato.Message{Role: gotato.RoleUser, Parts: []gotato.ContentPart{{
+		Kind: gotato.ContentKindText, Text: "<segment n=\"1\">\nearlier work\n</segment>",
+		Metadata: map[string]string{gotato.MetaTag: gotato.TagSegment},
+	}}}
+	messages := append([]gotato.Message{segment}, toolConversation()...)
+	tools := []gotato.ToolSpec{{ID: "t", Description: "a tool", InputSchema: []byte(`{"type":"object"}`)}}
+	report, err := modelctx.Inspect(context.Background(), gotato.FullHistoryContext(), snapshot(messages), tools)
+	if err != nil {
+		t.Fatal(err)
+	}
+	parts := []int{report.EstimateSystemTokens, report.EstimateToolDefsTokens, report.EstimateSegmentsTokens, report.EstimateHistoryTokens, report.EstimateToolResultsTokens}
+	sum := 0
+	for i, tokens := range parts {
+		if tokens <= 0 {
+			t.Fatalf("part %d is %d, want a positive estimate: %+v", i, tokens, report)
+		}
+		sum += tokens
+	}
+	encodedTools, _ := json.Marshal(report.Request.Tools)
+	whole := modelctx.EstimateTokens(report.Request.Messages) + (len(report.Request.SystemInstructions)+len(encodedTools)+3)/4
+	if diff := sum - whole; diff < -1 || diff > len(parts) {
+		t.Fatalf("parts add up to %d, whole is %d", sum, whole)
+	}
+	// The same numbers as the modelctx rule: the history part is the user
+	// and assistant Messages alone.
+	history := []gotato.Message{messages[1], messages[2], messages[4], messages[5], messages[6]}
+	if got := modelctx.EstimateTokens(history); report.EstimateHistoryTokens < got-2 || report.EstimateHistoryTokens > got+1 {
+		t.Fatalf("history part = %d, EstimateTokens = %d", report.EstimateHistoryTokens, got)
+	}
+	if report.EstimateSystemTokens != (len(report.Request.SystemInstructions)+3)/4 {
+		t.Fatalf("system part = %d", report.EstimateSystemTokens)
+	}
+}
+
+// TestReportCarriesPartsAlways: a 0 part is a key with 0, not a missing key.
+func TestReportCarriesPartsAlways(t *testing.T) {
+	encoded, err := json.Marshal(modelctx.Report{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, key := range []string{"estimate_system_tokens", "estimate_tool_defs_tokens", "estimate_segments_tokens", "estimate_history_tokens", "estimate_tool_results_tokens"} {
+		if !strings.Contains(string(encoded), `"`+key+`":0`) {
+			t.Fatalf("%s missing from %s", key, encoded)
 		}
 	}
 }

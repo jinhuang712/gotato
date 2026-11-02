@@ -26,6 +26,10 @@ Sealing means a caller switches on the type and reads checked fields, and no out
 
 The writer that numbers Events holds the span of the Run: it opens when `run_started` is written and closes when `run_ended` is. An Event that another goroutine writes (a queued message, a drop, an Abort) is stamped with the open Run and its Turn at that moment, so every Event with a `run_id` lies between that Run's `run_started` and `run_ended`. One that arrives outside a Run has no `run_id`. An Abort that comes before `run_started` is written right after it.
 
+## What a Turn's Context is made of
+
+`context_built` carries, next to its prefix hash and sizes, an estimate in tokens of each part of the request: `estimate_system_tokens`, `estimate_tool_defs_tokens`, `estimate_segments_tokens`, `estimate_history_tokens` and `estimate_tool_results_tokens` (the instruction, the tool definitions, the Segment and Recap Messages, the user and assistant Messages, and the Tool Results). They use the one rule of the code, bytes of the JSON encoding over 4, so they add up to the estimate of the request within the rounding of each part. They are an estimate, not what the provider counts, and they are always written, 0 included. A Record written before they existed reads them as 0.
+
 ## Written, then sent
 
 A stored Event reaches a subscriber only after the Journal has written it.

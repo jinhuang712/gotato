@@ -2,6 +2,7 @@ package main
 
 import (
 	"fmt"
+	"io"
 	"strings"
 
 	"github.com/jinhuang712/gotato/gotato"
@@ -65,6 +66,7 @@ func (c *cli) contextInspect(mode string, args []string) int {
 	}
 	fmt.Fprintf(c.stdout, "session %s\nstrategy %s (append-only)\nmessages %d · ~%d tokens · system %d bytes · tools %d\nprefix_hash %s\n",
 		report.SessionID, report.Strategy, report.SelectedMessages, report.ApproxTokens, report.SystemBytes, len(report.Request.Tools), report.PrefixHash)
+	printParts(c.stdout, report)
 	fmt.Fprintf(c.stdout, "compact_ceiling_tokens %d", report.CompactCeilingTokens)
 	if report.CompactCeilingTokens == 0 {
 		fmt.Fprint(c.stdout, " (off: compacts only after a refusal as too long)")
@@ -134,4 +136,31 @@ func (c *cli) contextCompact(args []string) int {
 		human = fmt.Sprintf("session %s: nothing to compact (%s)", result.SessionID, result.Reason)
 	}
 	return c.emit(result, human)
+}
+
+// printParts writes the estimate per part of the request, in tokens and as a
+// share of the parts' sum.
+func printParts(w io.Writer, report modelctx.Report) {
+	parts := []struct {
+		name   string
+		tokens int
+	}{
+		{"system", report.EstimateSystemTokens},
+		{"tool definitions", report.EstimateToolDefsTokens},
+		{"segments", report.EstimateSegmentsTokens},
+		{"history", report.EstimateHistoryTokens},
+		{"tool results", report.EstimateToolResultsTokens},
+	}
+	total := 0
+	for _, part := range parts {
+		total += part.tokens
+	}
+	fmt.Fprintln(w, "parts (estimate, tokens):")
+	for _, part := range parts {
+		share := 0.0
+		if total > 0 {
+			share = float64(part.tokens) * 100 / float64(total)
+		}
+		fmt.Fprintf(w, "  %-16s %7d  %5.1f%%\n", part.name, part.tokens, share)
+	}
 }

@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"strconv"
+	"strings"
 	"testing"
 )
 
@@ -58,6 +59,9 @@ func TestContextBuilderShapesModelViewAndEmitsEvent(t *testing.T) {
 	if built.Strategy != "last_only" || built.Messages != 1 || built.SourceMessages != 3 || built.SelectedMessages != 1 {
 		t.Fatalf("ContextBuilt = %+v", *built)
 	}
+	if built.EstimateSystemTokens == 0 || built.EstimateHistoryTokens == 0 || built.EstimateSegmentsTokens != 0 || built.EstimateToolResultsTokens != 0 {
+		t.Fatalf("ContextBuilt estimates = %+v", *built)
+	}
 	if built.Metadata["source_messages"] != "99" || built.Metadata["dropped_messages"] != "2" || built.Metadata["strategy"] != "last_only" {
 		t.Fatalf("ContextBuilt metadata = %v", built.Metadata)
 	}
@@ -87,5 +91,35 @@ func TestRenderBlocks(t *testing.T) {
 	want := "<resource lines=\"1-2\" path=\"a.md\">x</resource>\nbare"
 	if got != want {
 		t.Fatalf("got %q want %q", got, want)
+	}
+}
+
+// TestContextBuiltOldRecordReadsEstimatesAsZero: a context_built written before
+// the estimates existed still decodes, and its estimates are 0; a 0 is written.
+func TestContextBuiltOldRecordReadsEstimatesAsZero(t *testing.T) {
+	old := `{"kind":"context_built","messages":3,"source_messages":3,"selected_messages":3,"prefix_hash":"abcd","prefix_messages":2,"system_bytes":10,"tools":1}`
+	event, err := UnmarshalEvent([]byte(old))
+	if err != nil {
+		t.Fatal(err)
+	}
+	built, ok := event.(ContextBuilt)
+	if !ok {
+		t.Fatalf("decoded %T", event)
+	}
+	if built.Messages != 3 || built.PrefixHash != "abcd" || built.Tools != 1 {
+		t.Fatalf("old fields = %+v", built)
+	}
+	if built.EstimateSystemTokens != 0 || built.EstimateToolDefsTokens != 0 || built.EstimateSegmentsTokens != 0 ||
+		built.EstimateHistoryTokens != 0 || built.EstimateToolResultsTokens != 0 {
+		t.Fatalf("estimates of an old Record = %+v", built)
+	}
+	encoded, err := MarshalEvent(built)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, key := range []string{"estimate_system_tokens", "estimate_tool_defs_tokens", "estimate_segments_tokens", "estimate_history_tokens", "estimate_tool_results_tokens"} {
+		if !strings.Contains(string(encoded), `"`+key+`":0`) {
+			t.Fatalf("%s missing from %s", key, encoded)
+		}
 	}
 }

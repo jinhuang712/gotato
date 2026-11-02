@@ -207,6 +207,12 @@ func (st *runState) callModel(turn TurnNumber, runStart int) (assistant Message,
 			SystemBytes:      len(current.request.SystemInstructions),
 			Tools:            len(current.request.Tools),
 		}
+		estimate := EstimateContext(current.built, current.request)
+		contextBuilt.EstimateSystemTokens = estimate.System
+		contextBuilt.EstimateToolDefsTokens = estimate.ToolDefs
+		contextBuilt.EstimateSegmentsTokens = estimate.Segments
+		contextBuilt.EstimateHistoryTokens = estimate.History
+		contextBuilt.EstimateToolResultsTokens = estimate.ToolResults
 		// The builder's Metadata keeps its own key, so it can never replace
 		// a count above with its string form.
 		if len(current.built.Metadata) > 0 {
