@@ -50,7 +50,7 @@ func finalContext(ctx context.Context) (context.Context, context.CancelFunc) {
 // replyPartEvery and replyPartBytes bound how much of a streaming reply a
 // crash can lose: a ReplyPartKept is stored every second, or as soon as this
 // many bytes have streamed, whichever is first.
-var (
+const (
 	replyPartEvery = time.Second
 	replyPartBytes = 4096
 )

@@ -148,13 +148,7 @@ func (s *SessionStream) endWith(hint *Reconnect) {
 //
 // When the Instance's drain is over, the stream ends after the Events already
 // stored, and Reconnect says to come back.
-func (r *Runner) StreamSession(ctx context.Context, sessionID string, from StreamFrom, opts ...SessionStreamOption) (*SessionStream, error) {
-	var config sessionStreamConfig
-	for _, option := range opts {
-		if option != nil {
-			option(&config)
-		}
-	}
+func (r *Runner) StreamSession(ctx context.Context, sessionID string, from StreamFrom) (*SessionStream, error) {
 	stream := &SessionStream{sessionID: sessionID}
 	r.addStream(stream)
 	loaded, err := r.store.Records.Load(ctx, sessionID)

@@ -147,7 +147,7 @@ A Tool's progress reports are capped inside the core (1 MiB and 1,000 reports pe
 - `errors.Is(err, sentinel)` matches the sentinel or an error that wraps it, so two sentinels that share a code (`ErrExists` and `ErrExpired` are both `invalid_state`) are told apart; `gotato.IsCode(err, code)` matches any error of a code. Both look through wrapped and joined errors.
 - **`Runner.Run` returns a response and an error together.** `err` says whether the request succeeded as a whole; the response describes a Run that started, whatever `err` is. A refusal before the Run started is the zero response with an error marked not run; a non-empty `SessionID` means a Run started and settled.
 - **A request can carry the caller's own ID.** `RunRequest.RequestID` and `MessageRequest.RequestID` are recorded in `run_started` (and the Run's `RunInfo`) and echoed in the response. Gotato does not deduplicate in 0.2.0: a repeated ID runs again.
-- **Calls that will grow take an options tail.** `AbortSession`, `Events`, `StreamRun`, `StreamRunAdmitted` and `StreamSession` end with `opts ...Option` (`AbortOption`, `EventsOption`, `StreamRunOption`, `SessionStreamOption`); only `AbortRun` exists today. `Sessions` takes a `session.ListQuery` instead (a limit and a cursor).
+- **`AbortSession` takes an options tail.** It ends with `opts ...AbortOption`; only `AbortRun` exists today. `Events`, `StreamRun`, `StreamRunAdmitted` and `StreamSession` have none (D-048): a call that needs one later gets it with a CHANGELOG entry. `Sessions` takes a `session.ListQuery` (a limit and a cursor).
 - HTTP only translates ([G-F14](#g-f14--http-and-streaming-)); [RUNBOOK.md](RUNBOOK.md) has the table of every code with its status and exit code.
 
 ### G-F26 — Steering a Run ✅

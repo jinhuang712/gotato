@@ -149,8 +149,8 @@ func (m MessageRequest) validate() *gotato.RuntimeError {
 // Session.
 func (r *Runner) queueToLiveRun(ctx context.Context, request MessageRequest, message gotato.Message) (queued, waited bool, err error) {
 	for attempt := 0; ; attempt++ {
-		if attempt > 0 && r.onSendRetry != nil {
-			r.onSendRetry()
+		if attempt > 0 && r.hooks.onSendRetry != nil {
+			r.hooks.onSendRetry()
 		}
 		handle, err := r.liveRun(ctx, request.SessionID)
 		if err != nil {

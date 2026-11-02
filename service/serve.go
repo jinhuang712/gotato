@@ -134,8 +134,8 @@ func (st *runState) serveLocked(ctx, runCtx context.Context) error {
 	result, st.runErr = st.promptWithDeadline(ctx, spec, live)
 	st.dropUntakenFollow(live, result)
 	st.detach(runCtx, live)
-	if r.beforeRelease != nil {
-		r.beforeRelease()
+	if r.hooks.beforeRelease != nil {
+		r.hooks.beforeRelease()
 	}
 	st.persist(runCtx, spec, &result)
 	st.respond(spec, auto, result)

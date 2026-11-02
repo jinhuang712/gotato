@@ -4,11 +4,11 @@ import "time"
 
 // SetBeforeDetach sets the seam that holds a Run after it has settled and
 // before its live Session stops taking messages.
-func (r *Runner) SetBeforeDetach(fn func()) { r.beforeDetach = fn }
+func (r *Runner) SetBeforeDetach(fn func()) { r.hooks.beforeDetach = fn }
 
 // SetBeforeRelease sets the seam that holds a Run after it has stopped taking
 // messages and before it releases its Session.
-func (r *Runner) SetBeforeRelease(fn func()) { r.beforeRelease = fn }
+func (r *Runner) SetBeforeRelease(fn func()) { r.hooks.beforeRelease = fn }
 
 // Clock and Timer are the time a Runner waits by, which a test advances itself.
 type (
@@ -24,10 +24,10 @@ func WithClock(cfg Config, c Clock) Config {
 }
 
 // SetOnSendRetry sets the seam that counts the rounds of Send's loop.
-func (r *Runner) SetOnSendRetry(fn func()) { r.onSendRetry = fn }
+func (r *Runner) SetOnSendRetry(fn func()) { r.hooks.onSendRetry = fn }
 
 // SetDrainStopWait sets how long Drain waits for the Runs it stopped.
-func (r *Runner) SetDrainStopWait(d time.Duration) { r.drainStop = d }
+func (r *Runner) SetDrainStopWait(d time.Duration) { r.hooks.drainStop = d }
 
 // WarmLimit returns the bound on warm Sessions in force.
 func (r *Runner) WarmLimit() int { return r.admission.MaxWarmSessions }

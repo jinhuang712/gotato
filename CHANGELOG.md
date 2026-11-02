@@ -134,6 +134,9 @@ What changed in Gotato, from the user's side. Newest first. A breaking change ca
 - **The service installs the default `ReadBack`, and offers `read_result` by the Agent's configuration.**
   - Before: the service added its own read tools, and offered `read_result` by the tools actually offered after the Effect cap and the Session's switches.
   - After: the service installs `modelctx.ReadBack` over its store with `gotato.WithReadBack`, and offers `read_result` when the Agent has a Tool, a ToolSource or a ToolSet, or a Segment exists, which is steadier for the cache.
+- **`Events`, `StreamRun`, `StreamRunAdmitted` and `StreamSession` take no options tail** (D-048).
+  - Before: `runner.Events(ctx, id, opts...)`, `StreamRun(ctx, req, sink, opts...)`, `StreamRunAdmitted(ctx, req, admitted, sink, opts...)` and `StreamSession(ctx, id, from, opts...)` ended with `...EventsOption`, `...StreamRunOption` and `...SessionStreamOption`, types that held no option.
+  - After: the three types are gone and the calls end at their last argument. A caller that passed no option compiles as before; adding an option later is a break with its own entry. `AbortSession` keeps `...AbortOption` (`AbortRun` exists).
 
 ### Fixed
 

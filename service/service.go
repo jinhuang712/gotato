@@ -322,19 +322,12 @@ type Runner struct {
 	// of a Record and never a lock; warmClosed says the Runner has let them
 	// all go and keeps none (see warm.go).
 	clock clock
-	// beforeDetach is a test seam: it runs when a Run has settled and its live
-	// Session still takes messages (see export_test.go).
-	beforeDetach func()
-	// onSendRetry is a test seam: it runs each time Send goes round its loop
-	// again.
-	onSendRetry func()
-	// beforeRelease is a test seam: it runs when a Run no longer takes
-	// messages and still holds the Session.
-	beforeRelease func()
-	warmMu        sync.Mutex
-	warm          map[string]*warmEntry
-	warmClosed    bool
-	warmSeq       uint64
+	// hooks are the seams the tests of this package set (export_test.go).
+	hooks      testHooks
+	warmMu     sync.Mutex
+	warm       map[string]*warmEntry
+	warmClosed bool
+	warmSeq    uint64
 
 	// unreleased holds the Sessions whose release write failed. The Claim
 	// still names this Instance, so the Session is marked busy under a live
@@ -373,7 +366,21 @@ type Runner struct {
 	idle    *sync.Cond
 	// drainTimeout bounds how long Drain waits for the Runs; negative is none.
 	drainTimeout time.Duration
-	// drainStop is a test seam: drainStopWait when zero.
+}
+
+// testHooks are the seams the tests of this package set, and nothing else
+// does: each is nil, or zero, in a Runner that runs for real.
+type testHooks struct {
+	// beforeDetach runs when a Run has settled and its live Session still
+	// takes messages.
+	beforeDetach func()
+	// onSendRetry runs each time Send goes round its loop again.
+	onSendRetry func()
+	// beforeRelease runs when a Run no longer takes messages and still holds
+	// the Session.
+	beforeRelease func()
+	// drainStop is how long Drain waits for the Runs it stopped:
+	// drainStopWait when zero.
 	drainStop time.Duration
 }
 
@@ -488,13 +495,7 @@ func (r *Runner) Record(ctx context.Context, sessionID string) (session.Document
 
 // Events reads a Session's stored Events from the store: every Entry of its
 // Record that is an Event, in the order of their numbers, as typed Events.
-func (r *Runner) Events(ctx context.Context, sessionID string, opts ...EventsOption) ([]gotato.Event, error) {
-	var config eventsConfig
-	for _, option := range opts {
-		if option != nil {
-			option(&config)
-		}
-	}
+func (r *Runner) Events(ctx context.Context, sessionID string) ([]gotato.Event, error) {
 	events, err := session.StoredEvents(ctx, r.store.Records, sessionID, 0, 0)
 	return events, storeFailureOf(ctx, err, true)
 }

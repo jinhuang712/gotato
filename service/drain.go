@@ -15,8 +15,8 @@ const drainStopWait = 5*time.Second + session.WriteTimeout
 
 // stopWait returns drainStopWait, or the value a test set.
 func (r *Runner) stopWait() time.Duration {
-	if r.drainStop > 0 {
-		return r.drainStop
+	if r.hooks.drainStop > 0 {
+		return r.hooks.drainStop
 	}
 	return drainStopWait
 }

@@ -102,8 +102,8 @@ func (r *Runner) Run(ctx context.Context, request RunRequest) (RunResponse, erro
 // the sink falls behind on is read again from the Record. A sink error is
 // advisory: it stops delivery, not the Run. StreamRun returns after the Run
 // settles and its last Event has been delivered.
-func (r *Runner) StreamRun(ctx context.Context, request RunRequest, sink func(gotato.Event) error, opts ...StreamRunOption) (RunResponse, error) {
-	return r.StreamRunAdmitted(ctx, request, nil, sink, opts...)
+func (r *Runner) StreamRun(ctx context.Context, request RunRequest, sink func(gotato.Event) error) (RunResponse, error) {
+	return r.StreamRunAdmitted(ctx, request, nil, sink)
 }
 
 // StreamRunAdmitted is StreamRun with a call, on the caller's goroutine, once
@@ -115,13 +115,7 @@ func (r *Runner) StreamRun(ctx context.Context, request RunRequest, sink func(go
 // call, so an endpoint can still answer the request with a status of its own
 // before it starts to stream. A nil sink still gets the call, and its Events
 // are not delivered.
-func (r *Runner) StreamRunAdmitted(ctx context.Context, request RunRequest, admitted func(), sink func(gotato.Event) error, opts ...StreamRunOption) (RunResponse, error) {
-	var config streamRunConfig
-	for _, option := range opts {
-		if option != nil {
-			option(&config)
-		}
-	}
+func (r *Runner) StreamRunAdmitted(ctx context.Context, request RunRequest, admitted func(), sink func(gotato.Event) error) (RunResponse, error) {
 	if sink == nil {
 		if admitted == nil {
 			return r.run(ctx, request, nil)

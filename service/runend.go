@@ -16,8 +16,8 @@ import (
 // save.
 func (st *runState) detach(runCtx context.Context, live *gotato.Session) {
 	r, handle := st.r, st.handle
-	if r.beforeDetach != nil {
-		r.beforeDetach()
+	if r.hooks.beforeDetach != nil {
+		r.hooks.beforeDetach()
 	}
 	// A notice from a service the Run left waits for the next Run, even
 	// when the Run was stopped, since it asks for no work: its
