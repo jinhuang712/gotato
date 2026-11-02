@@ -23,8 +23,10 @@ const (
 
 // NewSession builds a live Session from an Agent's parts, given as options,
 // and starts it. A Model is required. The Session takes its ID from its
-// Transcript when the Transcript has an ID, as a session.Record does, and
-// generates one otherwise. Close it when it is no longer needed.
+// Transcript when the Transcript declares one (Capabilities.ID, as a
+// session.Record does), and generates one otherwise. A single-valued option
+// given twice fails with invalid_argument, naming it, and so does a Transcript
+// that declares Durable without a Journal, Events and Loaded. Close it when it is no longer needed.
 //
 // ctx covers the work NewSession does before the Session exists: resolving
 // the ToolSets installed active and the ones the Session's earlier Runs
