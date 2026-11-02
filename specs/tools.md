@@ -105,6 +105,8 @@ Calls are checked in source order, run in groups, and committed in source order.
 
 A call the model got wrong, whether an unknown tool, bad JSON or arguments that fail the schema, becomes a failed result with the reason, and the next Turn can correct it. A tool's own error becomes "tool failed" with a code, unless the error is a `PublicError`, since a foreign error may carry a host or a secret. A panic is a failed call, not a dead process. A call that passes its `ToolCallDeadline` fails with `deadline_exceeded`, says its outcome is unknown, and the Run goes on; the Run stops waiting at the deadline even when the tool ignores its `ctx`, whose goroutine runs on until it returns. On cancel, a call that had started is recorded as canceled with `executed: true`, because it may have done its work; one that had not is never launched. Every call gets a result, even when the Run ends first, because a provider refuses a request that has a call without one.
 
+A call's `Arguments` are bytes, so JSON shows them as base64 in a Record; decode them to read them. Arguments that are not valid JSON are stored as given.
+
 ## A big result
 
 A result over one page is written to the Record as an Entry of its own, and the Context keeps a preview.

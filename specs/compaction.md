@@ -102,6 +102,8 @@ A crash leaves no half-compaction: the Context is what the last Checkpoint lists
 
 The top row is a crash at each step. Only step 5 changes the Record, and it is one batch, so a crash before it changes nothing and a crash after it leaves a finished compaction. The kept tools are part of the Checkpoint, so a crash at step 6 loses only the `tool_unloaded` Events, not the choice. The table is a failure with no crash. A compaction helps a Run but is not a step the Run needs, so a failure is dropped and the Run goes on, unless the Context is still too big to send.
 
+The ceiling is a hard line. After the Turn's compaction the size is estimated afresh (the Messages plus the instruction and tool definitions) and compared with the ceiling; a Run still past it ends `limit_exceeded`, whoever set the ceiling. It is not a cost knob: a team that wants a cost cap writes its own `TurnStopper` (decision [038](../plan/decisions/038-a-limit-guards-a-real-failure.md)). A ceiling below the window must stay above what a compaction cannot remove: the instruction and tool definitions, the kept tail (up to a quarter of the ceiling), a Recap if any, and the largest Tool Result one Turn can hold (under the 32 KiB page, about 8K tokens). This is a rule of thumb and is not measured.
+
 ## What this buys you
 - The first request after a pause is cheap: the Session compacted before its cache expired, and the top of the Context did not change.
 - A Run never depends on a compaction: a failed one leaves the Record as it was and the Run carries on.
