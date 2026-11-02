@@ -10,7 +10,6 @@ None open.
 
 Findings from real use, each checked against the code (first pass on 2026-10-29). Evidence, verdicts and wording of the fixes are in [INTEGRATION-FEEDBACK.md](INTEGRATION-FEEDBACK.md); `D-NNN` is its entry number. Remove an item here in the commit that resolves it.
 
-- [ ] **D-035 · Show what part of a Turn's Context is what.** Decided 2026-11-02: add an estimate per part (instruction, tool definitions, Segments, history, Tool Results; bytes over 4, named an estimate) to `context_built`, and show the same parts and their share in `inspect`. Additive only; `compaction_ended` and the public `Record` methods stay as they are. It is the measurement behind decision 043.
 
 ## Decisions
 
