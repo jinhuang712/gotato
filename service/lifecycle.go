@@ -5,6 +5,7 @@ import (
 	"strings"
 
 	"github.com/jinhuang712/gotato/gotato"
+	"github.com/jinhuang712/gotato/profile"
 	"github.com/jinhuang712/gotato/session"
 )
 
@@ -12,8 +13,8 @@ import (
 // with the history in Messages and the Agent it names, and nothing else of it is
 // set by the caller: its instruction, its ceiling and its Tools are its Agent's.
 type CreateSessionRequest struct {
-	// Agent names the Agent the Session runs. Empty means the default (the
-	// first registered).
+	// Agent names the AgentProfile the Session runs. Empty means the default
+	// (Config.DefaultAgent).
 	Agent string
 	// ID is the new Session's ID. Empty generates one. An ID that is taken fails
 	// with ErrSessionExists: the store's Create is the check, so two concurrent
@@ -43,7 +44,7 @@ func (r *Runner) CreateSession(ctx context.Context, request CreateSessionRequest
 	if len(request.Messages) > 0 {
 		options = append(options, session.WithMessages(request.Messages...))
 	}
-	s, spec, err := r.newSession(request.Agent, request.Metadata, options...)
+	s, spec, err := r.newSession(ctx, request.Agent, nil, request.Metadata, options...)
 	if err != nil {
 		return session.RecordInfo{}, err
 	}
@@ -55,17 +56,30 @@ func (r *Runner) CreateSession(ctx context.Context, request CreateSessionRequest
 	return s.Info(), nil
 }
 
-// newSession builds a Session bound to an Agent, without saving it.
-func (r *Runner) newSession(agent string, metadata map[string]string, options ...session.RecordOption) (*session.Record, Agent, error) {
-	spec, ok := r.Agent(agent)
-	if !ok {
-		return nil, Agent{}, ErrUnknownAgent
+// newSession builds a Session bound to an AgentProfile, without saving it: the
+// request's Agent, or the default; and, for a Run of a TaskSpec, the TaskSpec's
+// own AgentProfile as the TaskSpec narrows it, with the TaskSpec kept in the
+// Session's metadata. A profile that is not there fails before the Session
+// exists.
+func (r *Runner) newSession(ctx context.Context, agent string, task *taskRun, metadata map[string]string, options ...session.RecordOption) (*session.Record, profile.AgentProfile, error) {
+	var spec profile.AgentProfile
+	var err error
+	if task != nil {
+		spec, err = r.resolveNarrowed(ctx, task)
+	} else {
+		spec, err = r.agentNamed(ctx, agent)
+	}
+	if err != nil {
+		return nil, profile.AgentProfile{}, err
 	}
 	s := session.New(options...)
 	for key, value := range metadata {
 		s.Set(key, value)
 	}
 	s.Set(metaAgent, spec.Name)
+	if task != nil {
+		s.Set(metaTask, task.snapshot)
+	}
 	return s, spec, nil
 }
 

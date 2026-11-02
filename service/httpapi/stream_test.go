@@ -6,6 +6,7 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/jinhuang712/gotato/profile"
 	"github.com/jinhuang712/gotato/service"
 	"github.com/jinhuang712/gotato/service/httpapi"
 	"github.com/jinhuang712/gotato/testkit"
@@ -75,7 +76,7 @@ func TestRunStreamAnswersRefusalsAsRunDoes(t *testing.T) {
 			t.Fatal(err)
 		}
 		// A deploy that dropped the Agent: a second Instance that lacks it.
-		other, err := service.New(service.Config{Store: store, Agents: []service.Agent{{Name: "else", Model: testkit.NewFakeModel(testkit.Text("x"))}}})
+		other, err := service.New(withAgents(service.Config{Store: store}, []profile.AgentProfile{{Name: "else", Model: testkit.NewFakeModel(testkit.Text("x"))}}...))
 		if err != nil {
 			t.Fatal(err)
 		}

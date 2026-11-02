@@ -18,6 +18,7 @@ import (
 
 	"github.com/jinhuang712/gotato/gotato"
 	"github.com/jinhuang712/gotato/internal/cmd/gatewayconf"
+	"github.com/jinhuang712/gotato/profile"
 	"github.com/jinhuang712/gotato/service"
 	"github.com/jinhuang712/gotato/service/httpapi"
 	"github.com/jinhuang712/gotato/session"
@@ -89,7 +90,7 @@ func run() error {
 	if err != nil {
 		return err
 	}
-	runner, err := service.New(service.Config{Store: session.Store{Records: store, Liveness: store}, Agents: []service.Agent{agent}, Instance: *instance, Address: advertiseAddr(*advertise, *addr)})
+	runner, err := service.New(service.Config{Store: session.Store{Records: store, Liveness: store}, Profiles: registryOf(agent), DefaultAgent: agent.Name, Instance: *instance, Address: advertiseAddr(*advertise, *addr)})
 	if err != nil {
 		return err
 	}
@@ -187,12 +188,12 @@ func botLimits() *gotato.CoreLimits {
 const instruction = "You are a helpful assistant that answers in a Lark chat. Keep replies short and friendly, and say so when you do not know."
 
 // buildAgent returns the one Agent of this instance.
-func buildAgent(model string) (service.Agent, error) {
+func buildAgent(model string) (profile.AgentProfile, error) {
 	switch model {
 	case "echo":
-		return service.Agent{Name: "echo", Model: testkit.EchoModel{}, ModelName: "echo", Instruction: instruction, Limits: botLimits()}, nil
+		return profile.AgentProfile{Name: "echo", Model: testkit.EchoModel{}, ModelName: "echo", Instruction: instruction, Limits: botLimits()}, nil
 	case "demo":
-		return service.Agent{Name: "demo", Model: testkit.DemoModel{}, ModelName: "demo", Instruction: instruction, Limits: botLimits(),
+		return profile.AgentProfile{Name: "demo", Model: testkit.DemoModel{}, ModelName: "demo", Instruction: instruction, Limits: botLimits(),
 			Tools: []gotato.Tool{testkit.DemoEchoTool()}}, nil
 	case "gateway":
 		path := os.Getenv("GOTATO_GATEWAY_CONFIG")
@@ -201,13 +202,22 @@ func buildAgent(model string) (service.Agent, error) {
 		}
 		cfg, err := gatewayconf.Load(path)
 		if err != nil {
-			return service.Agent{}, fmt.Errorf("gateway config %s: %w", path, err)
+			return profile.AgentProfile{}, fmt.Errorf("gateway config %s: %w", path, err)
 		}
 		client, err := cfg.New()
 		if err != nil {
-			return service.Agent{}, err
+			return profile.AgentProfile{}, err
 		}
-		return service.Agent{Name: "gateway", Model: client, ModelName: cfg.Model.Name, Instruction: instruction, Limits: botLimits()}, nil
+		return profile.AgentProfile{Name: "gateway", Model: client, ModelName: cfg.Model.Name, Instruction: instruction, Limits: botLimits()}, nil
 	}
-	return service.Agent{}, fmt.Errorf("unknown -model %q (echo, demo or gateway)", model)
+	return profile.AgentProfile{}, fmt.Errorf("unknown -model %q (echo, demo or gateway)", model)
+}
+
+// registryOf registers the Agent as the only AgentProfile of a Runner. The caller names it in Config.DefaultAgent.
+func registryOf(agent profile.AgentProfile) *profile.Registry {
+	r := profile.NewRegistry(nil)
+	if err := r.RegisterAgentProfileInline(agent); err != nil {
+		panic(err)
+	}
+	return r
 }

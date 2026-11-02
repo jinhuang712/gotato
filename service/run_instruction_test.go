@@ -6,6 +6,7 @@ import (
 	"testing"
 
 	"github.com/jinhuang712/gotato/gotato"
+	"github.com/jinhuang712/gotato/profile"
 	"github.com/jinhuang712/gotato/service"
 	"github.com/jinhuang712/gotato/session"
 	"github.com/jinhuang712/gotato/testkit"
@@ -18,8 +19,8 @@ import (
 func TestAnInstructionInMetadataIsRefusedAndAnotherAgentIsTheWay(t *testing.T) {
 	model := testkit.NewFakeModel(testkit.Text("1"), testkit.Text("2"), testkit.Text("3"))
 	runner, store := newRunner(t,
-		service.Agent{Name: "bot", Model: model, Instruction: "agent instruction"},
-		service.Agent{Name: "french", Model: model, Instruction: "answer in French"},
+		profile.AgentProfile{Name: "bot", Model: model, Instruction: "agent instruction"},
+		profile.AgentProfile{Name: "french", Model: model, Instruction: "answer in French"},
 	)
 	ctx := context.Background()
 	id := plant(t, store, session.WithMetadata(map[string]string{metaAgentKey: "bot"}))

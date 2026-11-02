@@ -13,6 +13,7 @@ import (
 	"github.com/jinhuang712/gotato/adapter/mcp"
 	"github.com/jinhuang712/gotato/gotato"
 	"github.com/jinhuang712/gotato/modelctx"
+	"github.com/jinhuang712/gotato/profile"
 	"github.com/jinhuang712/gotato/service"
 	"github.com/jinhuang712/gotato/session"
 
@@ -35,7 +36,7 @@ func TestParseTools(t *testing.T) {
 }
 
 // runner builds a Runner with the scripted model over the tools, on store, as one bot instance would.
-func scriptedRunner(t *testing.T, store storeParts, instance, kinds, mcpURL string, with ...func(*service.Agent)) *service.Runner {
+func scriptedRunner(t *testing.T, store storeParts, instance, kinds, mcpURL string, with ...func(*profile.AgentProfile)) *service.Runner {
 	t.Helper()
 	agent, err := buildAgent("echo")
 	if err != nil {
@@ -56,7 +57,7 @@ func scriptedRunner(t *testing.T, store storeParts, instance, kinds, mcpURL stri
 	if closeTools != nil {
 		t.Cleanup(func() { _ = closeTools() })
 	}
-	runner, err := service.New(service.Config{Store: session.Store{Records: store, Liveness: store}, Agents: []service.Agent{agent}, Instance: instance})
+	runner, err := service.New(service.Config{Store: session.Store{Records: store, Liveness: store}, Profiles: registryOf(agent), DefaultAgent: agent.Name, Instance: instance})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -181,7 +182,7 @@ func TestScriptCompactionUnloadsAndSegmentIsReadOnAnotherInstance(t *testing.T) 
 	t.Cleanup(srv.Close)
 	ctx := context.Background()
 	store := session.NewMemoryStore()
-	recap := func(a *service.Agent) { a.Compact.Recap = modelctx.TruncateRecap{} }
+	recap := func(a *profile.AgentProfile) { a.Compact.Recap = modelctx.TruncateRecap{} }
 	a := scriptedRunner(t, store, "pod-a", "mcp-search", srv.URL+"/mcp", recap)
 	b := scriptedRunner(t, store, "pod-b", "mcp-search", srv.URL+"/mcp", recap)
 	if _, err := a.CreateSession(ctx, service.CreateSessionRequest{Agent: "echo", ID: "s1"}); err != nil {

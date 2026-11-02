@@ -41,7 +41,7 @@ var allowedImports = map[string][]string{
 	// (decision 044). It sits between the service and the layers below it, and
 	// imports no service.
 	"profile": {"gotato", "modelctx", "session"},
-	"service": {"gotato", "internal/hostlink", "modelctx", "service/internal/clock", "service/internal/heartbeat", "service/internal/runs", "service/internal/warm", "session"},
+	"service": {"gotato", "internal/hostlink", "modelctx", "profile", "service/internal/clock", "service/internal/heartbeat", "service/internal/runs", "service/internal/warm", "session"},
 	// service/internal holds the parts of the Runner (decision 048): each is
 	// standard library only, or the core, and none imports another.
 	"service/internal/clock":     {},

@@ -9,7 +9,7 @@ import (
 
 	"github.com/jinhuang712/gotato/adapter/mcp"
 	"github.com/jinhuang712/gotato/gotato"
-	"github.com/jinhuang712/gotato/service"
+	"github.com/jinhuang712/gotato/profile"
 )
 
 // mcpToolSet is the name of the MCP server's ToolSet; its tools are crm.<tool>.
@@ -21,8 +21,8 @@ var toolKinds = []string{"export", "mcp", "mcp-search"}
 // toolSpec is -tools, parsed: what the Agent gets on top of its model.
 type toolSpec struct {
 	export    bool   // test only: orders.export, a tool whose result of 1 MB the core spills
-	mcpActive bool   // the MCP server's tools, always visible (service.ToolSetActive)
-	mcpSearch bool   // the MCP server's tools in the catalog, loaded with search_tools (service.ToolSetListed)
+	mcpActive bool   // the MCP server's tools, always visible (profile.ToolSetActive)
+	mcpSearch bool   // the MCP server's tools in the catalog, loaded with search_tools (profile.ToolSetListed)
 	mcpURL    string // the MCP server's streamable HTTP endpoint
 }
 
@@ -53,7 +53,7 @@ func parseTools(list, mcpURL string) (toolSpec, error) {
 }
 
 // apply adds the tools to the Agent. The returned close func ends the MCP connection (nil when there is none).
-func (t toolSpec) apply(agent *service.Agent, log *slog.Logger) (func() error, error) {
+func (t toolSpec) apply(agent *profile.AgentProfile, log *slog.Logger) (func() error, error) {
 	if t.export {
 		agent.Tools = append(agent.Tools, largeExportTool())
 	}
@@ -66,9 +66,9 @@ func (t toolSpec) apply(agent *service.Agent, log *slog.Logger) (func() error, e
 	}
 	logged := loggedToolSet{set, log}
 	if t.mcpActive {
-		agent.ToolSets = append(agent.ToolSets, service.ToolSet{Set: logged, Mode: service.ToolSetActive})
+		agent.ToolSets = append(agent.ToolSets, profile.ToolSet{Set: logged, Mode: profile.ToolSetActive})
 	} else {
-		agent.ToolSets = append(agent.ToolSets, service.ToolSet{Set: logged, Mode: service.ToolSetListed})
+		agent.ToolSets = append(agent.ToolSets, profile.ToolSet{Set: logged, Mode: profile.ToolSetListed})
 	}
 	return set.Close, nil
 }

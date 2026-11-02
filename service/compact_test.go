@@ -9,6 +9,7 @@ import (
 
 	"github.com/jinhuang712/gotato/gotato"
 	"github.com/jinhuang712/gotato/modelctx"
+	"github.com/jinhuang712/gotato/profile"
 	"github.com/jinhuang712/gotato/service"
 	"github.com/jinhuang712/gotato/session"
 	"github.com/jinhuang712/gotato/testkit"
@@ -28,7 +29,7 @@ func (m windowedEcho) Config() gotato.ModelConfig {
 // Recap writer, its time zone, and the Model's window.
 func TestRunnerCompactTakesTheAgentsCompactionSettings(t *testing.T) {
 	zone := time.FixedZone("UTC+8", 8*3600)
-	agent := service.Agent{Name: "echo", Model: windowedEcho{window: 1 << 20}, Compact: modelctx.Compactor{CompactPolicy: modelctx.CompactPolicy{Location: zone}, Recap: modelctx.TruncateRecap{}}}
+	agent := profile.AgentProfile{Name: "echo", Model: windowedEcho{window: 1 << 20}, Compact: modelctx.Compactor{CompactPolicy: modelctx.CompactPolicy{Location: zone}, Recap: modelctx.TruncateRecap{}}}
 	runner, store := newRunner(t, agent)
 	ctx := context.Background()
 	var id string
@@ -65,8 +66,8 @@ func TestRunnerCompactTakesTheAgentsCompactionSettings(t *testing.T) {
 // and a ceiling stored in a Session's metadata is ignored.
 func TestTheModelsWindowGivesTheDefaultCeiling(t *testing.T) {
 	runner, store := newRunner(t,
-		service.Agent{Name: "echo", Model: windowedEcho{window: 200_000}},
-		service.Agent{Name: "capped", Model: windowedEcho{window: 200_000}, Compact: modelctx.Compactor{CompactPolicy: modelctx.CompactPolicy{CeilingTokens: 9000}}})
+		profile.AgentProfile{Name: "echo", Model: windowedEcho{window: 200_000}},
+		profile.AgentProfile{Name: "capped", Model: windowedEcho{window: 200_000}, Compact: modelctx.Compactor{CompactPolicy: modelctx.CompactPolicy{CeilingTokens: 9000}}})
 	ctx := context.Background()
 	first, err := runner.Run(ctx, service.RunRequest{Prompt: "hi"})
 	if err != nil {
@@ -89,7 +90,7 @@ func TestTheModelsWindowGivesTheDefaultCeiling(t *testing.T) {
 		t.Fatalf("ceiling = %d, %v; want 180000: a stored ceiling is ignored", report.CompactCeilingTokens, err)
 	}
 	// Without a window there is no ceiling.
-	plain, _ := newRunner(t, service.Agent{Name: "echo", Model: testkit.EchoModel{}})
+	plain, _ := newRunner(t, profile.AgentProfile{Name: "echo", Model: testkit.EchoModel{}})
 	one, err := plain.Run(ctx, service.RunRequest{Prompt: "hi"})
 	if err != nil {
 		t.Fatal(err)
@@ -102,7 +103,7 @@ func TestTheModelsWindowGivesTheDefaultCeiling(t *testing.T) {
 // A ModelRecap written as a pointer gets the Agent's Model like the value does.
 func TestRunnerCompactFillsTheModelOfAPointerModelRecap(t *testing.T) {
 	recap := &modelctx.ModelRecap{}
-	runner, _ := newRunner(t, service.Agent{Name: "echo", Model: windowedEcho{window: 1 << 20}, Compact: modelctx.Compactor{Recap: recap}})
+	runner, _ := newRunner(t, profile.AgentProfile{Name: "echo", Model: windowedEcho{window: 1 << 20}, Compact: modelctx.Compactor{Recap: recap}})
 	ctx := context.Background()
 	var id string
 	for _, prompt := range []string{"one", "two", "three"} {

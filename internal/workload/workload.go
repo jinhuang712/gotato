@@ -29,6 +29,7 @@ import (
 	"github.com/jinhuang712/gotato/gotato"
 	"github.com/jinhuang712/gotato/internal/reftasks"
 	"github.com/jinhuang712/gotato/modelctx"
+	"github.com/jinhuang712/gotato/profile"
 	"github.com/jinhuang712/gotato/service"
 	"github.com/jinhuang712/gotato/session"
 )
@@ -103,7 +104,7 @@ func runTask(ctx context.Context, cfg Config, task reftasks.Task) (TaskReport, e
 		windowed = newWindowModel(model, task.Window)
 		model = windowed
 	}
-	spec := service.Agent{
+	spec := profile.AgentProfile{
 		Name:        task.Name,
 		Model:       model,
 		ModelName:   cfg.ModelName,
@@ -115,14 +116,14 @@ func runTask(ctx context.Context, cfg Config, task reftasks.Task) (TaskReport, e
 	if task.Recap {
 		spec.Compact.Recap = modelctx.ModelRecap{}
 	}
-	runner, err := service.New(service.Config{Store: cfg.Store, Agents: []service.Agent{spec}})
+	runner, err := service.New(withAgents(service.Config{Store: cfg.Store}, []profile.AgentProfile{spec}...))
 	if err != nil {
 		return TaskReport{}, err
 	}
 	// The inspector rebuilds each Turn's Transcript in a store of its own and
 	// inspects it with the same Spec.
 	inspectStore := memoryStore()
-	inspector, err := service.New(service.Config{Store: inspectStore, Agents: []service.Agent{spec}})
+	inspector, err := service.New(withAgents(service.Config{Store: inspectStore}, []profile.AgentProfile{spec}...))
 	if err != nil {
 		return TaskReport{}, err
 	}
@@ -410,4 +411,17 @@ func addUsage(a, b gotato.Usage) gotato.Usage {
 func memoryStore() session.Store {
 	m := session.NewMemoryStore()
 	return session.Store{Records: m, Liveness: m}
+}
+
+// withAgents registers agents as the Config's AgentProfiles, the first the
+// default.
+func withAgents(cfg service.Config, agents ...profile.AgentProfile) service.Config {
+	registry := profile.NewRegistry(nil)
+	for _, agent := range agents {
+		if err := registry.RegisterAgentProfileInline(agent); err != nil {
+			panic(err)
+		}
+	}
+	cfg.Profiles, cfg.DefaultAgent = registry, agents[0].Name
+	return cfg
 }

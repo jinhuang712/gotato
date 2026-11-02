@@ -27,13 +27,17 @@ type TaskSpecDoc struct {
 	Sampling   gotato.Sampling `json:"sampling,omitzero"`
 }
 
-// DecodeTaskSpec reads the document stored under name as a TaskSpec. It refuses
+// DecodeTaskSpec reads the document stored under name as a TaskSpec; an empty
+// name takes the document's own, as a Record's copy of one has. It refuses
 // a field it does not know and a value that cannot work; it looks up no
 // AgentProfile, so the check that it only narrows is Narrow's.
 func DecodeTaskSpec(name string, doc []byte) (TaskSpec, error) {
 	var d TaskSpecDoc
 	if err := decodeStrict(doc, &d); err != nil {
 		return TaskSpec{}, invalid(fmt.Sprintf("TaskSpec %q: %v", name, err))
+	}
+	if name == "" {
+		name = d.Name
 	}
 	if d.Name != "" && d.Name != name {
 		return TaskSpec{}, invalid(fmt.Sprintf("TaskSpec %q: the document is named %q", name, d.Name))

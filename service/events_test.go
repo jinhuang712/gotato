@@ -10,6 +10,7 @@ import (
 	"time"
 
 	"github.com/jinhuang712/gotato/gotato"
+	"github.com/jinhuang712/gotato/profile"
 	"github.com/jinhuang712/gotato/service"
 	"github.com/jinhuang712/gotato/session"
 	"github.com/jinhuang712/gotato/testkit"
@@ -17,12 +18,12 @@ import (
 
 // bulkAgent is an Agent whose first Turn calls a tool many times, so one Run
 // stores more Events than a subscriber's buffer holds.
-func bulkAgent(name string, calls int) service.Agent {
+func bulkAgent(name string, calls int) profile.AgentProfile {
 	uses := make([]gotato.ToolCall, calls)
 	for i := range uses {
 		uses[i] = gotato.ToolCall{ID: gotato.ToolCallID(fmt.Sprintf("call-%d", i)), ToolID: "lookup", Arguments: []byte(`{}`)}
 	}
-	return service.Agent{
+	return profile.AgentProfile{
 		Name:  name,
 		Model: testkit.NewFakeModel(testkit.ToolCalls(uses...), testkit.Text("done")),
 		Tools: []gotato.Tool{testkit.NewFakeTool("lookup", "found")},
@@ -160,7 +161,7 @@ func TestSinkThatNeverReadsDoesNotSlowTheSession(t *testing.T) {
 // StreamRun, the stored Events the sink saw are, in kind and number, the
 // Events of the Record from the Run's first Event to its run_ended.
 func TestRunStreamNumbersAreRecordNumbers(t *testing.T) {
-	runner, _ := newRunner(t, service.Agent{Name: "demo", Model: testkit.DemoModel{}, Tools: []gotato.Tool{testkit.DemoEchoTool()}})
+	runner, _ := newRunner(t, profile.AgentProfile{Name: "demo", Model: testkit.DemoModel{}, Tools: []gotato.Tool{testkit.DemoEchoTool()}})
 	ctx := context.Background()
 	first, err := runner.Run(ctx, service.RunRequest{Prompt: "use-tool"})
 	if err != nil {
@@ -264,9 +265,9 @@ func TestStreamSessionCatchesUpThenGoesLive(t *testing.T) {
 // ForAgents keeps those of the named Agents. The Instance Events, the store's
 // timings, are there and are not in a Run's stream.
 func TestSubscribeInstanceSeesAllAgentsAndForAgentsFilters(t *testing.T) {
-	runner, _ := newRunner(t,
-		service.Agent{Name: "alpha", Model: testkit.EchoModel{}, Warm: service.WarmPolicy{TTL: -1}},
-		service.Agent{Name: "beta", Model: testkit.EchoModel{}, Warm: service.WarmPolicy{TTL: -1}},
+	runner, _ := newRunnerWith(t, noWarm,
+		profile.AgentProfile{Name: "alpha", Model: testkit.EchoModel{}},
+		profile.AgentProfile{Name: "beta", Model: testkit.EchoModel{}},
 	)
 	ctx := context.Background()
 	all := instanceRecorder(t, runner)
@@ -357,7 +358,7 @@ func TestSubscribeInstanceSeesAllAgentsAndForAgentsFilters(t *testing.T) {
 // Session's Record.
 func TestStoreEventsAreInstanceEvents(t *testing.T) {
 	// No warm copy, so the second Run loads the Session and times the load.
-	runner, store := newRunner(t, service.Agent{Name: "echo", Model: testkit.EchoModel{}, ModelName: "echo", Warm: service.WarmPolicy{TTL: -1}})
+	runner, store := newRunnerWith(t, noWarm, profile.AgentProfile{Name: "echo", Model: testkit.EchoModel{}, ModelName: "echo"})
 	instance := instanceRecorder(t, runner)
 	ctx := context.Background()
 	first, err := runner.Run(ctx, service.RunRequest{Prompt: "one"})
@@ -424,7 +425,7 @@ func TestStoreEventsAreInstanceEvents(t *testing.T) {
 
 func TestStoreEventsFlagFailuresWithoutTheirText(t *testing.T) {
 	store := &failingSaveStore{parts: partsOf(memStore()), failFinal: true}
-	runner, err := service.New(service.Config{Store: asStore(store), Agents: []service.Agent{{Name: "echo", Model: testkit.EchoModel{}}}})
+	runner, err := service.New(service.Config{Store: asStore(store), Profiles: registry(t, profile.AgentProfile{Name: "echo", Model: testkit.EchoModel{}}), DefaultAgent: "echo"})
 	if err != nil {
 		t.Fatal(err)
 	}

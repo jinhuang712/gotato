@@ -7,11 +7,14 @@ import (
 	"fmt"
 	"io"
 	"os"
+	"path/filepath"
+	"slices"
 	"strings"
 	"time"
 
 	"github.com/jinhuang712/gotato/gotato"
 	"github.com/jinhuang712/gotato/internal/cmd/gatewayconf"
+	"github.com/jinhuang712/gotato/profile"
 	"github.com/jinhuang712/gotato/service"
 	"github.com/jinhuang712/gotato/session"
 	"github.com/jinhuang712/gotato/testkit"
@@ -80,7 +83,14 @@ func builtinTools() []gotato.Tool {
 // building it. The CLI and `gotato serve` run the same
 // Runner; the CLI simply drives it in-process.
 type cliRuntime struct {
-	runner     *service.Runner
+	runner *service.Runner
+	// config is what runner was built from; serve builds another with admission
+	// settings.
+	config service.Config
+	// profiles and defs hold the AgentProfiles; defs keeps the variants that
+	// --instruction and --compact-ceiling make (variant.go).
+	profiles   *profile.Registry
+	defs       session.Definitions
 	store      session.Store
 	storeDir   string
 	gatewayErr error
@@ -89,10 +99,13 @@ type cliRuntime struct {
 
 const defaultInstruction = "You are a helpful assistant."
 
-// testAgents lets in-package tests register deterministic Agents
+// defaultAgent is the AgentProfile a new Session runs when no flag names one.
+const defaultAgent = "echo"
+
+// testAgents lets in-package tests register deterministic AgentProfiles
 // without changing the production echo/demo/gateway surface. It is empty in
 // the built binary.
-var testAgents []service.Agent
+var testAgents []profile.AgentProfile
 
 // newRuntime builds the Runner: echo and demo are always registered; gateway
 // is registered when its YAML loads.
@@ -101,30 +114,61 @@ func (c *cli) newRuntime(flags modelFlags) (*cliRuntime, error) {
 	if err != nil {
 		return nil, err
 	}
+	defs, err := session.NewFileDefinitions(filepath.Join(dir, "definitions"))
+	if err != nil {
+		return nil, err
+	}
 	tools := builtinTools()
 	timeAway, err := c.timeAwayAfter(flags)
 	if err != nil {
 		return nil, err
 	}
-	specs := []service.Agent{
-		{Name: "echo", Model: testkit.EchoModel{}, ModelName: "echo", Instruction: defaultInstruction, Tools: tools, TimeAwayAfter: timeAway},
-		{Name: "demo", Model: testkit.DemoModel{}, ModelName: "demo", Instruction: defaultInstruction, Tools: tools, TimeAwayAfter: timeAway},
+	agents := []profile.AgentProfile{
+		{Name: "echo", Model: testkit.EchoModel{}, ModelName: "echo", Instruction: defaultInstruction, Tools: tools},
+		{Name: "demo", Model: testkit.DemoModel{}, ModelName: "demo", Instruction: defaultInstruction, Tools: tools},
 	}
-	specs = append(specs, testAgents...)
-	rt := &cliRuntime{store: store, storeDir: dir, gatewayCfg: c.gatewayConfigPath(flags)}
+	agents = append(agents, testAgents...)
+	rt := &cliRuntime{store: store, defs: defs, storeDir: dir, gatewayCfg: c.gatewayConfigPath(flags)}
 	if config, err := gatewayconf.Load(rt.gatewayCfg); err != nil {
 		rt.gatewayErr = err
 	} else if client, err := config.New(); err != nil {
 		rt.gatewayErr = err
 	} else {
-		specs = append(specs, service.Agent{Name: "gateway", Model: client, ModelName: config.Model.Name, Instruction: defaultInstruction, Tools: tools, TimeAwayAfter: timeAway})
+		agents = append(agents, profile.AgentProfile{Name: "gateway", Model: client, ModelName: config.Model.Name, Instruction: defaultInstruction, Tools: tools})
 	}
-	// --instruction and --compact-ceiling make variants of these Agents, and
-	// Sessions made with one of them name it (variant.go).
-	listCtx, cancelList := c.ctx()
-	specs = registerVariants(listCtx, specs, store, flags)
-	cancelList()
-	runner, err := service.New(service.Config{Store: store, Agents: specs})
+	// The Catalog holds what a stored variant of these AgentProfiles may name.
+	models := map[string]gotato.Model{}
+	var catalogTools []gotato.Tool
+	seen := map[string]bool{}
+	for _, agent := range agents {
+		if agent.ModelName != "" {
+			models[agent.ModelName] = agent.Model
+		}
+		for _, tool := range agent.Tools {
+			if id := tool.Spec().ID; !seen[id] {
+				seen[id] = true
+				catalogTools = append(catalogTools, tool)
+			}
+		}
+	}
+	catalog, err := profile.NewCatalog(models, catalogTools, nil)
+	if err != nil {
+		return nil, err
+	}
+	rt.profiles = profile.NewRegistry(catalog)
+	for _, agent := range agents {
+		if err := rt.profiles.RegisterAgentProfileInline(agent); err != nil {
+			return nil, err
+		}
+	}
+	ctx, cancel := c.ctx()
+	err = rt.registerStoredVariants(ctx)
+	cancel()
+	if err != nil {
+		return nil, err
+	}
+	rt.config = service.Config{Store: store, Profiles: rt.profiles, DefaultAgent: defaultAgent, TimeAwayAfter: timeAway}
+	runner, err := service.New(rt.config)
 	if err != nil {
 		return nil, err
 	}
@@ -142,7 +186,7 @@ func (rt *cliRuntime) resolveAgent(name string, env func(string) string) (string
 	if name == "" {
 		return "", nil
 	}
-	if _, ok := rt.runner.Agent(name); ok {
+	if slices.Contains(rt.runner.AgentProfiles(), name) {
 		return name, nil
 	}
 	if name == "gateway" && rt.gatewayErr != nil {

@@ -19,6 +19,7 @@ import (
 
 	"github.com/jinhuang712/gotato/gotato"
 	"github.com/jinhuang712/gotato/modelctx"
+	"github.com/jinhuang712/gotato/profile"
 	"github.com/jinhuang712/gotato/service"
 	"github.com/jinhuang712/gotato/service/httpapi"
 	"github.com/jinhuang712/gotato/session"
@@ -29,10 +30,9 @@ func TestReadyzReportsDraining(t *testing.T) {
 	block := make(chan struct{})
 	model := testkit.NewFakeModel(testkit.Text("slow"))
 	model.Block = block
-	runner, err := service.New(service.Config{
-		Store:  memStore(),
-		Agents: []service.Agent{{Name: "slow", Model: model}},
-	})
+	runner, err := service.New(withAgents(service.Config{
+		Store: memStore(),
+	}, []profile.AgentProfile{{Name: "slow", Model: model}}...))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -281,19 +281,18 @@ func TestHealthAndAgents(t *testing.T) {
 		t.Fatalf("healthz = %d %s", status, body)
 	}
 	status, body = call(t, server, http.MethodGet, "/v1/agents", nil)
-	if status != http.StatusOK || !strings.Contains(string(body), `["echo","demo"]`) || !strings.Contains(string(body), `"max_effect":{}`) {
+	if status != http.StatusOK || !strings.Contains(string(body), `["demo","echo"]`) || !strings.Contains(string(body), `"max_effect":{}`) {
 		t.Fatalf("agents = %d %s", status, body)
 	}
 }
 
 func TestAgentsReportMaxEffect(t *testing.T) {
-	runner, err := service.New(service.Config{
+	runner, err := service.New(withAgents(service.Config{
 		Store: memStore(),
-		Agents: []service.Agent{
-			{Name: "open", Model: testkit.EchoModel{}},
-			{Name: "reader", Model: testkit.EchoModel{}, MaxEffect: gotato.ToolEffectRead},
-		},
-	})
+	}, []profile.AgentProfile{
+		{Name: "open", Model: testkit.EchoModel{}},
+		{Name: "reader", Model: testkit.EchoModel{}, MaxEffect: gotato.ToolEffectRead},
+	}...))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -360,10 +359,9 @@ func (s *failingSaveStore) Append(ctx context.Context, id string, after uint64, 
 }
 
 func TestInternalErrorsDoNotLeakStoreDetails(t *testing.T) {
-	runner, err := service.New(service.Config{
-		Store:  asStore(&failingSaveStore{parts: partsOf(memStore()), failFinal: true}),
-		Agents: []service.Agent{{Name: "echo", Model: testkit.EchoModel{}}},
-	})
+	runner, err := service.New(withAgents(service.Config{
+		Store: asStore(&failingSaveStore{parts: partsOf(memStore()), failFinal: true}),
+	}, []profile.AgentProfile{{Name: "echo", Model: testkit.EchoModel{}}}...))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -398,10 +396,9 @@ func (overflowErr) Error() string         { return "prompt is too long" }
 func (overflowErr) ContextOverflow() bool { return true }
 
 func TestContextOverflowRunReportsItsCodeAndMapsTo422(t *testing.T) {
-	runner, err := service.New(service.Config{
-		Store:  memStore(),
-		Agents: []service.Agent{{Name: "big", Model: overflowingModel{}}},
-	})
+	runner, err := service.New(withAgents(service.Config{
+		Store: memStore(),
+	}, []profile.AgentProfile{{Name: "big", Model: overflowingModel{}}}...))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -460,8 +457,8 @@ func TestForwardDoesNotFollowARedirectOutOfTheAllowList(t *testing.T) {
 			return nil, ctx.Err()
 		}
 	})
-	a := forwardRunner(t, store, service.Agent{Name: "a", Model: slow}, func(c *service.Config) { c.Instance = "a"; c.Address = writerAddr.URL })
-	b := forwardRunner(t, store, service.Agent{Name: "a", Model: testkit.EchoModel{}}, func(c *service.Config) { c.Instance = "b" })
+	a := forwardRunner(t, store, profile.AgentProfile{Name: "a", Model: slow}, func(c *service.Config) { c.Instance = "a"; c.Address = writerAddr.URL })
+	b := forwardRunner(t, store, profile.AgentProfile{Name: "a", Model: testkit.EchoModel{}}, func(c *service.Config) { c.Instance = "b" })
 	handlerB := httpapi.New(b, httpapi.WithForwarding(nil, func(address string) bool { return address == writerAddr.URL }))
 
 	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
@@ -487,9 +484,9 @@ func TestForwardDoesNotFollowARedirectOutOfTheAllowList(t *testing.T) {
 	}
 }
 
-func forwardRunner(t *testing.T, store session.Store, agent service.Agent, mutate func(*service.Config)) *service.Runner {
+func forwardRunner(t *testing.T, store session.Store, agent profile.AgentProfile, mutate func(*service.Config)) *service.Runner {
 	t.Helper()
-	cfg := service.Config{Store: store, Agents: []service.Agent{agent}, Heartbeat: service.Heartbeat{TTL: time.Second, Wait: 30 * time.Millisecond}}
+	cfg := withAgents(service.Config{Store: store, Heartbeat: service.Heartbeat{TTL: time.Second, Wait: 30 * time.Millisecond}}, []profile.AgentProfile{agent}...)
 	mutate(&cfg)
 	r, err := service.New(cfg)
 	if err != nil {
@@ -543,7 +540,7 @@ func (panickingStopper) Stop(context.Context, gotato.TurnSnapshot) (gotato.StopD
 
 // What an Extension panicked with does not reach the client of a Run.
 func TestExtensionPanicTextDoesNotReachTheClient(t *testing.T) {
-	r, err := service.New(service.Config{Store: memStore(), Agents: []service.Agent{{Name: "echo", Model: testkit.EchoModel{}, Extensions: []any{panickingStopper{}}}}})
+	r, err := service.New(withAgents(service.Config{Store: memStore()}, []profile.AgentProfile{{Name: "echo", Model: testkit.EchoModel{}, Extensions: []any{panickingStopper{}}}}...))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -565,7 +562,7 @@ func TestExtensionPanicTextDoesNotReachTheClient(t *testing.T) {
 // A JSON body is one value: data after it is refused, and the request does not
 // run. A chunked body, which has no length to check first, is bound the same.
 func TestABodyWithTrailingDataIsRefused(t *testing.T) {
-	runner, err := service.New(service.Config{Store: memStore(), Agents: []service.Agent{{Name: "echo", Model: testkit.EchoModel{}}}})
+	runner, err := service.New(withAgents(service.Config{Store: memStore()}, []profile.AgentProfile{{Name: "echo", Model: testkit.EchoModel{}}}...))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -606,7 +603,7 @@ func TestABodyWithTrailingDataIsRefused(t *testing.T) {
 // "keep_messages" the latest Run's Turns stay.
 func TestCompactTakesMinTokensAndKeepsTheLatestRun(t *testing.T) {
 	ctx := context.Background()
-	runner, err := service.New(service.Config{Store: memStore(), Agents: []service.Agent{{Name: "echo", Model: testkit.EchoModel{}, ModelName: "echo"}}})
+	runner, err := service.New(withAgents(service.Config{Store: memStore()}, []profile.AgentProfile{{Name: "echo", Model: testkit.EchoModel{}, ModelName: "echo"}}...))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -648,9 +645,9 @@ func TestCompactTakesMinTokensAndKeepsTheLatestRun(t *testing.T) {
 // The compact route says when it merged the oldest Segments.
 func TestCompactAnswersWithTheMergeOfTheOldestSegments(t *testing.T) {
 	ctx := context.Background()
-	runner, err := service.New(service.Config{Store: memStore(), Agents: []service.Agent{{
+	runner, err := service.New(withAgents(service.Config{Store: memStore()}, []profile.AgentProfile{{
 		Name: "echo", Model: testkit.EchoModel{}, ModelName: "echo", Compact: modelctx.Compactor{CompactPolicy: modelctx.CompactPolicy{SegmentBudgetTokens: 1}},
-	}}})
+	}}...))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -740,10 +737,9 @@ type onlyRecords struct{ session.Records }
 // A store that does not list leaves Sessions not_supported, which is a 400.
 func TestListSessionsNeedsAStoreThatLists(t *testing.T) {
 	m := session.NewMemoryStore()
-	runner, err := service.New(service.Config{
-		Store:  session.Store{Records: onlyRecords{m}, Liveness: m},
-		Agents: []service.Agent{{Name: "echo", Model: testkit.EchoModel{}}},
-	})
+	runner, err := service.New(withAgents(service.Config{
+		Store: session.Store{Records: onlyRecords{m}, Liveness: m},
+	}, []profile.AgentProfile{{Name: "echo", Model: testkit.EchoModel{}}}...))
 	if err != nil {
 		t.Fatal(err)
 	}

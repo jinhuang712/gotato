@@ -9,6 +9,7 @@ import (
 	"time"
 
 	"github.com/jinhuang712/gotato/gotato"
+	"github.com/jinhuang712/gotato/profile"
 	"github.com/jinhuang712/gotato/service"
 	"github.com/jinhuang712/gotato/session"
 	"github.com/jinhuang712/gotato/testkit"
@@ -116,7 +117,7 @@ func TestStreamSessionFollowsAnotherInstancesWrites(t *testing.T) {
 	build := func(name string) *service.Runner {
 		runner, err := service.New(service.Config{
 			Store: store, Instance: name, StreamPoll: 10 * time.Millisecond,
-			Agents: []service.Agent{{Name: "echo", Model: testkit.EchoModel{}}},
+			Profiles: registry(t, profile.AgentProfile{Name: "echo", Model: testkit.EchoModel{}}), DefaultAgent: "echo",
 		})
 		if err != nil {
 			t.Fatal(err)
@@ -244,8 +245,8 @@ func replyOf(ctx context.Context, sub gotato.Subscription) (string, error) {
 func TestSessionStreamSnippetReadsTheFinalReply(t *testing.T) {
 	ctx := context.Background()
 	runner, err := service.New(service.Config{
-		Store:  memStore(),
-		Agents: []service.Agent{{Name: "echo", Model: testkit.NewFakeModel(testkit.Text("hello there"))}},
+		Store:    memStore(),
+		Profiles: registry(t, profile.AgentProfile{Name: "echo", Model: testkit.NewFakeModel(testkit.Text("hello there"))}), DefaultAgent: "echo",
 	})
 	if err != nil {
 		t.Fatal(err)
@@ -378,7 +379,7 @@ func TestOpenStreamEndsWhenItsSessionIsCreatedAgain(t *testing.T) {
 			build := func(name string) *service.Runner {
 				runner, err := service.New(service.Config{
 					Store: store, Instance: name, StreamPoll: 10 * time.Millisecond,
-					Agents: []service.Agent{{Name: "echo", Model: testkit.EchoModel{}}},
+					Profiles: registry(t, profile.AgentProfile{Name: "echo", Model: testkit.EchoModel{}}), DefaultAgent: "echo",
 				})
 				if err != nil {
 					t.Fatal(err)

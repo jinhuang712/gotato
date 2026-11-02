@@ -109,7 +109,7 @@ func (r *Runner) repairRelease(ctx context.Context, sessionID string) bool {
 	if err := writer.Release(ctx); err != nil {
 		return false
 	}
-	if spec, ok := r.Agent(agent); ok {
+	if spec, err := r.agentOf(ctx, writer.Record()); err == nil {
 		r.keepWarm(writer, spec)
 	}
 	return true

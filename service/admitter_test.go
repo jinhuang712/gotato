@@ -10,6 +10,7 @@ import (
 	"time"
 
 	"github.com/jinhuang712/gotato/gotato"
+	"github.com/jinhuang712/gotato/profile"
 	"github.com/jinhuang712/gotato/service"
 	"github.com/jinhuang712/gotato/testkit"
 )
@@ -104,7 +105,7 @@ func blockedRunner(t *testing.T, admitter service.Admitter, bounds service.Bound
 	block := make(chan struct{})
 	model := testkit.NewFakeModel(testkit.Text("slow"))
 	model.Block = block
-	runner, err := service.New(service.Config{Store: memStore(), Agents: []service.Agent{{Name: "slow", Model: model}}, Admitter: admitter, Bounds: bounds})
+	runner, err := service.New(service.Config{Store: memStore(), Profiles: registry(t, profile.AgentProfile{Name: "slow", Model: model}), DefaultAgent: "slow", Admitter: admitter, Bounds: bounds})
 	if err != nil {
 		t.Fatal(err)
 	}

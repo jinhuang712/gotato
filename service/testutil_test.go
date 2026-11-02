@@ -13,6 +13,7 @@ import (
 
 	"github.com/jinhuang712/gotato/gotato"
 	itext "github.com/jinhuang712/gotato/internal/text"
+	"github.com/jinhuang712/gotato/profile"
 	"github.com/jinhuang712/gotato/service"
 	"github.com/jinhuang712/gotato/session"
 	"github.com/jinhuang712/gotato/testkit"
@@ -61,13 +62,38 @@ func plant(t *testing.T, store session.Store, options ...session.RecordOption) s
 	return record.ID()
 }
 
-func newRunner(t *testing.T, specs ...service.Agent) (*service.Runner, session.Store) {
+// registry registers each AgentProfile inline.
+func registry(t testing.TB, agents ...profile.AgentProfile) *profile.Registry {
+	t.Helper()
+	reg := profile.NewRegistry(nil)
+	for _, a := range agents {
+		if err := reg.RegisterAgentProfileInline(a); err != nil {
+			t.Fatal(err)
+		}
+	}
+	return reg
+}
+
+func newRunner(t *testing.T, specs ...profile.AgentProfile) (*service.Runner, session.Store) {
+	t.Helper()
+	return newRunnerWith(t, nil, specs...)
+}
+
+// noWarm keeps no warm copy of a Session, so the next Run loads it.
+func noWarm(cfg *service.Config) { cfg.Warm = service.WarmPolicy{TTL: -1} }
+
+// newRunnerWith is newRunner with a hook that sets the Config.
+func newRunnerWith(t *testing.T, mutate func(*service.Config), specs ...profile.AgentProfile) (*service.Runner, session.Store) {
 	t.Helper()
 	store := memStore()
 	if len(specs) == 0 {
-		specs = []service.Agent{{Name: "echo", Model: testkit.EchoModel{}, ModelName: "echo"}}
+		specs = []profile.AgentProfile{{Name: "echo", Model: testkit.EchoModel{}, ModelName: "echo"}}
 	}
-	runner, err := service.New(service.Config{Store: store, Agents: specs})
+	cfg := service.Config{Store: store, Profiles: registry(t, specs...), DefaultAgent: specs[0].Name}
+	if mutate != nil {
+		mutate(&cfg)
+	}
+	runner, err := service.New(cfg)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -244,9 +270,9 @@ func waitUntil(t *testing.T, what string, cond func() bool) {
 
 // newRunnerOn is newRunner on the given store, with a short liveness, closed
 // with the test.
-func newRunnerOn(t *testing.T, store session.Store, agent service.Agent, mutate ...func(*service.Config)) *service.Runner {
+func newRunnerOn(t *testing.T, store session.Store, agent profile.AgentProfile, mutate ...func(*service.Config)) *service.Runner {
 	t.Helper()
-	cfg := service.Config{Store: store, Agents: []service.Agent{agent}, Heartbeat: service.Heartbeat{TTL: time.Second, Wait: 30 * time.Millisecond}}
+	cfg := service.Config{Store: store, Profiles: registry(t, agent), DefaultAgent: agent.Name, Heartbeat: service.Heartbeat{TTL: time.Second, Wait: 30 * time.Millisecond}}
 	for _, m := range mutate {
 		m(&cfg)
 	}
@@ -627,8 +653,8 @@ func instanceRunner(t *testing.T, store session.Store, instance string, model go
 	t.Helper()
 	runner, err := service.New(service.Config{
 		Store: store, Instance: instance, Heartbeat: liveness,
-		Bounds: service.Bounds{Queue: service.QueuePolicyWait},
-		Agents: []service.Agent{{Name: "echo", Model: model}},
+		Bounds:   service.Bounds{Queue: service.QueuePolicyWait},
+		Profiles: registry(t, profile.AgentProfile{Name: "echo", Model: model}), DefaultAgent: "echo",
 	})
 	if err != nil {
 		t.Fatal(err)
@@ -755,8 +781,8 @@ func (h *holdAtTheEnd) hook() {
 func holdBeforeReleaseOn(t *testing.T, store session.Store) (runner *service.Runner, id string, hold *holdAtTheEnd, done chan service.RunResponse) {
 	t.Helper()
 	runner, err := service.New(service.Config{
-		Store:  store,
-		Agents: []service.Agent{{Name: "echo", Model: testkit.EchoModel{}}},
+		Store:    store,
+		Profiles: registry(t, profile.AgentProfile{Name: "echo", Model: testkit.EchoModel{}}), DefaultAgent: "echo",
 	})
 	if err != nil {
 		t.Fatal(err)
@@ -902,7 +928,7 @@ func messageRunner(t *testing.T, store session.Store, instance, address string, 
 	t.Helper()
 	runner, err := service.New(service.Config{
 		Store: store, Instance: instance, Address: address, Heartbeat: steadyLiveness, Bounds: service.Bounds{Queue: service.QueuePolicyWait},
-		Agents: []service.Agent{{Name: "echo", Model: model}},
+		Profiles: registry(t, profile.AgentProfile{Name: "echo", Model: model}), DefaultAgent: "echo",
 	})
 	if err != nil {
 		t.Fatal(err)
@@ -942,7 +968,7 @@ func recreatedRunner(t *testing.T, name string, store session.Store, poll time.D
 	t.Helper()
 	runner, err := service.New(service.Config{
 		Store: store, Instance: name, StreamPoll: poll,
-		Agents: []service.Agent{{Name: "echo", Model: testkit.EchoModel{}, ToolSources: []gotato.ToolSource{toolList{testkit.NewFakeTool("probe", "ok")}}}},
+		Profiles: registry(t, profile.AgentProfile{Name: "echo", Model: testkit.EchoModel{}, ToolSources: []gotato.ToolSource{toolList{testkit.NewFakeTool("probe", "ok")}}}), DefaultAgent: "echo",
 	})
 	if err != nil {
 		t.Fatal(err)

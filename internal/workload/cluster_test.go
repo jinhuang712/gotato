@@ -23,6 +23,7 @@ import (
 	"time"
 
 	"github.com/jinhuang712/gotato/internal/reftasks"
+	"github.com/jinhuang712/gotato/profile"
 	"github.com/jinhuang712/gotato/service"
 	"github.com/jinhuang712/gotato/service/httpapi"
 	"github.com/jinhuang712/gotato/session"
@@ -125,18 +126,17 @@ func lastIsVictim(n int) func(i int, cfg *service.Config) {
 func newCluster(t *testing.T, n int, tasks []reftasks.Task, seed uint64, adjust ...func(i int, cfg *service.Config)) *cluster {
 	t.Helper()
 	c := &cluster{t: t, backing: memStore(), random: rand.New(rand.NewPCG(seed, 99))}
-	var agents []service.Agent
+	var agents []profile.AgentProfile
 	for _, task := range tasks {
-		agents = append(agents, service.Agent{Name: task.Name, Model: task.Model, Instruction: task.Instruction, Tools: task.Tools, ToolSets: task.ToolSets, Limits: task.Limits})
+		agents = append(agents, profile.AgentProfile{Name: task.Name, Model: task.Model, Instruction: task.Instruction, Tools: task.Tools, ToolSets: task.ToolSets, Limits: task.Limits})
 	}
 	var backends []*backend
 	for i := range n {
 		in := &instance{name: fmt.Sprintf("instance-%d", i), store: &killStore{Records: c.backing.Records, Liveness: c.backing.Liveness}}
-		cfg := service.Config{
+		cfg := withAgents(service.Config{
 			Store: in.store.store(), Instance: in.name, Heartbeat: clusterLiveness, StreamPoll: 20 * time.Millisecond,
 			Bounds: service.Bounds{Queue: service.QueuePolicyWait},
-			Agents: agents,
-		}
+		}, agents...)
 		for _, change := range adjust {
 			change(i, &cfg)
 		}

@@ -9,6 +9,7 @@ import (
 	"time"
 
 	"github.com/jinhuang712/gotato/gotato"
+	"github.com/jinhuang712/gotato/profile"
 	"github.com/jinhuang712/gotato/service"
 	"github.com/jinhuang712/gotato/session"
 	"github.com/jinhuang712/gotato/testkit"
@@ -26,16 +27,20 @@ type handoffRig struct {
 // and returns when it has settled and is held.
 func startHeld(t *testing.T) *handoffRig {
 	t.Helper()
-	return startHeldAgent(t, service.Agent{Name: "echo", Model: testkit.EchoModel{}})
+	return startHeldAgent(t, profile.AgentProfile{Name: "echo", Model: testkit.EchoModel{}})
 }
 
 // startHeldAgent is startHeld for the Agent "echo" as given.
-func startHeldAgent(t *testing.T, agent service.Agent) *handoffRig {
+func startHeldAgent(t *testing.T, agent profile.AgentProfile, mutate ...func(*service.Config)) *handoffRig {
 	t.Helper()
-	runner, err := service.New(service.Config{
-		Store:  memStore(),
-		Agents: []service.Agent{agent},
-	})
+	cfg := service.Config{
+		Store:    memStore(),
+		Profiles: registry(t, agent), DefaultAgent: agent.Name,
+	}
+	for _, m := range mutate {
+		m(&cfg)
+	}
+	runner, err := service.New(cfg)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -261,8 +266,8 @@ func (s *loadFails) Load(ctx context.Context, id string) (session.Loaded, error)
 func TestAFollowingRunThatFailsDropsItsMessages(t *testing.T) {
 	store := &loadFails{parts: partsOf(memStore())}
 	runner, err := service.New(service.Config{
-		Store:  asStore(store),
-		Agents: []service.Agent{{Name: "echo", Model: testkit.EchoModel{}, Warm: service.WarmPolicy{TTL: -1}}},
+		Store:    asStore(store),
+		Profiles: registry(t, profile.AgentProfile{Name: "echo", Model: testkit.EchoModel{}}), DefaultAgent: "echo", Warm: service.WarmPolicy{TTL: -1},
 	})
 	if err != nil {
 		t.Fatal(err)
@@ -312,13 +317,42 @@ func TestAFollowingRunThatFailsDropsItsMessages(t *testing.T) {
 	}
 }
 
+// vanishingDefinitions are Definitions whose rows can be dropped.
+type vanishingDefinitions struct {
+	session.Definitions
+	gone atomic.Bool
+}
+
+func (d *vanishingDefinitions) vanish() { d.gone.Store(true) }
+
+func (d *vanishingDefinitions) LoadDefinition(ctx context.Context, kind, name string) ([]byte, error) {
+	if d.gone.Load() {
+		return nil, session.ErrNotFound
+	}
+	return d.Definitions.LoadDefinition(ctx, kind, name)
+}
+
 // A following Run that opened the Session and then finds its Agent gone writes
 // the drops in the Record, where the message_queued Events are, and they reach
 // the Session's subscribers too.
 func TestAFollowingRunWithoutItsAgentDropsInTheRecord(t *testing.T) {
-	rig := startHeld(t)
+	defs := &vanishingDefinitions{Definitions: session.NewMemoryDefinitions()}
+	if err := defs.SaveDefinition(context.Background(), profile.KindAgentProfile, "echo", []byte(`{"model":"echo"}`)); err != nil {
+		t.Fatal(err)
+	}
+	rig := startHeldAgent(t, profile.AgentProfile{Name: "echo", Model: testkit.EchoModel{}}, func(cfg *service.Config) {
+		catalog, err := profile.NewCatalog(map[string]gotato.Model{"echo": testkit.EchoModel{}}, nil, nil)
+		if err != nil {
+			t.Fatal(err)
+		}
+		reg := profile.NewRegistry(catalog)
+		if err := reg.RegisterAgentProfileWithStore("echo", defs); err != nil {
+			t.Fatal(err)
+		}
+		cfg.Profiles = reg
+	})
 	id := rig.send(t, service.MessageKindSteer, "late")
-	rig.runner.RemoveAgent("echo")
+	defs.vanish() // as a deploy that drops the profile would
 	rig.release(t)
 
 	deadline := time.Now().Add(5 * time.Second)
@@ -342,7 +376,7 @@ func TestAFollowingRunWithoutItsAgentDropsInTheRecord(t *testing.T) {
 // its message limit) ends without taking it: the message is reported dropped,
 // so its message_queued is closed in the Record.
 func TestAFollowingRunThatCannotCommitItsFirstMessageDropsIt(t *testing.T) {
-	rig := startHeldAgent(t, service.Agent{Name: "echo", Model: testkit.EchoModel{}, Limits: &gotato.CoreLimits{MaxMessages: 2}})
+	rig := startHeldAgent(t, profile.AgentProfile{Name: "echo", Model: testkit.EchoModel{}, Limits: &gotato.CoreLimits{MaxMessages: 2}})
 	id := rig.send(t, service.MessageKindSteer, "late")
 	rig.release(t)
 	rig.waitRuns(t, 2)
@@ -479,7 +513,7 @@ func TestAbortOfSettledRunMustNotStopTheFollowOnRun(t *testing.T) {
 			return nil, ctx.Err()
 		}
 	})
-	runner := newRunnerOn(t, asStore(store), service.Agent{Name: "a", Model: model, Warm: service.WarmPolicy{TTL: -1}})
+	runner := newRunnerOn(t, asStore(store), profile.AgentProfile{Name: "a", Model: model}, noWarm)
 	ctx, cancel := context.WithTimeout(context.Background(), 20*time.Second)
 	defer cancel()
 	s, err := runner.CreateSession(ctx, service.CreateSessionRequest{Agent: "a"})

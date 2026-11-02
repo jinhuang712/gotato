@@ -278,11 +278,11 @@ func (h *Handler) ready(w http.ResponseWriter, _ *http.Request) {
 	writeJSON(w, status, body)
 }
 
-func (h *Handler) agents(w http.ResponseWriter, _ *http.Request) {
-	names := h.runner.Agents()
+func (h *Handler) agents(w http.ResponseWriter, r *http.Request) {
+	names := h.runner.AgentProfiles()
 	caps := map[string]gotato.ToolEffect{}
 	for _, name := range names {
-		if spec, ok := h.runner.Agent(name); ok && spec.MaxEffect != gotato.ToolEffectUnspecified {
+		if spec, err := h.runner.AgentProfile(r.Context(), name); err == nil && spec.MaxEffect != gotato.ToolEffectUnspecified {
 			caps[name] = spec.MaxEffect
 		}
 	}

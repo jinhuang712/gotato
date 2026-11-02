@@ -8,6 +8,7 @@ import (
 	"testing"
 
 	"github.com/jinhuang712/gotato/gotato"
+	"github.com/jinhuang712/gotato/profile"
 	"github.com/jinhuang712/gotato/service"
 	"github.com/jinhuang712/gotato/session"
 	"github.com/jinhuang712/gotato/testkit"
@@ -74,7 +75,7 @@ func TestAReservedKeyIsRefusedByCreateSession(t *testing.T) {
 // admitted, so nothing runs and nothing is written, saved or not.
 func TestAReservedKeyIsRefusedByRunMetadataAndUpdate(t *testing.T) {
 	model := testkit.NewFakeModel(testkit.Text("ok"))
-	runner, store := newRunner(t, service.Agent{Name: "echo", Model: model})
+	runner, store := newRunner(t, profile.AgentProfile{Name: "echo", Model: model})
 	ctx := context.Background()
 	id := plant(t, store, session.WithMetadata(map[string]string{metaAgentKey: "echo", "tenant": "a"}))
 	before := storedMetadata(t, store, id)
@@ -113,8 +114,8 @@ func TestAReservedKeyIsRefusedByRunMetadataAndUpdate(t *testing.T) {
 // another one is refused, and the request's Agent is the typed way.
 func TestTheAgentChangesOnlyByTheRequestsAgent(t *testing.T) {
 	runner, store := newRunner(t,
-		service.Agent{Name: "echo", Model: testkit.EchoModel{}},
-		service.Agent{Name: "other", Model: testkit.EchoModel{}},
+		profile.AgentProfile{Name: "echo", Model: testkit.EchoModel{}},
+		profile.AgentProfile{Name: "other", Model: testkit.EchoModel{}},
 	)
 	ctx := context.Background()
 	id := plant(t, store, session.WithMetadata(map[string]string{metaAgentKey: "echo"}))
@@ -134,7 +135,7 @@ func TestTheAgentChangesOnlyByTheRequestsAgent(t *testing.T) {
 // A tool is switched only by SetToolActive, and the cache key only by Fork: the
 // keys that hold them are refused, and the typed ways write them.
 func TestAToolSwitchAndTheCacheKeyHaveOneWayEach(t *testing.T) {
-	runner, store := newRunner(t, service.Agent{Name: "tools", Model: testkit.EchoModel{}, Tools: []gotato.Tool{testkit.NewFakeTool("own", "x")}})
+	runner, store := newRunner(t, profile.AgentProfile{Name: "tools", Model: testkit.EchoModel{}, Tools: []gotato.Tool{testkit.NewFakeTool("own", "x")}})
 	ctx := context.Background()
 	created, err := runner.CreateSession(ctx, service.CreateSessionRequest{})
 	if err != nil {

@@ -8,6 +8,7 @@ import (
 
 	"github.com/jinhuang712/gotato/gotato"
 	"github.com/jinhuang712/gotato/modelctx"
+	"github.com/jinhuang712/gotato/profile"
 	"github.com/jinhuang712/gotato/service"
 	"github.com/jinhuang712/gotato/session"
 	"github.com/jinhuang712/gotato/testkit"
@@ -33,7 +34,7 @@ func (listBuilder) Build(closed []gotato.Message, info modelctx.SegmentInfo) (go
 // only a Cutter and a Builder gets them on demand, and the frame keeps its
 // guarantees around them (the Segment is stamped and written once).
 func TestAnAgentsCompactorPartsAreUsedOnDemand(t *testing.T) {
-	agent := service.Agent{Name: "echo", Model: testkit.EchoModel{}, Compact: modelctx.Compactor{Cut: keepLast{}, Builder: listBuilder{}}}
+	agent := profile.AgentProfile{Name: "echo", Model: testkit.EchoModel{}, Compact: modelctx.Compactor{Cut: keepLast{}, Builder: listBuilder{}}}
 	runner, store := newRunner(t, agent)
 	ctx := context.Background()
 	var id string
@@ -89,7 +90,7 @@ func (w wrappedRecap) WithAgentModel(model gotato.Model) modelctx.RecapWriter {
 func (w wrappedRecap) Validate() error { return w.inner.Validate() }
 
 func TestAWrappedRecapWriterGetsTheAgentsModel(t *testing.T) {
-	runner, _ := newRunner(t, service.Agent{Name: "echo", Model: windowedEcho{window: 1 << 20}, Compact: modelctx.Compactor{Recap: wrappedRecap{}}})
+	runner, _ := newRunner(t, profile.AgentProfile{Name: "echo", Model: windowedEcho{window: 1 << 20}, Compact: modelctx.Compactor{Recap: wrappedRecap{}}})
 	ctx := context.Background()
 	var id string
 	for _, prompt := range []string{"one", "two", "three"} {
@@ -111,7 +112,7 @@ type panicsOnModel struct{ modelctx.TruncateRecap }
 func (panicsOnModel) WithAgentModel(gotato.Model) modelctx.RecapWriter { panic("no model for you") }
 
 func TestARecapWriterThatPanicsOnTheAgentsModelDoesNotCrashTheRunner(t *testing.T) {
-	runner, _ := newRunner(t, service.Agent{Name: "echo", Model: testkit.EchoModel{}, Compact: modelctx.Compactor{Recap: panicsOnModel{}}})
+	runner, _ := newRunner(t, profile.AgentProfile{Name: "echo", Model: testkit.EchoModel{}, Compact: modelctx.Compactor{Recap: panicsOnModel{}}})
 	ctx := context.Background()
 	result, err := runner.Run(ctx, service.RunRequest{Prompt: "one"})
 	if err != nil {

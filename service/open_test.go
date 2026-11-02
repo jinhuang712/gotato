@@ -8,6 +8,7 @@ import (
 	"time"
 
 	"github.com/jinhuang712/gotato/gotato"
+	"github.com/jinhuang712/gotato/profile"
 	"github.com/jinhuang712/gotato/service"
 	"github.com/jinhuang712/gotato/session"
 	"github.com/jinhuang712/gotato/testkit"
@@ -24,8 +25,8 @@ func TestActivationLimitRefusesANewSessionBeforeItRuns(t *testing.T) {
 	store := memStore()
 	model := &gatedEcho{gate: make(chan struct{}), started: make(chan string, 8)}
 	runner, err := service.New(service.Config{
-		Store:  store,
-		Agents: []service.Agent{{Name: "echo", Model: model}},
+		Store:    store,
+		Profiles: registry(t, profile.AgentProfile{Name: "echo", Model: model}), DefaultAgent: "echo",
 		Bounds: service.Bounds{MaxActiveSessions: 2},
 	})
 	if err != nil {
@@ -178,7 +179,7 @@ func TestActivationLimitRefusesANewSessionBeforeItRuns(t *testing.T) {
 // TestActivationLimitIsOffByDefault: without a limit, no number of Sessions is
 // refused as overloaded.
 func TestActivationLimitIsOffByDefault(t *testing.T) {
-	runner, _ := newRunner(t, service.Agent{Name: "echo", Model: testkit.NewFakeModel(testkit.Text("ok"))})
+	runner, _ := newRunner(t, profile.AgentProfile{Name: "echo", Model: testkit.NewFakeModel(testkit.Text("ok"))})
 	for range 5 {
 		if _, err := runner.Run(context.Background(), service.RunRequest{Prompt: "hi"}); err != nil {
 			t.Fatal(err)
@@ -189,8 +190,8 @@ func TestActivationLimitIsOffByDefault(t *testing.T) {
 // A negative limit is a mistake, not "off".
 func TestActivationLimitMustNotBeNegative(t *testing.T) {
 	_, err := service.New(service.Config{
-		Store:  memStore(),
-		Agents: []service.Agent{{Name: "echo", Model: testkit.EchoModel{}}},
+		Store:    memStore(),
+		Profiles: registry(t, profile.AgentProfile{Name: "echo", Model: testkit.EchoModel{}}), DefaultAgent: "echo",
 		Bounds: service.Bounds{MaxActiveSessions: -1},
 	})
 	if err == nil {
@@ -219,8 +220,8 @@ func (s *gatedCreate) Create(ctx context.Context, id string, entries []session.E
 func TestActivationLimitHoldsForABurstOfCreatingRuns(t *testing.T) {
 	store := &gatedCreate{parts: partsOf(memStore()), gate: make(chan struct{})}
 	runner, err := service.New(service.Config{
-		Store:  asStore(store),
-		Agents: []service.Agent{{Name: "echo", Model: testkit.EchoModel{}}},
+		Store:    asStore(store),
+		Profiles: registry(t, profile.AgentProfile{Name: "echo", Model: testkit.EchoModel{}}), DefaultAgent: "echo",
 		Bounds: service.Bounds{MaxActiveSessions: 1},
 	})
 	if err != nil {
@@ -283,8 +284,8 @@ func TestRunnerSessionsPagesAndNeedsALister(t *testing.T) {
 
 	m := session.NewMemoryStore()
 	hidden, err := service.New(service.Config{
-		Store:  session.Store{Records: struct{ session.Records }{m}, Liveness: m},
-		Agents: []service.Agent{{Name: "echo", Model: testkit.EchoModel{}}},
+		Store:    session.Store{Records: struct{ session.Records }{m}, Liveness: m},
+		Profiles: registry(t, profile.AgentProfile{Name: "echo", Model: testkit.EchoModel{}}), DefaultAgent: "echo",
 	})
 	if err != nil {
 		t.Fatal(err)

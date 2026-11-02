@@ -17,6 +17,7 @@ import (
 	"time"
 
 	"github.com/jinhuang712/gotato/gotato"
+	"github.com/jinhuang712/gotato/profile"
 	"github.com/jinhuang712/gotato/service"
 	"github.com/jinhuang712/gotato/service/httpapi"
 	"github.com/jinhuang712/gotato/session"
@@ -45,7 +46,7 @@ func (hangingStream) Close() error { return nil }
 // A client that disconnects mid-stream still gets its Run settled and saved
 // (GOALS.md G-G02).
 func TestStreamDisconnectSettlesAndSavesTheRun(t *testing.T) {
-	runner, err := service.New(service.Config{Store: memStore(), Agents: []service.Agent{{Name: "slow", Model: hangingModel{}}}})
+	runner, err := service.New(withAgents(service.Config{Store: memStore()}, []profile.AgentProfile{{Name: "slow", Model: hangingModel{}}}...))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -123,11 +124,11 @@ func (m gatedModel) Config() gotato.ModelConfig { return gotato.ModelConfig{} }
 func TestBusyOnAnotherInstanceAnswers409WithRetryAfter(t *testing.T) {
 	store := memStore()
 	held := gatedModel{gate: make(chan struct{}), started: make(chan struct{})}
-	holder, err := service.New(service.Config{Store: store, Instance: "instance-a", Agents: []service.Agent{{Name: "slow", Model: held}}})
+	holder, err := service.New(withAgents(service.Config{Store: store, Instance: "instance-a"}, []profile.AgentProfile{{Name: "slow", Model: held}}...))
 	if err != nil {
 		t.Fatal(err)
 	}
-	other, err := service.New(service.Config{Store: store, Instance: "instance-b", Heartbeat: service.Heartbeat{Wait: 100 * time.Millisecond}, Agents: []service.Agent{{Name: "slow", Model: hangingModel{}}}})
+	other, err := service.New(withAgents(service.Config{Store: store, Instance: "instance-b", Heartbeat: service.Heartbeat{Wait: 100 * time.Millisecond}}, []profile.AgentProfile{{Name: "slow", Model: hangingModel{}}}...))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -200,14 +201,13 @@ func TestSSEClientThatStopsReadingDoesNotSlowTheRun(t *testing.T) {
 	for i := range uses {
 		uses[i] = gotato.ToolCall{ID: gotato.ToolCallID(fmt.Sprintf("call-%d", i)), ToolID: "lookup", Arguments: []byte(`{}`)}
 	}
-	runner, err := service.New(service.Config{
+	runner, err := service.New(withAgents(service.Config{
 		Store: memStore(),
-		Agents: []service.Agent{{
-			Name:  "bulk",
-			Model: testkit.NewFakeModel(testkit.ToolCalls(uses...), testkit.Text("done")),
-			Tools: []gotato.Tool{testkit.NewFakeTool("lookup", "found")},
-		}},
-	})
+	}, []profile.AgentProfile{{
+		Name:  "bulk",
+		Model: testkit.NewFakeModel(testkit.ToolCalls(uses...), testkit.Text("done")),
+		Tools: []gotato.Tool{testkit.NewFakeTool("lookup", "found")},
+	}}...))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -321,11 +321,11 @@ func TestStreamingRoutesAnswerCapacityBeforeTheStream(t *testing.T) {
 	gate := make(chan struct{})
 	model := testkit.NewFakeModel(testkit.Text("done"))
 	model.Block = gate
-	runner, err := service.New(service.Config{
-		Store:    memStore(),
-		Agents:   []service.Agent{{Name: "gated", Model: model}},
+	runner, err := service.New(withAgents(service.Config{
+		Store: memStore(),
+
 		Admitter: service.Limits{MaxActiveRuns: 1},
-	})
+	}, []profile.AgentProfile{{Name: "gated", Model: model}}...))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -448,10 +448,9 @@ func TestDrainEndsStreamsInOrder(t *testing.T) {
 	t.Cleanup(openGate)
 	hanging := startedModel{started: make(chan struct{}, 4)}
 	store := memStore()
-	runner, err := service.New(service.Config{
-		Store:  store,
-		Agents: []service.Agent{{Name: "gated", Model: gated}, {Name: "hanging", Model: hanging}},
-	})
+	runner, err := service.New(withAgents(service.Config{
+		Store: store,
+	}, []profile.AgentProfile{{Name: "gated", Model: gated}, {Name: "hanging", Model: hanging}}...))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -650,11 +649,11 @@ func fullServer(t *testing.T) (*httptest.Server, *service.Runner, func()) {
 	gate := make(chan struct{})
 	model := testkit.NewFakeModel(testkit.Text("done"))
 	model.Block = gate
-	runner, err := service.New(service.Config{
-		Store:  memStore(),
-		Agents: []service.Agent{{Name: "gated", Model: model}},
+	runner, err := service.New(withAgents(service.Config{
+		Store: memStore(),
+
 		Bounds: service.Bounds{MaxActiveSessions: 1},
-	})
+	}, []profile.AgentProfile{{Name: "gated", Model: model}}...))
 	if err != nil {
 		t.Fatal(err)
 	}

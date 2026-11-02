@@ -1,15 +1,17 @@
-// Package service turns the runtime into a service: named Agents, a Store of
-// Session Records, and a live Session built for each Run.
+// Package service turns the runtime into a service: AgentProfiles registered
+// by name (package profile), a Store of Session Records, and a live Session
+// built for each Run.
 //
 // Session semantics stay in the runtime. For every Run the Runner loads the
-// Session's Record, takes the Session's lock, builds a live gotato.Session
-// from the Agent exactly as an application would (WithTranscript,
+// Session's Record, takes the Session's lock, looks up the Session's
+// AgentProfile by name, builds a live gotato.Session from it exactly as an
+// application would (WithTranscript,
 // WithContextBuilder, WithToolSource, WithFeed,
 // modelctx.AutoCompact), runs it, closes it, and saves the Record.
 // Continuity lives in the Store, so any process holding the Store can serve
 // any Session.
 //
-// After a Run the Session stays in memory as a warm copy (Agent.Warm,
+// After a Run the Session stays in memory as a warm copy (Config.Warm,
 // WarmPolicy): a cache, never a lock. It holds no Claim while it idles, the
 // next Run uses it only while the Store's head is still the copy's, and it
 // is compacted by its own timer before its prompt cache expires, then leaves
@@ -17,9 +19,12 @@
 // the limit a new Run evicts the longest-idle one first. Admission.MaxWarmSessions
 // bounds the warm ones alone (10000 unless set), by the same eviction.
 //
+//	profiles := profile.NewRegistry(nil)
+//	_ = profiles.RegisterAgentProfileInline(profile.AgentProfile{Name: "default", Model: model, Tools: tools})
 //	runner, _ := service.New(service.Config{
-//	    Store:  store,
-//	    Agents: []service.Agent{{Name: "default", Model: model, Tools: tools}},
+//	    Store:        store,
+//	    Profiles:     profiles,
+//	    DefaultAgent: "default",
 //	})
 //	result, _ := runner.Run(ctx, service.RunRequest{SessionID: id, Prompt: "hello"})
 //
@@ -35,7 +40,7 @@ import (
 	"time"
 
 	"github.com/jinhuang712/gotato/gotato"
-	"github.com/jinhuang712/gotato/modelctx"
+	"github.com/jinhuang712/gotato/profile"
 	"github.com/jinhuang712/gotato/service/internal/clock"
 	"github.com/jinhuang712/gotato/service/internal/heartbeat"
 	"github.com/jinhuang712/gotato/service/internal/runs"
@@ -53,10 +58,6 @@ func persistContext(ctx context.Context) (context.Context, context.CancelFunc) {
 	return context.WithTimeout(context.WithoutCancel(ctx), session.WriteTimeout)
 }
 
-// defaultRunTimeout is how long a Run of an Agent may last when neither the
-// Agent's RunTimeout nor the request's Timeout says otherwise.
-const defaultRunTimeout = 30 * time.Minute
-
 // DefaultDrainTimeout is how long Drain waits for the Runs in flight when
 // Config.DrainTimeout says nothing: long enough for most Runs to finish during a
 // rolling deploy.
@@ -70,14 +71,15 @@ const DefaultToolSetTimeout = 10 * time.Second
 // that sets a key with this prefix (CreateSession, RunRequest.Metadata,
 // RunRequest.Update, or the HTTP API) is refused with ErrReservedKey before
 // anything is written: nothing under it is a setting a client may choose. The
-// Agent changes only by RunRequest.Agent, a Tool is switched only by
+// AgentProfile changes only by RunRequest.Agent, a Tool is switched only by
 // SetToolActive, and the prompt cache key only by Fork.
 const ReservedPrefix = "gotato."
 
 // The Session metadata keys the Runner writes and reads, all under
 // ReservedPrefix. A client reads them from a Record's metadata; none can set one.
 const (
-	metaAgent    = ReservedPrefix + "agent"     // Agent name used for this Session
+	metaAgent    = ReservedPrefix + "agent"     // AgentProfile name used for this Session
+	metaTask     = ReservedPrefix + "task_spec" // the TaskSpec a Session was opened for, as the Run found it (profile.EncodeTaskSpec)
 	metaModel    = ReservedPrefix + "model"     // informational: model name last used
 	metaCacheKey = ReservedPrefix + "cache_key" // the prompt cache key; a fork keeps its parent's
 	// metaToolPrefix + <tool id> = "inactive" hides one of the Agent's Tools
@@ -96,115 +98,6 @@ type ToolEntry struct {
 	ToolSet     string          `json:"toolset,omitempty"`
 	Loaded      bool            `json:"loaded,omitempty"`
 	Unavailable bool            `json:"unavailable,omitempty"`
-}
-
-// ToolSetMode says how the Model sees one of an Agent's ToolSets. The zero
-// value is ToolSetListed.
-type ToolSetMode string
-
-// The ways a ToolSet is installed.
-const (
-	// ToolSetListed: the catalog lists the ToolSet's description and all its
-	// Tool names, and the Model loads the Tools it needs with search_tools.
-	ToolSetListed ToolSetMode = "listed"
-	// ToolSetFolded: the catalog shows only the description and a count; the
-	// Model lists the Tools with the toolset parameter of search_tools, then
-	// loads by name.
-	ToolSetFolded ToolSetMode = "folded"
-	// ToolSetActive: every Tool is visible always, as if it were a base Tool,
-	// never in the catalog and never unloaded.
-	ToolSetActive ToolSetMode = "active"
-)
-
-// valid reports whether the mode is one of the three, or empty (listed).
-func (m ToolSetMode) valid() bool {
-	switch m {
-	case "", ToolSetListed, ToolSetFolded, ToolSetActive:
-		return true
-	}
-	return false
-}
-
-// ToolSet is a gotato.ToolSet an Agent installs, with how the Model sees it.
-type ToolSet struct {
-	Set  gotato.ToolSet
-	Mode ToolSetMode
-}
-
-// Agent is a named, reusable definition: the model, instruction, tools, cap
-// and limits its Sessions run. The Runner builds a live Session from it for each
-// Run, and builds every gotato.SessionOption itself: nothing an Agent holds is
-// a function that runs after the Runner's own options, so an Agent cannot
-// replace the Writer, the cap or a Tool a Session switched off. A Session has
-// no instruction or ceiling of its own; another one is another Agent.
-// Sharing a Model client between Agents and Runs is expected; nothing here is
-// mutable Run state.
-//
-// Three fields give an Agent its Tools; each has one job:
-//   - Tools: Go Tools (gotato.NewFuncTool and the like), fixed for the
-//     Agent's life.
-//   - ToolSets: a gotato.ToolSet, such as an MCP server's, and how the Model
-//     sees it (listed, always visible, or folded behind search_tools).
-//   - ToolSources: Tools that change between Turns, asked again at the
-//     start of each Turn. A ToolSet is not a ToolSources entry.
-type Agent struct {
-	Name        string
-	Model       gotato.Model
-	ModelName   string
-	Instruction string
-	// Tools are Go Tools, the same for every Turn.
-	Tools []gotato.Tool
-	// ToolSets are the ToolSets the Agent installs, each with a Mode. A Tool of
-	// one is under MaxEffect like any other.
-	ToolSets []ToolSet
-	// ToolSources supply Tools that change between Turns (gotato.ToolSource).
-	// Tools, ToolSources, read_result and read_segment are one ToolSource to
-	// the Session: a Tool ID that two of them supply fails it whole, as any
-	// bad Tool does (gotato.Tool). A ToolSet goes in ToolSets instead.
-	ToolSources []gotato.ToolSource
-	// ToolSearcher replaces the built-in search of search_tools
-	// (gotato.ToolSearcher). Nil keeps the built-in one.
-	ToolSearcher gotato.ToolSearcher
-	// MaxEffect is the highest Effect a Tool of this Agent may have. A Tool
-	// above it is hidden from the model and from Runner.Tools, and no Session
-	// can switch it on. Empty means no cap (gotato.WithMaxEffect).
-	MaxEffect gotato.ToolEffect
-	// Sampling is the sampling and reasoning hints sent on every model call
-	// of the Agent's Sessions, over the Model's own defaults
-	// (gotato.WithSampling).
-	Sampling gotato.Sampling
-	// Extensions are installed after the Runner's own, in this order
-	// (gotato.WithExtension).
-	Extensions []any
-	// ContextBuilder defaults to gotato.FullHistoryContext().
-	ContextBuilder gotato.ContextBuilder
-	Limits         *gotato.CoreLimits
-	// RunTimeout bounds one Run of this Agent; the Run settles as
-	// deadline_exceeded. Zero means 30 minutes, negative means no
-	// deadline. A RunRequest's Timeout replaces it, and a deadline on the
-	// caller's context that comes sooner ends the Run sooner. The core sets
-	// no Run deadline of its own: there a Run's deadline is its ctx.
-	RunTimeout time.Duration
-	// Compact is how the Agent's Sessions compact: the frame and its parts
-	// (modelctx.Compactor). Its numbers say when they compact by themselves:
-	// past the ceiling, which is the Model's window less a reserve unless
-	// CeilingTokens sets one (a negative CeilingTokens turns it off), and once
-	// when the provider refuses a request as too long. The ceiling is the
-	// Agent's alone: no Session overrides it. A part left nil is its default; a
-	// part the Agent sets replaces that step alone, and the frame keeps the
-	// guarantees whatever it returns. A Recap writer that names no Model gets
-	// the Agent's.
-	Compact modelctx.Compactor
-	// Warm says how long the Agent's idle Sessions stay in memory after a
-	// Run, and whether they are compacted while they idle. The zero value is
-	// the default: 60 minutes, and an idle compaction.
-	Warm WarmPolicy
-	// TimeAwayAfter is how long a Session must have been idle before a
-	// message that starts a Run is followed by a time_away notice with how
-	// long it has been and the time now (G-F29). Zero means 30 minutes;
-	// a negative value turns the notice off. The time is shown
-	// in the zone of Compact.Location, UTC when it is nil.
-	TimeAwayAfter time.Duration
 }
 
 // QueuePolicy decides what happens when a Session is busy.
@@ -265,8 +158,26 @@ const DefaultMaxWarmSessions = 10000
 type Config struct {
 	// Store keeps the Sessions' Records. It may be shared by several
 	// processes (see above).
-	Store  session.Store
-	Agents []Agent
+	Store session.Store
+	// Profiles holds the AgentProfiles and TaskSpecs the Runner serves
+	// (profile.Registry). A Session looks its AgentProfile up by name each time
+	// it is built, so one registered or replaced later reaches the Sessions
+	// built after it, and never a Run in flight. It is required.
+	Profiles *profile.Registry
+	// DefaultAgent is the AgentProfile a new Session runs when its request
+	// names none (RunRequest.Agent, CreateSessionRequest.Agent). Empty means
+	// there is no default: such a request is refused as an unknown Agent.
+	DefaultAgent string
+	// Warm says how long the Instance's idle Sessions stay in memory after a
+	// Run, and whether they are compacted while they idle. The zero value is
+	// the default: 60 minutes, and an idle compaction.
+	Warm WarmPolicy
+	// TimeAwayAfter is how long a Session must have been idle before a
+	// message that starts a Run is followed by a time_away notice with how
+	// long it has been and the time now (G-F29). Zero means 30 minutes;
+	// a negative value turns the notice off. The time is shown in the zone of
+	// the AgentProfile's Compact.Location, UTC when it is nil.
+	TimeAwayAfter time.Duration
 	// Bounds guards the Instance's memory and says what a busy Session does
 	// (Bounds).
 	Bounds Bounds
@@ -339,16 +250,19 @@ type Runner struct {
 	// releases holds the Sessions whose release write failed (release.go).
 	releases releaseSet
 
-	// agents are the definitions the Runner serves; the first is the default.
-	agents map[string]Agent
-	order  []string
-	store  session.Store
+	// profiles are the definitions the Runner serves, and defaultAgent is the
+	// AgentProfile a request that names none runs.
+	profiles     *profile.Registry
+	defaultAgent string
+	store        session.Store
 
 	// The settings of the Runner (Config): what the Liveness row and the wait
 	// for another Instance's Session take, the bounds that guard the Instance,
 	// the Admitter, and the bounds on the waits of ToolSets and of a drain
 	// (negative is none).
 	heartbeat      Heartbeat
+	warmPolicy     WarmPolicy
+	timeAway       time.Duration
 	bounds         Bounds
 	admitter       Admitter
 	toolSetTimeout time.Duration
@@ -384,8 +298,8 @@ func New(cfg Config) (*Runner, error) {
 	if cfg.Store.Liveness == nil {
 		return nil, errors.New("service: Store.Liveness is required")
 	}
-	if len(cfg.Agents) == 0 {
-		return nil, errors.New("service: at least one Agent is required")
+	if cfg.Profiles == nil {
+		return nil, errors.New("service: Profiles is required")
 	}
 	r := &Runner{
 		store:          cfg.Store,
@@ -394,7 +308,10 @@ func New(cfg Config) (*Runner, error) {
 		feeds:          feedSet{byKey: map[feedKey]*sessionFeed{}},
 		toolSetTimeout: cfg.ToolSetTimeout,
 		drainTimeout:   cfg.DrainTimeout,
-		agents:         map[string]Agent{},
+		profiles:       cfg.Profiles,
+		defaultAgent:   cfg.DefaultAgent,
+		warmPolicy:     cfg.Warm,
+		timeAway:       cfg.TimeAwayAfter,
 		bounds:         cfg.Bounds,
 		admitter:       cfg.Admitter,
 		runs:           runs.New[*runHandle](),
@@ -443,37 +360,6 @@ func New(cfg Config) (*Runner, error) {
 	}
 	r.warm = warm.New(r.clock)
 	r.feeds.instance = newInstanceFeed()
-	for _, spec := range cfg.Agents {
-		name := strings.TrimSpace(spec.Name)
-		if name == "" {
-			return nil, errors.New("service: Agent.Name is empty")
-		}
-		if spec.Model == nil {
-			return nil, fmt.Errorf("service: Agent %q has no Model", name)
-		}
-		if _, dup := r.agents[name]; dup {
-			return nil, fmt.Errorf("service: duplicate Agent %q", name)
-		}
-		if !spec.MaxEffect.Valid() {
-			return nil, fmt.Errorf("service: Agent %q has unknown MaxEffect %q", name, spec.MaxEffect)
-		}
-		for i, set := range spec.ToolSets {
-			if set.Set == nil {
-				return nil, fmt.Errorf("service: Agent %q has a nil ToolSet at ToolSets[%d]", name, i)
-			}
-			if !set.Mode.valid() {
-				return nil, fmt.Errorf("service: Agent %q has unknown ToolSet Mode %q", name, set.Mode)
-			}
-		}
-		for i, extension := range spec.Extensions {
-			if extension == nil {
-				return nil, fmt.Errorf("service: Agent %q has a nil Extension at Extensions[%d]", name, i)
-			}
-		}
-		spec.Name = name
-		r.agents[name] = spec
-		r.order = append(r.order, name)
-	}
 	return r, nil
 }
 
@@ -515,16 +401,14 @@ func (r *Runner) Sessions(ctx context.Context, q session.ListQuery) (session.Lis
 	return page, storeFailureOf(ctx, err, true)
 }
 
-// Agents lists the registered Agent names; the first is the default.
-func (r *Runner) Agents() []string { return append([]string(nil), r.order...) }
+// AgentProfiles lists the registered AgentProfile names, sorted.
+func (r *Runner) AgentProfiles() []string { return r.profiles.AgentProfiles() }
 
-// Agent returns one registered Agent; an empty name means the default.
-func (r *Runner) Agent(name string) (Agent, bool) {
-	if name == "" {
-		name = r.order[0]
-	}
-	spec, ok := r.agents[name]
-	return spec, ok
+// AgentProfile returns one registered AgentProfile, as a Session built now would
+// run it; an empty name means the default (Config.DefaultAgent). A name nothing
+// is registered under is ErrUnknownAgent.
+func (r *Runner) AgentProfile(ctx context.Context, name string) (profile.AgentProfile, error) {
+	return r.agentNamed(ctx, name)
 }
 
 // ActiveRuns reports Runs in flight.

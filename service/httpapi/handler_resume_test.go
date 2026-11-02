@@ -18,6 +18,7 @@ import (
 
 	"github.com/jinhuang712/gotato/gotato"
 	"github.com/jinhuang712/gotato/internal/reftasks"
+	"github.com/jinhuang712/gotato/profile"
 	"github.com/jinhuang712/gotato/service"
 	"github.com/jinhuang712/gotato/service/httpapi"
 	"github.com/jinhuang712/gotato/session"
@@ -372,7 +373,7 @@ func TestDrainEndsASessionStreamWithAReconnectFrame(t *testing.T) {
 
 // An idle stream sends a comment now and then, so a proxy keeps it open.
 func TestSessionStreamSendsKeepaliveComments(t *testing.T) {
-	runner, err := service.New(service.Config{Store: memStore(), Agents: []service.Agent{{Name: "echo", Model: testkit.EchoModel{}}}})
+	runner, err := service.New(withAgents(service.Config{Store: memStore()}, []profile.AgentProfile{{Name: "echo", Model: testkit.EchoModel{}}}...))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -503,12 +504,11 @@ func playTask(t *testing.T, server *httptest.Server, runner *service.Runner, tas
 
 func taskRunner(t *testing.T, task reftasks.Task) (*httptest.Server, *service.Runner) {
 	t.Helper()
-	runner, err := service.New(service.Config{
+	runner, err := service.New(withAgents(service.Config{
 		Store: memStore(),
-		Agents: []service.Agent{{
-			Name: task.Name, Model: task.Model, Instruction: task.Instruction, Tools: task.Tools, ToolSets: task.ToolSets, Limits: task.Limits,
-		}},
-	})
+	}, []profile.AgentProfile{{
+		Name: task.Name, Model: task.Model, Instruction: task.Instruction, Tools: task.Tools, ToolSets: task.ToolSets, Limits: task.Limits,
+	}}...))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -635,7 +635,7 @@ func (s *timeoutLogStore) Log(ctx context.Context, id string, after uint64, limi
 // A Store error that wraps DeadlineExceeded is a failure, not the keep-alive timer.
 func TestSessionStreamReportsAStoreTimeoutAsAnError(t *testing.T) {
 	store := &timeoutLogStore{parts: partsOf(memStore())}
-	runner, err := service.New(service.Config{Store: asStore(store), StreamPoll: 5 * time.Millisecond, Agents: []service.Agent{{Name: "echo", Model: testkit.EchoModel{}}}})
+	runner, err := service.New(withAgents(service.Config{Store: asStore(store), StreamPoll: 5 * time.Millisecond}, []profile.AgentProfile{{Name: "echo", Model: testkit.EchoModel{}}}...))
 	if err != nil {
 		t.Fatal(err)
 	}

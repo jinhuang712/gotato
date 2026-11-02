@@ -47,13 +47,12 @@ func (c *cli) cmdServe(args []string) int {
 		return c.failErr(err)
 	}
 	// Rebuild with admission settings: the Runner is cheap to construct.
-	specs := make([]service.Agent, 0)
-	for _, name := range rt.runner.Agents() {
-		spec, _ := rt.runner.Agent(name)
-		spec.Warm = service.WarmPolicy{TTL: *warmTTL, NoIdleCompaction: *noIdleCompaction}
-		specs = append(specs, spec)
-	}
-	runner, err := service.New(service.Config{Store: rt.store, Agents: specs, Address: *advertise, DrainTimeout: *drain, Bounds: service.Bounds{MaxActiveSessions: *maxSessions, Queue: service.QueuePolicy(*queue)}, Admitter: service.Limits{MaxActiveRuns: *maxRuns}})
+	cfg := rt.config
+	cfg.Warm = service.WarmPolicy{TTL: *warmTTL, NoIdleCompaction: *noIdleCompaction}
+	cfg.Address, cfg.DrainTimeout = *advertise, *drain
+	cfg.Bounds = service.Bounds{MaxActiveSessions: *maxSessions, Queue: service.QueuePolicy(*queue)}
+	cfg.Admitter = service.Limits{MaxActiveRuns: *maxRuns}
+	runner, err := service.New(cfg)
 	if err != nil {
 		return c.failErr(err)
 	}
@@ -77,9 +76,9 @@ func (c *cli) cmdServe(args []string) int {
 	}
 	errCh := make(chan error, 1)
 	go func() { errCh <- server.ListenAndServe() }()
-	c.info("gotato serving on http://%s (store=%s agents=%s contract=%s)", *addr, rt.storeDir, strings.Join(runner.Agents(), ","), httpapi.ContractVersion)
+	c.info("gotato serving on http://%s (store=%s agents=%s contract=%s)", *addr, rt.storeDir, strings.Join(runner.AgentProfiles(), ","), httpapi.ContractVersion)
 	if c.machine() {
-		_ = c.writeJSONL(map[string]any{"kind": "serving", "addr": *addr, "store": rt.storeDir, "agents": runner.Agents(), "contract": httpapi.ContractVersion})
+		_ = c.writeJSONL(map[string]any{"kind": "serving", "addr": *addr, "store": rt.storeDir, "agents": runner.AgentProfiles(), "contract": httpapi.ContractVersion})
 	}
 	select {
 	case err := <-errCh:

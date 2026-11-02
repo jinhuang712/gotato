@@ -10,6 +10,7 @@ import (
 
 	"github.com/jinhuang712/gotato/gotato"
 	"github.com/jinhuang712/gotato/modelctx"
+	"github.com/jinhuang712/gotato/profile"
 	"github.com/jinhuang712/gotato/service"
 	"github.com/jinhuang712/gotato/session"
 	"github.com/jinhuang712/gotato/testkit"
@@ -258,7 +259,7 @@ func TestStreamThatReadTheOldRecordDoesNotFollowTheNewOne(t *testing.T) {
 	model := &holdOnce{inner: testkit.DemoModel{}, started: make(chan struct{}), gate: make(chan struct{})}
 	a, err := service.New(service.Config{
 		Store: asStore(gate), Instance: "a", StreamPoll: -1,
-		Agents: []service.Agent{{Name: "echo", Model: model, Tools: []gotato.Tool{testkit.DemoEchoTool()}}},
+		Profiles: registry(t, profile.AgentProfile{Name: "echo", Model: model, Tools: []gotato.Tool{testkit.DemoEchoTool()}}), DefaultAgent: "echo",
 	})
 	if err != nil {
 		t.Fatal(err)

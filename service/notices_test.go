@@ -10,6 +10,7 @@ import (
 
 	"github.com/jinhuang712/gotato/gotato"
 	"github.com/jinhuang712/gotato/modelctx"
+	"github.com/jinhuang712/gotato/profile"
 	"github.com/jinhuang712/gotato/service"
 	"github.com/jinhuang712/gotato/session"
 	"github.com/jinhuang712/gotato/testkit"
@@ -173,7 +174,7 @@ func TestANoticeForARunOnAnotherInstanceIsNotWriter(t *testing.T) {
 
 // timeAwayRunner is an Instance whose clock the test moves, over an echo model
 // that remembers its requests.
-func timeAwayRunner(t *testing.T, clock *fakeClock, agent service.Agent) (*service.Runner, *testkit.FakeModel) {
+func timeAwayRunner(t *testing.T, clock *fakeClock, agent profile.AgentProfile, awayAfter time.Duration) (*service.Runner, *testkit.FakeModel) {
 	t.Helper()
 	scripts := make([]testkit.Script, 8)
 	for i := range scripts {
@@ -181,10 +182,10 @@ func timeAwayRunner(t *testing.T, clock *fakeClock, agent service.Agent) (*servi
 	}
 	model := testkit.NewFakeModel(scripts...)
 	agent.Name, agent.Model = "echo", model
-	agent.Warm.NoIdleCompaction = true
 	runner, err := service.New(service.WithClock(service.Config{
 		Store: memStore(), Instance: "a", Heartbeat: steadyLiveness,
-		Bounds: service.Bounds{Queue: service.QueuePolicyWait}, Agents: []service.Agent{agent},
+		Bounds: service.Bounds{Queue: service.QueuePolicyWait}, Profiles: registry(t, agent), DefaultAgent: agent.Name,
+		TimeAwayAfter: awayAfter, Warm: service.WarmPolicy{NoIdleCompaction: true},
 	}, clock))
 	if err != nil {
 		t.Fatal(err)
@@ -206,7 +207,7 @@ func TestATimeAwayNoticeFollowsAMessageAfterALongAbsence(t *testing.T) {
 	ctx := context.Background()
 	// The Record's times are the system's; the Runner's clock starts there.
 	clock := &fakeClock{now: time.Now().UTC().Truncate(time.Second)}
-	runner, model := timeAwayRunner(t, clock, service.Agent{})
+	runner, model := timeAwayRunner(t, clock, profile.AgentProfile{}, 0)
 	s, _ := runner.CreateSession(ctx, service.CreateSessionRequest{Agent: "echo"})
 	runOn(t, runner, s.ID, "first")
 	if got := lastRequestTexts(model); !equal(got, []string{"user:first"}) {
@@ -257,7 +258,7 @@ func TestTimeAwayThresholdIsPerAgentAndCanBeTurnedOff(t *testing.T) {
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			clock := &fakeClock{now: time.Now().UTC().Truncate(time.Second)}
-			runner, model := timeAwayRunner(t, clock, service.Agent{TimeAwayAfter: tc.threshold})
+			runner, model := timeAwayRunner(t, clock, profile.AgentProfile{}, tc.threshold)
 			s, _ := runner.CreateSession(ctx, service.CreateSessionRequest{Agent: "echo"})
 			runOn(t, runner, s.ID, "first")
 			clock.Advance(tc.gap)
@@ -282,9 +283,9 @@ func TestTimeAwayShowsTheTimeInTheAgentsZone(t *testing.T) {
 	ctx := context.Background()
 	zone := time.FixedZone("UTC+8", 8*3600)
 	clock := &fakeClock{now: time.Now().UTC().Truncate(time.Second)}
-	agent := service.Agent{}
+	agent := profile.AgentProfile{}
 	agent.Compact.Location = zone
-	runner, model := timeAwayRunner(t, clock, agent)
+	runner, model := timeAwayRunner(t, clock, agent, 0)
 	s, _ := runner.CreateSession(ctx, service.CreateSessionRequest{Agent: "echo"})
 	runOn(t, runner, s.ID, "first")
 	clock.Advance(2 * time.Hour)
@@ -313,7 +314,7 @@ func TestANoticeBetweenRunsOutlivesItsInstance(t *testing.T) {
 	for name, newStore := range stores {
 		t.Run(name, func(t *testing.T) {
 			store := newStore(t)
-			first, err := service.New(service.Config{Store: store, Instance: "first", Heartbeat: steadyLiveness, Agents: []service.Agent{{Name: "echo", Model: testkit.EchoModel{}}}})
+			first, err := service.New(service.Config{Store: store, Instance: "first", Heartbeat: steadyLiveness, Profiles: registry(t, profile.AgentProfile{Name: "echo", Model: testkit.EchoModel{}}), DefaultAgent: "echo"})
 			if err != nil {
 				t.Fatal(err)
 			}
@@ -327,7 +328,7 @@ func TestANoticeBetweenRunsOutlivesItsInstance(t *testing.T) {
 			}
 
 			model := testkit.NewFakeModel(testkit.Text("one"), testkit.Text("two"))
-			second, err := service.New(service.Config{Store: store, Instance: "second", Heartbeat: steadyLiveness, Agents: []service.Agent{{Name: "echo", Model: model}}})
+			second, err := service.New(service.Config{Store: store, Instance: "second", Heartbeat: steadyLiveness, Profiles: registry(t, profile.AgentProfile{Name: "echo", Model: model}), DefaultAgent: "echo"})
 			if err != nil {
 				t.Fatal(err)
 			}
@@ -427,8 +428,8 @@ func timeAwayRunner2(t *testing.T, store session.Store, name string, clock *fake
 	model := testkit.NewFakeModel(testkit.Text("ok"), testkit.Text("ok"), testkit.Text("ok"))
 	runner, err := service.New(service.WithClock(service.Config{
 		Store: store, Instance: name, Heartbeat: steadyLiveness,
-		Bounds: service.Bounds{Queue: service.QueuePolicyWait},
-		Agents: []service.Agent{{Name: "echo", Model: model, Warm: service.WarmPolicy{NoIdleCompaction: true}}},
+		Bounds:   service.Bounds{Queue: service.QueuePolicyWait},
+		Profiles: registry(t, profile.AgentProfile{Name: "echo", Model: model}), DefaultAgent: "echo", Warm: service.WarmPolicy{NoIdleCompaction: true},
 	}, clock))
 	if err != nil {
 		t.Fatal(err)
@@ -514,14 +515,14 @@ func TestFailedWriteOfAnyExitIsRepairedByTheHeartbeat(t *testing.T) {
 			defer cancel()
 			base := memStore()
 			faulty := &failOnceStore{parts: partsOf(base), failKind: tc.kind, ticks: make(chan struct{})}
-			agents := []service.Agent{{Name: "echo", Model: testkit.DemoModel{}, Tools: []gotato.Tool{testkit.DemoEchoTool()}, Warm: service.WarmPolicy{TTL: -1}}}
+			profiles := registry(t, profile.AgentProfile{Name: "echo", Model: testkit.DemoModel{}, Tools: []gotato.Tool{testkit.DemoEchoTool()}})
 			liveness := service.Heartbeat{TTL: time.Second, Wait: 30 * time.Millisecond}
-			a, err := service.New(service.Config{Store: asStore(faulty), Agents: agents, Heartbeat: liveness})
+			a, err := service.New(service.Config{Store: asStore(faulty), Profiles: profiles, DefaultAgent: "echo", Warm: service.WarmPolicy{TTL: -1}, Heartbeat: liveness})
 			if err != nil {
 				t.Fatal(err)
 			}
 			t.Cleanup(func() { _ = a.Close(context.Background()) })
-			b, err := service.New(service.Config{Store: base, Agents: agents, Heartbeat: liveness})
+			b, err := service.New(service.Config{Store: base, Profiles: profiles, DefaultAgent: "echo", Warm: service.WarmPolicy{TTL: -1}, Heartbeat: liveness})
 			if err != nil {
 				t.Fatal(err)
 			}
