@@ -322,9 +322,9 @@ func TestStreamingRoutesAnswerCapacityBeforeTheStream(t *testing.T) {
 	model := testkit.NewFakeModel(testkit.Text("done"))
 	model.Block = gate
 	runner, err := service.New(service.Config{
-		Store:     memStore(),
-		Agents:    []service.Agent{{Name: "gated", Model: model}},
-		Admission: service.Admission{MaxActiveRuns: 1},
+		Store:    memStore(),
+		Agents:   []service.Agent{{Name: "gated", Model: model}},
+		Admitter: service.Limits{MaxActiveRuns: 1},
 	})
 	if err != nil {
 		t.Fatal(err)
@@ -651,9 +651,9 @@ func fullServer(t *testing.T) (*httptest.Server, *service.Runner, func()) {
 	model := testkit.NewFakeModel(testkit.Text("done"))
 	model.Block = gate
 	runner, err := service.New(service.Config{
-		Store:     memStore(),
-		Agents:    []service.Agent{{Name: "gated", Model: model}},
-		Admission: service.Admission{MaxActiveSessions: 1},
+		Store:  memStore(),
+		Agents: []service.Agent{{Name: "gated", Model: model}},
+		Bounds: service.Bounds{MaxActiveSessions: 1},
 	})
 	if err != nil {
 		t.Fatal(err)

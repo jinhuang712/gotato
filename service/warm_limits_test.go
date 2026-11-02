@@ -95,8 +95,8 @@ func TestMaxWarmSessionsEvictsTheOldestIdle(t *testing.T) {
 	clock := newFakeClock()
 	runner, err := service.New(service.WithClock(service.Config{
 		Store: memStore(), Instance: "a",
-		Admission: service.Admission{MaxWarmSessions: 2},
-		Agents:    []service.Agent{{Name: "echo", Model: testkit.EchoModel{}, Warm: service.WarmPolicy{NoIdleCompaction: true}}},
+		Bounds: service.Bounds{MaxWarmSessions: 2},
+		Agents: []service.Agent{{Name: "echo", Model: testkit.EchoModel{}, Warm: service.WarmPolicy{NoIdleCompaction: true}}},
 	}, clock))
 	if err != nil {
 		t.Fatal(err)
@@ -205,8 +205,8 @@ func limitedInstance(t *testing.T, store session.Store, clock service.Clock, mod
 	t.Helper()
 	runner, err := service.New(service.WithClock(service.Config{
 		Store: store, Instance: "a",
-		Admission: service.Admission{MaxActiveSessions: limit, Queue: service.QueuePolicyWait},
-		Agents:    []service.Agent{{Name: "echo", Model: model, Warm: service.WarmPolicy{NoIdleCompaction: true}}},
+		Bounds: service.Bounds{MaxActiveSessions: limit, Queue: service.QueuePolicyWait},
+		Agents: []service.Agent{{Name: "echo", Model: model, Warm: service.WarmPolicy{NoIdleCompaction: true}}},
 	}, clock))
 	if err != nil {
 		t.Fatal(err)
@@ -405,7 +405,7 @@ func TestEvictionCancelsAnIdleCompactionInProgress(t *testing.T) {
 	model := &askModel{started: make(chan struct{}), reply: recapModel()}
 	runner, err := service.New(service.WithClock(service.Config{
 		Store: asStore(store), Instance: "a",
-		Admission: service.Admission{MaxActiveSessions: 1},
+		Bounds: service.Bounds{MaxActiveSessions: 1},
 		Agents: []service.Agent{{
 			Name: "echo", Model: model,
 			Compact: modelctx.Compactor{Recap: modelctx.ModelRecap{}},

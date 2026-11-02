@@ -222,9 +222,9 @@ func TestCapacityAndDrain(t *testing.T) {
 	model.Block = block
 	store := memStore()
 	runner, _ := service.New(service.Config{
-		Store:     store,
-		Agents:    []service.Agent{{Name: "slow", Model: model}},
-		Admission: service.Admission{MaxActiveRuns: 1},
+		Store:    store,
+		Agents:   []service.Agent{{Name: "slow", Model: model}},
+		Admitter: service.Limits{MaxActiveRuns: 1},
 	})
 	ctx := context.Background()
 	done := make(chan struct{})
@@ -252,9 +252,9 @@ func TestDrainCancelsQueuedRun(t *testing.T) {
 	model := testkit.NewFakeModel(testkit.Text("slow"))
 	model.Block = block
 	runner, _ := service.New(service.Config{
-		Store:     memStore(),
-		Agents:    []service.Agent{{Name: "slow", Model: model}},
-		Admission: service.Admission{Queue: service.QueuePolicyWait, MaxActiveRuns: 4},
+		Store:  memStore(),
+		Agents: []service.Agent{{Name: "slow", Model: model}},
+		Bounds: service.Bounds{Queue: service.QueuePolicyWait}, Admitter: service.Limits{MaxActiveRuns: 4},
 	})
 	ctx := context.Background()
 	s, _ := runner.CreateSession(ctx, service.CreateSessionRequest{Agent: "slow"})

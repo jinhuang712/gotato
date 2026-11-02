@@ -24,9 +24,9 @@ func TestActivationLimitRefusesANewSessionBeforeItRuns(t *testing.T) {
 	store := memStore()
 	model := &gatedEcho{gate: make(chan struct{}), started: make(chan string, 8)}
 	runner, err := service.New(service.Config{
-		Store:     store,
-		Agents:    []service.Agent{{Name: "echo", Model: model}},
-		Admission: service.Admission{MaxActiveSessions: 2},
+		Store:  store,
+		Agents: []service.Agent{{Name: "echo", Model: model}},
+		Bounds: service.Bounds{MaxActiveSessions: 2},
 	})
 	if err != nil {
 		t.Fatal(err)
@@ -189,9 +189,9 @@ func TestActivationLimitIsOffByDefault(t *testing.T) {
 // A negative limit is a mistake, not "off".
 func TestActivationLimitMustNotBeNegative(t *testing.T) {
 	_, err := service.New(service.Config{
-		Store:     memStore(),
-		Agents:    []service.Agent{{Name: "echo", Model: testkit.EchoModel{}}},
-		Admission: service.Admission{MaxActiveSessions: -1},
+		Store:  memStore(),
+		Agents: []service.Agent{{Name: "echo", Model: testkit.EchoModel{}}},
+		Bounds: service.Bounds{MaxActiveSessions: -1},
 	})
 	if err == nil {
 		t.Fatal("service.New accepted a negative MaxActiveSessions")
@@ -219,9 +219,9 @@ func (s *gatedCreate) Create(ctx context.Context, id string, entries []session.E
 func TestActivationLimitHoldsForABurstOfCreatingRuns(t *testing.T) {
 	store := &gatedCreate{parts: partsOf(memStore()), gate: make(chan struct{})}
 	runner, err := service.New(service.Config{
-		Store:     asStore(store),
-		Agents:    []service.Agent{{Name: "echo", Model: testkit.EchoModel{}}},
-		Admission: service.Admission{MaxActiveSessions: 1},
+		Store:  asStore(store),
+		Agents: []service.Agent{{Name: "echo", Model: testkit.EchoModel{}}},
+		Bounds: service.Bounds{MaxActiveSessions: 1},
 	})
 	if err != nil {
 		t.Fatal(err)

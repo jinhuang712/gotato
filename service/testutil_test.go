@@ -627,8 +627,8 @@ func instanceRunner(t *testing.T, store session.Store, instance string, model go
 	t.Helper()
 	runner, err := service.New(service.Config{
 		Store: store, Instance: instance, Heartbeat: liveness,
-		Admission: service.Admission{Queue: service.QueuePolicyWait},
-		Agents:    []service.Agent{{Name: "echo", Model: model}},
+		Bounds: service.Bounds{Queue: service.QueuePolicyWait},
+		Agents: []service.Agent{{Name: "echo", Model: model}},
 	})
 	if err != nil {
 		t.Fatal(err)
@@ -901,7 +901,7 @@ func transcriptOf(t *testing.T, runner *service.Runner, id string) []string {
 func messageRunner(t *testing.T, store session.Store, instance, address string, model gotato.Model) *service.Runner {
 	t.Helper()
 	runner, err := service.New(service.Config{
-		Store: store, Instance: instance, Address: address, Heartbeat: steadyLiveness, Admission: service.Admission{Queue: service.QueuePolicyWait},
+		Store: store, Instance: instance, Address: address, Heartbeat: steadyLiveness, Bounds: service.Bounds{Queue: service.QueuePolicyWait},
 		Agents: []service.Agent{{Name: "echo", Model: model}},
 	})
 	if err != nil {

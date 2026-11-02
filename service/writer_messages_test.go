@@ -41,8 +41,8 @@ func addressedRunner(t *testing.T, store session.Store, instance string, model g
 	t.Helper()
 	runner, err := service.New(service.Config{
 		Store: store, Instance: instance, Address: "http://" + instance + ".example:8080", Heartbeat: steadyLiveness,
-		Admission: service.Admission{Queue: service.QueuePolicyWait},
-		Agents:    []service.Agent{{Name: "echo", Model: model}},
+		Bounds: service.Bounds{Queue: service.QueuePolicyWait},
+		Agents: []service.Agent{{Name: "echo", Model: model}},
 	})
 	if err != nil {
 		t.Fatal(err)

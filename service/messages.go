@@ -190,9 +190,7 @@ func (r *Runner) queueToLiveRun(ctx context.Context, request MessageRequest, mes
 // takes messages, until it has released the Session, bounded by ctx. It
 // reports whether there was one.
 func (r *Runner) endingRun(ctx context.Context, sessionID string) (bool, error) {
-	r.mu.Lock()
-	handles := append([]*runHandle(nil), r.handles[sessionID]...)
-	r.mu.Unlock()
+	handles := r.runs.Of(sessionID)
 	for _, handle := range handles {
 		if handle.hasLive() {
 			// A Run that takes messages again, such as the one that follows.
@@ -237,9 +235,7 @@ func (r *Runner) liveRun(ctx context.Context, sessionID string) (*runHandle, err
 }
 
 func (r *Runner) findLiveRun(ctx context.Context, sessionID string) (*runHandle, error) {
-	r.mu.Lock()
-	handles := append([]*runHandle(nil), r.handles[sessionID]...)
-	r.mu.Unlock()
+	handles := r.runs.Of(sessionID)
 	for _, handle := range handles {
 		if handle.hasLive() {
 			return handle, nil

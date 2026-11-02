@@ -135,7 +135,7 @@ func (r *Runner) keepWarm(writer *session.Writer, spec Agent) {
 // the victim.
 func (r *Runner) trimWarm() {
 	for {
-		victim := r.victimOverLimit()
+		victim := r.runs.Victim(r.warm, r.bounds.MaxWarmSessions)
 		if victim == nil {
 			return
 		}

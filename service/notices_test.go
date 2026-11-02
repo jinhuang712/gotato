@@ -184,7 +184,7 @@ func timeAwayRunner(t *testing.T, clock *fakeClock, agent service.Agent) (*servi
 	agent.Warm.NoIdleCompaction = true
 	runner, err := service.New(service.WithClock(service.Config{
 		Store: memStore(), Instance: "a", Heartbeat: steadyLiveness,
-		Admission: service.Admission{Queue: service.QueuePolicyWait}, Agents: []service.Agent{agent},
+		Bounds: service.Bounds{Queue: service.QueuePolicyWait}, Agents: []service.Agent{agent},
 	}, clock))
 	if err != nil {
 		t.Fatal(err)
@@ -427,8 +427,8 @@ func timeAwayRunner2(t *testing.T, store session.Store, name string, clock *fake
 	model := testkit.NewFakeModel(testkit.Text("ok"), testkit.Text("ok"), testkit.Text("ok"))
 	runner, err := service.New(service.WithClock(service.Config{
 		Store: store, Instance: name, Heartbeat: steadyLiveness,
-		Admission: service.Admission{Queue: service.QueuePolicyWait},
-		Agents:    []service.Agent{{Name: "echo", Model: model, Warm: service.WarmPolicy{NoIdleCompaction: true}}},
+		Bounds: service.Bounds{Queue: service.QueuePolicyWait},
+		Agents: []service.Agent{{Name: "echo", Model: model, Warm: service.WarmPolicy{NoIdleCompaction: true}}},
 	}, clock))
 	if err != nil {
 		t.Fatal(err)

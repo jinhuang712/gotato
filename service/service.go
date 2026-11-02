@@ -39,6 +39,7 @@ import (
 	"github.com/jinhuang712/gotato/modelctx"
 	"github.com/jinhuang712/gotato/service/internal/clock"
 	"github.com/jinhuang712/gotato/service/internal/heartbeat"
+	"github.com/jinhuang712/gotato/service/internal/runs"
 	"github.com/jinhuang712/gotato/service/internal/warm"
 	"github.com/jinhuang712/gotato/session"
 )
@@ -219,11 +220,10 @@ const (
 	QueuePolicyWait QueuePolicy = "wait"
 )
 
-// Admission bounds concurrent work. Zero values disable a bound.
-type Admission struct {
-	// MaxActiveRuns is the limit on the Runs this Instance has in flight. Zero
-	// means no limit; a negative value is refused by New.
-	MaxActiveRuns int
+// Bounds is what guards this Instance itself: the Sessions it keeps in memory
+// and what a busy Session does. They run before the Admitter (Config.Admitter),
+// which is a policy of the service's own. Zero values disable a bound.
+type Bounds struct {
 	// MaxActiveSessions is the hard limit on the Sessions this Instance
 	// keeps: those a Run holds, counted once however many Runs wait on them,
 	// and the warm ones idling in memory. At the limit, a Run that would
@@ -247,7 +247,7 @@ type Admission struct {
 }
 
 // DefaultMaxWarmSessions is the bound on warm Sessions when
-// Admission.MaxWarmSessions says nothing: generous for an Instance of a few
+// Bounds.MaxWarmSessions says nothing: generous for an Instance of a few
 // gigabytes, and a limit all the same, so that a Runner left at its defaults
 // does not hold every Session of the last hour.
 const DefaultMaxWarmSessions = 10000
@@ -266,9 +266,15 @@ const DefaultMaxWarmSessions = 10000
 type Config struct {
 	// Store keeps the Sessions' Records. It may be shared by several
 	// processes (see above).
-	Store     session.Store
-	Agents    []Agent
-	Admission Admission
+	Store  session.Store
+	Agents []Agent
+	// Bounds guards the Instance's memory and says what a busy Session does
+	// (Bounds).
+	Bounds Bounds
+	// Admitter decides whether a Run may start, once the drain and the memory
+	// bound have let it through (Admitter). Nil means Limits{}: no limit. A
+	// bound on the Runs in flight is Limits{MaxActiveRuns: n}.
+	Admitter Admitter
 	// Instance is a human-readable label for this Runner, such as a Kubernetes pod name.
 	// It is not the identity: each start appends a random suffix, so the name
 	// the Runner writes to the store, in its Claims, its Liveness row and its
@@ -318,8 +324,12 @@ type Runner struct {
 	heartbeat Heartbeat
 	agents    map[string]Agent
 	order     []string
-	admission Admission
+	bounds    Bounds
+	admitter  Admitter
 
+	// runs holds the admitted Runs and the drain wait (internal/runs). Lock
+	// order: runs, then warm.
+	runs  *runs.Table[*runHandle]
 	locks *sessionLocks
 
 	// clock is the one clock of the Runner. warm holds the idle Sessions, each
@@ -342,14 +352,6 @@ type Runner struct {
 	feedsMu      sync.Mutex
 	feeds        map[feedKey]*sessionFeed
 
-	mu       sync.Mutex
-	handles  map[string][]*runHandle
-	inflight int
-	// locked counts the callers inside sessionLock, Runs among them: Compact,
-	// Notice, SetToolActive and DeleteSession hold a Claim without being
-	// admitted as Runs, and Drain waits for them too.
-	locked   int
-	draining bool
 	// streams are the Session streams open for clients, and streamsOver says
 	// the drain is over, so a new one ends at once.
 	streamsMu   sync.Mutex
@@ -360,10 +362,6 @@ type Runner struct {
 	streamPoll   time.Duration
 	// toolSetTimeout bounds the ToolSet resolution of Tools and SetToolActive.
 	toolSetTimeout time.Duration
-	// drained is made by the first Drain and closed once every Run admitted
-	// before it has settled and released its Session.
-	drained chan struct{}
-	idle    *sync.Cond
 	// drainTimeout bounds how long Drain waits for the Runs; negative is none.
 	drainTimeout time.Duration
 }
@@ -402,11 +400,12 @@ func New(cfg Config) (*Runner, error) {
 		toolSetTimeout: cfg.ToolSetTimeout,
 		drainTimeout:   cfg.DrainTimeout,
 		agents:         map[string]Agent{},
-		admission:      cfg.Admission,
+		bounds:         cfg.Bounds,
+		admitter:       cfg.Admitter,
+		runs:           runs.New[*runHandle](),
 		locks:          newSessionLocks(),
 		clock:          cfg.clock,
 		feeds:          map[feedKey]*sessionFeed{},
-		handles:        map[string][]*runHandle{},
 	}
 	if r.clock == nil {
 		r.clock = clock.System()
@@ -421,21 +420,26 @@ func New(cfg Config) (*Runner, error) {
 		OnRename: func() { r.dropAllWarm("liveness_lapsed") },
 		OnBeat:   r.repairReleases,
 	})
-	// [CONTRACT] a negative MaxActiveRuns is refused, as MaxActiveSessions is, so a typo does not read as no limit.
-	if r.admission.MaxActiveRuns < 0 {
-		return nil, errors.New("service: MaxActiveRuns cannot be negative")
+	if r.admitter == nil {
+		r.admitter = Limits{}
 	}
-	if r.admission.MaxActiveSessions < 0 {
+	// [CONTRACT] a negative MaxActiveRuns is refused, as MaxActiveSessions is, so a typo does not read as no limit.
+	if v, ok := r.admitter.(interface{ Validate() error }); ok {
+		if err := v.Validate(); err != nil {
+			return nil, err
+		}
+	}
+	if r.bounds.MaxActiveSessions < 0 {
 		return nil, errors.New("service: MaxActiveSessions cannot be negative")
 	}
-	if r.admission.MaxWarmSessions == 0 {
-		r.admission.MaxWarmSessions = DefaultMaxWarmSessions
+	if r.bounds.MaxWarmSessions == 0 {
+		r.bounds.MaxWarmSessions = DefaultMaxWarmSessions
 	}
-	if r.admission.Queue == "" {
-		r.admission.Queue = QueuePolicyReject
+	if r.bounds.Queue == "" {
+		r.bounds.Queue = QueuePolicyReject
 	}
-	if r.admission.Queue != QueuePolicyReject && r.admission.Queue != QueuePolicyWait {
-		return nil, fmt.Errorf("service: unknown queue policy %q", r.admission.Queue)
+	if r.bounds.Queue != QueuePolicyReject && r.bounds.Queue != QueuePolicyWait {
+		return nil, fmt.Errorf("service: unknown queue policy %q", r.bounds.Queue)
 	}
 	if r.drainTimeout == 0 {
 		r.drainTimeout = DefaultDrainTimeout
@@ -445,7 +449,6 @@ func New(cfg Config) (*Runner, error) {
 	}
 	r.warm = warm.New(r.clock)
 	r.instanceFeed = gotato.NewInstanceFeed()
-	r.idle = sync.NewCond(&r.mu)
 	for _, spec := range cfg.Agents {
 		name := strings.TrimSpace(spec.Name)
 		if name == "" {
@@ -531,35 +534,13 @@ func (r *Runner) Agent(name string) (Agent, bool) {
 }
 
 // ActiveRuns reports Runs in flight.
-func (r *Runner) ActiveRuns() int {
-	r.mu.Lock()
-	defer r.mu.Unlock()
-	return r.inflight
-}
+func (r *Runner) ActiveRuns() int { return r.runs.ActiveRuns() }
 
 // ActiveSessions reports the Sessions this Instance has activated: those that
 // a Run holds or waits for.
-func (r *Runner) ActiveSessions() int {
-	r.mu.Lock()
-	defer r.mu.Unlock()
-	return r.activeSessionsLocked()
-}
-
-// activeSessionsLocked counts the Sessions with an admitted Run. Runs that
-// create a Session have no ID yet, and each counts as one Session of its own.
-func (r *Runner) activeSessionsLocked() int {
-	n := len(r.handles)
-	if fresh := len(r.handles[""]); fresh > 1 {
-		n += fresh - 1
-	}
-	return n
-}
+func (r *Runner) ActiveSessions() int { return r.runs.ActiveSessions() }
 
 // Draining reports whether the Runner drains: from the moment Drain has marked
 // its Liveness row. Readiness probes use it to stop receiving traffic before
 // the process exits.
-func (r *Runner) Draining() bool {
-	r.mu.Lock()
-	defer r.mu.Unlock()
-	return r.draining
-}
+func (r *Runner) Draining() bool { return r.runs.Draining() }

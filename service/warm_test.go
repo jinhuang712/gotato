@@ -25,8 +25,8 @@ func warmInstance(t *testing.T, store session.Store, name string, clock service.
 	}
 	runner, err := service.New(service.WithClock(service.Config{
 		Store: store, Instance: name,
-		Admission: service.Admission{Queue: service.QueuePolicyWait},
-		Agents:    []service.Agent{{Name: "echo", Model: model, Warm: warm}},
+		Bounds: service.Bounds{Queue: service.QueuePolicyWait},
+		Agents: []service.Agent{{Name: "echo", Model: model, Warm: warm}},
 	}, clock))
 	if err != nil {
 		t.Fatal(err)

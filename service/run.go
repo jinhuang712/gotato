@@ -4,7 +4,6 @@ import (
 	"context"
 	"errors"
 	"strings"
-	"sync"
 	"time"
 
 	"github.com/jinhuang712/gotato/gotato"
@@ -223,7 +222,8 @@ func (r *Runner) runWith(ctx context.Context, request RunRequest, stream *runStr
 	runCtx, cancelRun := context.WithCancel(ctx)
 	defer cancelRun()
 	handle := &runHandle{sessionID: request.SessionID, cancel: cancelRun, ready: make(chan struct{}), wait: wait, over: make(chan struct{})}
-	if err := r.admit(handle); err != nil {
+	release, err := r.admit(ctx, handle, request)
+	if err != nil {
 		why := "at_capacity"
 		switch {
 		case errors.Is(err, ErrDraining):
@@ -235,7 +235,6 @@ func (r *Runner) runWith(ctx context.Context, request RunRequest, stream *runStr
 		return RunResponse{}, err
 	}
 	r.notice(gotato.RunRequested{Header: gotato.NewHeader(gotato.SessionID(request.SessionID), "", 0), Agent: request.Agent}, request.Agent)
-	release := sync.OnceFunc(r.release)
 	followed := false
 	defer func() {
 		if !followed {
@@ -261,11 +260,8 @@ func (r *Runner) runWith(ctx context.Context, request RunRequest, stream *runStr
 		// a Session that no Instance is still using.
 		out.Reconnect = NewReconnect("draining")
 		release()
-		r.mu.Lock()
-		drained := r.drained
-		r.mu.Unlock()
 		select {
-		case <-drained:
+		case <-r.runs.Drained():
 		case <-ctx.Done():
 		}
 	}

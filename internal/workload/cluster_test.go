@@ -134,8 +134,8 @@ func newCluster(t *testing.T, n int, tasks []reftasks.Task, seed uint64, adjust 
 		in := &instance{name: fmt.Sprintf("instance-%d", i), store: &killStore{Records: c.backing.Records, Liveness: c.backing.Liveness}}
 		cfg := service.Config{
 			Store: in.store.store(), Instance: in.name, Heartbeat: clusterLiveness, StreamPoll: 20 * time.Millisecond,
-			Admission: service.Admission{Queue: service.QueuePolicyWait},
-			Agents:    agents,
+			Bounds: service.Bounds{Queue: service.QueuePolicyWait},
+			Agents: agents,
 		}
 		for _, change := range adjust {
 			change(i, &cfg)
