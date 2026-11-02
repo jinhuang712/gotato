@@ -1,4 +1,4 @@
-package httpapi_test
+package http_test
 
 import (
 	"bytes"
@@ -11,9 +11,9 @@ import (
 	"testing"
 	"time"
 
+	httpapi "github.com/jinhuang712/gotato/adapter/http"
 	"github.com/jinhuang712/gotato/gotato"
 	"github.com/jinhuang712/gotato/host"
-	"github.com/jinhuang712/gotato/host/httpapi"
 	"github.com/jinhuang712/gotato/profile"
 	"github.com/jinhuang712/gotato/store"
 	"github.com/jinhuang712/gotato/testkit"

@@ -1,4 +1,4 @@
-package workload_test
+package http_test
 
 import (
 	"bufio"
@@ -24,7 +24,7 @@ import (
 
 // view is what a Session's Record holds that must not depend on the number of
 // instances: its Transcript, and its Events in order, by number and kind. The
-// Claims differ by nature (which instance, and why), so they are compared by
+// Claims differ by nature (which member, and why), so they are compared by
 // number and kind only.
 type view struct {
 	transcript string
@@ -61,11 +61,11 @@ func viewOf(t *testing.T, st store.Store, id string) view {
 	return out
 }
 
-// reference plays a task on one instance, directly, and returns its view.
+// reference plays a task on one member, directly, and returns its view.
 func reference(t *testing.T, task reftasks.Task) view {
 	t.Helper()
 	store := memStore()
-	runner := taskRunner(t, store, task, "single")
+	runner := memberRunner(t, store, task, "single")
 	ctx := context.Background()
 	s, err := runner.CreateSession(ctx, host.CreateSessionRequest{Agent: task.Name, Messages: task.History})
 	if err != nil {
@@ -79,7 +79,7 @@ func reference(t *testing.T, task reftasks.Task) view {
 	return viewOf(t, store, s.ID)
 }
 
-// watcher follows a Session's stream on one instance, as a client does, and
+// watcher follows a Session's stream on one member, as a client does, and
 // keeps the numbers and kinds of the stored Events it read.
 type watcher struct {
 	mu     sync.Mutex
@@ -156,11 +156,11 @@ type sessionPlan struct {
 // TestRandomInstancesGiveWhatOneInstanceGives is the Phase 5 exit test: the
 // reference tasks are played on Sessions that are created through the proxy,
 // and whose prompts are sent through the proxy, with the session-id header, or
-// straight to a random instance, with Sessions running concurrently and an
-// instance killed between two prompts. Each Session ends with the Transcript
+// straight to a random member, with Sessions running concurrently and an
+// member killed between two prompts. Each Session ends with the Transcript
 // and the Events, in the same order and under the same numbers, that one
-// instance gives for the same task. A client that follows each Session's stream
-// on an instance that is not the writer reads the same Events.
+// member gives for the same task. A client that follows each Session's stream
+// on an member that is not the writer reads the same Events.
 func TestRandomInstancesGiveWhatOneInstanceGives(t *testing.T) {
 	tasks := reftasks.ReferenceTasks()
 	for _, kill := range []bool{false, true} {
@@ -177,7 +177,7 @@ func TestRandomInstancesGiveWhatOneInstanceGives(t *testing.T) {
 					plans = append(plans, sessionPlan{task: task, id: c.create(task)})
 				}
 			}
-			// Streams on the instance that is never killed, which is the
+			// Streams on the member that is never killed, which is the
 			// writer of some of these Sessions and not of others.
 			watchers := map[string]*watcher{}
 			for _, p := range plans {
@@ -224,7 +224,7 @@ func TestRandomInstancesGiveWhatOneInstanceGives(t *testing.T) {
 				}
 				c.kill(victim)
 			}
-			// The rest, with the instance gone.
+			// The rest, with the member gone.
 			play(func(reftasks.Task) int { return 1 }, func(reftasks.Task) int { return 1 << 20 })
 
 			references := map[string]view{}
@@ -242,10 +242,10 @@ func TestRandomInstancesGiveWhatOneInstanceGives(t *testing.T) {
 					t.Fatalf("%s %s: the Transcript differs from one instance's\n%s\nwant\n%s", p.task.Name, p.id, got.transcript, want.transcript)
 				}
 				if !slices.Equal(got.events, want.events) {
-					t.Fatalf("%s %s: the Events differ from one instance's\n%s", p.task.Name, p.id, firstDifference(got.events, want.events))
+					t.Fatalf("%s %s: the Events differ from one instance's\n%s", p.task.Name, p.id, firstDifferenceOf(got.events, want.events))
 				}
 			}
-			// The watchers, which read the Session streams on instance 0 only,
+			// The watchers, which read the Session streams on member 0 only,
 			// saw every stored Event once, in order.
 			for _, p := range plans {
 				want := kindsOnly(viewOf(t, c.backing, p.id).events)
@@ -259,7 +259,7 @@ func TestRandomInstancesGiveWhatOneInstanceGives(t *testing.T) {
 					time.Sleep(5 * time.Millisecond)
 				}
 				if !slices.Equal(got, want) {
-					t.Fatalf("%s %s: a stream on one instance read\n%s", p.task.Name, p.id, firstDifference(got, want))
+					t.Fatalf("%s %s: a stream on one instance read\n%s", p.task.Name, p.id, firstDifferenceOf(got, want))
 				}
 			}
 			t.Logf("%d Sessions, %d requests hashed on session-id, %d retried by the proxy", len(plans), c.proxy.hashed.Load(), c.proxy.retries.Load())
@@ -270,7 +270,7 @@ func TestRandomInstancesGiveWhatOneInstanceGives(t *testing.T) {
 	}
 }
 
-// withoutHeldClaim removes the Claim that a dead instance held, which has no
+// withoutHeldClaim removes the Claim that a dead member held, which has no
 // release after it, and numbers the Events after it as they would be without it.
 func withoutHeldClaim(t *testing.T, events []string) []string {
 	t.Helper()
@@ -294,7 +294,7 @@ func withoutHeldClaim(t *testing.T, events []string) []string {
 	return out
 }
 
-// assertTakenOver fails unless another instance claimed the Session from the
+// assertTakenOver fails unless another member claimed the Session from the
 // dead holder.
 func assertTakenOver(t *testing.T, st store.Store, id, dead string) {
 	t.Helper()
@@ -310,7 +310,7 @@ func assertTakenOver(t *testing.T, st store.Store, id, dead string) {
 	t.Fatalf("Session %s: no instance claimed it from the dead %s", id, dead)
 }
 
-func firstDifference(got, want []string) string {
+func firstDifferenceOf(got, want []string) string {
 	for i := range min(len(got), len(want)) {
 		if got[i] != want[i] {
 			return fmt.Sprintf("at place %d:\n got  %s\n want %s", i+1, got[i], want[i])
@@ -319,7 +319,7 @@ func firstDifference(got, want []string) string {
 	return fmt.Sprintf("one is a prefix of the other (%d and %d)", len(got), len(want))
 }
 
-// The proxy keeps a Session on one instance: requests for it with the header
+// The proxy keeps a Session on one member: requests for it with the header
 // reach its writer, so none of them waits for a takeover, and a Session's
 // writer is where the hash says.
 func TestProxyKeepsASessionOnItsWriter(t *testing.T) {
@@ -327,7 +327,7 @@ func TestProxyKeepsASessionOnItsWriter(t *testing.T) {
 	c := newCluster(t, 3, []reftasks.Task{task}, 3)
 	id := c.create(task)
 	for _, prompt := range task.Prompts[:4] {
-		if r := send(t, c.front.URL, http.MethodPost, "/v1/sessions/"+id+"/runs", map[string]any{"prompt": prompt}, id); r.status != http.StatusOK {
+		if r := clusterSend(t, c.front.URL, http.MethodPost, "/v1/sessions/"+id+"/runs", map[string]any{"prompt": prompt}, id); r.status != http.StatusOK {
 			t.Fatalf("prompt = %d %s", r.status, r.body)
 		}
 	}
@@ -342,8 +342,8 @@ func TestProxyKeepsASessionOnItsWriter(t *testing.T) {
 			writers[claimed.Instance] = true
 		}
 	}
-	// The first Run is the Session's creation by a random instance; every
-	// later Run was sent to the one instance that the id hashes to.
+	// The first Run is the Session's creation by a random member; every
+	// later Run was sent to the one member that the id hashes to.
 	if len(writers) != 1 || !writers[c.proxy.owner(id)] {
 		t.Fatalf("Runs after the first were claimed by %v; the hash says %s", writers, c.proxy.owner(id))
 	}
@@ -419,10 +419,10 @@ func TestConcurrentMessagesToOneSessionAreNeverInterleaved(t *testing.T) {
 	}
 }
 
-// An instance killed in the middle of the traffic, while it holds a Claim: the
+// An member killed in the middle of the traffic, while it holds a Claim: the
 // Run it was running is lost and its client gets no 200; every Run that did
-// answer 200 landed once, followed by its reply; the Session the dead instance
-// held is taken over by another instance; and the proxy drops the dead one from
+// answer 200 landed once, followed by its reply; the Session the dead member
+// held is taken over by another member; and the proxy drops the dead one from
 // its ring. The kill waits for the held Run to start, so it does not depend on
 // timing.
 func TestKilledInstanceMidTrafficLosesOnlyTheStepInFlight(t *testing.T) {
@@ -437,11 +437,11 @@ func TestKilledInstanceMidTrafficLosesOnlyTheStepInFlight(t *testing.T) {
 		}
 	})
 	victim := c.instances[2]
-	// A Session that hashes to the victim: the proxy will send it there first.
+	// A Session that hashes to the victim: the proxy will clusterSend it there first.
 	var target string
 	var ids []string
-	// Which instance an id hashes to is not up to the test (the ring is keyed
-	// by instance names with a random suffix), so create until the victim owns
+	// Which member an id hashes to is not up to the test (the ring is keyed
+	// by member names with a random suffix), so create until the victim owns
 	// one, and at least 60 exist.
 	for i := 0; i < 400 && (target == "" || len(ids) < 60); i++ {
 		id := c.create(task)
@@ -483,7 +483,7 @@ func TestKilledInstanceMidTrafficLosesOnlyTheStepInFlight(t *testing.T) {
 	// kill comes when that Run has started, and not before.
 	lost := make(chan reply, 1)
 	go func() {
-		lost <- send(t, victim.server.URL, http.MethodPost, "/v1/sessions/"+target+"/runs", map[string]any{"prompt": "hold"}, target)
+		lost <- clusterSend(t, victim.server.URL, http.MethodPost, "/v1/sessions/"+target+"/runs", map[string]any{"prompt": "hold"}, target)
 	}()
 	<-model.started
 	c.kill(victim)
@@ -491,12 +491,12 @@ func TestKilledInstanceMidTrafficLosesOnlyTheStepInFlight(t *testing.T) {
 		t.Fatalf("the Run the victim was holding answered 200: %s", r.body)
 	}
 	// The Session is used again, through the proxy: it hashes to the dead
-	// instance, whose connection is refused, so the proxy retries on another.
-	// That instance waits for the dead holder's row to expire and takes the
+	// member, whose connection is refused, so the proxy retries on another.
+	// That member waits for the dead holder's row to expire and takes the
 	// Session over.
 	for k := range 3 {
 		text := fmt.Sprintf("after-%d", k)
-		r := send(t, c.front.URL, http.MethodPost, "/v1/sessions/"+target+"/runs", map[string]any{"prompt": text}, target)
+		r := clusterSend(t, c.front.URL, http.MethodPost, "/v1/sessions/"+target+"/runs", map[string]any{"prompt": text}, target)
 		if r.status != http.StatusOK {
 			t.Fatalf("a prompt for the Session the dead instance held = %d %s", r.status, r.body)
 		}
@@ -569,10 +569,10 @@ func (m *holdModel) Stream(ctx context.Context, request gotato.ModelRequest) (go
 // Config states nothing: no window, no retention, no sampling.
 func (m *holdModel) Config() gotato.ModelConfig { return gotato.ModelConfig{} }
 
-// A full instance refuses a Run on a Session it does not hold with a 503
-// marked not run, and the proxy sends that request once to another instance,
+// A full member refuses a Run on a Session it does not hold with a 503
+// marked not run, and the proxy sends that request once to another member,
 // where it runs: the load
-// balancer's part of the activation limit, end to end. The full instance
+// balancer's part of the activation limit, end to end. The full member
 // activates nothing for the refused requests.
 func TestProxyRetriesAFullInstancesRefusalElsewhere(t *testing.T) {
 	model := &holdModel{gate: make(chan struct{}), started: make(chan struct{}, 1)}
@@ -596,8 +596,8 @@ func TestProxyRetriesAFullInstancesRefusalElsewhere(t *testing.T) {
 	}()
 	<-model.started
 
-	// Session ids are random, so which instance an id hashes to is not up to
-	// the test: create Sessions until 4 hash to the full instance (its refusal
+	// Session ids are random, so which member an id hashes to is not up to
+	// the test: create Sessions until 4 hash to the full member (its refusal
 	// is certain for each) and 8 to the other, then run them all.
 	full := c.instances[0].name
 	var ids []string
@@ -625,7 +625,7 @@ func TestProxyRetriesAFullInstancesRefusalElsewhere(t *testing.T) {
 	}
 	before := c.proxy.retries.Load()
 	for i, id := range ids {
-		r := send(t, c.front.URL, http.MethodPost, "/v1/sessions/"+id+"/runs", map[string]any{"prompt": fmt.Sprintf("p%d", i)}, id)
+		r := clusterSend(t, c.front.URL, http.MethodPost, "/v1/sessions/"+id+"/runs", map[string]any{"prompt": fmt.Sprintf("p%d", i)}, id)
 		if r.status != http.StatusOK {
 			t.Fatalf("request %d = %d %s", i, r.status, r.body)
 		}

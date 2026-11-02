@@ -8,9 +8,9 @@ import (
 	"strings"
 	"testing"
 
+	httpapi "github.com/jinhuang712/gotato/adapter/http"
 	"github.com/jinhuang712/gotato/gotato"
 	"github.com/jinhuang712/gotato/host"
-	"github.com/jinhuang712/gotato/host/httpapi"
 )
 
 // defaultsOf says what an error of the code says about its request when it is

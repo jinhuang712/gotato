@@ -27,8 +27,9 @@ const modulePath = "github.com/jinhuang712/gotato"
 // internal/ is our test tools, which no shipped package may import, and so
 // never appear here.
 //
-// adapter/mcp is a module of its own, but it is a shipped package, so it is
-// held to the same table: it may import the core and nothing else.
+// adapter/mcp and adapter/http are modules of their own, but they are shipped
+// packages, so they are held to the same table: adapter/mcp may import the core
+// and nothing else, and adapter/http the layers up to host.
 var allowedImports = map[string][]string{
 	"gotato":          {"internal/hostlink", "internal/text", "ref"},
 	"record":          {"gotato", "internal/text", "ref"},
@@ -48,7 +49,7 @@ var allowedImports = map[string][]string{
 	"host/internal/heartbeat": {"gotato", "record", "host/internal/clock", "store"},
 	"host/internal/runs":      {"host/internal/warm"},
 	"host/internal/warm":      {"host/internal/clock"},
-	"host/httpapi":            {"gotato", "host", "record", "store"},
+	"adapter/http":            {"gotato", "host", "record", "store"},
 	"adapter/mcp":             {"gotato"},
 }
 
@@ -69,7 +70,7 @@ func TestLayering(t *testing.T) {
 
 	// Every package that ships must be in the table, so a new one cannot
 	// slip past it.
-	shipped := append(modulePackages(t, root), "adapter/mcp")
+	shipped := append(modulePackages(t, root), "adapter/http", "adapter/mcp")
 	for _, rel := range shipped {
 		if _, ok := allowedImports[rel]; !ok {
 			t.Errorf("package %s is not in allowedImports (gotato/layering_test.go); add it with the in-repo packages it may import", rel)

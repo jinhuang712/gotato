@@ -1,4 +1,4 @@
-package httpapi_test
+package http_test
 
 import (
 	"context"
@@ -7,7 +7,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/jinhuang712/gotato/host/httpapi"
+	httpapi "github.com/jinhuang712/gotato/adapter/http"
 	"github.com/jinhuang712/gotato/store"
 )
 

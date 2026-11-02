@@ -12,10 +12,10 @@ import (
 	"testing"
 	"time"
 
+	httpapi "github.com/jinhuang712/gotato/adapter/http"
 	"github.com/jinhuang712/gotato/examples/larkbot/internal/fakelark"
 	"github.com/jinhuang712/gotato/gotato"
 	"github.com/jinhuang712/gotato/host"
-	"github.com/jinhuang712/gotato/host/httpapi"
 	"github.com/jinhuang712/gotato/profile"
 	"github.com/jinhuang712/gotato/store"
 	"github.com/jinhuang712/gotato/testkit"

@@ -1,7 +1,20 @@
-// Package httpapi exposes a host.Runner over HTTP. It is a protocol
-// adapter: every route maps onto one Runner method, and Agent and Session
-// semantics stay in the runtime. A Handler is an http.Handler: pass it to
-// http.ListenAndServe, or mount it with mux.Handle.
+// Package http exposes a host.Runner over HTTP. It is a protocol adapter:
+// every route maps onto one Runner method, and Agent and Session semantics stay
+// in the runtime. A Handler is an http.Handler: pass it to http.ListenAndServe,
+// or mount it with mux.Handle.
+//
+// It is a Go module of its own (github.com/jinhuang712/gotato/adapter/http), so
+// the root module carries no transport. Its name is the one of net/http, which
+// a program that serves it imports as well, so the program imports this one as
+// httpapi:
+//
+//	import (
+//		"net/http"
+//
+//		httpapi "github.com/jinhuang712/gotato/adapter/http"
+//	)
+//
+//	_ = http.ListenAndServe(addr, httpapi.New(runner))
 //
 // # Routes
 //
@@ -80,7 +93,7 @@
 // application: wrap the Handler with your own middleware. To stop a process,
 // call Runner.Drain first, then http.Server.Shutdown, then Runner.Close (see
 // host.Config).
-package httpapi
+package http
 
 import (
 	"fmt"

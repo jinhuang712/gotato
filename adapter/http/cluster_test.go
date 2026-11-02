@@ -1,4 +1,4 @@
-package workload_test
+package http_test
 
 import (
 	"bytes"
@@ -24,8 +24,8 @@ import (
 
 	"github.com/jinhuang712/gotato/record"
 
+	httpapi "github.com/jinhuang712/gotato/adapter/http"
 	"github.com/jinhuang712/gotato/host"
-	"github.com/jinhuang712/gotato/host/httpapi"
 	"github.com/jinhuang712/gotato/internal/reftasks"
 	"github.com/jinhuang712/gotato/profile"
 	"github.com/jinhuang712/gotato/store"
@@ -33,7 +33,7 @@ import (
 
 // ---- the instances ----------------------------------------------------------
 
-// killStore is an instance's view of the shared store. Once dead it fails
+// killStore is an member's view of the shared store. Once dead it fails
 // every call, as a store does for a process that is gone.
 type killStore struct {
 	store.Records
@@ -85,8 +85,8 @@ func (s *killStore) Beat(ctx context.Context, row store.InstanceRow, ttl time.Du
 	return s.Liveness.Beat(ctx, row, ttl)
 }
 
-// instance is one Runner behind its own HTTP server.
-type instance struct {
+// member is one Runner behind its own HTTP server.
+type member struct {
 	name   string
 	runner *host.Runner
 	store  *killStore
@@ -99,16 +99,16 @@ type instance struct {
 type cluster struct {
 	t         *testing.T
 	backing   store.Store
-	instances []*instance
+	instances []*member
 	proxy     *hashProxy
 	front     *httptest.Server
 	random    *rand.Rand
 	mu        sync.Mutex
 }
 
-// clusterLiveness keeps every instance's row alive through a late renewal.
-// victimLiveness is for the instance a test kills, whose row must expire for
-// another instance to take its Sessions over.
+// clusterLiveness keeps every member's row alive through a late renewal.
+// victimLiveness is for the member a test kills, whose row must expire for
+// another member to take its Sessions over.
 var (
 	clusterLiveness = host.Heartbeat{TTL: 5 * time.Second, Wait: 5 * time.Second}
 	victimLiveness  = host.Heartbeat{TTL: 300 * time.Millisecond, Wait: 5 * time.Second}
@@ -134,7 +134,7 @@ func newCluster(t *testing.T, n int, tasks []reftasks.Task, seed uint64, adjust 
 	}
 	var backends []*backend
 	for i := range n {
-		in := &instance{name: fmt.Sprintf("instance-%d", i), store: &killStore{Records: c.backing.Records, Liveness: c.backing.Liveness}}
+		in := &member{name: fmt.Sprintf("instance-%d", i), store: &killStore{Records: c.backing.Records, Liveness: c.backing.Liveness}}
 		cfg := withAgents(host.Config{
 			Store: in.store.store(), Instance: in.name, Heartbeat: clusterLiveness, StreamPoll: 20 * time.Millisecond,
 			Bounds: host.Bounds{Queue: host.QueuePolicyWait},
@@ -171,8 +171,8 @@ func newCluster(t *testing.T, n int, tasks []reftasks.Task, seed uint64, adjust 
 }
 
 // live returns the instances that are not killed.
-func (c *cluster) live() []*instance {
-	var out []*instance
+func (c *cluster) live() []*member {
+	var out []*member
 	for _, in := range c.instances {
 		if !in.killed.Load() {
 			out = append(out, in)
@@ -181,8 +181,8 @@ func (c *cluster) live() []*instance {
 	return out
 }
 
-// anyInstance picks a live instance at random.
-func (c *cluster) anyInstance() *instance {
+// anyInstance picks a live member at random.
+func (c *cluster) anyInstance() *member {
 	c.mu.Lock()
 	defer c.mu.Unlock()
 	live := c.live()
@@ -196,9 +196,9 @@ func (c *cluster) coin() bool {
 	return c.random.IntN(2) == 0
 }
 
-// kill makes an instance die: its store fails every call, and its server stops
+// kill makes an member die: its store fails every call, and its server stops
 // answering. The proxy learns it by the refused connection.
-func (c *cluster) kill(in *instance) {
+func (c *cluster) kill(in *member) {
 	in.killed.Store(true)
 	in.store.dead.Store(true)
 	// Stop accepting first, so a request that dials now is refused, as the
@@ -221,10 +221,10 @@ type ringPoint struct {
 }
 
 // hashProxy is the load balancer the documents describe: a consistent hash on
-// the session-id header, one retry on another instance after a 503 marked not
-// run, and an instance whose connection is refused leaves the ring. A request
+// the session-id header, one retry on another member after a 503 marked not
+// run, and an member whose connection is refused leaves the ring. A request
 // whose connection broke after it was sent is not retried: it may have run. A request
-// with no header, one that creates a Session, goes to a random instance.
+// with no header, one that creates a Session, goes to a random member.
 type hashProxy struct {
 	backends []*backend
 	ring     []ringPoint
@@ -275,7 +275,7 @@ func (p *hashProxy) candidates(key string) []*backend {
 	return out
 }
 
-// owner returns the instance a key hashes to, for the test to check.
+// owner returns the member a key hashes to, for the test to check.
 func (p *hashProxy) owner(key string) string {
 	if c := p.candidates(key); len(c) > 0 {
 		return c[0].name
@@ -284,12 +284,12 @@ func (p *hashProxy) owner(key string) string {
 }
 
 // proxyTransport opens a connection for every request. A pooled connection to
-// an instance that was just killed looks alive until the next write fails, and
+// an member that was just killed looks alive until the next write fails, and
 // that failure comes after the request may have been sent, so it is not
 // retried; a new connection is refused instead, which the proxy retries.
 var proxyTransport = &http.Transport{DisableKeepAlives: true}
 
-// RoundTrip sends a request to the instance its session-id hashes to, and once
+// RoundTrip sends a request to the member its session-id hashes to, and once
 // more to the next one when the first is gone or refused it as not run.
 func (p *hashProxy) RoundTrip(req *http.Request) (*http.Response, error) {
 	var body []byte
@@ -320,7 +320,7 @@ func (p *hashProxy) RoundTrip(req *http.Request) (*http.Response, error) {
 				// sent: it may have run, so it is not sent again.
 				return nil, err
 			}
-			// Refused before anything was sent: the instance is gone.
+			// Refused before anything was sent: the member is gone.
 			b.down.Store(true)
 			lastErr = err
 			p.retries.Add(1)
@@ -347,8 +347,8 @@ type reply struct {
 	body   []byte
 }
 
-// send makes one request, to the proxy or straight to an instance.
-func send(t *testing.T, base, method, path string, body any, sessionID string) reply {
+// clusterSend makes one request, to the proxy or straight to an member.
+func clusterSend(t *testing.T, base, method, path string, body any, sessionID string) reply {
 	t.Helper()
 	var raw []byte
 	if body != nil {
@@ -372,18 +372,18 @@ func send(t *testing.T, base, method, path string, body any, sessionID string) r
 }
 
 // prompt sends one prompt of a Session, through the proxy or straight to a
-// random live instance.
+// random live member.
 func (c *cluster) prompt(sessionID, text string) reply {
 	base := c.front.URL
 	if !c.coin() {
 		base = c.anyInstance().server.URL
 	}
-	return send(c.t, base, http.MethodPost, "/v1/sessions/"+sessionID+"/runs", map[string]any{"prompt": text}, sessionID)
+	return clusterSend(c.t, base, http.MethodPost, "/v1/sessions/"+sessionID+"/runs", map[string]any{"prompt": text}, sessionID)
 }
 
 // create makes a Session for a task. A task with a history is created on an
-// instance directly, since HTTP creates only empty Sessions; the others
-// through the proxy, which sends the request to a random instance.
+// member directly, since HTTP creates only empty Sessions; the others
+// through the proxy, which sends the request to a random member.
 func (c *cluster) create(task reftasks.Task) string {
 	c.t.Helper()
 	if len(task.History) > 0 {
@@ -393,7 +393,7 @@ func (c *cluster) create(task reftasks.Task) string {
 		}
 		return s.ID
 	}
-	r := send(c.t, c.front.URL, http.MethodPost, "/v1/sessions", map[string]any{"agent": task.Name}, "")
+	r := clusterSend(c.t, c.front.URL, http.MethodPost, "/v1/sessions", map[string]any{"agent": task.Name}, "")
 	id := r.header.Get(httpapi.SessionIDHeader)
 	if r.status != http.StatusCreated || id == "" {
 		c.t.Fatalf("create = %d %s", r.status, r.body)

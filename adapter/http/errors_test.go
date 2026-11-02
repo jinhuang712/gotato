@@ -1,4 +1,4 @@
-package httpapi_test
+package http_test
 
 import (
 	"fmt"
@@ -7,9 +7,9 @@ import (
 
 	"github.com/jinhuang712/gotato/record"
 
+	httpapi "github.com/jinhuang712/gotato/adapter/http"
 	"github.com/jinhuang712/gotato/gotato"
 	"github.com/jinhuang712/gotato/host"
-	"github.com/jinhuang712/gotato/host/httpapi"
 )
 
 // A new ErrorCode must be given a status on purpose: this fails until the
