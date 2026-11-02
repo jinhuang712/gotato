@@ -34,6 +34,7 @@ From the first real adoption (a Lark bot service running on several pods), each 
 - [ ] **D-030 · Retrying a `NotRun` after a back-off is a plain answer to `not_writer` for one replica.** One paragraph and its limit in the multi-instance guide.
 - [ ] **D-031 · Lark pitfalls (card size, inline code, `*` across a colour tag, thread key, recall permission).** A list in `examples/larkbot/README.md`.
 - [ ] **D-032 · A tool cannot learn who asked, except through a `ctx` value set before `Runner.Run` (works, undocumented).** Document the route and pin it with a test; decide whether a per-Run field should reach `ToolUse`.
+- [ ] **D-033 · Follow-up to D-027.** The slow Run overlapped another team's calls on the same shared model (a correlation only), and input length does add about +2 s of first-token time over 44k tokens, so D-019 stays a latency item until measured. Ask the gateway owners for a per-key split and queueing.
 - [ ] **D-003 · Nothing warns against `http.Client.Timeout` on the MCP transport.** One sentence in the option comment and FEATURES.md.
 - [ ] **D-008 · No Mongo section in `guides/write-a-store.md`.**
 - [ ] **D-011 · `guides/install.md` opens with Go 1.24 only.** Add "1.25 with `adapter/mcp`".
