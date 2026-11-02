@@ -33,8 +33,7 @@ Done when: each item has a test, a FEATURES.md entry and a CHANGELOG line; no br
 
 Each item starts as a decision in [decisions](decisions/README.md). Code follows only if the decision says yes.
 
-- **Compaction moves, never makes unreadable** ([043](decisions/043-compaction-moves-content-out-and-never-makes-it-unreadable.md)): a reference for every Tool Result and Message a compaction or merge takes out of the Context. It answers D-036 and the long-Session merge; decided; the per-part sizes of D-035 are its measurement.
-- **Model profile** ([042](decisions/042-a-models-profile-is-its-own-value-apart-from-the-connection.md)): describe a model apart from the connection, with the window stated. It answers D-020 and D-034 at the root, and would replace a warning for D-020. Decided; two small points are left to the implementation.
+Both decisions are made and built: [042](decisions/042-a-models-profile-is-its-own-value-apart-from-the-connection.md) (a model's profile apart from the connection, the window stated) and [043](decisions/043-compaction-moves-content-out-and-never-makes-it-unreadable.md) (a compaction leaves a reference to what it takes out). The six items that were open here are under *Not planned*.
 
 Done when: each item has a decision, accepted or refused.
 

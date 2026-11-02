@@ -13,8 +13,6 @@ Findings from real use, each checked against the code (first pass on 2026-10-29)
 
 ## Decisions
 
-- [ ] **Compaction moves content out and never makes it unreadable ([043](decisions/043-compaction-moves-content-out-and-never-makes-it-unreadable.md)).** A reference for every Tool Result and Message a compaction or merge removes from the Context; reasoning is not read back. Answers D-036.
-- [ ] **Model profile: describe a model apart from its connection, with the window stated ([042](decisions/042-a-models-profile-is-its-own-value-apart-from-the-connection.md)).** Answers D-020 and D-034 at the root; no pool, no routing.
 
 ## Open checks
 
