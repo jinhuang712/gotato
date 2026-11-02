@@ -33,14 +33,8 @@ Done when: each item has a test, a FEATURES.md entry and a CHANGELOG line; no br
 
 Each item starts as a decision in [decisions](decisions/README.md). Code follows only if the decision says yes.
 
-- **D-024** a cap on Turns and tool calls, moved here from *Not scheduled*: D-027 names a failure (a 16-round Run of 161.7 s with no limit). Decide first, with the wrap-up Notice question of D-024 answered.
-- **D-018** load and run a read-only tool on the refusal: it changes when a load takes effect, and may touch the cache-stable tool list. Decided after round 2: measure first whether the reworded `search_tools` line and the `Code` for "not loaded" bring the refused calls down.
 - **Compaction moves, never makes unreadable** ([043](decisions/043-compaction-moves-content-out-and-never-makes-it-unreadable.md), draft): a reference for every Tool Result and Message a compaction or merge takes out of the Context. It answers D-036 and the long-Session merge; decide first, with the per-part sizes of D-035 as its measurement.
 - **Model profile** ([042](decisions/042-a-models-profile-is-its-own-value-apart-from-the-connection.md), draft): describe a model apart from the connection, with the window stated. It answers D-020 and D-034 at the root, and would replace a warning for D-020. Decide first; the draft names three open points.
-- **D-019** should the chat wire send `cache_control`.
-- **D-010** a pass-through body field for reasoning effort.
-- **D-005** a price table or an Event hook. The lean is no: documentation is enough.
-- Whether the core de-duplicates `RequestID` (named in D-007).
 
 Done when: each item has a decision, accepted or refused.
 
@@ -53,9 +47,17 @@ Starts when rounds 1 and 2 are merged and round 3 is decided.
 - G-G06 is checked: each break, including those already under Unreleased, has a before-and-after entry in CHANGELOG.md.
 - The D-001 procedure is followed, and the release notes name what was never checked against a real provider.
 
-## Not scheduled
+## Not planned
+
+Each has a reason; one is picked up again only when someone names a real failure or need.
 
 - G-B13, which needs developers new to Gotato;
 - the ideas in [FEATURES.md → Later](../FEATURES.md#later);
+- **D-024** `MaxTurns` and `MaxToolCalls`: decision 038 allows a cap only for a named failure, and a slow Run that ends well is not one; a team that wants a cap writes a `TurnStopper`;
+- **D-018** (second half) loading and running a read-only tool on the refusal: the reworded `search_tools` line comes first, and nothing shows yet that more is needed;
+- **D-019** `cache_control` on the chat wire: whether an endpoint adds it is that endpoint's business, and no measurement shows a cache would speed up a Run;
+- **D-010** a pass-through field for reasoning effort: no team has needed it;
+- **D-005** a price table or an Event hook: cost is a team's own conversion of `Usage`, and FEATURES.md says so;
+- the core de-duplicating `RequestID` (named in D-007): the example passes the message id as `RequestID`, and no one needs the core to do it;
 - **D-025** `arguments` on `tool_started`: the base64 form is documented in round 1 and that is enough for now;
 - the other items in [TODO.md](TODO.md), which are fixed or settled outside any release.
