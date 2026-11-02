@@ -17,10 +17,10 @@ import (
 	"time"
 
 	"github.com/jinhuang712/gotato/gotato"
+	"github.com/jinhuang712/gotato/host"
+	"github.com/jinhuang712/gotato/host/httpapi"
 	"github.com/jinhuang712/gotato/internal/cmd/gatewayconf"
 	"github.com/jinhuang712/gotato/profile"
-	"github.com/jinhuang712/gotato/service"
-	"github.com/jinhuang712/gotato/service/httpapi"
 	"github.com/jinhuang712/gotato/store"
 	"github.com/jinhuang712/gotato/testkit"
 	lark "github.com/larksuite/oapi-sdk-go/v3"
@@ -90,7 +90,7 @@ func run() error {
 	if err != nil {
 		return err
 	}
-	runner, err := service.New(service.Config{Store: store.Store{Records: st, Liveness: st}, Profiles: registryOf(agent), DefaultAgent: agent.Name, Instance: *instance, Address: advertiseAddr(*advertise, *addr)})
+	runner, err := host.New(host.Config{Store: store.Store{Records: st, Liveness: st}, Profiles: registryOf(agent), DefaultAgent: agent.Name, Instance: *instance, Address: advertiseAddr(*advertise, *addr)})
 	if err != nil {
 		return err
 	}

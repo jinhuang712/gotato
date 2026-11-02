@@ -10,8 +10,8 @@ import (
 	"time"
 
 	"github.com/jinhuang712/gotato/gotato"
-	"github.com/jinhuang712/gotato/service"
-	"github.com/jinhuang712/gotato/service/httpapi"
+	"github.com/jinhuang712/gotato/host"
+	"github.com/jinhuang712/gotato/host/httpapi"
 	"github.com/jinhuang712/gotato/store"
 	"github.com/jinhuang712/gotato/testkit"
 )
@@ -38,13 +38,13 @@ func deadWriter(t *testing.T, wrap func(http.Handler) http.Handler) (a, b *insta
 	b.bot.retry = fastRetry
 	ctx := context.Background()
 	id = sessionIDFor(rootMsg)
-	if _, err := a.runner.CreateSession(ctx, service.CreateSessionRequest{Agent: "fake", ID: id, Metadata: map[string]string{metaChatID: chat, metaThread: rootMsg}}); err != nil {
+	if _, err := a.runner.CreateSession(ctx, host.CreateSessionRequest{Agent: "fake", ID: id, Metadata: map[string]string{metaChatID: chat, metaThread: rootMsg}}); err != nil {
 		t.Fatal(err)
 	}
 	aDone = make(chan struct{})
 	go func() {
 		defer close(aDone)
-		_, _ = a.runner.Run(ctx, service.RunRequest{SessionID: id, Prompt: "first"})
+		_, _ = a.runner.Run(ctx, host.RunRequest{SessionID: id, Prompt: "first"})
 	}()
 	<-started
 	return a, b, id, release, aDone

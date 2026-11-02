@@ -14,6 +14,7 @@ import (
 	"time"
 
 	"github.com/jinhuang712/gotato/gotato"
+	"github.com/jinhuang712/gotato/host"
 	"github.com/jinhuang712/gotato/internal/fakegateway"
 	"github.com/jinhuang712/gotato/internal/reftasks"
 	itext "github.com/jinhuang712/gotato/internal/text"
@@ -21,7 +22,6 @@ import (
 	"github.com/jinhuang712/gotato/profile"
 	"github.com/jinhuang712/gotato/record"
 	"github.com/jinhuang712/gotato/ref"
-	"github.com/jinhuang712/gotato/service"
 	"github.com/jinhuang712/gotato/store"
 )
 
@@ -56,13 +56,13 @@ func (m windowedLogging) Config() gotato.ModelConfig {
 	return gotato.ModelConfig{Facts: gotato.ModelFacts{Window: gotato.WindowTokens(m.window)}}
 }
 
-func longRunner(t *testing.T, st store.Store, task reftasks.Task, model gotato.Model, instance string) *service.Runner {
+func longRunner(t *testing.T, st store.Store, task reftasks.Task, model gotato.Model, instance string) *host.Runner {
 	t.Helper()
 	agent := profile.AgentProfile{Name: task.Name, Model: model, Instruction: task.Instruction, Tools: task.Tools, ToolSets: task.ToolSets, Limits: task.Limits}
 	if task.Recap {
 		agent.Compact.Recap = record.ModelRecap{}
 	}
-	runner, err := service.New(withAgents(service.Config{Store: st, Instance: instance}, []profile.AgentProfile{agent}...))
+	runner, err := host.New(withAgents(host.Config{Store: st, Instance: instance}, []profile.AgentProfile{agent}...))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -73,14 +73,14 @@ func longRunner(t *testing.T, st store.Store, task reftasks.Task, model gotato.M
 // playLongAcross plays a compacting task as Runs that move between instances
 // and reloads (a, a after a reload, b, a after a reload, and so on), and hands
 // each Run's end to check. It returns the Session's ID and the requests.
-func playLongAcross(t *testing.T, st store.Store, task reftasks.Task, afterRun func(runner *service.Runner, id string)) (string, [][]byte) {
+func playLongAcross(t *testing.T, st store.Store, task reftasks.Task, afterRun func(runner *host.Runner, id string)) (string, [][]byte) {
 	t.Helper()
 	ctx := context.Background()
 	log := &requestLog{}
 	model := windowedLogging{inner: task.Model, window: task.Window, log: log}
 	stages := []string{"a", "a", "b", "a"}
 	runner := longRunner(t, st, task, model, "a")
-	s, err := runner.CreateSession(ctx, service.CreateSessionRequest{Agent: task.Name})
+	s, err := runner.CreateSession(ctx, host.CreateSessionRequest{Agent: task.Name})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -91,7 +91,7 @@ func playLongAcross(t *testing.T, st store.Store, task reftasks.Task, afterRun f
 			}
 			runner = longRunner(t, st, task, model, stages[i%len(stages)])
 		}
-		result, err := runner.Run(ctx, service.RunRequest{SessionID: s.ID, Prompt: prompt})
+		result, err := runner.Run(ctx, host.RunRequest{SessionID: s.ID, Prompt: prompt})
 		if err != nil || result.Result.Status != gotato.RunStatusCompleted {
 			t.Fatalf("Run %d on %s: %v (%s)", i+1, runner.Instance(), err, result.Result.Status)
 		}
@@ -273,19 +273,19 @@ func TestSameRecordSameRequestAcrossCompactions(t *testing.T) {
 			st := memStore()
 			model := windowedLogging{inner: task.Model, window: task.Window, log: &requestLog{}}
 			compared := 0
-			check := func(runner *service.Runner, id string) {
+			check := func(runner *host.Runner, id string) {
 				ctx := context.Background()
-				live, err := runner.Inspect(ctx, id, service.InspectConfig{})
+				live, err := runner.Inspect(ctx, id, host.InspectConfig{})
 				if err != nil {
 					t.Fatal(err)
 				}
 				want := jsonOf(t, live.Request)
-				views := map[string]*service.Runner{
+				views := map[string]*host.Runner{
 					"the other instance":      longRunner(t, st, task, model, "other"),
 					"a new Runner (a reload)": longRunner(t, st, task, model, runner.Instance()),
 				}
 				for name, view := range views {
-					report, err := view.Inspect(ctx, id, service.InspectConfig{})
+					report, err := view.Inspect(ctx, id, host.InspectConfig{})
 					if err != nil {
 						t.Fatal(err)
 					}

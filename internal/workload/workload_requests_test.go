@@ -12,11 +12,11 @@ import (
 	"testing"
 
 	"github.com/jinhuang712/gotato/gotato"
+	"github.com/jinhuang712/gotato/host"
 	"github.com/jinhuang712/gotato/internal/reftasks"
 	"github.com/jinhuang712/gotato/model"
 	"github.com/jinhuang712/gotato/record"
 	"github.com/jinhuang712/gotato/ref"
-	"github.com/jinhuang712/gotato/service"
 	"github.com/jinhuang712/gotato/store"
 	"github.com/jinhuang712/gotato/testkit"
 )
@@ -112,7 +112,7 @@ func playAcross(t *testing.T, st store.Store, task reftasks.Task, options playOp
 	}
 	stages := []string{"a", "a", "b", "a"}
 	runner := taskRunner(t, st, logged, "a")
-	s, err := runner.CreateSession(ctx, service.CreateSessionRequest{Agent: task.Name, Messages: task.History})
+	s, err := runner.CreateSession(ctx, host.CreateSessionRequest{Agent: task.Name, Messages: task.History})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -126,7 +126,7 @@ func playAcross(t *testing.T, st store.Store, task reftasks.Task, options playOp
 				runner = taskRunner(t, st, logged, stages[i%len(stages)])
 			}
 		}
-		result, err := runner.Run(ctx, service.RunRequest{SessionID: s.ID, Prompt: prompt})
+		result, err := runner.Run(ctx, host.RunRequest{SessionID: s.ID, Prompt: prompt})
 		if err != nil {
 			t.Fatalf("%s: Run %d on %s: %v", task.Name, i+1, runner.Instance(), err)
 		}
@@ -159,9 +159,9 @@ func TestSameRecordSameRequest(t *testing.T) {
 			if err != nil {
 				t.Fatal(err)
 			}
-			cacheKey, ok := final.Get(service.ReservedPrefix + "cache_key")
+			cacheKey, ok := final.Get(host.ReservedPrefix + "cache_key")
 			if !ok || cacheKey == "" {
-				cacheKey = service.CacheKey(id)
+				cacheKey = host.CacheKey(id)
 			}
 			stored := final.Messages()
 			if len(final.Compactions()) != 0 || len(final.Segments()) != 0 {
@@ -173,7 +173,7 @@ func TestSameRecordSameRequest(t *testing.T) {
 			reloaded := taskRunner(t, st, task, "a")
 			views := []struct {
 				name   string
-				runner *service.Runner
+				runner *host.Runner
 			}{{"instance a", viewA}, {"instance b", viewB}, {"instance a after reload", reloaded}}
 
 			identical := 0
@@ -191,7 +191,7 @@ func TestSameRecordSameRequest(t *testing.T) {
 				// the Record's identity that reaches the request.
 				prefixID := plantRecord(t, st, task.Name, cacheKey, stored[:n])
 				for _, view := range views {
-					report, err := view.runner.Inspect(ctx, prefixID, service.InspectConfig{})
+					report, err := view.runner.Inspect(ctx, prefixID, host.InspectConfig{})
 					if err != nil {
 						t.Fatal(err)
 					}
@@ -602,7 +602,7 @@ func TestSameRecordSameRequestAcrossLoadsAndUnloads(t *testing.T) {
 	compared, loadedAtRun := 0, []int{}
 	stages := []string{"a", "a", "b", "a"}
 	runner := taskRunner(t, store, task, "a")
-	s, err := runner.CreateSession(ctx, service.CreateSessionRequest{Agent: task.Name})
+	s, err := runner.CreateSession(ctx, host.CreateSessionRequest{Agent: task.Name})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -613,7 +613,7 @@ func TestSameRecordSameRequestAcrossLoadsAndUnloads(t *testing.T) {
 			}
 			runner = taskRunner(t, store, task, stages[i%len(stages)])
 		}
-		if result, err := runner.Run(ctx, service.RunRequest{SessionID: s.ID, Prompt: prompt}); err != nil || result.Result.Status != gotato.RunStatusCompleted {
+		if result, err := runner.Run(ctx, host.RunRequest{SessionID: s.ID, Prompt: prompt}); err != nil || result.Result.Status != gotato.RunStatusCompleted {
 			t.Fatalf("Run %d: %v (%s)", i+1, err, result.Result.Status)
 		}
 		if i+1 == 5 {
@@ -621,17 +621,17 @@ func TestSameRecordSameRequestAcrossLoadsAndUnloads(t *testing.T) {
 				t.Fatal(err)
 			}
 		}
-		live, err := runner.Inspect(ctx, s.ID, service.InspectConfig{})
+		live, err := runner.Inspect(ctx, s.ID, host.InspectConfig{})
 		if err != nil {
 			t.Fatal(err)
 		}
 		want := jsonOf(t, live.Request)
 		loadedAtRun = append(loadedAtRun, len(live.Request.LoadedTools))
-		for name, view := range map[string]*service.Runner{
+		for name, view := range map[string]*host.Runner{
 			"the other instance":      taskRunner(t, store, task, "other"),
 			"a new Runner (a reload)": taskRunner(t, store, task, runner.Instance()),
 		} {
-			report, err := view.Inspect(ctx, s.ID, service.InspectConfig{})
+			report, err := view.Inspect(ctx, s.ID, host.InspectConfig{})
 			if err != nil {
 				t.Fatal(err)
 			}

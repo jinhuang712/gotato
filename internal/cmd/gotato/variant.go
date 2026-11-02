@@ -10,14 +10,14 @@ import (
 
 	"github.com/jinhuang712/gotato/record"
 
+	"github.com/jinhuang712/gotato/host"
 	"github.com/jinhuang712/gotato/profile"
-	"github.com/jinhuang712/gotato/service"
 	"github.com/jinhuang712/gotato/store"
 )
 
 // agentKey is the Session metadata key that names a Session's Agent, which the
 // Runner owns and a client only reads.
-const agentKey = service.ReservedPrefix + "agent"
+const agentKey = host.ReservedPrefix + "agent"
 
 // A run with --instruction or --compact-ceiling uses another AgentProfile: the
 // one it would use, with those two values replaced. The variant is a document

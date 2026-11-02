@@ -15,9 +15,9 @@ import (
 	"time"
 
 	"github.com/jinhuang712/gotato/gotato"
+	"github.com/jinhuang712/gotato/host"
+	"github.com/jinhuang712/gotato/host/httpapi"
 	"github.com/jinhuang712/gotato/profile"
-	"github.com/jinhuang712/gotato/service"
-	"github.com/jinhuang712/gotato/service/httpapi"
 	"github.com/jinhuang712/gotato/store"
 	"github.com/jinhuang712/gotato/testkit"
 )
@@ -98,7 +98,7 @@ func memStore() store.Store {
 
 // instance is one in-process bot: a Runner on the shared store, its handler on an httptest server.
 type instance struct {
-	runner *service.Runner
+	runner *host.Runner
 	bot    *bot
 	sender *fakeSender
 	srv    *httptest.Server
@@ -126,7 +126,7 @@ func newInstanceWith(t *testing.T, st storeParts, name string, model *testkit.Fu
 	t.Helper()
 	srv := httptest.NewUnstartedServer(nil)
 	t.Cleanup(srv.Close)
-	runner, err := service.New(service.Config{
+	runner, err := host.New(host.Config{
 		Store: store.Store{Records: st, Liveness: st}, Instance: name, Address: "http://" + srv.Listener.Addr().String(),
 		Profiles: registryOf(profile.AgentProfile{Name: "fake", Model: model, ModelName: "fake"}), DefaultAgent: "fake",
 	})
@@ -171,7 +171,7 @@ const (
 // closeRunner settles a test's Runner the way Gotato documents: Drain lets every
 // Run in flight finish and save, then Close removes the Liveness row. Closing
 // alone leaves a Run writing into a store directory the test is about to delete.
-func closeRunner(runner *service.Runner) {
+func closeRunner(runner *host.Runner) {
 	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 	defer cancel()
 	_ = runner.Drain(ctx)

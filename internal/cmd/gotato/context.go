@@ -6,8 +6,8 @@ import (
 	"strings"
 
 	"github.com/jinhuang712/gotato/gotato"
+	"github.com/jinhuang712/gotato/host"
 	"github.com/jinhuang712/gotato/record"
-	"github.com/jinhuang712/gotato/service"
 	"github.com/jinhuang712/gotato/store"
 )
 
@@ -47,7 +47,7 @@ func (c *cli) contextInspect(mode string, args []string) int {
 	if err != nil {
 		return c.failErr(err)
 	}
-	report, err := rt.runner.Inspect(ctx, positionals[0], service.InspectConfig{Instruction: flags.instruction})
+	report, err := rt.runner.Inspect(ctx, positionals[0], host.InspectConfig{Instruction: flags.instruction})
 	if err != nil {
 		return c.failErr(err)
 	}

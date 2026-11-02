@@ -6,7 +6,7 @@ import (
 	"time"
 
 	"github.com/jinhuang712/gotato/gotato"
-	"github.com/jinhuang712/gotato/service"
+	"github.com/jinhuang712/gotato/host"
 	"github.com/jinhuang712/gotato/store"
 )
 
@@ -83,7 +83,7 @@ func (b *bot) streamRun(ctx context.Context, sessionID, messageID, text string) 
 		return nil // an error would stop delivery, not the Run
 	}
 
-	req := service.RunRequest{SessionID: sessionID, Prompt: text, RequestID: messageID, Update: map[string]string{metaCard: cardID}}
+	req := host.RunRequest{SessionID: sessionID, Prompt: text, RequestID: messageID, Update: map[string]string{metaCard: cardID}}
 	resp, err := b.runner.StreamRunAdmitted(ctx, req, func() { b.setCard(sessionID, lc) }, sink)
 	b.mu.Lock()
 	if lc.runID == "" {

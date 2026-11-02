@@ -8,7 +8,7 @@ import (
 	"strings"
 	"time"
 
-	"github.com/jinhuang712/gotato/service"
+	"github.com/jinhuang712/gotato/host"
 	"github.com/jinhuang712/gotato/store"
 )
 
@@ -23,7 +23,7 @@ func runOnce(model, prompt string) error {
 		defer func() { _ = c.Close() }()
 	}
 	st := store.NewMemoryStore()
-	runner, err := service.New(service.Config{Store: store.Store{Records: st, Liveness: st}, Profiles: registryOf(agent), DefaultAgent: agent.Name})
+	runner, err := host.New(host.Config{Store: store.Store{Records: st, Liveness: st}, Profiles: registryOf(agent), DefaultAgent: agent.Name})
 	if err != nil {
 		return err
 	}
@@ -32,11 +32,11 @@ func runOnce(model, prompt string) error {
 	defer cancel()
 
 	const id = "once"
-	if _, err := runner.CreateSession(ctx, service.CreateSessionRequest{Agent: agent.Name, ID: id}); err != nil {
+	if _, err := runner.CreateSession(ctx, host.CreateSessionRequest{Agent: agent.Name, ID: id}); err != nil {
 		return err
 	}
 	start := time.Now()
-	res, err := runner.Send(ctx, service.MessageRequest{SessionID: id, Kind: service.MessageKindFollowUp, Text: prompt})
+	res, err := runner.Send(ctx, host.MessageRequest{SessionID: id, Kind: host.MessageKindFollowUp, Text: prompt})
 	elapsed := time.Since(start).Round(time.Millisecond)
 	if err != nil {
 		return fmt.Errorf("send: %w", err)

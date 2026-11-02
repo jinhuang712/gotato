@@ -6,9 +6,9 @@ import (
 	"testing"
 
 	"github.com/jinhuang712/gotato/gotato"
+	"github.com/jinhuang712/gotato/host"
 	"github.com/jinhuang712/gotato/internal/reftasks"
 	"github.com/jinhuang712/gotato/profile"
-	"github.com/jinhuang712/gotato/service"
 	"github.com/jinhuang712/gotato/testkit"
 )
 
@@ -60,15 +60,15 @@ func TestRunFailureAttribution(t *testing.T) {
 		gotato.CodeInvalidState:         CauseGotato,
 	}
 	for code, want := range cases {
-		result := service.RunResponse{Result: gotato.RunResult{Status: gotato.RunStatusFailed, Error: gotato.ErrorOf(code, "x")}}
+		result := host.RunResponse{Result: gotato.RunResult{Status: gotato.RunStatusFailed, Error: gotato.ErrorOf(code, "x")}}
 		if f, failed := runFailure(result, nil); !failed || f.cause != want {
 			t.Errorf("%s: cause %s, want %s", code, f.cause, want)
 		}
 	}
-	if f, failed := runFailure(service.RunResponse{Result: gotato.RunResult{Status: gotato.RunStatusCompleted}}, service.ErrNotPersisted); !failed || f.cause != CauseStore {
+	if f, failed := runFailure(host.RunResponse{Result: gotato.RunResult{Status: gotato.RunStatusCompleted}}, host.ErrNotPersisted); !failed || f.cause != CauseStore {
 		t.Fatalf("a Run that was not saved is the store's: %+v", f)
 	}
-	if _, failed := runFailure(service.RunResponse{Result: gotato.RunResult{Status: gotato.RunStatusCompleted}}, nil); failed {
+	if _, failed := runFailure(host.RunResponse{Result: gotato.RunResult{Status: gotato.RunStatusCompleted}}, nil); failed {
 		t.Fatal("a completed Run is not a failure")
 	}
 }
@@ -78,12 +78,12 @@ func TestRunFailureAttribution(t *testing.T) {
 func TestContextCheckReportsAMismatch(t *testing.T) {
 	task := reftasks.LookupTask()
 	store := memoryStore()
-	runner, err := service.New(withAgents(service.Config{Store: store}, []profile.AgentProfile{{Name: task.Name, Model: task.Model, Tools: task.Tools}}...))
+	runner, err := host.New(withAgents(host.Config{Store: store}, []profile.AgentProfile{{Name: task.Name, Model: task.Model, Tools: task.Tools}}...))
 	if err != nil {
 		t.Fatal(err)
 	}
 	s := testkit.NewRecord("where is order 42?", "it shipped")
-	s.Set(service.ReservedPrefix+"agent", task.Name)
+	s.Set(host.ReservedPrefix+"agent", task.Name)
 	var report TaskReport
 	checkContext(context.Background(), runner, store, s, []build{{messages: 1, prefix: "not-the-hash"}, {messages: 9, prefix: "x"}}, &report)
 	if report.ContextTurns != 2 || report.ContextMismatches != 2 || !strings.Contains(report.ContextDetail, "not-the-hash") {

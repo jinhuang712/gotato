@@ -6,7 +6,7 @@ import (
 	"fmt"
 
 	"github.com/jinhuang712/gotato/gotato"
-	"github.com/jinhuang712/gotato/service"
+	"github.com/jinhuang712/gotato/host"
 )
 
 // ---- run ----------------------------------------------------------------
@@ -62,8 +62,8 @@ func (c *cli) cmdRunArgs(args []string, sessionFromPositional bool) int {
 	if err != nil {
 		return c.failErr(err)
 	}
-	request := service.RunRequest{SessionID: *sessionID, Agent: agent, Prompt: prompt, Continue: *continueRun, Timeout: c.timeout, SkipSave: *noSave}
-	var result service.RunResponse
+	request := host.RunRequest{SessionID: *sessionID, Agent: agent, Prompt: prompt, Continue: *continueRun, Timeout: c.timeout, SkipSave: *noSave}
+	var result host.RunResponse
 	if *events == "jsonl" {
 		result, err = rt.runner.StreamRun(ctx, request, func(event gotato.Event) error { return c.writeJSONL(event) })
 	} else {
@@ -75,7 +75,7 @@ func (c *cli) cmdRunArgs(args []string, sessionFromPositional bool) int {
 	outcome := outcomeOf(result)
 	code := ExitOK
 	switch {
-	case errors.Is(err, service.ErrNotPersisted):
+	case errors.Is(err, host.ErrNotPersisted):
 		// A write of the Run failed, so the Record does not hold it: exit 1, not 4.
 		code = ExitError
 	case outcome.Status != gotato.RunStatusCompleted:

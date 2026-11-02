@@ -7,7 +7,7 @@ import (
 	"net/http/httptest"
 	"testing"
 
-	"github.com/jinhuang712/gotato/service"
+	"github.com/jinhuang712/gotato/host"
 )
 
 func TestReadyzFollowsDraining(t *testing.T) {
@@ -32,17 +32,17 @@ func TestCreateExclusiveIsIdempotentByError(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	runner, err := service.New(service.Config{Store: memStore(), Profiles: registryOf(agent), DefaultAgent: agent.Name})
+	runner, err := host.New(host.Config{Store: memStore(), Profiles: registryOf(agent), DefaultAgent: agent.Name})
 	if err != nil {
 		t.Fatal(err)
 	}
 	defer closeRunner(runner)
 	id := sessionIDFor("oc_test")
-	if _, err := runner.CreateSession(context.Background(), service.CreateSessionRequest{Agent: "echo", ID: id, Metadata: map[string]string{metaChatID: "oc_test"}}); err != nil {
+	if _, err := runner.CreateSession(context.Background(), host.CreateSessionRequest{Agent: "echo", ID: id, Metadata: map[string]string{metaChatID: "oc_test"}}); err != nil {
 		t.Fatal(err)
 	}
-	_, err = runner.CreateSession(context.Background(), service.CreateSessionRequest{Agent: "echo", ID: id})
-	if !errors.Is(err, service.ErrSessionExists) {
+	_, err = runner.CreateSession(context.Background(), host.CreateSessionRequest{Agent: "echo", ID: id})
+	if !errors.Is(err, host.ErrSessionExists) {
 		t.Fatalf("second create: %v", err)
 	}
 	rec, err := runner.Record(context.Background(), id)

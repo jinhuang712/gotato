@@ -14,9 +14,9 @@ import (
 	"testing"
 
 	"github.com/jinhuang712/gotato/gotato"
+	"github.com/jinhuang712/gotato/host"
 	"github.com/jinhuang712/gotato/internal/fakegateway"
 	"github.com/jinhuang712/gotato/profile"
-	"github.com/jinhuang712/gotato/service"
 	"github.com/jinhuang712/gotato/store"
 	"github.com/jinhuang712/gotato/testkit"
 )
@@ -342,16 +342,16 @@ func TestTheRequestIsTheSameAfterAReload(t *testing.T) {
 	}
 	mem := store.NewMemoryStore()
 	st := store.Store{Records: mem, Liveness: mem}
-	first, err := service.New(service.Config{Store: st, Profiles: agents, DefaultAgent: "a"})
+	first, err := host.New(host.Config{Store: st, Profiles: agents, DefaultAgent: "a"})
 	if err != nil {
 		t.Fatal(err)
 	}
 	ctx := context.Background()
-	run, err := first.Run(ctx, service.RunRequest{Agent: "a", Prompt: "q1"})
+	run, err := first.Run(ctx, host.RunRequest{Agent: "a", Prompt: "q1"})
 	if err != nil {
 		t.Fatal(err)
 	}
-	if _, err := first.Run(ctx, service.RunRequest{SessionID: run.SessionID, Prompt: "q2"}); err == nil {
+	if _, err := first.Run(ctx, host.RunRequest{SessionID: run.SessionID, Prompt: "q2"}); err == nil {
 		t.Fatal("the second Run did not stop")
 	}
 	if len(bodies) != 3 {
@@ -361,12 +361,12 @@ func TestTheRequestIsTheSameAfterAReload(t *testing.T) {
 	if strings.Contains(sent, "sig-r1") {
 		t.Fatalf("the second Round still sends the first Round's reasoning:\n%s", sent)
 	}
-	second, err := service.New(service.Config{Store: st, Profiles: agents, DefaultAgent: "a"})
+	second, err := host.New(host.Config{Store: st, Profiles: agents, DefaultAgent: "a"})
 	if err != nil {
 		t.Fatal(err)
 	}
-	for name, runner := range map[string]*service.Runner{"the writing instance": first, "another instance": second} {
-		report, err := runner.Inspect(ctx, run.SessionID, service.InspectConfig{})
+	for name, runner := range map[string]*host.Runner{"the writing instance": first, "another instance": second} {
+		report, err := runner.Inspect(ctx, run.SessionID, host.InspectConfig{})
 		if err != nil {
 			t.Fatal(err)
 		}

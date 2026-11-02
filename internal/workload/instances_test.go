@@ -14,8 +14,8 @@ import (
 	"time"
 
 	"github.com/jinhuang712/gotato/gotato"
+	"github.com/jinhuang712/gotato/host"
 	"github.com/jinhuang712/gotato/internal/reftasks"
-	"github.com/jinhuang712/gotato/service"
 	"github.com/jinhuang712/gotato/store"
 	"github.com/jinhuang712/gotato/testkit"
 )
@@ -67,12 +67,12 @@ func reference(t *testing.T, task reftasks.Task) view {
 	store := memStore()
 	runner := taskRunner(t, store, task, "single")
 	ctx := context.Background()
-	s, err := runner.CreateSession(ctx, service.CreateSessionRequest{Agent: task.Name, Messages: task.History})
+	s, err := runner.CreateSession(ctx, host.CreateSessionRequest{Agent: task.Name, Messages: task.History})
 	if err != nil {
 		t.Fatal(err)
 	}
 	for _, prompt := range task.Prompts {
-		if _, err := runner.Run(ctx, service.RunRequest{SessionID: s.ID, Prompt: prompt}); err != nil {
+		if _, err := runner.Run(ctx, host.RunRequest{SessionID: s.ID, Prompt: prompt}); err != nil {
 			t.Fatal(err)
 		}
 	}
@@ -165,7 +165,7 @@ func TestRandomInstancesGiveWhatOneInstanceGives(t *testing.T) {
 	tasks := reftasks.ReferenceTasks()
 	for _, kill := range []bool{false, true} {
 		t.Run(fmt.Sprintf("killed=%v", kill), func(t *testing.T) {
-			var adjust []func(i int, cfg *service.Config)
+			var adjust []func(i int, cfg *host.Config)
 			if kill {
 				adjust = append(adjust, lastIsVictim(3))
 			}
@@ -577,7 +577,7 @@ func (m *holdModel) Config() gotato.ModelConfig { return gotato.ModelConfig{} }
 func TestProxyRetriesAFullInstancesRefusalElsewhere(t *testing.T) {
 	model := &holdModel{gate: make(chan struct{}), started: make(chan struct{}, 1)}
 	task := reftasks.Task{Name: "echo", Model: model, Prompts: []string{"x"}}
-	c := newCluster(t, 2, []reftasks.Task{task}, 23, func(i int, cfg *service.Config) {
+	c := newCluster(t, 2, []reftasks.Task{task}, 23, func(i int, cfg *host.Config) {
 		if i == 0 {
 			cfg.Bounds.MaxActiveSessions = 1
 		}
@@ -591,7 +591,7 @@ func TestProxyRetriesAFullInstancesRefusalElsewhere(t *testing.T) {
 	})
 	held := make(chan error, 1)
 	go func() {
-		_, err := c.instances[0].runner.Run(context.Background(), service.RunRequest{Agent: "echo", Prompt: "hold"})
+		_, err := c.instances[0].runner.Run(context.Background(), host.RunRequest{Agent: "echo", Prompt: "hold"})
 		held <- err
 	}()
 	<-model.started

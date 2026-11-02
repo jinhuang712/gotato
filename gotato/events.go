@@ -178,7 +178,7 @@ type RunStarted struct {
 
 // RunEnded is published when a Run settles, with its status, its cause and its
 // stop reason. It does not carry the final text, which can be long: read it
-// from the Run's result (service.RunResponse.FinalText), or from the
+// from the Run's result (host.RunResponse.FinalText), or from the
 // Transcript.
 type RunEnded struct {
 	Header

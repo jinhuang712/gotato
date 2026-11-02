@@ -12,9 +12,9 @@ import (
 	"github.com/jinhuang712/gotato/record"
 
 	"github.com/jinhuang712/gotato/gotato"
+	"github.com/jinhuang712/gotato/host"
 	"github.com/jinhuang712/gotato/internal/reftasks"
 	"github.com/jinhuang712/gotato/profile"
-	"github.com/jinhuang712/gotato/service"
 	"github.com/jinhuang712/gotato/store"
 )
 
@@ -46,7 +46,7 @@ type rigFault struct {
 // once; every other prompt gets a plain reply.
 type rig struct {
 	t      *testing.T
-	runner *service.Runner
+	runner *host.Runner
 	store  store.Records
 
 	mu       sync.Mutex
@@ -204,7 +204,7 @@ func newRig(t *testing.T) (*rig, *flakyStore) {
 	mem := store.NewMemoryStore()
 	st := &flakyStore{Records: mem, Liveness: mem}
 	r := &rig{t: t, store: st}
-	runner, err := service.New(withAgents(service.Config{Store: st.store()}, []profile.AgentProfile{{
+	runner, err := host.New(withAgents(host.Config{Store: st.store()}, []profile.AgentProfile{{
 		Name: "probe", Model: rigModel{r}, Tools: []gotato.Tool{rigTool{r}},
 	}}...))
 	if err != nil {
@@ -221,11 +221,11 @@ func newRig(t *testing.T) (*rig, *flakyStore) {
 func (r *rig) seed() (string, []gotato.Message) {
 	r.t.Helper()
 	ctx := context.Background()
-	s, err := r.runner.CreateSession(ctx, service.CreateSessionRequest{Agent: "probe"})
+	s, err := r.runner.CreateSession(ctx, host.CreateSessionRequest{Agent: "probe"})
 	if err != nil {
 		r.t.Fatal(err)
 	}
-	if res, err := r.runner.Run(ctx, service.RunRequest{SessionID: s.ID, Prompt: "use-tool one"}); err != nil || res.Result.Status != gotato.RunStatusCompleted {
+	if res, err := r.runner.Run(ctx, host.RunRequest{SessionID: s.ID, Prompt: "use-tool one"}); err != nil || res.Result.Status != gotato.RunStatusCompleted {
 		r.t.Fatalf("the first Run = %+v, %v", res.Result, err)
 	}
 	return s.ID, r.load(s.ID)
@@ -241,12 +241,12 @@ func (r *rig) load(id string) []gotato.Message {
 }
 
 type outcome struct {
-	res service.RunResponse
+	res host.RunResponse
 	err error
 }
 
 // settled runs a request and fails the test if the Run does not return.
-func (r *rig) settled(request service.RunRequest) (service.RunResponse, error) {
+func (r *rig) settled(request host.RunRequest) (host.RunResponse, error) {
 	r.t.Helper()
 	done := make(chan outcome, 1)
 	go func() {
@@ -258,13 +258,13 @@ func (r *rig) settled(request service.RunRequest) (service.RunResponse, error) {
 		return o.res, o.err
 	case <-time.After(10 * time.Second):
 		r.t.Fatal("the Run did not settle")
-		return service.RunResponse{}, nil
+		return host.RunResponse{}, nil
 	}
 }
 
 // wantSettled checks that a Run that met a fault ended with a status that is
 // not "running", and with a cause unless it completed.
-func wantSettled(t *testing.T, res service.RunResponse, want gotato.RunStatus) {
+func wantSettled(t *testing.T, res host.RunResponse, want gotato.RunStatus) {
 	t.Helper()
 	got := res.Result.Status
 	if got == "" || got == gotato.RunStatusRunning {
@@ -291,7 +291,7 @@ func (r *rig) wantUsable(id string, before []gotato.Message) {
 	if len(after) < len(before) || shape(after[:len(before)]) != shape(before) {
 		r.t.Fatalf("the Record lost or changed a committed step:\n%s\nwas\n%s", shape(after), shape(before))
 	}
-	res, err := r.settled(service.RunRequest{SessionID: id, Prompt: "use-tool next"})
+	res, err := r.settled(host.RunRequest{SessionID: id, Prompt: "use-tool next"})
 	if err != nil || res.Result.Status != gotato.RunStatusCompleted {
 		r.t.Fatalf("the next Run = %+v, %v", res.Result, err)
 	}
@@ -332,7 +332,7 @@ func TestFailureLeavesTheSessionUsable(t *testing.T) {
 				r, _ := newRig(t)
 				id, before := r.seed()
 				r.arm(tc.fault)
-				res, _ := r.settled(service.RunRequest{SessionID: id, Prompt: "use-tool two"})
+				res, _ := r.settled(host.RunRequest{SessionID: id, Prompt: "use-tool two"})
 				wantSettled(t, res, gotato.RunStatusFailed)
 				r.wantUsable(id, before)
 			})
@@ -343,7 +343,7 @@ func TestFailureLeavesTheSessionUsable(t *testing.T) {
 		r, _ := newRig(t)
 		id, before := r.seed()
 		r.arm(rigFault{tool: "panic"})
-		res, _ := r.settled(service.RunRequest{SessionID: id, Prompt: "use-tool two"})
+		res, _ := r.settled(host.RunRequest{SessionID: id, Prompt: "use-tool two"})
 		wantSettled(t, res, "")
 		// The panic is a failed tool call the model is told about.
 		var failed bool
@@ -363,7 +363,7 @@ func TestFailureLeavesTheSessionUsable(t *testing.T) {
 			r, _ := newRig(t)
 			id, before := r.seed()
 			r.arm(rigFault{tool: "hang"})
-			res, _ := r.settled(service.RunRequest{SessionID: id, Prompt: "use-tool two", Timeout: 100 * time.Millisecond})
+			res, _ := r.settled(host.RunRequest{SessionID: id, Prompt: "use-tool two", Timeout: 100 * time.Millisecond})
 			wantSettled(t, res, gotato.RunStatusDeadlineExceeded)
 			r.wantUsable(id, before)
 		})
@@ -374,7 +374,7 @@ func TestFailureLeavesTheSessionUsable(t *testing.T) {
 			_, started := r.current()
 			done := make(chan outcome, 1)
 			go func() {
-				res, err := r.runner.Run(context.Background(), service.RunRequest{SessionID: id, Prompt: "use-tool two"})
+				res, err := r.runner.Run(context.Background(), host.RunRequest{SessionID: id, Prompt: "use-tool two"})
 				done <- outcome{res, err}
 			}()
 			select {
@@ -401,7 +401,7 @@ func TestFailureLeavesTheSessionUsable(t *testing.T) {
 		clean, cleanStore := newRig(t)
 		cleanID, _ := clean.seed()
 		cleanStore.reset(0)
-		if res, err := clean.settled(service.RunRequest{SessionID: cleanID, Prompt: "use-tool two"}); err != nil || res.Result.Status != gotato.RunStatusCompleted {
+		if res, err := clean.settled(host.RunRequest{SessionID: cleanID, Prompt: "use-tool two"}); err != nil || res.Result.Status != gotato.RunStatusCompleted {
 			t.Fatalf("a clean Run = %+v, %v", res.Result, err)
 		}
 		writes, states := cleanStore.writes, cleanStore.states
@@ -413,7 +413,7 @@ func TestFailureLeavesTheSessionUsable(t *testing.T) {
 			r, store := newRig(t)
 			id, before := r.seed()
 			store.reset(n)
-			res, err := r.settled(service.RunRequest{SessionID: id, Prompt: "use-tool two"})
+			res, err := r.settled(host.RunRequest{SessionID: id, Prompt: "use-tool two"})
 			// The last write only releases the Session: every fact of the Run is
 			// stored, so that Run completes. A failure of any earlier write does not.
 			if releaseOnly := n == writes; releaseOnly != (err == nil && res.Result.Status == gotato.RunStatusCompleted) {
@@ -424,7 +424,7 @@ func TestFailureLeavesTheSessionUsable(t *testing.T) {
 			if err != nil && res.Result.Status == gotato.RunStatusCompleted {
 				t.Fatalf("write %d failed: the Run says completed and returns %v", n, err)
 			}
-			if res.Result.Status == gotato.RunStatusFailed && !errors.Is(err, service.ErrNotPersisted) {
+			if res.Result.Status == gotato.RunStatusFailed && !errors.Is(err, host.ErrNotPersisted) {
 				t.Fatalf("write %d failed: failed with err = %v, want ErrNotPersisted", n, err)
 			}
 			if res.Result.Status == "" {
@@ -463,12 +463,12 @@ func TestFailureLeavesTheSessionUsable(t *testing.T) {
 			t.Fatal(err)
 		}
 		t.Cleanup(func() { _ = instance.Close() })
-		stream, err := r.runner.StreamSession(ctx, id, service.StreamFrom{After: 0})
+		stream, err := r.runner.StreamSession(ctx, id, host.StreamFrom{After: 0})
 		if err != nil {
 			t.Fatal(err)
 		}
 		t.Cleanup(func() { _ = stream.Close() })
-		res, err := r.settled(service.RunRequest{SessionID: id, Prompt: "use-tool two"})
+		res, err := r.settled(host.RunRequest{SessionID: id, Prompt: "use-tool two"})
 		if err != nil || res.Result.Status != gotato.RunStatusCompleted {
 			t.Fatalf("a Run with a stalled subscriber = %+v, %v", res.Result, err)
 		}
@@ -487,7 +487,7 @@ func TestFailureLeavesTheSessionUsable(t *testing.T) {
 		var once sync.Once
 		finished := make(chan error, 1)
 		go func() {
-			_, err := r.runner.StreamRun(ctx, service.RunRequest{SessionID: id, Prompt: "use-tool two"}, func(gotato.Event) error {
+			_, err := r.runner.StreamRun(ctx, host.RunRequest{SessionID: id, Prompt: "use-tool two"}, func(gotato.Event) error {
 				once.Do(func() { close(got) })
 				<-release
 				return nil
@@ -661,21 +661,21 @@ func TestCrashAtEveryWriteRebuildsTheLastStep(t *testing.T) {
 					t.Fatalf("crash after write %d rebuilt\n%s\nwant\n%s", n, got, want)
 				}
 				next := taskRunner(t, backing, task, "next")
-				report, err := next.Inspect(ctx, id, service.InspectConfig{})
+				report, err := next.Inspect(ctx, id, host.InspectConfig{})
 				if err != nil {
 					t.Fatalf("crash after write %d: inspect: %v", n, err)
 				}
 				referenceStore := memStore()
 				reference := taskRunner(t, referenceStore, task, "reference")
 				beforeID := plantRecord(t, referenceStore, task.Name, "", clean.states[n-1])
-				expected, err := reference.Inspect(ctx, beforeID, service.InspectConfig{})
+				expected, err := reference.Inspect(ctx, beforeID, host.InspectConfig{})
 				if err != nil {
 					t.Fatal(err)
 				}
 				if report.PrefixHash != expected.PrefixHash {
 					t.Fatalf("crash after write %d: the rebuilt Context has prefix %s, the clean one %s", n, report.PrefixHash, expected.PrefixHash)
 				}
-				result, err := next.Run(ctx, service.RunRequest{SessionID: id, Prompt: task.Prompts[len(task.Prompts)-1]})
+				result, err := next.Run(ctx, host.RunRequest{SessionID: id, Prompt: task.Prompts[len(task.Prompts)-1]})
 				if err != nil || result.Result.Status != gotato.RunStatusCompleted {
 					t.Fatalf("crash after write %d: the next Run = %+v, %v", n, result.Result, err)
 				}
@@ -697,11 +697,11 @@ func TestEmbeddedCallerSeesARefusalAsNotRun(t *testing.T) {
 		if err := r.runner.Drain(ctx); err != nil {
 			t.Fatal(err)
 		}
-		res, err := r.runner.Run(ctx, service.RunRequest{SessionID: id, Prompt: "hello"})
+		res, err := r.runner.Run(ctx, host.RunRequest{SessionID: id, Prompt: "hello"})
 		if !gotato.NotRun(err) {
 			t.Fatalf("Run on a draining instance = %v, want an error that says not run", err)
 		}
-		if !gotato.Retryable(err) || !gotato.IsCode(err, service.CodeDraining) {
+		if !gotato.Retryable(err) || !gotato.IsCode(err, host.CodeDraining) {
 			t.Fatalf("Run on a draining instance = %v, want draining and retryable", err)
 		}
 		if res.Result.Status != "" {
@@ -711,7 +711,7 @@ func TestEmbeddedCallerSeesARefusalAsNotRun(t *testing.T) {
 
 	t.Run("a Session that does not exist", func(t *testing.T) {
 		r, _ := newRig(t)
-		res, err := r.runner.Run(ctx, service.RunRequest{SessionID: "missing", Prompt: "hello"})
+		res, err := r.runner.Run(ctx, host.RunRequest{SessionID: "missing", Prompt: "hello"})
 		if !gotato.IsCode(err, gotato.CodeNotFound) || !errors.Is(err, record.ErrNotFound) {
 			t.Fatalf("Run on a missing Session = %v, want not_found", err)
 		}
@@ -727,7 +727,7 @@ func TestEmbeddedCallerSeesALostFinalWrite(t *testing.T) {
 	clean, cleanStore := newRig(t)
 	cleanID, _ := clean.seed()
 	cleanStore.reset(0)
-	if _, err := clean.settled(service.RunRequest{SessionID: cleanID, Prompt: "hello"}); err != nil {
+	if _, err := clean.settled(host.RunRequest{SessionID: cleanID, Prompt: "hello"}); err != nil {
 		t.Fatal(err)
 	}
 	last := cleanStore.writes
@@ -736,14 +736,14 @@ func TestEmbeddedCallerSeesALostFinalWrite(t *testing.T) {
 		r, store := newRig(t)
 		id, _ := r.seed()
 		store.reset(last - 1)
-		res, err := r.settled(service.RunRequest{SessionID: id, Prompt: "hello"})
+		res, err := r.settled(host.RunRequest{SessionID: id, Prompt: "hello"})
 		if res.Result.Status != gotato.RunStatusFailed {
 			t.Fatalf("status = %q (err %v), want %q", res.Result.Status, err, gotato.RunStatusFailed)
 		}
 		if res.Result.Error == nil || !gotato.IsCode(res.Result.Error, gotato.CodeStoreFailure) {
 			t.Fatalf("result error = %v, want store_failure", res.Result.Error)
 		}
-		if !errors.Is(err, service.ErrNotPersisted) {
+		if !errors.Is(err, host.ErrNotPersisted) {
 			t.Fatalf("err = %v, want ErrNotPersisted", err)
 		}
 		if !gotato.Retryable(err) || gotato.NotRun(err) {
@@ -755,7 +755,7 @@ func TestEmbeddedCallerSeesALostFinalWrite(t *testing.T) {
 		r, store := newRig(t)
 		id, _ := r.seed()
 		store.reset(last)
-		res, err := r.settled(service.RunRequest{SessionID: id, Prompt: "hello"})
+		res, err := r.settled(host.RunRequest{SessionID: id, Prompt: "hello"})
 		if err != nil || res.Result.Status != gotato.RunStatusCompleted || res.Result.Error != nil {
 			t.Fatalf("a Run whose Events are all stored = %q, %v, %v, want completed without an error", res.Result.Status, res.Result.Error, err)
 		}

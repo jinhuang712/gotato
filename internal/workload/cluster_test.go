@@ -24,10 +24,10 @@ import (
 
 	"github.com/jinhuang712/gotato/record"
 
+	"github.com/jinhuang712/gotato/host"
+	"github.com/jinhuang712/gotato/host/httpapi"
 	"github.com/jinhuang712/gotato/internal/reftasks"
 	"github.com/jinhuang712/gotato/profile"
-	"github.com/jinhuang712/gotato/service"
-	"github.com/jinhuang712/gotato/service/httpapi"
 	"github.com/jinhuang712/gotato/store"
 )
 
@@ -88,7 +88,7 @@ func (s *killStore) Beat(ctx context.Context, row store.InstanceRow, ttl time.Du
 // instance is one Runner behind its own HTTP server.
 type instance struct {
 	name   string
-	runner *service.Runner
+	runner *host.Runner
 	store  *killStore
 	server *httptest.Server
 	killed atomic.Bool
@@ -110,13 +110,13 @@ type cluster struct {
 // victimLiveness is for the instance a test kills, whose row must expire for
 // another instance to take its Sessions over.
 var (
-	clusterLiveness = service.Heartbeat{TTL: 5 * time.Second, Wait: 5 * time.Second}
-	victimLiveness  = service.Heartbeat{TTL: 300 * time.Millisecond, Wait: 5 * time.Second}
+	clusterLiveness = host.Heartbeat{TTL: 5 * time.Second, Wait: 5 * time.Second}
+	victimLiveness  = host.Heartbeat{TTL: 300 * time.Millisecond, Wait: 5 * time.Second}
 )
 
 // lastIsVictim gives the last of n instances the short Liveness TTL.
-func lastIsVictim(n int) func(i int, cfg *service.Config) {
-	return func(i int, cfg *service.Config) {
+func lastIsVictim(n int) func(i int, cfg *host.Config) {
+	return func(i int, cfg *host.Config) {
 		if i == n-1 {
 			cfg.Heartbeat = victimLiveness
 		}
@@ -125,7 +125,7 @@ func lastIsVictim(n int) func(i int, cfg *service.Config) {
 
 // newCluster starts n instances over one new store, each serving every task as
 // an Agent, and the hashing proxy in front of them.
-func newCluster(t *testing.T, n int, tasks []reftasks.Task, seed uint64, adjust ...func(i int, cfg *service.Config)) *cluster {
+func newCluster(t *testing.T, n int, tasks []reftasks.Task, seed uint64, adjust ...func(i int, cfg *host.Config)) *cluster {
 	t.Helper()
 	c := &cluster{t: t, backing: memStore(), random: rand.New(rand.NewPCG(seed, 99))}
 	var agents []profile.AgentProfile
@@ -135,14 +135,14 @@ func newCluster(t *testing.T, n int, tasks []reftasks.Task, seed uint64, adjust 
 	var backends []*backend
 	for i := range n {
 		in := &instance{name: fmt.Sprintf("instance-%d", i), store: &killStore{Records: c.backing.Records, Liveness: c.backing.Liveness}}
-		cfg := withAgents(service.Config{
+		cfg := withAgents(host.Config{
 			Store: in.store.store(), Instance: in.name, Heartbeat: clusterLiveness, StreamPoll: 20 * time.Millisecond,
-			Bounds: service.Bounds{Queue: service.QueuePolicyWait},
+			Bounds: host.Bounds{Queue: host.QueuePolicyWait},
 		}, agents...)
 		for _, change := range adjust {
 			change(i, &cfg)
 		}
-		runner, err := service.New(cfg)
+		runner, err := host.New(cfg)
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -387,7 +387,7 @@ func (c *cluster) prompt(sessionID, text string) reply {
 func (c *cluster) create(task reftasks.Task) string {
 	c.t.Helper()
 	if len(task.History) > 0 {
-		s, err := c.anyInstance().runner.CreateSession(context.Background(), service.CreateSessionRequest{Agent: task.Name, Messages: task.History})
+		s, err := c.anyInstance().runner.CreateSession(context.Background(), host.CreateSessionRequest{Agent: task.Name, Messages: task.History})
 		if err != nil {
 			c.t.Fatal(err)
 		}

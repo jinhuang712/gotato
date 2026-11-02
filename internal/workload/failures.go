@@ -6,8 +6,8 @@ import (
 	"strings"
 
 	"github.com/jinhuang712/gotato/gotato"
+	"github.com/jinhuang712/gotato/host"
 	"github.com/jinhuang712/gotato/record"
-	"github.com/jinhuang712/gotato/service"
 )
 
 // Kind is what failed.
@@ -63,9 +63,9 @@ type failure struct {
 }
 
 // runFailure attributes a Run that did not complete.
-func runFailure(result service.RunResponse, err error) (failure, bool) {
+func runFailure(result host.RunResponse, err error) (failure, bool) {
 	switch {
-	case errors.Is(err, service.ErrNotPersisted):
+	case errors.Is(err, host.ErrNotPersisted):
 		return failure{kind: KindRun, cause: CauseStore, code: "not_persisted", message: err.Error()}, true
 	case errors.Is(err, record.ErrNotFound):
 		return failure{kind: KindRun, cause: CauseStore, code: "not_found", message: err.Error()}, true

@@ -10,7 +10,7 @@ import (
 	"github.com/jinhuang712/gotato/record"
 
 	"github.com/jinhuang712/gotato/gotato"
-	"github.com/jinhuang712/gotato/service"
+	"github.com/jinhuang712/gotato/host"
 	"github.com/jinhuang712/gotato/store"
 )
 
@@ -58,7 +58,7 @@ func (c *cli) sessionMessage(args []string) int {
 	fs := c.newFlagSet("session message")
 	var flags modelFlags
 	bindModel(fs, &flags)
-	kind := fs.String("kind", string(service.MessageKindSteer), "steer, follow_up or interrupt")
+	kind := fs.String("kind", string(host.MessageKindSteer), "steer, follow_up or interrupt")
 	positionals, err := parseInterspersed(fs, args)
 	if err != nil {
 		return c.parseError(err)
@@ -70,7 +70,7 @@ func (c *cli) sessionMessage(args []string) int {
 	if err != nil {
 		return c.usageError(err.Error())
 	}
-	if !service.MessageKind(*kind).Valid() {
+	if !host.MessageKind(*kind).Valid() {
 		return c.usageError("--kind accepts steer, follow_up or interrupt")
 	}
 	rt, err := c.newRuntime(flags)
@@ -79,7 +79,7 @@ func (c *cli) sessionMessage(args []string) int {
 	}
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
-	result, err := rt.runner.Send(ctx, service.MessageRequest{SessionID: positionals[0], Kind: service.MessageKind(*kind), Text: text})
+	result, err := rt.runner.Send(ctx, host.MessageRequest{SessionID: positionals[0], Kind: host.MessageKind(*kind), Text: text})
 	if result.Run == nil || result.Run.SessionID == "" {
 		if err != nil {
 			return c.failErr(err)
@@ -89,7 +89,7 @@ func (c *cli) sessionMessage(args []string) int {
 	outcome := outcomeOf(*result.Run)
 	code := ExitOK
 	switch {
-	case errors.Is(err, service.ErrNotPersisted):
+	case errors.Is(err, host.ErrNotPersisted):
 		code = ExitError
 	case outcome.Status != gotato.RunStatusCompleted:
 		code = ExitRunIncomplete
@@ -137,7 +137,7 @@ func (c *cli) sessionNotice(args []string) int {
 	}
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
-	result, err := rt.runner.Notice(ctx, service.NoticeRequest{SessionID: positionals[0], Kind: *kind, Text: text})
+	result, err := rt.runner.Notice(ctx, host.NoticeRequest{SessionID: positionals[0], Kind: *kind, Text: text})
 	if err != nil {
 		return c.failErr(err)
 	}
@@ -193,8 +193,8 @@ func (c *cli) sessionCreate(args []string) int {
 	if err != nil {
 		return c.usageError(err.Error())
 	}
-	info, err := rt.runner.CreateSession(ctx, service.CreateSessionRequest{Agent: agent, ID: *id, Metadata: metadata})
-	if errors.Is(err, service.ErrSessionExists) {
+	info, err := rt.runner.CreateSession(ctx, host.CreateSessionRequest{Agent: agent, ID: *id, Metadata: metadata})
+	if errors.Is(err, host.ErrSessionExists) {
 		return c.fail(ExitUsage, "session "+*id+" already exists")
 	}
 	if err != nil {

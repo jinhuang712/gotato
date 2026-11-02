@@ -6,7 +6,7 @@ import (
 	"fmt"
 
 	"github.com/jinhuang712/gotato/gotato"
-	"github.com/jinhuang712/gotato/service"
+	"github.com/jinhuang712/gotato/host"
 )
 
 // emit prints value as JSON in machine mode, or human text otherwise.
@@ -56,7 +56,7 @@ func (c *cli) writeErrorObject(code int, message string, err error) {
 	var runtimeErr *gotato.RuntimeError
 	if errors.As(err, &runtimeErr) {
 		object.Code = runtimeErr.Code
-		if runtimeErr.Code == service.CodeNotWriter {
+		if runtimeErr.Code == host.CodeNotWriter {
 			object.Writer = runtimeErr.Details["writer"]
 		}
 	}

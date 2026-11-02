@@ -1,0 +1,44 @@
+package host
+
+import (
+	"time"
+
+	"github.com/jinhuang712/gotato/host/internal/clock"
+)
+
+// SetBeforeDetach sets the seam that holds a Run after it has settled and
+// before its live Session stops taking messages.
+func (r *Runner) SetBeforeDetach(fn func()) { r.hooks.beforeDetach = fn }
+
+// SetBeforeRelease sets the seam that holds a Run after it has stopped taking
+// messages and before it releases its Session.
+func (r *Runner) SetBeforeRelease(fn func()) { r.hooks.beforeRelease = fn }
+
+// Clock and Timer are the time a Runner waits by, which a test advances itself.
+type (
+	Clock = clock.Clock
+	Timer = clock.Timer
+)
+
+// WithClock returns cfg with its warm Sessions timed by c, so no test waits
+// for a TTL.
+func WithClock(cfg Config, c Clock) Config {
+	cfg.clock = c
+	return cfg
+}
+
+// SetOnSendRetry sets the seam that counts the rounds of Send's loop.
+func (r *Runner) SetOnSendRetry(fn func()) { r.hooks.onSendRetry = fn }
+
+// SetDrainStopWait sets how long Drain waits for the Runs it stopped.
+func (r *Runner) SetDrainStopWait(d time.Duration) { r.hooks.drainStop = d }
+
+// WarmLimit returns the bound on warm Sessions in force.
+func (r *Runner) WarmLimit() int { return r.bounds.MaxWarmSessions }
+
+// MarkUnreleased and RepairReleases expose the repair of release writes to a
+// test, which drives a pass itself instead of waiting for a tick.
+func (r *Runner) MarkUnreleased(id string) { r.markUnreleased(id) }
+
+// RepairReleases runs one repair pass.
+func (r *Runner) RepairReleases() { r.repairReleases() }

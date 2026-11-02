@@ -27,7 +27,7 @@ import (
 
 	"github.com/jinhuang712/gotato/record"
 
-	"github.com/jinhuang712/gotato/service"
+	"github.com/jinhuang712/gotato/host"
 	"github.com/jinhuang712/gotato/store"
 )
 
@@ -55,7 +55,7 @@ type cli struct {
 
 	// runners are the Runners this invocation built. They are closed when it
 	// ends, so the next process takes their Sessions over at once.
-	runners []*service.Runner
+	runners []*host.Runner
 }
 
 // closeRunners removes the Liveness rows of the Runners this invocation built.

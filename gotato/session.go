@@ -132,7 +132,7 @@ func NewSession(ctx context.Context, options ...SessionOption) (*Session, error)
 // and InspectContext show what its next Turn would send.
 //
 // The Runner builds one from a record.Record when a Run needs it, keeps it
-// warm in memory between Runs (service.WarmPolicy), and closes it when it
+// warm in memory between Runs (host.WarmPolicy), and closes it when it
 // leaves memory. The Record stays the truth.
 type Session struct {
 	// def is what the Agent gave, which nothing changes once the Session runs,

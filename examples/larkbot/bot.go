@@ -15,8 +15,8 @@ import (
 	"time"
 
 	"github.com/jinhuang712/gotato/gotato"
-	"github.com/jinhuang712/gotato/service"
-	"github.com/jinhuang712/gotato/service/httpapi"
+	"github.com/jinhuang712/gotato/host"
+	"github.com/jinhuang712/gotato/host/httpapi"
 	"github.com/jinhuang712/gotato/store"
 	lark "github.com/larksuite/oapi-sdk-go/v3"
 	larkim "github.com/larksuite/oapi-sdk-go/v3/service/im/v1"
@@ -99,7 +99,7 @@ func (l larkSender) Delete(ctx context.Context, cardID string) error {
 
 // bot connects Lark messages to a Gotato Runner.
 type bot struct {
-	runner *service.Runner
+	runner *host.Runner
 	// records is the store the Runner runs on. The bot reads a Record through it
 	// to see whether a Session is held (idle), which the Runner's own read, a
 	// Document, does not say.
@@ -124,7 +124,7 @@ type bot struct {
 	ackDelay time.Duration // test only: hold the event's HTTP answer this long, so the sender sees a late ack
 }
 
-func newBot(runner *service.Runner, records store.Records, send sender, agent, model, label string, log *slog.Logger) *bot {
+func newBot(runner *host.Runner, records store.Records, send sender, agent, model, label string, log *slog.Logger) *bot {
 	return &bot{runner: runner, records: records, send: send, agent: agent, model: model, label: label, log: log,
 		client: &http.Client{Timeout: 10 * time.Minute, // a forward can start a Run and wait for it
 			Transport: &http.Transport{DialContext: (&net.Dialer{Timeout: 3 * time.Second}).DialContext, MaxIdleConnsPerHost: 4}},
@@ -189,8 +189,8 @@ func (b *bot) handle(ctx context.Context, chatID, thread, messageID, text string
 	b.targets[id] = target{chatID: chatID, messageID: messageID}
 	b.mu.Unlock()
 
-	_, err := b.runner.CreateSession(ctx, service.CreateSessionRequest{Agent: b.agent, ID: id, Metadata: map[string]string{metaChatID: chatID, metaThread: thread}})
-	if err != nil && !errors.Is(err, service.ErrSessionExists) {
+	_, err := b.runner.CreateSession(ctx, host.CreateSessionRequest{Agent: b.agent, ID: id, Metadata: map[string]string{metaChatID: chatID, metaThread: thread}})
+	if err != nil && !errors.Is(err, host.ErrSessionExists) {
 		b.log.Error("create session", "session", id, "message_id", messageID, "err", err)
 		return
 	}
@@ -286,7 +286,7 @@ func (b *bot) attempt(ctx context.Context, chatID, id, messageID, text string, a
 		b.log.Info("send ran a new run", "chat", chatID, "instance", b.label, "session", id, "message_id", messageID, "streamed", true)
 		return nil
 	}
-	res, err := b.runner.Send(ctx, service.MessageRequest{SessionID: id, Kind: service.MessageKindFollowUp, Text: text, RequestID: messageID})
+	res, err := b.runner.Send(ctx, host.MessageRequest{SessionID: id, Kind: host.MessageKindFollowUp, Text: text, RequestID: messageID})
 	switch {
 	case err == nil && res.Queued:
 		b.log.Info("send queued", "chat", chatID, "instance", b.label, "session", id, "message_id", messageID)
@@ -295,7 +295,7 @@ func (b *bot) attempt(ctx context.Context, chatID, id, messageID, text string, a
 		b.log.Info("send ran a new run", "chat", chatID, "instance", b.label, "session", id, "message_id", messageID)
 		return nil
 	}
-	addr, ok := service.WriterOf(err)
+	addr, ok := host.WriterOf(err)
 	if !ok {
 		return err
 	}
@@ -315,7 +315,7 @@ func (b *bot) forward(ctx context.Context, addr, sessionID, text string) error {
 	if addr == "" {
 		return &deliveryError{err: errors.New("the writer advertises no address"), notRun: true}
 	}
-	body, _ := json.Marshal(map[string]string{"kind": string(service.MessageKindFollowUp), "text": text})
+	body, _ := json.Marshal(map[string]string{"kind": string(host.MessageKindFollowUp), "text": text})
 	target := addr + "/v1/sessions/" + url.PathEscape(sessionID) + "/messages"
 	req, err := http.NewRequestWithContext(ctx, http.MethodPost, target, bytes.NewReader(body))
 	if err != nil {
@@ -357,7 +357,7 @@ func (b *bot) notify(ctx context.Context, sessionID, chatID, messageID, text str
 // replyLoop reads the Instance's Event stream and, when a Run ends, posts its
 // final reply to the chat. It returns when ctx ends or the stream does.
 func (b *bot) replyLoop(ctx context.Context) {
-	sub, err := b.runner.SubscribeInstance(ctx, service.ForAgents(b.agent))
+	sub, err := b.runner.SubscribeInstance(ctx, host.ForAgents(b.agent))
 	if err != nil {
 		b.log.Error("subscribe", "err", err)
 		return

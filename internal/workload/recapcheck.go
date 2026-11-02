@@ -9,9 +9,9 @@ import (
 	"github.com/jinhuang712/gotato/record"
 
 	"github.com/jinhuang712/gotato/gotato"
+	"github.com/jinhuang712/gotato/host"
 	"github.com/jinhuang712/gotato/internal/reftasks"
 	"github.com/jinhuang712/gotato/profile"
-	"github.com/jinhuang712/gotato/service"
 	"github.com/jinhuang712/gotato/store"
 )
 
@@ -104,7 +104,7 @@ func RunRecapCheck(ctx context.Context, cfg RecapCheckConfig, check reftasks.Rec
 	// conversation's prefix from the cache; only the tools' results differ.
 	questions := conversation
 	questions.Name, questions.Tools, questions.Compact = check.Name+"-questions", switchedOff, record.Compactor{}
-	runner, err := service.New(withAgents(service.Config{Store: st}, []profile.AgentProfile{conversation, questions}...))
+	runner, err := host.New(withAgents(host.Config{Store: st}, []profile.AgentProfile{conversation, questions}...))
 	if err != nil {
 		return RecapReport{}, err
 	}
@@ -115,7 +115,7 @@ func RunRecapCheck(ctx context.Context, cfg RecapCheckConfig, check reftasks.Rec
 	}
 	var id string
 	for _, prompt := range check.Prompts {
-		result, err := runner.Run(ctx, service.RunRequest{SessionID: id, Agent: check.Name, Prompt: prompt})
+		result, err := runner.Run(ctx, host.RunRequest{SessionID: id, Agent: check.Name, Prompt: prompt})
 		if err != nil {
 			return report, fmt.Errorf("workload: %s: the conversation failed: %w", check.Name, err)
 		}
@@ -127,7 +127,7 @@ func RunRecapCheck(ctx context.Context, cfg RecapCheckConfig, check reftasks.Rec
 	report.Answers = make([]RecapAnswer, len(check.Questions))
 	ask := func(set func(*RecapAnswer, string, bool)) error {
 		for i, question := range check.Questions {
-			result, err := runner.Run(ctx, service.RunRequest{SessionID: id, Agent: questions.Name, SkipSave: true, Prompt: reftasks.QuestionPrefix + question.Ask})
+			result, err := runner.Run(ctx, host.RunRequest{SessionID: id, Agent: questions.Name, SkipSave: true, Prompt: reftasks.QuestionPrefix + question.Ask})
 			if err != nil {
 				return fmt.Errorf("workload: %s: question %d failed: %w", check.Name, i+1, err)
 			}

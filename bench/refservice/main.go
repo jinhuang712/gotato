@@ -18,10 +18,10 @@ import (
 	"time"
 
 	"github.com/jinhuang712/gotato/gotato"
+	"github.com/jinhuang712/gotato/host"
+	"github.com/jinhuang712/gotato/host/httpapi"
 	"github.com/jinhuang712/gotato/model"
 	"github.com/jinhuang712/gotato/profile"
-	"github.com/jinhuang712/gotato/service"
-	"github.com/jinhuang712/gotato/service/httpapi"
 	"github.com/jinhuang712/gotato/store"
 )
 
@@ -59,7 +59,7 @@ func run(addr, storeDir, endpoint, modelName string) error {
 	if err := profiles.RegisterAgentProfileInline(profile.AgentProfile{Name: "assistant", Model: m, ModelName: modelName}); err != nil {
 		return err
 	}
-	runner, err := service.New(service.Config{
+	runner, err := host.New(host.Config{
 		Store:    store.Store{Records: st, Liveness: st},
 		Profiles: profiles, DefaultAgent: "assistant",
 	})

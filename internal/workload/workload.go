@@ -1,5 +1,5 @@
 // Package workload drives the reference workload that GOALS.md measures
-// through a service.Runner, and reports what it saw: how each task went, every
+// through a host.Runner, and reports what it saw: how each task went, every
 // failed Run, tool call and check with its cause, token usage and cost, the
 // time Gotato adds per Turn next to the model's own time, the time to load a
 // Session, and whether each Turn's Context matches an inspection of the
@@ -27,10 +27,10 @@ import (
 	"time"
 
 	"github.com/jinhuang712/gotato/gotato"
+	"github.com/jinhuang712/gotato/host"
 	"github.com/jinhuang712/gotato/internal/reftasks"
 	"github.com/jinhuang712/gotato/profile"
 	"github.com/jinhuang712/gotato/record"
-	"github.com/jinhuang712/gotato/service"
 	"github.com/jinhuang712/gotato/store"
 )
 
@@ -116,14 +116,14 @@ func runTask(ctx context.Context, cfg Config, task reftasks.Task) (TaskReport, e
 	if task.Recap {
 		spec.Compact.Recap = record.ModelRecap{}
 	}
-	runner, err := service.New(withAgents(service.Config{Store: cfg.Store}, []profile.AgentProfile{spec}...))
+	runner, err := host.New(withAgents(host.Config{Store: cfg.Store}, []profile.AgentProfile{spec}...))
 	if err != nil {
 		return TaskReport{}, err
 	}
 	// The inspector rebuilds each Turn's Transcript in a store of its own and
 	// inspects it with the same Spec.
 	inspectStore := memoryStore()
-	inspector, err := service.New(withAgents(service.Config{Store: inspectStore}, []profile.AgentProfile{spec}...))
+	inspector, err := host.New(withAgents(host.Config{Store: inspectStore}, []profile.AgentProfile{spec}...))
 	if err != nil {
 		return TaskReport{}, err
 	}
@@ -156,7 +156,7 @@ func runTask(ctx context.Context, cfg Config, task reftasks.Task) (TaskReport, e
 			report.Passed++
 		}
 		if windowed != nil {
-			report.Window.add(windowed.seriesOf(service.CacheKey(p.sessionID)), p.final, i == 0)
+			report.Window.add(windowed.seriesOf(host.CacheKey(p.sessionID)), p.final, i == 0)
 		}
 		report.Runs += p.runs
 		report.Turns += p.turns
@@ -207,9 +207,9 @@ type build struct {
 	prefix   string
 }
 
-func playTask(ctx context.Context, runner *service.Runner, st store.Store, task reftasks.Task) play {
+func playTask(ctx context.Context, runner *host.Runner, st store.Store, task reftasks.Task) play {
 	p := play{stats: &stats{}}
-	s, err := runner.CreateSession(ctx, service.CreateSessionRequest{Agent: task.Name, Messages: task.History})
+	s, err := runner.CreateSession(ctx, host.CreateSessionRequest{Agent: task.Name, Messages: task.History})
 	if err != nil {
 		p.failures = append(p.failures, failure{kind: KindSetup, cause: CauseStore, message: err.Error()})
 		return p
@@ -229,7 +229,7 @@ func playTask(ctx context.Context, runner *service.Runner, st store.Store, task 
 	turn := 0
 	storeEvents, err := runner.SubscribeInstance(ctx, gotato.SubscribeFilter(func(event gotato.Event) bool {
 		switch event.(type) {
-		case service.SessionLoaded, service.SessionSaved:
+		case host.SessionLoaded, host.SessionSaved:
 			return event.Head().SessionID == gotato.SessionID(s.ID)
 		}
 		return false
@@ -242,7 +242,7 @@ func playTask(ctx context.Context, runner *service.Runner, st store.Store, task 
 	for _, prompt := range task.Prompts {
 		started := time.Now()
 		requested, streaming := false, false
-		result, err := runner.StreamRun(ctx, service.RunRequest{SessionID: s.ID, Prompt: prompt}, func(event gotato.Event) error {
+		result, err := runner.StreamRun(ctx, host.RunRequest{SessionID: s.ID, Prompt: prompt}, func(event gotato.Event) error {
 			switch e := event.(type) {
 			case gotato.TurnStarted:
 				p.turns++
@@ -347,9 +347,9 @@ func readStoreTimes(ctx context.Context, events gotato.Subscription, stats *stat
 			return
 		}
 		switch e := event.(type) {
-		case service.SessionLoaded:
+		case host.SessionLoaded:
 			stats.addLoad(time.Duration(e.ElapsedMS * float64(time.Millisecond)))
-		case service.SessionSaved:
+		case host.SessionSaved:
 			stats.addSave(time.Duration(e.ElapsedMS * float64(time.Millisecond)))
 			return
 		}
@@ -367,7 +367,7 @@ type toolCall struct {
 // checkContext inspects, for every Turn, the Transcript that Turn was built
 // from (the Session's first Messages, since a reference task never compacts)
 // and compares its prefix hash with the Turn's context_built Event (G-G03).
-func checkContext(ctx context.Context, inspector *service.Runner, st store.Store, final *record.Record, builds []build, report *TaskReport) {
+func checkContext(ctx context.Context, inspector *host.Runner, st store.Store, final *record.Record, builds []build, report *TaskReport) {
 	messages := final.Messages()
 	mismatch := func(detail string) {
 		report.ContextMismatches++
@@ -386,7 +386,7 @@ func checkContext(ctx context.Context, inspector *service.Runner, st store.Store
 			mismatch("saving the Transcript to inspect: " + err.Error())
 			continue
 		}
-		inspection, err := inspector.Inspect(ctx, s.ID(), service.InspectConfig{})
+		inspection, err := inspector.Inspect(ctx, s.ID(), host.InspectConfig{})
 		_ = st.Records.Delete(ctx, s.ID())
 		switch {
 		case err != nil:
@@ -415,7 +415,7 @@ func memoryStore() store.Store {
 
 // withAgents registers agents as the Config's AgentProfiles, the first the
 // default.
-func withAgents(cfg service.Config, agents ...profile.AgentProfile) service.Config {
+func withAgents(cfg host.Config, agents ...profile.AgentProfile) host.Config {
 	registry := profile.NewRegistry(nil)
 	for _, agent := range agents {
 		if err := registry.RegisterAgentProfileInline(agent); err != nil {

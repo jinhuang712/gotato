@@ -69,7 +69,7 @@ type CompactOption func(*compactCall)
 // WithRecapContext gives Compact the func that builds the request the next
 // model call would send for the Session as it is now, which a Recap written
 // by a model (ModelRecap) sends as its prefix, so the provider's cache is
-// read. service.Runner sets it. Without it, a ModelRecap fails and the
+// read. host.Runner sets it. Without it, a ModelRecap fails and the
 // Segment has no Recap (Compaction.RecapError says so).
 func WithRecapContext(build func(context.Context) (gotato.ModelRequest, error)) CompactOption {
 	return func(c *compactCall) { c.context = build }

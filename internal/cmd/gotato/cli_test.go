@@ -10,8 +10,8 @@ import (
 	"time"
 
 	"github.com/jinhuang712/gotato/gotato"
+	"github.com/jinhuang712/gotato/host"
 	"github.com/jinhuang712/gotato/profile"
-	"github.com/jinhuang712/gotato/service"
 	"github.com/jinhuang712/gotato/testkit"
 )
 
@@ -381,14 +381,14 @@ func TestExitCodes(t *testing.T) {
 // A new ErrorCode must be given an exit code on purpose: this fails until
 // exitOfCode lists it.
 func TestEveryErrorCodeHasAnExplicitExitCode(t *testing.T) {
-	all := append(gotato.ErrorCodes(), service.ErrorCodes()...)
+	all := append(gotato.ErrorCodes(), host.ErrorCodes()...)
 	for _, code := range all {
 		if _, ok := exitOfCode[code]; !ok {
 			t.Errorf("error code %q has no exit code", code)
 		}
 	}
 	if len(exitOfCode) != len(all) {
-		t.Errorf("exitOfCode has %d entries, gotato.ErrorCodes and service.ErrorCodes list %d", len(exitOfCode), len(all))
+		t.Errorf("exitOfCode has %d entries, gotato.ErrorCodes and host.ErrorCodes list %d", len(exitOfCode), len(all))
 	}
 }
 
@@ -662,7 +662,7 @@ func TestRunInstructionSelectsAnAgentUnlessNoSave(t *testing.T) {
 	if !strings.HasPrefix(agent, "echo") || agent == "echo" {
 		t.Fatalf("agent = %q, want a variant of echo", agent)
 	}
-	if _, set := doc.Metadata[service.ReservedPrefix+"instruction"]; set {
+	if _, set := doc.Metadata[host.ReservedPrefix+"instruction"]; set {
 		t.Fatalf("the instruction was stored as session metadata: %v", doc.Metadata)
 	}
 	// A run with no flags is a new invocation, and still finds the variant.

@@ -12,9 +12,9 @@ import (
 
 	"github.com/jinhuang712/gotato/adapter/mcp"
 	"github.com/jinhuang712/gotato/gotato"
+	"github.com/jinhuang712/gotato/host"
 	"github.com/jinhuang712/gotato/profile"
 	"github.com/jinhuang712/gotato/record"
-	"github.com/jinhuang712/gotato/service"
 	"github.com/jinhuang712/gotato/store"
 
 	"github.com/jinhuang712/gotato/examples/larkbot/internal/fakemcp"
@@ -36,7 +36,7 @@ func TestParseTools(t *testing.T) {
 }
 
 // runner builds a Runner with the scripted model over the tools, on store, as one bot instance would.
-func scriptedRunner(t *testing.T, st storeParts, instance, kinds, mcpURL string, with ...func(*profile.AgentProfile)) *service.Runner {
+func scriptedRunner(t *testing.T, st storeParts, instance, kinds, mcpURL string, with ...func(*profile.AgentProfile)) *host.Runner {
 	t.Helper()
 	agent, err := buildAgent("echo")
 	if err != nil {
@@ -57,7 +57,7 @@ func scriptedRunner(t *testing.T, st storeParts, instance, kinds, mcpURL string,
 	if closeTools != nil {
 		t.Cleanup(func() { _ = closeTools() })
 	}
-	runner, err := service.New(service.Config{Store: store.Store{Records: st, Liveness: st}, Profiles: registryOf(agent), DefaultAgent: agent.Name, Instance: instance})
+	runner, err := host.New(host.Config{Store: store.Store{Records: st, Liveness: st}, Profiles: registryOf(agent), DefaultAgent: agent.Name, Instance: instance})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -66,9 +66,9 @@ func scriptedRunner(t *testing.T, st storeParts, instance, kinds, mcpURL string,
 }
 
 // lastReply runs prompt in the Session and returns the text of the last assistant message.
-func lastReply(t *testing.T, r *service.Runner, id, prompt string) string {
+func lastReply(t *testing.T, r *host.Runner, id, prompt string) string {
 	t.Helper()
-	if _, err := r.Run(context.Background(), service.RunRequest{SessionID: id, Prompt: prompt}); err != nil {
+	if _, err := r.Run(context.Background(), host.RunRequest{SessionID: id, Prompt: prompt}); err != nil {
 		t.Fatal(err)
 	}
 	rec, err := r.Record(context.Background(), id)
@@ -87,7 +87,7 @@ func TestScriptExport(t *testing.T) {
 		t.Fatal(err)
 	}
 	a := scriptedRunner(t, st, "pod-a", "export", "")
-	if _, err := a.CreateSession(context.Background(), service.CreateSessionRequest{Agent: "echo", ID: "s1"}); err != nil {
+	if _, err := a.CreateSession(context.Background(), host.CreateSessionRequest{Agent: "echo", ID: "s1"}); err != nil {
 		t.Fatal(err)
 	}
 	if got := lastReply(t, a, "s1", "T[a] [script:export]"); got != ansExported {
@@ -104,7 +104,7 @@ func TestScriptMCPCallAndSearch(t *testing.T) {
 	ctx := context.Background()
 
 	active := scriptedRunner(t, store.NewMemoryStore(), "pod-a", "mcp", srv.URL+"/mcp")
-	if _, err := active.CreateSession(ctx, service.CreateSessionRequest{Agent: "echo", ID: "s1"}); err != nil {
+	if _, err := active.CreateSession(ctx, host.CreateSessionRequest{Agent: "echo", ID: "s1"}); err != nil {
 		t.Fatal(err)
 	}
 	if got := lastReply(t, active, "s1", "T[a] [script:mcp=10ms]"); got != "mcp-ok: order ord-1: status paid, total 42.50" {
@@ -113,7 +113,7 @@ func TestScriptMCPCallAndSearch(t *testing.T) {
 
 	st := store.NewMemoryStore()
 	first := scriptedRunner(t, st, "pod-a", "mcp-search", srv.URL+"/mcp")
-	if _, err := first.CreateSession(ctx, service.CreateSessionRequest{Agent: "echo", ID: "s2"}); err != nil {
+	if _, err := first.CreateSession(ctx, host.CreateSessionRequest{Agent: "echo", ID: "s2"}); err != nil {
 		t.Fatal(err)
 	}
 	if got := lastReply(t, first, "s2", "T[a] [script:loaded]"); got != "loaded: false" {
@@ -185,7 +185,7 @@ func TestScriptCompactionUnloadsAndSegmentIsReadOnAnotherInstance(t *testing.T) 
 	recap := func(a *profile.AgentProfile) { a.Compact.Recap = record.TruncateRecap{} }
 	a := scriptedRunner(t, st, "pod-a", "mcp-search", srv.URL+"/mcp", recap)
 	b := scriptedRunner(t, st, "pod-b", "mcp-search", srv.URL+"/mcp", recap)
-	if _, err := a.CreateSession(ctx, service.CreateSessionRequest{Agent: "echo", ID: "s1"}); err != nil {
+	if _, err := a.CreateSession(ctx, host.CreateSessionRequest{Agent: "echo", ID: "s1"}); err != nil {
 		t.Fatal(err)
 	}
 	if got := lastReply(t, a, "s1", "T[a] [script:load]"); got != ansLoadDone {

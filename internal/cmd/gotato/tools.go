@@ -6,7 +6,7 @@ import (
 	"fmt"
 
 	"github.com/jinhuang712/gotato/gotato"
-	"github.com/jinhuang712/gotato/service"
+	"github.com/jinhuang712/gotato/host"
 	"github.com/jinhuang712/gotato/store"
 )
 
@@ -27,7 +27,7 @@ type toolView struct {
 	Unavailable bool   `json:"unavailable,omitempty"`
 }
 
-func viewOf(entry service.ToolEntry) toolView {
+func viewOf(entry host.ToolEntry) toolView {
 	view := toolView{ID: entry.Spec.ID, Name: entry.Spec.Name, Description: entry.Spec.Description, Sequential: entry.Spec.Sequential,
 		Effect: string(entry.Spec.Effect), Active: entry.Active, ToolSet: entry.ToolSet, Loaded: entry.Loaded, Unavailable: entry.Unavailable}
 	if json.Valid(entry.Spec.InputSchema) {

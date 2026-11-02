@@ -38,18 +38,18 @@ var allowedImports = map[string][]string{
 	"testkit":         {"gotato", "internal/hostlink", "internal/text", "record"}, // text.IsRecapAsk: the fake models recognize the Recap ask by the one definition
 	"store/storetest": {"gotato", "record", "store"},
 	// profile is optional: the definitions a host runs, and where they come from
-	// (decision 044). It sits between the service and the layers below it, and
-	// imports no service.
+	// (decision 044). It sits between the host and the layers below it, and
+	// imports no host.
 	"profile": {"gotato", "record", "store"},
-	"service": {"gotato", "internal/hostlink", "profile", "record", "service/internal/clock", "service/internal/heartbeat", "service/internal/runs", "service/internal/warm", "store"},
-	// service/internal holds the parts of the Runner (decision 048): each is
+	"host":    {"gotato", "internal/hostlink", "profile", "record", "host/internal/clock", "host/internal/heartbeat", "host/internal/runs", "host/internal/warm", "store"},
+	// host/internal holds the parts of the Runner (decision 048): each is
 	// standard library only, or the core, and none imports another.
-	"service/internal/clock":     {},
-	"service/internal/heartbeat": {"gotato", "record", "service/internal/clock", "store"},
-	"service/internal/runs":      {"service/internal/warm"},
-	"service/internal/warm":      {"service/internal/clock"},
-	"service/httpapi":            {"gotato", "record", "service", "store"},
-	"adapter/mcp":                {"gotato"},
+	"host/internal/clock":     {},
+	"host/internal/heartbeat": {"gotato", "record", "host/internal/clock", "store"},
+	"host/internal/runs":      {"host/internal/warm"},
+	"host/internal/warm":      {"host/internal/clock"},
+	"host/httpapi":            {"gotato", "host", "record", "store"},
+	"adapter/mcp":             {"gotato"},
 }
 
 // standardOnly lists the packages that may import the standard library alone

@@ -14,9 +14,9 @@ import (
 
 	"github.com/jinhuang712/gotato/examples/larkbot/internal/fakelark"
 	"github.com/jinhuang712/gotato/gotato"
+	"github.com/jinhuang712/gotato/host"
+	"github.com/jinhuang712/gotato/host/httpapi"
 	"github.com/jinhuang712/gotato/profile"
-	"github.com/jinhuang712/gotato/service"
-	"github.com/jinhuang712/gotato/service/httpapi"
 	"github.com/jinhuang712/gotato/store"
 	"github.com/jinhuang712/gotato/testkit"
 	lark "github.com/larksuite/oapi-sdk-go/v3"
@@ -36,7 +36,7 @@ func TestTwoInstancesForwardToTheWriter(t *testing.T) {
 
 	ctx := context.Background()
 	id := sessionIDFor(rootMsg)
-	if _, err := a.runner.CreateSession(ctx, service.CreateSessionRequest{Agent: "fake", ID: id, Metadata: map[string]string{metaChatID: chat, metaThread: rootMsg}}); err != nil {
+	if _, err := a.runner.CreateSession(ctx, host.CreateSessionRequest{Agent: "fake", ID: id, Metadata: map[string]string{metaChatID: chat, metaThread: rootMsg}}); err != nil {
 		t.Fatal(err)
 	}
 	// A's Run starts without A's bot seeing a Lark message, so A has no
@@ -44,7 +44,7 @@ func TestTwoInstancesForwardToTheWriter(t *testing.T) {
 	runDone := make(chan struct{})
 	go func() {
 		defer close(runDone)
-		_, _ = a.runner.Run(ctx, service.RunRequest{SessionID: id, Prompt: "first"})
+		_, _ = a.runner.Run(ctx, host.RunRequest{SessionID: id, Prompt: "first"})
 	}()
 	<-started
 
@@ -125,10 +125,10 @@ func TestFailedForwardTellsTheUserOnce(t *testing.T) {
 	b.bot.retry = retryPolicy{} // no retry: the failed forward is told at once
 	ctx := context.Background()
 	id := sessionIDFor(rootMsg)
-	if _, err := a.runner.CreateSession(ctx, service.CreateSessionRequest{Agent: "fake", ID: id, Metadata: map[string]string{metaChatID: chat, metaThread: rootMsg}}); err != nil {
+	if _, err := a.runner.CreateSession(ctx, host.CreateSessionRequest{Agent: "fake", ID: id, Metadata: map[string]string{metaChatID: chat, metaThread: rootMsg}}); err != nil {
 		t.Fatal(err)
 	}
-	go func() { _, _ = a.runner.Run(ctx, service.RunRequest{SessionID: id, Prompt: "first"}) }()
+	go func() { _, _ = a.runner.Run(ctx, host.RunRequest{SessionID: id, Prompt: "first"}) }()
 	<-started
 	a.srv.Close() // the writer is alive in the store, but its endpoint is gone
 
@@ -149,7 +149,7 @@ func TestFailedForwardTellsTheUserOnce(t *testing.T) {
 // larkInstance is one bot in `-lark-events http` mode: it receives events on
 // /lark/event and posts cards through the Lark client pointed at the fake.
 type larkInstance struct {
-	runner    *service.Runner
+	runner    *host.Runner
 	bot       *bot
 	srv       *httptest.Server
 	runsEnded atomic.Int32
@@ -162,7 +162,7 @@ func newLarkInstance(t *testing.T, st storeParts, name, fakeURL string, model go
 	li := &larkInstance{}
 	srv := httptest.NewUnstartedServer(nil)
 	t.Cleanup(srv.Close)
-	runner, err := service.New(service.Config{
+	runner, err := host.New(host.Config{
 		Store: store.Store{Records: st, Liveness: st}, Instance: name, Address: "http://" + srv.Listener.Addr().String(),
 		Profiles: registryOf(profile.AgentProfile{Name: "fake", Model: model, ModelName: "fake", Limits: botLimits()}), DefaultAgent: "fake",
 	})
@@ -192,7 +192,7 @@ func newLarkInstance(t *testing.T, st storeParts, name, fakeURL string, model go
 	ctx, cancel := context.WithCancel(context.Background())
 	t.Cleanup(cancel)
 	go b.replyLoop(ctx)
-	sub, err := runner.SubscribeInstance(ctx, service.ForAgents("fake"))
+	sub, err := runner.SubscribeInstance(ctx, host.ForAgents("fake"))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -221,7 +221,7 @@ func slowModel(d time.Duration) *testkit.FuncModel {
 	})
 }
 
-func userTexts(t *testing.T, r *service.Runner, id string) []string {
+func userTexts(t *testing.T, r *host.Runner, id string) []string {
 	t.Helper()
 	rec, err := r.Record(context.Background(), id)
 	if err != nil {

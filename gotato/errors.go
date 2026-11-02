@@ -61,7 +61,7 @@ const (
 // ErrorCodes lists every ErrorCode of the core, so a layer that maps codes (a
 // transport, a CLI) can check that it maps each one. A new code is added here
 // too; a test fails when it is not. The codes of the service, which only a
-// Runner makes, are service.ErrorCodes.
+// Runner makes, are host.ErrorCodes.
 func ErrorCodes() []ErrorCode {
 	return []ErrorCode{
 		CodeInvalidArgument, CodeInvalidState, CodeBusy, CodeSessionClosed, CodeSessionClosing,
@@ -203,7 +203,7 @@ var (
 	// holds.
 	//
 	// Its code is cannot_resume, which is also the code of a stream the service
-	// cannot resume (service.CodeCannotResume): the same string, so a transport
+	// cannot resume (host.CodeCannotResume): the same string, so a transport
 	// answers both alike. The core states it as a string because the code is the
 	// service's.
 	ErrEventsLost = ErrorOf(ErrorCode("cannot_resume"), "gotato: the Events this subscriber missed are no longer available")

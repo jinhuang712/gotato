@@ -9,8 +9,8 @@ import (
 	"testing"
 
 	"github.com/jinhuang712/gotato/gotato"
-	"github.com/jinhuang712/gotato/service"
-	"github.com/jinhuang712/gotato/service/httpapi"
+	"github.com/jinhuang712/gotato/host"
+	"github.com/jinhuang712/gotato/host/httpapi"
 )
 
 // defaultsOf says what an error of the code says about its request when it is
@@ -20,15 +20,15 @@ import (
 func defaultsOf(code gotato.ErrorCode) *gotato.RuntimeError {
 	var sentinel *gotato.RuntimeError
 	switch code {
-	case service.CodeDraining:
-		errors.As(service.ErrDraining, &sentinel)
-	case service.CodeOverloaded:
-		errors.As(service.ErrOverloaded, &sentinel)
-	case service.CodeCannotResume:
-		errors.As(service.ErrCannotResume, &sentinel)
-	case service.CodeAlreadyExists:
-		errors.As(service.ErrSessionExists, &sentinel)
-	case service.CodeNotWriter:
+	case host.CodeDraining:
+		errors.As(host.ErrDraining, &sentinel)
+	case host.CodeOverloaded:
+		errors.As(host.ErrOverloaded, &sentinel)
+	case host.CodeCannotResume:
+		errors.As(host.ErrCannotResume, &sentinel)
+	case host.CodeAlreadyExists:
+		errors.As(host.ErrSessionExists, &sentinel)
+	case host.CodeNotWriter:
 		sentinel = &gotato.RuntimeError{Code: code, NotRun: true, Retryable: true}
 	default:
 		sentinel = gotato.ErrorOf(code, "x")
@@ -52,7 +52,7 @@ func TestRunbookErrorTableMatchesTheCode(t *testing.T) {
 		}
 		code := gotato.ErrorCode(strings.Trim(strings.TrimSpace(cells[0]), "`"))
 		known := false
-		for _, c := range append(gotato.ErrorCodes(), service.ErrorCodes()...) {
+		for _, c := range append(gotato.ErrorCodes(), host.ErrorCodes()...) {
 			known = known || c == code
 		}
 		if !known {
@@ -79,7 +79,7 @@ func TestRunbookErrorTableMatchesTheCode(t *testing.T) {
 			t.Errorf("%s: the table says exit %s, the tool exits %d", code, cells[4], exitOfCode[code])
 		}
 	}
-	for _, code := range append(gotato.ErrorCodes(), service.ErrorCodes()...) {
+	for _, code := range append(gotato.ErrorCodes(), host.ErrorCodes()...) {
 		if !seen[code] {
 			t.Errorf("RUNBOOK.md has no row for %s", code)
 		}

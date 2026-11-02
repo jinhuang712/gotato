@@ -13,9 +13,9 @@ import (
 	"github.com/jinhuang712/gotato/record"
 
 	"github.com/jinhuang712/gotato/gotato"
+	"github.com/jinhuang712/gotato/host"
 	"github.com/jinhuang712/gotato/internal/reftasks"
 	"github.com/jinhuang712/gotato/profile"
-	"github.com/jinhuang712/gotato/service"
 	"github.com/jinhuang712/gotato/store"
 )
 
@@ -29,9 +29,9 @@ func memStore() store.Store {
 // outrun: a Runner refuses a write once its last renewal is older than 4/5 of
 // the TTL. A test that kills an instance does it through faultStore, which
 // removes the dead instance's row, so no short TTL is needed to wait it out.
-func taskRunner(t *testing.T, st store.Store, task reftasks.Task, instance string) *service.Runner {
+func taskRunner(t *testing.T, st store.Store, task reftasks.Task, instance string) *host.Runner {
 	t.Helper()
-	runner, err := service.New(withAgents(service.Config{Store: st, Instance: instance, Heartbeat: service.Heartbeat{TTL: 5 * time.Second, Wait: 2 * time.Second}}, []profile.AgentProfile{{
+	runner, err := host.New(withAgents(host.Config{Store: st, Instance: instance, Heartbeat: host.Heartbeat{TTL: 5 * time.Second, Wait: 2 * time.Second}}, []profile.AgentProfile{{
 		Name: task.Name, Model: task.Model, Instruction: task.Instruction, Tools: task.Tools, ToolSets: task.ToolSets, Limits: task.Limits,
 	}}...))
 	if err != nil {
@@ -43,13 +43,13 @@ func taskRunner(t *testing.T, st store.Store, task reftasks.Task, instance strin
 
 // play runs a task's prompts on a new Session until one fails, and returns
 // the Session's ID.
-func play(ctx context.Context, runner *service.Runner, task reftasks.Task) (string, error) {
-	s, err := runner.CreateSession(ctx, service.CreateSessionRequest{Agent: task.Name, Messages: task.History})
+func play(ctx context.Context, runner *host.Runner, task reftasks.Task) (string, error) {
+	s, err := runner.CreateSession(ctx, host.CreateSessionRequest{Agent: task.Name, Messages: task.History})
 	if err != nil {
 		return "", err
 	}
 	for _, prompt := range task.Prompts {
-		if _, err := runner.Run(ctx, service.RunRequest{SessionID: s.ID, Prompt: prompt}); err != nil {
+		if _, err := runner.Run(ctx, host.RunRequest{SessionID: s.ID, Prompt: prompt}); err != nil {
 			return s.ID, err
 		}
 	}
@@ -149,9 +149,9 @@ func stripCacheControl(v any) any {
 // writes through the store: the Runner's own calls refuse the keys it sets.
 func plantRecord(t *testing.T, st store.Store, agent, cacheKey string, messages []gotato.Message) string {
 	t.Helper()
-	metadata := map[string]string{service.ReservedPrefix + "agent": agent}
+	metadata := map[string]string{host.ReservedPrefix + "agent": agent}
 	if cacheKey != "" {
-		metadata[service.ReservedPrefix+"cache_key"] = cacheKey
+		metadata[host.ReservedPrefix+"cache_key"] = cacheKey
 	}
 	rec := record.New(record.WithMetadata(metadata), record.WithMessages(messages...), reftasks.WithLoadedToolsOf(messages))
 	if _, err := store.CreateWriter(context.Background(), st.Records, rec, "planter", store.WithIdle()); err != nil {
@@ -162,7 +162,7 @@ func plantRecord(t *testing.T, st store.Store, agent, cacheKey string, messages 
 
 // withAgents registers agents as the Config's AgentProfiles, the first the
 // default.
-func withAgents(cfg service.Config, agents ...profile.AgentProfile) service.Config {
+func withAgents(cfg host.Config, agents ...profile.AgentProfile) host.Config {
 	registry := profile.NewRegistry(nil)
 	for _, agent := range agents {
 		if err := registry.RegisterAgentProfileInline(agent); err != nil {
