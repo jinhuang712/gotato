@@ -73,6 +73,7 @@ What changed in Gotato, from the user's side. Newest first. A breaking change ca
 
 ### Added
 
+- **`context_built` and the inspect Report say what part of the Context is what.** Five new fields, always written: `estimate_system_tokens`, `estimate_tool_defs_tokens`, `estimate_segments_tokens`, `estimate_history_tokens`, `estimate_tool_results_tokens` (bytes over 4, an estimate). `gotato context inspect` prints them with each part's share in percent. They are additive: no field changed, and an old Record without them reads them as 0.
 - **`message_dropped` has the why `commit_failed`.** It closes the one message a Run took and could not commit (it would fail again in the next Run); the messages behind it go back to the queue.
 - `adapter/mcp`: `WithDefaultEffect(effect)` sets the Effect of a tool whose server sent no annotations; without it such a tool is `destructive` and `WithMaxEffect` hides it (D-004).
 - `adapter/mcp`: `WithToolFilter(keep)` leaves a tool out, listed in `Skipped()` as `filtered`, and `WithToolRename(rename)` changes the name the Model sees while the Effect option, the filter and the call to the server keep the server's name (D-002).

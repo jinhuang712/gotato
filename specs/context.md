@@ -45,7 +45,7 @@ The request is a stack with the most stable content on top and the newest on the
    prefix hash = everything above, except the last Message
 ```
 
-The provider's cache matches on a prefix, so what changes least goes first. Two Turns with the same prefix hash share a cacheable prefix, and the hash is in every `context_built` Event and in an inspection. The tags sentence appears only once a Message holds text that Gotato wrote, so a Session without Notices or Segments sends no such sentence. Nothing that changes each Turn is added, not even the time: a fact the model needs now comes from a tool.
+The provider's cache matches on a prefix, so what changes least goes first. Two Turns with the same prefix hash share a cacheable prefix, and the hash is in every `context_built` Event and in an inspection. Both also carry an estimate in tokens of each part of the request (`estimate_system_tokens`, `estimate_tool_defs_tokens`, `estimate_segments_tokens`, `estimate_history_tokens`, `estimate_tool_results_tokens`; bytes over 4, the same rule as `approx_tokens`), and `gotato context inspect` prints them with each one's share in percent. A Record written before they existed reads them as 0. The tags sentence appears only once a Message holds text that Gotato wrote, so a Session without Notices or Segments sends no such sentence. Nothing that changes each Turn is added, not even the time: a fact the model needs now comes from a tool.
 
 ## What a Message looks like on the wire
 

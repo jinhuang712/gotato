@@ -287,8 +287,8 @@ On every Turn Gotato builds what the model sees from the Session, in a fixed ord
 You can see what the model would receive now, without calling it. How it works: [specs/context.md](specs/context.md).
 
 - `GET /v1/sessions/{id}/context` returns the request the next Turn would send, built by the live Session a Run would build (so it includes the `ContextTransformer` and `MessageConverter` extensions, tools and model options). In Go: `Session.InspectContext(ctx)` (fails with `ErrBusy` during a Run) and `modelctx.ReportOf(inspection)`.
-- The report has the prefix hash, the system part's size and a token estimate (bytes ÷ 4). `compaction_pending` says the next Run compacts first, because the size (last reported usage plus an estimate of what came after) is past the ceiling (`compact_ceiling_tokens` in the report).
-- Every Turn emits `context_built` with its prefix hash; the reference workload checks it equals an inspection of that Turn's Transcript ([GOALS.md](plan/GOALS.md) G-G03).
+- The report has the prefix hash, the system part's size and a token estimate (bytes ÷ 4), and the estimate of each part of the request (`estimate_system_tokens`, `estimate_tool_defs_tokens`, `estimate_segments_tokens`, `estimate_history_tokens`, `estimate_tool_results_tokens`: the instruction, the tool definitions, the Segment and Recap Messages, the user and assistant Messages, the Tool Results). `gotato context inspect` prints each part with its share in percent. `compaction_pending` says the next Run compacts first, because the size (last reported usage plus an estimate of what came after) is past the ceiling (`compact_ceiling_tokens` in the report).
+- Every Turn emits `context_built` with its prefix hash and the same five part estimates (always written; a Record from before them reads 0); the reference workload checks it equals an inspection of that Turn's Transcript ([GOALS.md](plan/GOALS.md) G-G03).
 - Limits: inspection builds as a Run's first Turn does, so it cannot know a tool loaded later in a Run, or a `ContextTransformer` that depends on the Run or Turn. Extensions and tool sources run during inspection, so they must not have side effects.
 
 ### G-F06 — Compaction ✅
@@ -715,7 +715,7 @@ Every step of a Session is an Event, so you can watch, log or measure it; a stor
 | Event | When | Kept |
 |---|---|---|
 | `run_started`, `run_ended` | a Run starts (with the caller's `request_id`), and settles with status, cause and stop reason | Record |
-| `turn_started`, `turn_ended`, `context_built` | a Turn starts, ends with its usage, and has its Context built (prefix hash and sizes) | Record |
+| `turn_started`, `turn_ended`, `context_built` | a Turn starts, ends with its usage, and has its Context built (prefix hash, sizes and the estimate in tokens of each part) | Record |
 | `reply_started`, `reply_ended` | the reply starts, and ends with the Message, the model that answered and why it stopped; a call that fails or is refused before any output has no `reply_ended` | Record |
 | `text_delta`, `reasoning_delta`, `tool_progress` | a piece of the reply's text or reasoning; a Tool reports its own progress | sent only |
 | `reply_part_kept`, `reply_cut_off`, `model_retried` | the text and reasoning streamed since the last part, kept every second or few KiB so a crash loses at most the last part; the stream broke and the text so far is kept as a Cut-off reply; the gateway calls again, with attempt, wait and why ([G-F31](#g-f31--recovering-a-cut-stream-)) | Record |
