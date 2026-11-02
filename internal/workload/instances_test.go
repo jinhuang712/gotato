@@ -565,6 +565,9 @@ func (m *holdModel) Stream(ctx context.Context, request gotato.ModelRequest) (go
 	return testkit.EchoModel{}.Stream(ctx, request)
 }
 
+// Config states nothing: no window, no retention, no sampling.
+func (m *holdModel) Config() gotato.ModelConfig { return gotato.ModelConfig{} }
+
 // A full instance refuses a Run on a Session it does not hold with a 503
 // marked not run, and the proxy sends that request once to another instance,
 // where it runs: the load

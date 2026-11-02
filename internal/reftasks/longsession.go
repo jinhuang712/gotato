@@ -143,6 +143,9 @@ func (m longSessionModel) Stream(_ context.Context, request gotato.ModelRequest)
 	return playScript(script), nil
 }
 
+// Config states nothing: no window, no retention, no sampling.
+func (m longSessionModel) Config() gotato.ModelConfig { return gotato.ModelConfig{} }
+
 func (m longSessionModel) play(request gotato.ModelRequest) testkit.Script {
 	if len(request.Messages) == 0 {
 		return testkit.Text("Nothing to do.")

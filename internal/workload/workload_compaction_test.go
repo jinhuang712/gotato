@@ -38,8 +38,6 @@ type windowedLogging struct {
 	log    *requestLog
 }
 
-func (m windowedLogging) ContextWindowTokens() int { return m.window }
-
 func (m windowedLogging) Stream(ctx context.Context, request gotato.ModelRequest) (gotato.ModelStream, error) {
 	b, err := json.Marshal(request)
 	if err != nil {
@@ -47,6 +45,11 @@ func (m windowedLogging) Stream(ctx context.Context, request gotato.ModelRequest
 	}
 	m.log.add(b)
 	return m.inner.Stream(ctx, request)
+}
+
+// Config states the window, so the Runner takes the default ceiling from it.
+func (m windowedLogging) Config() gotato.ModelConfig {
+	return gotato.ModelConfig{Facts: gotato.ModelFacts{Window: gotato.WindowTokens(m.window)}}
 }
 
 func longRunner(t *testing.T, store session.Store, task reftasks.Task, model gotato.Model, instance string) *service.Runner {
@@ -191,7 +194,7 @@ func TestRequestOnlyGrowsAtItsEndAcrossCompactions(t *testing.T) {
 					next.SystemInstructions != prev.SystemInstructions+"\n\n"+gotato.TagsSentence && next.SystemInstructions != prev.SystemInstructions+gotato.TagsSentence {
 					t.Errorf("%s: system instruction changed", pair)
 				}
-				if !bytes.Equal(jsonOf(t, prev.Config), jsonOf(t, next.Config)) || prev.CacheKey != next.CacheKey {
+				if !bytes.Equal(jsonOf(t, prev.Sampling), jsonOf(t, next.Sampling)) || prev.CacheKey != next.CacheKey {
 					t.Errorf("%s: options or cache key changed", pair)
 				}
 				extends := len(next.Messages) >= len(prev.Messages)

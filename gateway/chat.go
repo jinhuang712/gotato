@@ -35,7 +35,7 @@ func (c *Client) streamChat(ctx context.Context, request gotato.ModelRequest) (g
 }
 
 func encodeChatRequest(model string, request gotato.ModelRequest, rules providerRules) ([]byte, map[string]string, error) {
-	if err := refuseReasoningConfig(APIChatCompletions, request.Config); err != nil {
+	if err := refuseReasoningConfig(APIChatCompletions, request.Sampling); err != nil {
 		return nil, nil, err
 	}
 	names, err := functionNames(request)
@@ -72,8 +72,8 @@ func encodeChatRequest(model string, request gotato.ModelRequest, rules provider
 		tools = append(tools, chatTool{Type: "function", Function: chatFunction{Name: name, Description: spec.Description, Parameters: parameters}})
 	}
 	payload := chatRequest{Model: model, Messages: messages, Tools: tools, Stream: true, StreamOptions: &chatStreamOptions{IncludeUsage: true}}
-	payload.Temperature = request.Config.Temperature
-	payload.MaxTokens = request.Config.MaxTokens
+	payload.Temperature = request.Sampling.Temperature
+	payload.MaxTokens = request.Sampling.MaxTokens
 	body, err := json.Marshal(payload)
 	if err != nil {
 		return nil, nil, fmt.Errorf("gateway: encode request: %w", err)

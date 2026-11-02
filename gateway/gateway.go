@@ -334,16 +334,31 @@ func (c *Client) DeferredTools() DeferredForm {
 	return DeferredFormList
 }
 
-// ContextWindowTokens returns the model's context window in tokens as
-// configured, or 0 when it is not. The gateway keeps no table of windows.
-func (c *Client) ContextWindowTokens() int { return c.contextWindow }
+// Config implements gotato.Model: what the Client was built with, as the one
+// description of the model the runtime reads (its window, its cache retention
+// and whether it takes only the current Round's reasoning).
+func (c *Client) Config() gotato.ModelConfig {
+	window := gotato.WindowUnknown()
+	if c.contextWindow > 0 {
+		window = gotato.WindowTokens(c.contextWindow)
+	}
+	return gotato.ModelConfig{
+		Name: c.model,
+		Facts: gotato.ModelFacts{
+			Window:          window,
+			CacheRetention:  c.cacheRetention(),
+			RoundReasoning:  c.rules.roundReasoning,
+			ThinkingBinding: c.rules.blockBinding,
+		},
+	}
+}
 
-// CacheRetention returns how long the provider keeps the prompt cache after a
+// cacheRetention is how long the provider keeps the prompt cache after a
 // request, as far as this client knows: the cache_control ttl it sends on
 // Anthropic Messages (1h, or 5m, the provider's default, when a shorter
 // retention is configured), and 30m when it sends the Responses API a
 // prompt_cache_options ttl. It is 0, unknown, everywhere else.
-func (c *Client) CacheRetention() time.Duration {
+func (c *Client) cacheRetention() time.Duration {
 	switch {
 	case c.provider == ProviderAnthropic && c.api == APIAnthropicMessages:
 		if c.rules.anthropicCacheTTL == anthropicLongTTL {

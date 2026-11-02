@@ -33,6 +33,9 @@ func (m *callModel) Stream(_ context.Context, request ModelRequest) (ModelStream
 	return nil, errors.New("callModel: bad step")
 }
 
+// Config states nothing: no window, no retention, no sampling.
+func (m *callModel) Config() ModelConfig { return ModelConfig{} }
+
 func (m *callModel) calls() int {
 	m.mu.Lock()
 	defer m.mu.Unlock()

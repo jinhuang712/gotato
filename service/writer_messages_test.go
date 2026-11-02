@@ -34,6 +34,9 @@ func (m *holdingOwner) Stream(ctx context.Context, request gotato.ModelRequest) 
 	return m.ownerModel.Stream(ctx, request)
 }
 
+// Config states nothing: no window, no retention, no sampling.
+func (m *holdingOwner) Config() gotato.ModelConfig { return gotato.ModelConfig{} }
+
 func addressedRunner(t *testing.T, store session.Store, instance string, model gotato.Model) *service.Runner {
 	t.Helper()
 	runner, err := service.New(service.Config{

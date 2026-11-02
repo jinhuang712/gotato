@@ -25,7 +25,7 @@ func TestProfileStatesTheWindowEitherWay(t *testing.T) {
 		if err != nil {
 			t.Fatalf("%s: %v", name, err)
 		}
-		if got := client.ContextWindowTokens(); got != c.want {
+		if got := client.Config().Facts.Window.Tokens(); got != c.want {
 			t.Errorf("%s: window = %d, want %d", name, got, c.want)
 		}
 	}
@@ -82,10 +82,10 @@ func TestProfileOnAConnectionBehavesAsTheFlatConfig(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if viaProfile.ContextWindowTokens() != 1000 || viaProfile.provider != ProviderAnthropic || viaProfile.model != "m" {
-		t.Errorf("window/provider/model = %d %q %q", viaProfile.ContextWindowTokens(), viaProfile.provider, viaProfile.model)
+	if viaProfile.Config().Facts.Window.Tokens() != 1000 || viaProfile.provider != ProviderAnthropic || viaProfile.model != "m" {
+		t.Errorf("window/provider/model = %d %q %q", viaProfile.Config().Facts.Window.Tokens(), viaProfile.provider, viaProfile.model)
 	}
-	if viaProfile.CacheRetention() != flat.CacheRetention() || !reflect.DeepEqual(viaProfile.rules, flat.rules) {
+	if viaProfile.Config().Facts.CacheRetention != flat.Config().Facts.CacheRetention || !reflect.DeepEqual(viaProfile.rules, flat.rules) {
 		t.Errorf("rules differ: %+v vs %+v", viaProfile.rules, flat.rules)
 	}
 	if viaProfile.endpoint != flat.endpoint {
@@ -100,10 +100,10 @@ func TestProfileOnAConnectionBehavesAsTheFlatConfig(t *testing.T) {
 
 func TestNewWithAConfigKeepsAnUnstatedWindow(t *testing.T) {
 	client, err := New(Config{BaseURL: "http://127.0.0.1:1", Model: "m"})
-	if err != nil || client.ContextWindowTokens() != 0 {
+	if err != nil || client.Config().Facts.Window.Tokens() != 0 {
 		t.Fatalf("New without a window: %v", err)
 	}
-	if client, err = New(Config{BaseURL: "http://127.0.0.1:1", Model: "m", ContextWindowTokens: 4096}); err != nil || client.ContextWindowTokens() != 4096 {
+	if client, err = New(Config{BaseURL: "http://127.0.0.1:1", Model: "m", ContextWindowTokens: 4096}); err != nil || client.Config().Facts.Window.Tokens() != 4096 {
 		t.Fatalf("New with a window: %v", err)
 	}
 	if _, err = New(Config{BaseURL: "http://127.0.0.1:1", Model: "m", ContextWindowTokens: -1}); err == nil {

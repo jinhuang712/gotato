@@ -16,7 +16,7 @@ import (
 // ceiling in force, the Segments' budget and the size of the kept tail
 // (SegmentSettings.TailTokens). When the
 // Agent's Model is sent only the current Round's reasoning
-// (modelctx.DropsReasoning), the kept Messages lose their reasoning.
+// (ModelFacts.RoundReasoning), the kept Messages lose their reasoning.
 //
 // A draining Runner refuses it with ErrDraining (not run): it would claim an
 // idle Session for the length of a compaction, after the Instance said it
@@ -134,10 +134,11 @@ func (r *Runner) recapContext(spec Agent, record *session.Record) func(context.C
 // the Session's own ceiling (MetaCompactCeiling) applied.
 func compactPolicyFor(spec Agent, record *session.Record) modelctx.CompactPolicy {
 	policy := spec.Compact
+	facts := spec.Model.Config().Facts
 	policy.Recap = withAgentModel(policy.Recap, spec.Model)
-	policy.DropReasoning = policy.DropReasoning || modelctx.DropsReasoning(spec.Model)
+	policy.DropReasoning = policy.DropReasoning || facts.RoundReasoning
 	if policy.WindowTokens <= 0 {
-		policy.WindowTokens = modelctx.WindowOf(spec.Model)
+		policy.WindowTokens = facts.Window.Tokens()
 	}
 	if raw, ok := record.Get(MetaCompactCeiling); ok {
 		if ceiling, err := strconv.Atoi(raw); err == nil && ceiling > 0 {

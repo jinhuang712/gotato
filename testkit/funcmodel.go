@@ -36,6 +36,9 @@ func (m *FuncModel) Stream(ctx context.Context, request gotato.ModelRequest) (go
 	return &stream{events: events}, nil
 }
 
+// Config states nothing: no window, no retention, no sampling.
+func (m *FuncModel) Config() gotato.ModelConfig { return gotato.ModelConfig{} }
+
 // Calls returns how many times Stream was called.
 func (m *FuncModel) Calls() int {
 	m.mu.Lock()

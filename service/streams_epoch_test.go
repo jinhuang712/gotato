@@ -245,6 +245,9 @@ func (m *holdOnce) Stream(ctx context.Context, request gotato.ModelRequest) (got
 	return m.inner.Stream(ctx, request)
 }
 
+// Config states nothing: no window, no retention, no sampling.
+func (m *holdOnce) Config() gotato.ModelConfig { return gotato.ModelConfig{} }
+
 // A stream that read the old Record's epoch, and opens while the Session is
 // deleted and created again and a Run on this instance opens the new Record,
 // does not follow the new Record: it is refused, or it ends, and it delivers

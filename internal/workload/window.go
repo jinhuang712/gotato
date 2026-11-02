@@ -79,9 +79,11 @@ func newWindowModel(model gotato.Model, window int) *windowModel {
 	return &windowModel{Model: model, window: window, series: map[string]*windowSeries{}}
 }
 
-// ContextWindowTokens gives the Runner the Model's window, so it takes the default
-// ceiling from it.
-func (m *windowModel) ContextWindowTokens() int { return m.window }
+// Config gives the Runner the Model's window, so it takes the default ceiling
+// from it.
+func (m *windowModel) Config() gotato.ModelConfig {
+	return gotato.ModelConfig{Facts: gotato.ModelFacts{Window: gotato.WindowTokens(m.window)}}
+}
 
 // Stream implements gotato.Model.
 func (m *windowModel) Stream(ctx context.Context, request gotato.ModelRequest) (gotato.ModelStream, error) {

@@ -530,6 +530,9 @@ func (m *requestModel) Stream(_ context.Context, request ModelRequest) (ModelStr
 	return &testStream{events: m.scripts[index]}, nil
 }
 
+// Config states nothing: no window, no retention, no sampling.
+func (m *requestModel) Config() ModelConfig { return ModelConfig{} }
+
 func TestTheRequestNamesTheLoadedAndTheUnloadedCatalogTools(t *testing.T) {
 	set, _ := ordersSet()
 	model := &requestModel{scripts: [][]ModelEvent{

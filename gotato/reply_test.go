@@ -20,6 +20,9 @@ func (m *endlessModel) Stream(context.Context, ModelRequest) (ModelStream, error
 	return &endlessStream{m: m}, nil
 }
 
+// Config states nothing: no window, no retention, no sampling.
+func (m *endlessModel) Config() ModelConfig { return ModelConfig{} }
+
 type endlessStream struct{ m *endlessModel }
 
 func (s *endlessStream) Recv(ctx context.Context) (ModelEvent, error) {

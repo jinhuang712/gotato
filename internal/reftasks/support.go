@@ -221,6 +221,9 @@ func (supportModel) Stream(_ context.Context, request gotato.ModelRequest) (gota
 	return playScript(playSupport(request)), nil
 }
 
+// Config states nothing: no window, no retention, no sampling.
+func (supportModel) Config() gotato.ModelConfig { return gotato.ModelConfig{} }
+
 func playSupport(request gotato.ModelRequest) testkit.Script {
 	prompt, results := lastPrompt(request.Messages)
 	calls := toolCallsByID(request.Messages)

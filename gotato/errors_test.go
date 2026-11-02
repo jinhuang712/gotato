@@ -173,6 +173,9 @@ type failingModel struct{ err error }
 
 func (m failingModel) Stream(context.Context, ModelRequest) (ModelStream, error) { return nil, m.err }
 
+// Config states nothing: no window, no retention, no sampling.
+func (m failingModel) Config() ModelConfig { return ModelConfig{} }
+
 func TestModelErrorThatSaysOverflowEndsTheRunWithContextOverflow(t *testing.T) {
 	for _, tc := range []struct {
 		name string

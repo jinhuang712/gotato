@@ -26,6 +26,9 @@ func (EchoModel) Stream(_ context.Context, request gotato.ModelRequest) (gotato.
 	return &stream{events: Text("echo: " + text)}, nil
 }
 
+// Config states nothing: no window, no retention, no sampling.
+func (EchoModel) Config() gotato.ModelConfig { return gotato.ModelConfig{} }
+
 // DemoModel exercises the Tool loop deterministically: when the last user
 // text is "use-tool" and no tool result follows it, it calls demo.echo with
 // {"value":"from-tool"}; when it is "use-big-tool" it calls demo.echo with a
@@ -73,6 +76,9 @@ func (DemoModel) Stream(_ context.Context, request gotato.ModelRequest) (gotato.
 	}
 	return &stream{events: Text("demo response: " + lastUser)}, nil
 }
+
+// Config states nothing: no window, no retention, no sampling.
+func (DemoModel) Config() gotato.ModelConfig { return gotato.ModelConfig{} }
 
 // promptText returns the first text part of a Message: the user's prompt.
 func promptText(message gotato.Message) string {

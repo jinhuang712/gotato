@@ -614,6 +614,9 @@ func (m *peekingModel) Stream(ctx context.Context, _ gotato.ModelRequest) (gotat
 	return testkit.NewFakeModel(testkit.Text("done")).Stream(ctx, gotato.ModelRequest{})
 }
 
+// Config states nothing: no window, no retention, no sampling.
+func (m *peekingModel) Config() gotato.ModelConfig { return gotato.ModelConfig{} }
+
 func TestEveryStepIsStoredBeforeTheNext(t *testing.T) {
 	store := session.NewMemoryStore()
 	model := &peekingModel{store: store}

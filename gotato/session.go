@@ -53,6 +53,13 @@ func NewSession(ctx context.Context, options ...SessionOption) (*Session, error)
 		return nil, runtimeError(CodeInvalidArgument, "NewSession", "a Model is required", nil)
 	}
 	cfg.limits = cfg.limits.withDefaults()
+	// The Model's own sampling defaults sit under what WithSampling sets, so
+	// every request carries the whole of it.
+	var modelSampling Sampling
+	if err := callHost("Model.Config", func() error { modelSampling = cfg.model.Config().Sampling; return nil }); err != nil {
+		return nil, runtimeError(CodeInvalidArgument, "NewSession", "the Model's Config failed", err)
+	}
+	cfg.sampling = cfg.sampling.over(modelSampling)
 
 	registry, err := newToolRegistry(ctx, &cfg)
 	if err != nil {
@@ -78,7 +85,7 @@ func NewSession(ctx context.Context, options ...SessionOption) (*Session, error)
 		contextBuilder: cfg.contextBuilder,
 		extensions:     cfg.extensions,
 		limits:         cfg.limits,
-		modelConfig:    cfg.modelConfig,
+		sampling:       cfg.sampling,
 		cacheKey:       cfg.cacheKey,
 		commands:       make(chan sessionCommand),
 		closeSignal:    make(chan struct{}),
@@ -135,9 +142,10 @@ type Session struct {
 	registryMu  sync.Mutex
 	extensions  extensionSet
 	limits      CoreLimits
-	// modelConfig and cacheKey are sent unchanged with every model call.
-	modelConfig ModelConfig
-	cacheKey    string
+	// sampling is the Session's own override of the Model's default Sampling, and
+	// cacheKey is sent unchanged with every model call.
+	sampling Sampling
+	cacheKey string
 
 	// transcript is the committed history, such as a session.Record. The Session
 	// goroutine is its only writer during a Run. transcriptBytes tracks the

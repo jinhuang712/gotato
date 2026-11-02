@@ -226,6 +226,9 @@ func (toolSearchModel) Stream(_ context.Context, request gotato.ModelRequest) (g
 	return playScript(playToolSearch(request)), nil
 }
 
+// Config states nothing: no window, no retention, no sampling.
+func (toolSearchModel) Config() gotato.ModelConfig { return gotato.ModelConfig{} }
+
 func playToolSearch(request gotato.ModelRequest) testkit.Script {
 	prompt, _ := lastPrompt(request.Messages)
 	plan, ok := toolSearchPlans[prompt]

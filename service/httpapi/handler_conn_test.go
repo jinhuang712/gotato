@@ -30,6 +30,9 @@ func (hangingModel) Stream(context.Context, gotato.ModelRequest) (gotato.ModelSt
 	return hangingStream{}, nil
 }
 
+// Config states nothing: no window, no retention, no sampling.
+func (hangingModel) Config() gotato.ModelConfig { return gotato.ModelConfig{} }
+
 type hangingStream struct{}
 
 func (hangingStream) Recv(ctx context.Context) (gotato.ModelEvent, error) {
@@ -111,6 +114,9 @@ func (m gatedModel) Stream(ctx context.Context, request gotato.ModelRequest) (go
 	}
 	return hangingModel{}.Stream(ctx, request)
 }
+
+// Config states nothing: no window, no retention, no sampling.
+func (m gatedModel) Config() gotato.ModelConfig { return gotato.ModelConfig{} }
 
 // A Run on a Session that runs on another instance waits, then answers 409
 // with Retry-After.
@@ -369,6 +375,9 @@ func (m *drainGate) Stream(ctx context.Context, _ gotato.ModelRequest) (gotato.M
 	return testkit.NewFakeModel(testkit.Text("finished")).Stream(ctx, gotato.ModelRequest{})
 }
 
+// Config states nothing: no window, no retention, no sampling.
+func (m *drainGate) Config() gotato.ModelConfig { return gotato.ModelConfig{} }
+
 // startedModel reports each call of a hanging model as it starts.
 type startedModel struct {
 	hangingModel
@@ -379,6 +388,9 @@ func (m startedModel) Stream(ctx context.Context, request gotato.ModelRequest) (
 	m.started <- struct{}{}
 	return m.hangingModel.Stream(ctx, request)
 }
+
+// Config states nothing: no window, no retention, no sampling.
+func (m startedModel) Config() gotato.ModelConfig { return gotato.ModelConfig{} }
 
 // sseFrame is one server-sent event.
 type sseFrame struct {

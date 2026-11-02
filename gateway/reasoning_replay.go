@@ -55,9 +55,3 @@ func roundStart(messages []gotato.Message) int {
 func (r providerRules) keepsReasoning(index, start int) bool {
 	return !r.roundReasoning || index > start
 }
-
-// RoundReasoningOnly reports whether the provider is sent only the reasoning
-// of the current Round, so a Checkpoint can leave the reasoning out of the
-// Messages it keeps (modelctx.RoundReasoner). It is true for a recognized
-// Claude or OpenAI provider.
-func (c *Client) RoundReasoningOnly() bool { return c.rules.roundReasoning }

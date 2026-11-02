@@ -53,6 +53,9 @@ func (m badRecapModel) Stream(ctx context.Context, request gotato.ModelRequest) 
 	return m.Model.Stream(ctx, request)
 }
 
+// Config states nothing: no window, no retention, no sampling.
+func (m badRecapModel) Config() gotato.ModelConfig { return gotato.ModelConfig{} }
+
 func TestTheRecapCheckMeasuresNothingWhenTheModelWritesNoRecap(t *testing.T) {
 	check := reftasks.PaymentsRecapCheck()
 	check.Model = badRecapModel{check.Model}

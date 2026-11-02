@@ -307,16 +307,16 @@ func TestReasoningSettingsAreSentOrRefused(t *testing.T) {
 	cases := []struct {
 		name    string
 		api     API
-		config  gotato.ModelConfig
+		config  gotato.Sampling
 		refused bool
 	}{
-		{"responses effort", APIResponses, gotato.ModelConfig{ReasoningEffort: "high"}, false},
-		{"responses summary alone", APIResponses, gotato.ModelConfig{ReasoningSummary: "detailed"}, false},
-		{"chat effort", APIChatCompletions, gotato.ModelConfig{ReasoningEffort: "high"}, true},
-		{"chat summary", APIChatCompletions, gotato.ModelConfig{ReasoningSummary: "auto"}, true},
-		{"anthropic effort", APIAnthropicMessages, gotato.ModelConfig{ReasoningEffort: "high"}, true},
-		{"anthropic summary", APIAnthropicMessages, gotato.ModelConfig{ReasoningSummary: "auto"}, true},
-		{"chat none", APIChatCompletions, gotato.ModelConfig{}, false},
+		{"responses effort", APIResponses, gotato.Sampling{ReasoningEffort: "high"}, false},
+		{"responses summary alone", APIResponses, gotato.Sampling{ReasoningSummary: "detailed"}, false},
+		{"chat effort", APIChatCompletions, gotato.Sampling{ReasoningEffort: "high"}, true},
+		{"chat summary", APIChatCompletions, gotato.Sampling{ReasoningSummary: "auto"}, true},
+		{"anthropic effort", APIAnthropicMessages, gotato.Sampling{ReasoningEffort: "high"}, true},
+		{"anthropic summary", APIAnthropicMessages, gotato.Sampling{ReasoningSummary: "auto"}, true},
+		{"chat none", APIChatCompletions, gotato.Sampling{}, false},
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
@@ -330,7 +330,7 @@ func TestReasoningSettingsAreSentOrRefused(t *testing.T) {
 			if err != nil {
 				t.Fatal(err)
 			}
-			stream, err := client.Stream(context.Background(), gotato.ModelRequest{Messages: []gotato.Message{gotato.UserMessage("hi")}, Config: tc.config})
+			stream, err := client.Stream(context.Background(), gotato.ModelRequest{Messages: []gotato.Message{gotato.UserMessage("hi")}, Sampling: tc.config})
 			if tc.refused {
 				if !gotato.IsCode(err, gotato.CodeNotSupported) {
 					t.Fatalf("err = %v, want not_supported", err)

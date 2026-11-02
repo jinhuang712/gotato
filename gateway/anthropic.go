@@ -89,7 +89,7 @@ type anthropicTool struct {
 type blockRef struct{ message, block int }
 
 func encodeAnthropicRequest(model string, request gotato.ModelRequest, rules providerRules) ([]byte, map[string]string, error) {
-	if err := refuseReasoningConfig(APIAnthropicMessages, request.Config); err != nil {
+	if err := refuseReasoningConfig(APIAnthropicMessages, request.Sampling); err != nil {
 		return nil, nil, err
 	}
 	names, err := functionNames(request)
@@ -99,12 +99,12 @@ func encodeAnthropicRequest(model string, request gotato.ModelRequest, rules pro
 	payload := anthropicRequest{
 		Model:       model,
 		MaxTokens:   defaultAnthropicMaxTokens,
-		Temperature: request.Config.Temperature,
+		Temperature: request.Sampling.Temperature,
 		Stream:      true,
 		Messages:    make([]anthropicMessage, 0, len(request.Messages)),
 	}
-	if request.Config.MaxTokens != 0 {
-		payload.MaxTokens = request.Config.MaxTokens
+	if request.Sampling.MaxTokens != 0 {
+		payload.MaxTokens = request.Sampling.MaxTokens
 	}
 	if rules.blockBinding {
 		payload.Thinking = &anthropicThinking{Type: "adaptive", BlockBinding: anthropicBlockBinding{PrefixMismatchBehavior: "drop_block"}}

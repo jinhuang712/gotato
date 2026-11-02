@@ -47,6 +47,9 @@ func (m loggingModel) Stream(ctx context.Context, request gotato.ModelRequest) (
 	return m.inner.Stream(ctx, request)
 }
 
+// Config states nothing: no window, no retention, no sampling.
+func (m loggingModel) Config() gotato.ModelConfig { return gotato.ModelConfig{} }
+
 // reasoningModel makes every reply of inner carry reasoning, with an artifact
 // as a provider would sign it, so a Session holds reasoning in every Round.
 type reasoningModel struct{ inner gotato.Model }
@@ -69,6 +72,9 @@ func (m reasoningModel) Stream(ctx context.Context, request gotato.ModelRequest)
 	}
 	return testkit.NewReplayModel(events).Stream(ctx, request)
 }
+
+// Config states nothing: no window, no retention, no sampling.
+func (m reasoningModel) Config() gotato.ModelConfig { return gotato.ModelConfig{} }
 
 // playOptions change how playAcross plays a task.
 type playOptions struct {
@@ -268,7 +274,7 @@ func TestRequestOnlyGrowsAtItsEnd(t *testing.T) {
 					} else if !bytes.Equal(jsonOf(t, prev.Tools), jsonOf(t, next.Tools)) {
 						t.Errorf("%s: Tools changed", pair)
 					}
-					if !bytes.Equal(jsonOf(t, prev.Config), jsonOf(t, next.Config)) || prev.CacheKey != next.CacheKey {
+					if !bytes.Equal(jsonOf(t, prev.Sampling), jsonOf(t, next.Sampling)) || prev.CacheKey != next.CacheKey {
 						t.Errorf("%s: options or cache key changed", pair)
 					}
 					if len(prev.CacheBreakpoints) < 2 || len(next.CacheBreakpoints) < 2 ||

@@ -35,6 +35,7 @@ var fileLayer = map[string]int{
 	"events.go":      layerValues,
 	"limits.go":      layerValues,
 	"model.go":       layerValues,
+	"window.go":      layerValues,
 	"retry.go":       layerValues,
 	"segment.go":     layerValues,
 	"tags.go":        layerValues,

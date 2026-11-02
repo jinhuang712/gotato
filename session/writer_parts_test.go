@@ -24,6 +24,9 @@ func (m stallModel) Stream(context.Context, gotato.ModelRequest) (gotato.ModelSt
 	return &stallStream{sent: m.sent}, nil
 }
 
+// Config states nothing: no window, no retention, no sampling.
+func (m stallModel) Config() gotato.ModelConfig { return gotato.ModelConfig{} }
+
 func (s *stallStream) Recv(ctx context.Context) (gotato.ModelEvent, error) {
 	s.n++
 	if s.n <= 3 {
@@ -222,6 +225,9 @@ func (m blockModel) Stream(ctx context.Context, _ gotato.ModelRequest) (gotato.M
 	<-ctx.Done()
 	return nil, ctx.Err()
 }
+
+// Config states nothing: no window, no retention, no sampling.
+func (m blockModel) Config() gotato.ModelConfig { return gotato.ModelConfig{} }
 
 // A reply that a limit refuses leaves parts of its text and no Message. When a
 // later Run crashes, the load that reads the log for that Run rebuilds only the

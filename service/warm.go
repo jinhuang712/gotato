@@ -207,7 +207,7 @@ func (r *Runner) keepWarm(writer *session.Writer, spec Agent) {
 	}
 	r.warm[entry.id] = entry
 	entry.timers = append(entry.timers, r.clock.AfterFunc(ttl, func() { r.expire(entry) }))
-	if after, why, on := spec.Warm.idleSchedule(modelctx.RetentionOf(spec.Model)); on && after < ttl {
+	if after, why, on := spec.Warm.idleSchedule(spec.Model.Config().Facts.CacheRetention); on && after < ttl {
 		entry.timers = append(entry.timers, r.clock.AfterFunc(after, func() { r.idleCompact(entry, why) }))
 	}
 	r.warmMu.Unlock()

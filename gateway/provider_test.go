@@ -41,8 +41,8 @@ func TestTheProviderIsConfiguredOrKnownByItsOfficialAddress(t *testing.T) {
 				t.Fatalf("provider = %q, want %q", client.provider, tc.want)
 			}
 			recognized := tc.want == ProviderAnthropic || tc.want == ProviderOpenAI
-			if client.RoundReasoningOnly() != recognized {
-				t.Fatalf("RoundReasoningOnly = %v, want %v", client.RoundReasoningOnly(), recognized)
+			if client.Config().Facts.RoundReasoning != recognized {
+				t.Fatalf("RoundReasoningOnly = %v, want %v", client.Config().Facts.RoundReasoning, recognized)
 			}
 		})
 	}

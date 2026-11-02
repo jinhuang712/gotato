@@ -28,6 +28,9 @@ func (m ordersModel) Stream(_ context.Context, request gotato.ModelRequest) (got
 	return playScript(m.play(request)), nil
 }
 
+// Config states nothing: no window, no retention, no sampling.
+func (m ordersModel) Config() gotato.ModelConfig { return gotato.ModelConfig{} }
+
 func (m ordersModel) play(request gotato.ModelRequest) testkit.Script {
 	prompt, results := lastPrompt(request.Messages)
 	ids := orderNumbers(prompt)

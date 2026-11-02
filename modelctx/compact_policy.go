@@ -25,14 +25,14 @@ func defaultCeiling(window int) int {
 // CeilingTokens turns the ceiling off. WindowTokens is the Model's context
 // window, 0 when unknown. The kept tail is the latest Run's Turns, up to
 // SegmentSettings.TailTokens. DropReasoning leaves the reasoning out of the
-// Messages every compaction keeps (see DropsReasoning). CompactConfig embeds a
+// Messages every compaction keeps (ModelFacts.RoundReasoning). CompactConfig embeds a
 // CompactPolicy, so Compact on demand and the automatic compaction share one
 // set of settings.
 //
 // The zero CompactPolicy is valid and does little: with no window and no
 // ceiling the ceiling trigger is off, so it compacts only a request the
 // provider refused as too long, and its Segments have no Recap. Set
-// WindowTokens, from WindowOf(model), or CeilingTokens to compact before the
+// WindowTokens, from Model.Config().Facts.Window.Tokens(), or CeilingTokens to compact before the
 // limit. A Runner fills the window from the Agent's Model. Validate refuses
 // the settings that cannot work.
 type CompactPolicy struct {

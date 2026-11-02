@@ -45,6 +45,9 @@ func (m *hangModel) Stream(_ context.Context, request ModelRequest) (ModelStream
 	return &testStream{events: m.scripts[index-1]}, nil
 }
 
+// Config states nothing: no window, no retention, no sampling.
+func (m *hangModel) Config() ModelConfig { return ModelConfig{} }
+
 func (m *hangModel) request(call int) []Message {
 	m.mu.Lock()
 	defer m.mu.Unlock()

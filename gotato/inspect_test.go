@@ -44,7 +44,7 @@ func TestInspectContextMatchesTheNextTurn(t *testing.T) {
 		gotato.WithInstruction("You track orders."),
 		gotato.WithTranscript(s),
 		gotato.WithTools(testkit.NewFakeTool("orders.lookup", "shipped")),
-		gotato.WithModelConfig(gotato.ModelConfig{Temperature: &temperature, MaxTokens: 512}),
+		gotato.WithSampling(gotato.Sampling{Temperature: &temperature, MaxTokens: 512}),
 		gotato.WithExtension(policyNote{}), gotato.WithExtension(shout{}),
 	)
 	if err != nil {
@@ -57,7 +57,7 @@ func TestInspectContextMatchesTheNextTurn(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if inspection.SourceMessages != 3 || inspection.Request.Config.MaxTokens != 512 {
+	if inspection.SourceMessages != 3 || inspection.Request.Sampling.MaxTokens != 512 {
 		t.Fatalf("inspection = %+v", inspection)
 	}
 	if first := gotato.TextOf(inspection.Request.Messages[0]); first != "POLICY: ANSWER BRIEFLY" {

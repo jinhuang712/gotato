@@ -256,11 +256,11 @@ func TestContextWindowFromConfigAndYAML(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if client.ContextWindowTokens() != 0 {
-		t.Fatalf("unset window = %d", client.ContextWindowTokens())
+	if client.Config().Facts.Window.Tokens() != 0 {
+		t.Fatalf("unset window = %d", client.Config().Facts.Window.Tokens())
 	}
 	client, err = New(Config{BaseURL: "https://gw.example.com", Model: "m", ContextWindowTokens: 200000})
-	if err != nil || client.ContextWindowTokens() != 200000 {
+	if err != nil || client.Config().Facts.Window.Tokens() != 200000 {
 		t.Fatalf("window = %v, err %v", client, err)
 	}
 	if _, err := New(Config{BaseURL: "https://gw.example.com", Model: "m", ContextWindowTokens: -1}); err == nil {
@@ -300,7 +300,7 @@ func TestCacheRetentionIsWhatTheClientAsksFor(t *testing.T) {
 		if err != nil {
 			t.Fatalf("%s: %v", tc.name, err)
 		}
-		if got := client.CacheRetention(); got != tc.want {
+		if got := client.Config().Facts.CacheRetention; got != tc.want {
 			t.Errorf("%s: CacheRetention = %s, want %s", tc.name, got, tc.want)
 		}
 	}

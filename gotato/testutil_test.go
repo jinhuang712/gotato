@@ -222,6 +222,9 @@ func (m *recordingModel) Stream(ctx context.Context, request ModelRequest) (Mode
 	return &testStream{events: events}, nil
 }
 
+// Config states nothing: no window, no retention, no sampling.
+func (m *recordingModel) Config() ModelConfig { return ModelConfig{} }
+
 func (m *recordingModel) transcript(call int) []Message {
 	m.mu.Lock()
 	defer m.mu.Unlock()
@@ -581,6 +584,9 @@ func (m *testModel) Stream(ctx context.Context, request ModelRequest) (ModelStre
 	return &testStream{events: events, block: block}, nil
 }
 
+// Config states nothing: no window, no retention, no sampling.
+func (m *testModel) Config() ModelConfig { return ModelConfig{} }
+
 type scriptedTool struct {
 	calls int
 	mu    sync.Mutex
@@ -611,6 +617,9 @@ func (m *toolModel) Stream(ctx context.Context, request ModelRequest) (ModelStre
 	}
 	return &testStream{events: []ModelEvent{{Kind: ModelEventKindTextDelta, Text: "final"}, {Kind: ModelEventKindDone, StopReason: StopReasonEndTurn}}}, nil
 }
+
+// Config states nothing: no window, no retention, no sampling.
+func (m *toolModel) Config() ModelConfig { return ModelConfig{} }
 
 func (m *testModel) lastRequest() ModelRequest {
 	m.mu.Lock()

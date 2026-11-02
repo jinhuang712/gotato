@@ -251,6 +251,9 @@ func (m *stepModel) Stream(ctx context.Context, request gotato.ModelRequest) (go
 	return testkit.NewFakeModel(m.steps[index].(testkit.Script)).Stream(ctx, request)
 }
 
+// Config states nothing: no window, no retention, no sampling.
+func (m *stepModel) Config() gotato.ModelConfig { return gotato.ModelConfig{} }
+
 // stepModel answers each call from steps: a refusal, or a Script. It records
 // the requests it received.
 type stepModel struct {
@@ -286,6 +289,9 @@ func toolConversation() []gotato.Message {
 func (m errModel) Stream(context.Context, gotato.ModelRequest) (gotato.ModelStream, error) {
 	return nil, m.err
 }
+
+// Config states nothing: no window, no retention, no sampling.
+func (m errModel) Config() gotato.ModelConfig { return gotato.ModelConfig{} }
 
 type errModel struct{ err error }
 

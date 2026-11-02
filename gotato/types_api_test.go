@@ -36,6 +36,9 @@ func (m *footprintModel) Stream(context.Context, gotato.ModelRequest) (gotato.Mo
 	return &footprintStream{events: testkit.ToolCalls(call)}, nil
 }
 
+// Config states nothing: no window, no retention, no sampling.
+func (m *footprintModel) Config() gotato.ModelConfig { return gotato.ModelConfig{} }
+
 type footprintStream struct {
 	events []gotato.ModelEvent
 	next   int

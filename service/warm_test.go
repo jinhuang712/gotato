@@ -305,7 +305,9 @@ type retainingModel struct {
 	retention time.Duration
 }
 
-func (m retainingModel) CacheRetention() time.Duration { return m.retention }
+func (m retainingModel) Config() gotato.ModelConfig {
+	return gotato.ModelConfig{Facts: gotato.ModelFacts{CacheRetention: m.retention}}
+}
 
 // An idle Session is compacted by its own timer shortly before its prompt
 // cache expires or it leaves memory, and leaves memory at its TTL. The

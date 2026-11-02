@@ -18,7 +18,7 @@ type sessionConfig struct {
 	limits         CoreLimits
 	transcript     Transcript
 	contextBuilder ContextBuilder
-	modelConfig    ModelConfig
+	sampling       Sampling
 	cacheKey       string
 	maxEffect      ToolEffect
 	feed           *Feed
@@ -74,20 +74,22 @@ func WithInstruction(instruction string) SessionOption {
 	return func(c *sessionConfig) error { c.instruction = instruction; return nil }
 }
 
-// WithModelConfig sets the sampling and reasoning hints the Session sends on
-// every model call. Provider adapters map the fields they support.
-func WithModelConfig(options ModelConfig) SessionOption {
+// WithSampling sets the sampling and reasoning hints the Session sends on
+// every model call. Each field it sets overrides the Model's default
+// (Model.Config().Sampling) in ModelRequest.Sampling, and a field it leaves
+// unset keeps the default. Provider adapters map the fields they support.
+func WithSampling(options Sampling) SessionOption {
 	return func(c *sessionConfig) error {
 		if options.Temperature != nil {
 			temperature := *options.Temperature
 			// NaN fails the first comparison; negative and infinite are out of range.
 			// [CONTRACT] a NaN, infinite or negative temperature is not a sampling value a provider accepts.
 			if !(temperature >= 0) || math.IsInf(temperature, 1) {
-				return runtimeError(CodeInvalidArgument, "WithModelConfig", "temperature is not a finite number of at least 0", nil)
+				return runtimeError(CodeInvalidArgument, "WithSampling", "temperature is not a finite number of at least 0", nil)
 			}
 			options.Temperature = &temperature
 		}
-		c.modelConfig = options
+		c.sampling = options
 		return nil
 	}
 }
