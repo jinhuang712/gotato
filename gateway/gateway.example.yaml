@@ -94,3 +94,12 @@ headers:
 # (any case) is reported as context_overflow. Default: none.
 # overflow_phrases:
 #   - too_much_context
+
+# IN GO, THE PROFILE FORM ASKS YOU TO STATE THE WINDOW. A model's own facts
+# (name, window, provider, cache retention, overflow phrases, deferred form)
+# can be kept in a gateway.ModelProfile apart from the connection above, and
+# gateway.NewWithProfile(connection, profile) refuses a profile whose Window is
+# not stated: write gateway.WindowTokens(n) with n > 0, or gateway.WindowUnknown().
+# With no window, compaction runs only after the model refuses a request as too
+# long. This YAML file has no profile block: it is the flat form, where the
+# window stays optional.

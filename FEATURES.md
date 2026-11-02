@@ -542,6 +542,8 @@ Wire APIs (`api:`): `openai-chat-completions` (the default), `openai-responses`,
 | `no_drop_block` | false | stop asking Claude to drop a block whose prefix changed (the gateway picks `block_binding` by model name, `thinkingPrefixModels` in `gateway/reasoning_replay.go`) |
 | `overflow_phrases` | none | the team's own phrases or codes added to the overflow list (`Config.OverflowPhrases`) |
 
+**Connection and model profile (D-042).** `gateway.Config` stays as it is. Beside it, `gateway.Connection` holds the connection fields (API, address, key, headers, cache key, retries, timeouts, `HTTPClient`) and `gateway.ModelProfile` holds what the model is: `Name`, `Window`, `Provider`, `CacheRetention`, `OverflowPhrases`, `DeferredTools`, `NoDropBlock`. `gateway.NewWithProfile(connection, profile)` builds the Client; a `gateway.ProfileSet` (a map from a name to a profile) keeps a team's profiles in one place, `ProfileSet.Get(ref)` errors on a missing name, and `ProfileSet.New(connection)` builds from the profile `Connection.Profile` names. **The profile form asks for the window to be stated**: `gateway.WindowTokens(n)` with n above 0, or `gateway.WindowUnknown()`; a profile without one is refused when the Client is built. With an unknown window, compaction runs only after a refusal as too long. `Client.ContextWindowTokens()` reports it as before, so `modelctx.WindowOf` is unchanged. Gotato keeps no table of windows and no profiles of its own. The YAML file has no profile block yet.
+
 ### G-F31 — Recovering a cut stream ✅
 
 A reply cut off partway must not fail the Run. A stream cut after some output is sent again, the way one cut before any output is. How it works: [specs/model.md](specs/model.md) (*A stream cut after output*).
