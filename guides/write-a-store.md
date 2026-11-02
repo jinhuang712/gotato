@@ -66,13 +66,9 @@ package mystore
 import (
 	"context"
 	"encoding/json"
-	"fmt"
 	"sort"
-	"strings"
 	"sync"
 	"time"
-	"unicode"
-	"unicode/utf8"
 
 	"github.com/jinhuang712/gotato/gotato"
 	"github.com/jinhuang712/gotato/session"
@@ -116,7 +112,7 @@ func (s *Store) Create(ctx context.Context, id string, entries []session.Entry, 
 	if err := precheck(ctx, id); err != nil {
 		return err
 	}
-	if err := checkBatch(0, entries, info); err != nil {
+	if err := session.CheckBatch(0, entries, info); err != nil {
 		return err
 	}
 	rows, infoJSON, err := encode(entries, info)
@@ -136,7 +132,7 @@ func (s *Store) Append(ctx context.Context, id string, after uint64, entries []s
 	if err := precheck(ctx, id); err != nil {
 		return err
 	}
-	if err := checkBatch(after, entries, info); err != nil {
+	if err := session.CheckBatch(after, entries, info); err != nil {
 		return err
 	}
 	rows, infoJSON, err := encode(entries, info)
@@ -318,14 +314,14 @@ func (s *Store) Instance(ctx context.Context, id string) (session.InstanceState,
 
 ### Checks every call makes
 
-Every method that takes an ID checks it and the context first. Two helpers do the work of the rules above.
+Every method that takes an ID checks it and the context first. The rules themselves are Gotato's: the adapter calls them.
 
 ```go
 func precheck(ctx context.Context, id string) error {
 	if err := ctx.Err(); err != nil {
 		return err
 	}
-	return checkID(id)
+	return session.CheckID(id)
 }
 
 func encode(entries []session.Entry, info session.RecordInfo) (rows [][]byte, infoJSON []byte, err error) {
@@ -351,74 +347,9 @@ func decode(rows [][]byte) ([]session.Entry, error) {
 }
 ```
 
-`checkBatch` is rules 2 and 3; `checkID` is the ID rule below.
+`session.CheckBatch` is rules 2 and 3, and `session.CheckID` is the ID rule below; an adapter calls them and does not copy them.
 
-```go
-// checkBatch is rules 2 and 3 of the Store contract.
-func checkBatch(after uint64, entries []session.Entry, info session.RecordInfo) error {
-	invalid := func(format string, args ...any) error {
-		return gotato.ErrorOf(gotato.CodeInvalidArgument, fmt.Sprintf(format, args...))
-	}
-	if info.RecordEpoch == "" {
-		return invalid("a write names the Record's epoch")
-	}
-	if len(entries) == 0 {
-		return invalid("a write has no entries")
-	}
-	for i, e := range entries {
-		if e.Seq != after+uint64(i)+1 {
-			return invalid("entry %d has Seq %d, want %d", i, e.Seq, after+uint64(i)+1)
-		}
-	}
-	if after == 0 && (!entries[0].IsCheckpoint() || entries[0].Layer != session.LayerFact) {
-		return invalid("a Record starts with a Checkpoint")
-	}
-	return nil
-}
-
-// checkID refuses the IDs every Store refuses (session.ErrInvalidID).
-func checkID(id string) error {
-	reason := ""
-	switch {
-	case id == "":
-		reason = "empty"
-	case len(id) > session.MaxIDBytes:
-		reason = "too long"
-	case !utf8.ValidString(id):
-		reason = "not valid UTF-8"
-	case strings.IndexFunc(id, unicode.IsControl) >= 0:
-		reason = "control character"
-	case strings.ContainsAny(id, `/\`), strings.Contains(id, ".."), strings.HasPrefix(id, "."):
-		reason = "path-like"
-	case fileNameBytes(id) > session.MaxNameBytes:
-		reason = "its file name would be too long"
-	}
-	if reason != "" {
-		return fmt.Errorf("%w %q: %s", session.ErrInvalidID, id, reason)
-	}
-	return nil
-}
-
-// fileNameBytes is the length of the file name the FileStore would give id:
-// a capital or a byte outside [a-z0-9._-] costs more.
-func fileNameBytes(id string) int {
-	n := 0
-	for i := 0; i < len(id); i++ {
-		switch c := id[i]; {
-		case c >= 'a' && c <= 'z', c >= '0' && c <= '9', c == '.', c == '_', c == '-':
-			n++
-		case c >= 'A' && c <= 'Z':
-			n += 2
-		default:
-			n += 3
-		}
-	}
-	return n
-}
-
-```
-
-- **IDs.** Every Store refuses the same IDs, with `session.ErrInvalidID` (code `invalid_argument`): an empty one, one over `session.MaxIDBytes` (100), one that is not valid UTF-8 or has a control character, one with a path separator or `..`, and one that starts with a dot. It also refuses an ID whose file name would pass `session.MaxNameBytes` (200), so an adapter that never makes files still agrees with `FileStore` on which IDs exist; `fileNameBytes` repeats the file-name rule. The suite checks all of it.
+- **IDs.** Every Store refuses the same IDs, with `session.ErrInvalidID` (code `invalid_argument`): an empty one, one over `session.MaxIDBytes` (100), one that is not valid UTF-8 or has a control character, one with a path separator or `..`, and one that starts with a dot. `session.CheckID` is that rule, so call it and do not copy it. A Store may refuse more IDs, with `ErrInvalidID` too: the `FileStore` refuses one whose file name would be over 200 bytes, a limit that belongs to its files, and an adapter with no files keeps those IDs. The suite checks `CheckID`'s rule.
 - **IDs differ by their characters alone.** `Case` and `case` are two Records whatever the collation of your database; so are the two spellings of an accented letter. Use a binary collation on the ID column.
 - **Every call honors `ctx`.** A canceled context stops the call and writes nothing.
 

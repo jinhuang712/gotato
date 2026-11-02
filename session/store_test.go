@@ -173,20 +173,30 @@ func TestFileStoreInstanceReadsATornRowAsNotAlive(t *testing.T) {
 	}
 }
 
-// Every store refuses the IDs the FileStore cannot name: 33 CJK characters are
-// 99 bytes, and 297 characters of file name.
-func TestEveryStoreRefusesAnIDWhoseFileNameIsTooLong(t *testing.T) {
+// The file name rule is the FileStore's own: 23 CJK characters are 69 bytes of
+// ID, so CheckID and the MemoryStore keep them, and 207 bytes of file name, so
+// the FileStore refuses them.
+func TestOnlyTheFileStoreRefusesAnIDWhoseFileNameIsTooLong(t *testing.T) {
 	ctx := context.Background()
 	fileStore, err := session.NewFileStore(t.TempDir())
 	if err != nil {
 		t.Fatal(err)
 	}
-	id := strings.Repeat("会", 33)
-	for name, store := range map[string]session.Store{"memory": session.NewMemoryStore(), "file": fileStore} {
-		err := store.Create(ctx, id, []session.Entry{{Seq: 1, Kind: gotato.EventKindSessionCreated, Layer: session.LayerFact, Data: []byte(`{}`)}}, session.RecordInfo{ID: id, RecordEpoch: "e"})
-		if !errors.Is(err, session.ErrInvalidID) {
-			t.Fatalf("%s Create(%d bytes of CJK) = %v, want ErrInvalidID", name, len(id), err)
-		}
+	id := strings.Repeat("会", 23)
+	if err := session.CheckID(id); err != nil {
+		t.Fatalf("CheckID(%d bytes of CJK) = %v, want nil", len(id), err)
+	}
+	create := func(store session.Store) error {
+		return store.Create(ctx, id, []session.Entry{{Seq: 1, Kind: gotato.EventKindSessionCreated, Layer: session.LayerFact, Data: []byte(`{}`)}}, session.RecordInfo{ID: id, RecordEpoch: "e"})
+	}
+	if err := create(session.NewMemoryStore()); err != nil {
+		t.Fatalf("MemoryStore Create(%d bytes of CJK) = %v, want nil", len(id), err)
+	}
+	if err := create(fileStore); !errors.Is(err, session.ErrInvalidID) {
+		t.Fatalf("FileStore Create(%d bytes of CJK) = %v, want ErrInvalidID", len(id), err)
+	}
+	if _, err := fileStore.Load(ctx, id); !errors.Is(err, session.ErrInvalidID) {
+		t.Fatalf("FileStore Load = %v, want ErrInvalidID", err)
 	}
 }
 

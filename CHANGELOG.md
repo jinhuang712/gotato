@@ -6,6 +6,9 @@ What changed in Gotato, from the user's side. Newest first. A breaking change ca
 
 ### Breaking
 
+- **A store's ID and batch checks are exported, and the file-name limit belongs to `FileStore`.** `session.CheckID(id)` and `session.CheckBatch(after, entries, ...)` are what every store calls, and `session.MaxNameBytes` is gone.
+  - Before: the checks were unexported, so an adapter copied them (the guide's copy included), and every store, `MemoryStore` and an adapter's too, refused an ID whose file name would pass 200 bytes: 23 CJK characters (69 bytes) were `ErrInvalidID` everywhere.
+  - After: an adapter calls `session.CheckID` and `session.CheckBatch`, and a store may refuse more IDs with `ErrInvalidID`. Only `FileStore` refuses a file name over 200 bytes; `MemoryStore` and a database adapter keep those IDs. Delete the adapter's copies, and any use of `session.MaxNameBytes`.
 - **An Event's Run is stamped when the Event is numbered, so no Event of a Run falls outside it.** A `message_queued`, `notice_queued`, `message_dropped` or `message_rejected` that is written outside a Run has no `run_id`, and an `abort_requested` always follows its Run's `run_started`.
   - Before: these Events took the Run's `run_id` when the call was made, not when the Event was written: a Steer from `WithRunStart` or just as a Run ended was stored with the Run's ID before its `run_started` or after its `run_ended`, and an Abort in `WithRunStart` stored `abort_requested` before `run_started`.
   - After: such a Steer or Notice is stored with an empty `run_id`; an Abort before `run_started` is written is stored right after it, in the same write, under the Run. A consumer that read the Run of a `message_queued` as the Run it was sent to should read the Run that takes it from `message_committed`.

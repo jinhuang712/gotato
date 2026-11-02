@@ -11,6 +11,26 @@ import (
 	"strings"
 )
 
+// maxNameBytes is the longest file name, in bytes, the FileStore gives an ID
+// (see nameOf): 200, so that the name with the suffixes the FileStore adds
+// stays under the 255 bytes a file name may have. It limits the ID's encoded
+// form, so an ID of fewer than MaxIDBytes bytes is refused when each of its
+// bytes needs 3 of name, as the bytes of CJK characters do (a character is 9
+// bytes of name, so 23 of them are too long). It is the FileStore's own rule: another Store keeps those IDs.
+const maxNameBytes = 200
+
+// checkFileID is CheckID and the FileStore's own rule: an ID whose file name
+// would be longer than maxNameBytes is ErrInvalidID too.
+func checkFileID(id string) error {
+	if err := CheckID(id); err != nil {
+		return err
+	}
+	if len(nameOf(id)) > maxNameBytes {
+		return fmt.Errorf("%w %q: its file name would be longer than %d bytes", ErrInvalidID, id, maxNameBytes)
+	}
+	return nil
+}
+
 // nameOf is the file name a store gives an ID, so that two IDs never share a
 // name, on a file system that ignores case or Unicode form too. A lowercase
 // letter, a digit and "._-" stand for themselves; an uppercase letter is "!"

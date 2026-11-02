@@ -145,7 +145,7 @@ func syncDir(path string) error {
 // batchList returns the directory of a Record's current epoch and the first
 // positions of its writes, in order.
 func (f *FileStore) batchList(id string) (string, []uint64, error) {
-	if err := checkID(id); err != nil {
+	if err := checkFileID(id); err != nil {
 		return "", nil, err
 	}
 	dir, err := f.currentDir(id)

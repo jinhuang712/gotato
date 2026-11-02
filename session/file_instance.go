@@ -24,7 +24,7 @@ func (f *FileStore) Beat(ctx context.Context, row InstanceRow, ttl time.Duration
 	if err := ctx.Err(); err != nil {
 		return err
 	}
-	if err := checkID(row.ID); err != nil {
+	if err := checkFileID(row.ID); err != nil {
 		return err
 	}
 	// Beat has a lock of its own: f.mu guards the head cache that every
@@ -96,7 +96,7 @@ func (f *FileStore) Instance(ctx context.Context, id string) (InstanceState, err
 	if err := ctx.Err(); err != nil {
 		return InstanceState{}, err
 	}
-	if checkID(id) != nil {
+	if checkFileID(id) != nil {
 		return InstanceState{ID: id}, nil
 	}
 	current, err := readInstance(f.instancePath(id))

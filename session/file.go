@@ -79,10 +79,10 @@ func (f *FileStore) Create(ctx context.Context, id string, entries []Entry, summ
 	if err := ctx.Err(); err != nil {
 		return err
 	}
-	if err := checkID(id); err != nil {
+	if err := checkFileID(id); err != nil {
 		return err
 	}
-	if err := checkBatch(0, entries, summary); err != nil {
+	if err := CheckBatch(0, entries, summary); err != nil {
 		return err
 	}
 	if _, err := f.currentDir(id); !errors.Is(err, ErrNotFound) {
@@ -138,10 +138,10 @@ func (f *FileStore) Append(ctx context.Context, id string, after uint64, entries
 	if err := ctx.Err(); err != nil {
 		return err
 	}
-	if err := checkID(id); err != nil {
+	if err := checkFileID(id); err != nil {
 		return err
 	}
-	if err := checkBatch(after, entries, summary); err != nil {
+	if err := CheckBatch(after, entries, summary); err != nil {
 		return err
 	}
 	// The batch goes into the directory of the writer's own epoch. A Record
@@ -331,7 +331,7 @@ func (f *FileStore) Delete(ctx context.Context, id string) error {
 	if err := ctx.Err(); err != nil {
 		return err
 	}
-	if err := checkID(id); err != nil {
+	if err := checkFileID(id); err != nil {
 		return err
 	}
 	found := false
