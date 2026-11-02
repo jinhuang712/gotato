@@ -1,6 +1,6 @@
 // Package gatewayconf reads the gateway YAML file that Gotato's own command
 // line tools take (gotato --gateway-config, gotato-workload -gateway-config).
-// It is the one place a wire API's name maps to a gateway.WireAPI value: the
+// It is the one place a wire API's name maps to a model.WireAPI value: the
 // gateway library keeps no names, no table of providers and no file format,
 // so a service builds its Client in Go, and only these tools read a file.
 //
@@ -16,8 +16,8 @@ import (
 
 	"gopkg.in/yaml.v3"
 
-	"github.com/jinhuang712/gotato/gateway"
 	"github.com/jinhuang712/gotato/gotato"
+	"github.com/jinhuang712/gotato/model"
 )
 
 // The wire APIs a file can name, in the key `api`.
@@ -27,17 +27,17 @@ const (
 	APIAnthropicMessages = "anthropic-messages"
 )
 
-// Config is what a gateway file stands for, in the arguments of gateway.New.
+// Config is what a gateway file stands for, in the arguments of model.New.
 type Config struct {
-	Wire       gateway.WireAPI
-	Connection gateway.Connection
+	Wire       model.WireAPI
+	Connection model.Connection
 	Model      gotato.ModelConfig
-	Options    []gateway.Option
+	Options    []model.Option
 }
 
 // New builds the Client the file describes.
-func (c Config) New() (*gateway.Client, error) {
-	return gateway.New(c.Wire, c.Connection, c.Model, c.Options...)
+func (c Config) New() (*model.Client, error) {
+	return model.New(c.Wire, c.Connection, c.Model, c.Options...)
 }
 
 // file is the on-disk format. Environment variables may be referenced as
@@ -53,10 +53,10 @@ type file struct {
 
 	// CacheKeyHeader is Connection's field of the same name; CacheKeyField,
 	// AnthropicVersion and DeferredTools are the wire's own options.
-	CacheKeyHeader   string               `yaml:"cache_key_header"`
-	CacheKeyField    string               `yaml:"cache_key_field"`
-	AnthropicVersion string               `yaml:"anthropic_version"`
-	DeferredTools    gateway.DeferredForm `yaml:"deferred_tools"`
+	CacheKeyHeader   string             `yaml:"cache_key_header"`
+	CacheKeyField    string             `yaml:"cache_key_field"`
+	AnthropicVersion string             `yaml:"anthropic_version"`
+	DeferredTools    model.DeferredForm `yaml:"deferred_tools"`
 
 	// Model is the model's name, and the rest is what the model is: its
 	// facts (Window is a number or "unknown", and must be stated) and its
@@ -73,22 +73,22 @@ type file struct {
 	ReasoningSummary string   `yaml:"reasoning_summary"`
 
 	// MaxRetries, RetryBackoff and MaxRetryWait are a Retry. A file that sets
-	// none keeps gateway.DefaultRetry, and max_retries: 0 turns retries off.
+	// none keeps model.DefaultRetry, and max_retries: 0 turns retries off.
 	MaxRetries   *int   `yaml:"max_retries"`
 	RetryBackoff string `yaml:"retry_backoff"`
 	MaxRetryWait string `yaml:"max_retry_wait"`
 
 	// ConnectTimeout and ResponseHeaderTimeout are the arguments of
-	// gateway.NewHTTPClient, Go durations.
+	// model.NewHTTPClient, Go durations.
 	ConnectTimeout        string `yaml:"connect_timeout"`
 	ResponseHeaderTimeout string `yaml:"response_header_timeout"`
 
 	// OverflowPhrases adds a team's own wording for "the request was too
-	// long" to gateway.DefaultClassifier.
+	// long" to model.DefaultClassifier.
 	OverflowPhrases []string `yaml:"overflow_phrases"`
 }
 
-// Load reads a gateway file and checks it with gateway.New. Write ${NAME} in a
+// Load reads a gateway file and checks it with model.New. Write ${NAME} in a
 // value to read it from the environment, and a key the format does not know is
 // an error. gateway.example.yaml, next to this file, lists every key with its
 // default; copy it as a starting point.
@@ -133,7 +133,7 @@ func (in file) config() (Config, error) {
 	}
 	config := Config{
 		Wire: wire,
-		Connection: gateway.Connection{
+		Connection: model.Connection{
 			Endpoint:       strings.TrimSpace(in.Endpoint),
 			APIKey:         in.APIKey,
 			CacheKeyHeader: strings.TrimSpace(in.CacheKeyHeader),
@@ -177,7 +177,7 @@ func (in file) config() (Config, error) {
 	}
 	config.Model.Facts.CacheRetention = retention
 	if in.MaxRetries != nil || backoff != 0 || maxWait != 0 {
-		retry := gateway.DefaultRetry
+		retry := model.DefaultRetry
 		if in.MaxRetries != nil {
 			retry.Max = *in.MaxRetries
 		}
@@ -187,41 +187,41 @@ func (in file) config() (Config, error) {
 		if maxWait != 0 {
 			retry.MaxWait = maxWait
 		}
-		config.Options = append(config.Options, gateway.WithRetry(retry))
+		config.Options = append(config.Options, model.WithRetry(retry))
 	}
 	if connect != 0 || header != 0 {
 		if connect < 0 || header < 0 {
 			return Config{}, fmt.Errorf("connect_timeout and response_header_timeout cannot be negative")
 		}
-		config.Connection.HTTPClient = gateway.NewHTTPClient(withDefault(connect, 10*time.Second), withDefault(header, 60*time.Second))
+		config.Connection.HTTPClient = model.NewHTTPClient(withDefault(connect, 10*time.Second), withDefault(header, 60*time.Second))
 	}
 	if phrases := cleanPhrases(in.OverflowPhrases); len(phrases) > 0 {
-		config.Options = append(config.Options, gateway.WithClassifier(withOverflowPhrases(gateway.DefaultClassifier, phrases)))
+		config.Options = append(config.Options, model.WithClassifier(withOverflowPhrases(model.DefaultClassifier, phrases)))
 	}
 	return config, nil
 }
 
 // wire maps the name of a wire API to its value, with the wire's own options.
-func (in file) wire() (gateway.WireAPI, error) {
+func (in file) wire() (model.WireAPI, error) {
 	switch strings.TrimSpace(in.API) {
 	case "", APIChatCompletions:
 		if in.AnthropicVersion != "" {
 			return nil, fmt.Errorf("anthropic_version applies to %s only", APIAnthropicMessages)
 		}
-		if in.DeferredTools != "" && in.DeferredTools != gateway.DeferredFormList {
+		if in.DeferredTools != "" && in.DeferredTools != model.DeferredFormList {
 			return nil, fmt.Errorf("deferred_tools %q: %s has only the list form", in.DeferredTools, APIChatCompletions)
 		}
-		return gateway.ChatCompletions{CacheKeyField: in.CacheKeyField}, nil
+		return model.ChatCompletions{CacheKeyField: in.CacheKeyField}, nil
 	case APIResponses:
 		if in.AnthropicVersion != "" {
 			return nil, fmt.Errorf("anthropic_version applies to %s only", APIAnthropicMessages)
 		}
-		return gateway.Responses{CacheKeyField: in.CacheKeyField, Deferred: in.DeferredTools}, nil
+		return model.Responses{CacheKeyField: in.CacheKeyField, Deferred: in.DeferredTools}, nil
 	case APIAnthropicMessages:
 		if in.CacheKeyField != "" {
 			return nil, fmt.Errorf("cache_key_field is not supported by %s, which caches by cache_control", APIAnthropicMessages)
 		}
-		return gateway.AnthropicMessages{Version: in.AnthropicVersion, Deferred: in.DeferredTools}, nil
+		return model.AnthropicMessages{Version: in.AnthropicVersion, Deferred: in.DeferredTools}, nil
 	}
 	return nil, fmt.Errorf("unsupported api %q (use %s, %s, or %s)", in.API, APIChatCompletions, APIResponses, APIAnthropicMessages)
 }
@@ -247,8 +247,8 @@ func cleanPhrases(phrases []string) []string {
 // withOverflowPhrases wraps a Classifier so that a refusal whose message, code
 // or type holds one of the phrases, matched without regard to case, is an
 // overflow too: a 400 or 413, or an error told in a 2xx response.
-func withOverflowPhrases(base gateway.Classifier, phrases []string) gateway.Classifier {
-	return func(f gateway.Failure) gateway.Verdict {
+func withOverflowPhrases(base model.Classifier, phrases []string) model.Classifier {
+	return func(f model.Failure) model.Verdict {
 		v := base(f)
 		if v.Overflow || (f.Status != 0 && f.Status != 400 && f.Status != 413) {
 			return v
@@ -258,8 +258,8 @@ func withOverflowPhrases(base gateway.Classifier, phrases []string) gateway.Clas
 			for _, phrase := range phrases {
 				if strings.Contains(lower, phrase) {
 					// The limit the message names, if its wording is one the default reads.
-					limit := gateway.DefaultClassifier(gateway.Failure{Status: 400, Message: f.Message, Type: "context_length_exceeded"}).Limit
-					return gateway.Verdict{Overflow: true, Limit: limit}
+					limit := model.DefaultClassifier(model.Failure{Status: 400, Message: f.Message, Type: "context_length_exceeded"}).Limit
+					return model.Verdict{Overflow: true, Limit: limit}
 				}
 			}
 		}

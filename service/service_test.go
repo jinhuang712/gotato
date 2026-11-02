@@ -11,9 +11,9 @@ import (
 	"testing"
 	"time"
 
-	"github.com/jinhuang712/gotato/gateway"
 	"github.com/jinhuang712/gotato/gotato"
 	"github.com/jinhuang712/gotato/internal/fakegateway"
+	"github.com/jinhuang712/gotato/model"
 	"github.com/jinhuang712/gotato/profile"
 	"github.com/jinhuang712/gotato/record"
 	"github.com/jinhuang712/gotato/service"
@@ -167,7 +167,7 @@ func TestDrainCancelsToolSetResolution(t *testing.T) {
 // gatewaySetup is a wire API, its path on the fake gateway and the model that
 // speaks it. The window is unknown: the tests set the ceiling in the policy.
 type gatewaySetup struct {
-	wire  gateway.WireAPI
+	wire  model.WireAPI
 	path  string
 	model gotato.ModelConfig
 }
@@ -180,17 +180,17 @@ var fakeGatewayWires = []struct {
 	name   string
 	config gatewaySetup
 }{
-	{fakegateway.APIAnthropic, gatewaySetup{gateway.AnthropicMessages{}, "/v1/messages", unknownWindow("claude-sonnet-5-5")}},
-	{fakegateway.APIResponses, gatewaySetup{gateway.Responses{}, "/v1/responses", unknownWindow("gpt-6.1-sol")}},
-	{fakegateway.APIChat, gatewaySetup{gateway.ChatCompletions{}, "/v1/chat/completions", unknownWindow("chat-model")}},
+	{fakegateway.APIAnthropic, gatewaySetup{model.AnthropicMessages{}, "/v1/messages", unknownWindow("claude-sonnet-5-5")}},
+	{fakegateway.APIResponses, gatewaySetup{model.Responses{}, "/v1/responses", unknownWindow("gpt-6.1-sol")}},
+	{fakegateway.APIChat, gatewaySetup{model.ChatCompletions{}, "/v1/chat/completions", unknownWindow("chat-model")}},
 }
 
 func gatewayRunner(t *testing.T, setup gatewaySetup, fake *fakegateway.Gateway, policy record.Compactor) *service.Runner {
 	t.Helper()
 	server := httptest.NewServer(fake)
 	t.Cleanup(server.Close)
-	client, err := gateway.New(setup.wire, gateway.Connection{Endpoint: server.URL + setup.path, APIKey: "k"}, setup.model,
-		gateway.WithRetry(gateway.Retry{Max: gateway.DefaultRetry.Max, Backoff: time.Millisecond}))
+	client, err := model.New(setup.wire, model.Connection{Endpoint: server.URL + setup.path, APIKey: "k"}, setup.model,
+		model.WithRetry(model.Retry{Max: model.DefaultRetry.Max, Backoff: time.Millisecond}))
 	if err != nil {
 		t.Fatal(err)
 	}

@@ -11,9 +11,9 @@ import (
 	"sync"
 	"testing"
 
-	"github.com/jinhuang712/gotato/gateway"
 	"github.com/jinhuang712/gotato/gotato"
 	"github.com/jinhuang712/gotato/internal/reftasks"
+	"github.com/jinhuang712/gotato/model"
 	"github.com/jinhuang712/gotato/record"
 	"github.com/jinhuang712/gotato/ref"
 	"github.com/jinhuang712/gotato/service"
@@ -370,7 +370,7 @@ func checkToolLoading(t *testing.T, pair string, prev, next gotato.ModelRequest)
 
 // wireBodies encodes every request with the gateway for one wire API and
 // deferred form, as the gateway would send it, and returns the JSON bodies and the form the Client used.
-func wireBodies(t *testing.T, api wireName, form gateway.DeferredForm, requests []gotato.ModelRequest) ([]map[string]json.RawMessage, gateway.DeferredForm) {
+func wireBodies(t *testing.T, api wireName, form model.DeferredForm, requests []gotato.ModelRequest) ([]map[string]json.RawMessage, model.DeferredForm) {
 	t.Helper()
 	var mu sync.Mutex
 	var bodies []map[string]json.RawMessage
@@ -385,18 +385,18 @@ func wireBodies(t *testing.T, api wireName, form gateway.DeferredForm, requests 
 	}))
 	defer server.Close()
 	// Chat Completions has only the list form.
-	var wire gateway.WireAPI
+	var wire model.WireAPI
 	path := "/v1/chat/completions"
 	used := form
 	switch api {
 	case apiAnthropic:
-		wire, path = gateway.AnthropicMessages{Deferred: form}, "/v1/messages"
+		wire, path = model.AnthropicMessages{Deferred: form}, "/v1/messages"
 	case apiResponses:
-		wire, path = gateway.Responses{Deferred: form}, "/v1/responses"
+		wire, path = model.Responses{Deferred: form}, "/v1/responses"
 	default:
-		wire, used = gateway.ChatCompletions{}, gateway.DeferredFormList
+		wire, used = model.ChatCompletions{}, model.DeferredFormList
 	}
-	client, err := gateway.New(wire, gateway.Connection{Endpoint: server.URL + path, APIKey: "k"}, gotato.ModelConfig{Name: "m", Facts: gotato.ModelFacts{Window: gotato.WindowUnknown()}})
+	client, err := model.New(wire, model.Connection{Endpoint: server.URL + path, APIKey: "k"}, gotato.ModelConfig{Name: "m", Facts: gotato.ModelFacts{Window: gotato.WindowUnknown()}})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -476,8 +476,8 @@ func TestWireRequestOnlyGrowsAtItsEnd(t *testing.T) {
 		_, sent := playAcross(t, memStore(), task, playOptions{})
 		requests := decodeRequests(t, sent)
 		for _, wire := range wires {
-			for _, form := range []gateway.DeferredForm{gateway.DeferredFormNative, gateway.DeferredFormList} {
-				if wire.api == apiChat && form == gateway.DeferredFormNative {
+			for _, form := range []model.DeferredForm{model.DeferredFormNative, model.DeferredFormList} {
+				if wire.api == apiChat && form == model.DeferredFormNative {
 					continue // Chat Completions has no native form.
 				}
 				t.Run(task.Name+"/"+string(wire.api)+"/"+string(form), func(t *testing.T) {
@@ -492,9 +492,9 @@ func TestWireRequestOnlyGrowsAtItsEnd(t *testing.T) {
 						loaded := len(loadsBetween(requests[n-1], requests[n])) > 0
 						same := bytes.Equal(prev[wire.tools], next[wire.tools])
 						switch {
-						case used == gateway.DeferredFormNative && !same:
+						case used == model.DeferredFormNative && !same:
 							t.Errorf("%s: the tool list changed in the native form\nbefore: %s\n after: %s", pair, prev[wire.tools], next[wire.tools])
-						case used == gateway.DeferredFormList && same == loaded:
+						case used == model.DeferredFormList && same == loaded:
 							t.Errorf("%s: the tool list unchanged = %t, but a Tool loaded = %t", pair, same, loaded)
 						}
 						if !same {
@@ -511,7 +511,7 @@ func TestWireRequestOnlyGrowsAtItsEnd(t *testing.T) {
 							t.Errorf("%s: the Messages of the earlier request do not come first, byte for byte", pair)
 						}
 					}
-					if task.Name == reftasks.ToolSearchName && used == gateway.DeferredFormList && changed == 0 {
+					if task.Name == reftasks.ToolSearchName && used == model.DeferredFormList && changed == 0 {
 						t.Errorf("the list form never changed its tool list while Tools loaded")
 					}
 				})

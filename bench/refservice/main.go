@@ -17,8 +17,8 @@ import (
 	"syscall"
 	"time"
 
-	"github.com/jinhuang712/gotato/gateway"
 	"github.com/jinhuang712/gotato/gotato"
+	"github.com/jinhuang712/gotato/model"
 	"github.com/jinhuang712/gotato/profile"
 	"github.com/jinhuang712/gotato/service"
 	"github.com/jinhuang712/gotato/service/httpapi"
@@ -50,13 +50,13 @@ func run(addr, storeDir, endpoint, modelName string) error {
 	if err != nil {
 		return err
 	}
-	model, err := gateway.New(gateway.ChatCompletions{}, gateway.Connection{Endpoint: endpoint},
+	m, err := model.New(model.ChatCompletions{}, model.Connection{Endpoint: endpoint},
 		gotato.ModelConfig{Name: modelName, Facts: gotato.ModelFacts{Window: gotato.WindowUnknown()}})
 	if err != nil {
 		return err
 	}
 	profiles := profile.NewRegistry(nil)
-	if err := profiles.RegisterAgentProfileInline(profile.AgentProfile{Name: "assistant", Model: model, ModelName: modelName}); err != nil {
+	if err := profiles.RegisterAgentProfileInline(profile.AgentProfile{Name: "assistant", Model: m, ModelName: modelName}); err != nil {
 		return err
 	}
 	runner, err := service.New(service.Config{

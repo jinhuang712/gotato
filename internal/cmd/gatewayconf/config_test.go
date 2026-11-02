@@ -12,8 +12,8 @@ import (
 	"testing"
 	"time"
 
-	"github.com/jinhuang712/gotato/gateway"
 	"github.com/jinhuang712/gotato/gotato"
+	"github.com/jinhuang712/gotato/model"
 )
 
 // base is the smallest valid file; tests append keys to it.
@@ -191,15 +191,15 @@ func TestWindowForms(t *testing.T) {
 func TestWireNamesMapToWires(t *testing.T) {
 	for _, tc := range []struct {
 		extra string
-		want  gateway.WireAPI
+		want  model.WireAPI
 	}{
-		{"", gateway.ChatCompletions{}},
-		{"api: openai-chat-completions\ncache_key_field: prompt_cache_key\n", gateway.ChatCompletions{CacheKeyField: "prompt_cache_key"}},
-		{"api: openai-chat-completions\ndeferred_tools: list\n", gateway.ChatCompletions{}},
-		{"api: openai-responses\ndeferred_tools: list\n", gateway.Responses{Deferred: gateway.DeferredFormList}},
-		{"api: openai-responses\ncache_key_field: prompt_cache_key\n", gateway.Responses{CacheKeyField: "prompt_cache_key"}},
-		{"api: anthropic-messages\n", gateway.AnthropicMessages{}},
-		{"api: anthropic-messages\nanthropic_version: 2023-06-01\ndeferred_tools: native\n", gateway.AnthropicMessages{Version: "2023-06-01", Deferred: gateway.DeferredFormNative}},
+		{"", model.ChatCompletions{}},
+		{"api: openai-chat-completions\ncache_key_field: prompt_cache_key\n", model.ChatCompletions{CacheKeyField: "prompt_cache_key"}},
+		{"api: openai-chat-completions\ndeferred_tools: list\n", model.ChatCompletions{}},
+		{"api: openai-responses\ndeferred_tools: list\n", model.Responses{Deferred: model.DeferredFormList}},
+		{"api: openai-responses\ncache_key_field: prompt_cache_key\n", model.Responses{CacheKeyField: "prompt_cache_key"}},
+		{"api: anthropic-messages\n", model.AnthropicMessages{}},
+		{"api: anthropic-messages\nanthropic_version: 2023-06-01\ndeferred_tools: native\n", model.AnthropicMessages{Version: "2023-06-01", Deferred: model.DeferredFormNative}},
 	} {
 		config, err := Parse([]byte(base + tc.extra))
 		if err != nil {
@@ -263,7 +263,7 @@ func reply(t *testing.T, failure func(w http.ResponseWriter)) (*httptest.Server,
 	return server, &calls
 }
 
-func clientFor(t *testing.T, server *httptest.Server, extra string) *gateway.Client {
+func clientFor(t *testing.T, server *httptest.Server, extra string) *model.Client {
 	t.Helper()
 	config, err := Parse([]byte("endpoint: " + server.URL + "/v1/chat/completions\nmodel: m\nwindow: 200000\n" + extra))
 	if err != nil {
@@ -276,7 +276,7 @@ func clientFor(t *testing.T, server *httptest.Server, extra string) *gateway.Cli
 	return client
 }
 
-func streamOnce(t *testing.T, client *gateway.Client) error {
+func streamOnce(t *testing.T, client *model.Client) error {
 	t.Helper()
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer cancel()
@@ -298,7 +298,7 @@ func TestRetryKeysMapToARetry(t *testing.T) {
 	// max_retries: 0 is off.
 	server, calls = reply(t, tooManyRequests)
 	err := streamOnce(t, clientFor(t, server, "max_retries: 0\n"))
-	var gerr *gateway.Error
+	var gerr *model.Error
 	if !errors.As(err, &gerr) || gerr.StatusCode != http.StatusTooManyRequests || calls.Load() != 1 {
 		t.Fatalf("retries off: err = %v, attempts = %d", err, calls.Load())
 	}
@@ -338,7 +338,7 @@ func TestOverflowPhrasesWrapTheDefaultClassifier(t *testing.T) {
 	} {
 		server, _ := reply(t, refuse(tc.message))
 		err := streamOnce(t, clientFor(t, server, extra))
-		var gerr *gateway.Error
+		var gerr *model.Error
 		if !errors.As(err, &gerr) || gerr.StatusCode != http.StatusBadRequest || gerr.Overflow != tc.overflow {
 			t.Errorf("%s: err = %#v, want overflow %v", tc.name, err, tc.overflow)
 		}

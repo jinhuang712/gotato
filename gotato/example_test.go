@@ -6,9 +6,9 @@ import (
 	"net/http/httptest"
 	"strings"
 
-	"github.com/jinhuang712/gotato/gateway"
 	"github.com/jinhuang712/gotato/gotato"
 	"github.com/jinhuang712/gotato/internal/fakegateway"
+	"github.com/jinhuang712/gotato/model"
 	"github.com/jinhuang712/gotato/testkit"
 )
 
@@ -104,9 +104,9 @@ func Example_gatewayAndTool() {
 	defer fake.Close()
 
 	// 1. A model: a wire API, where to send it, and what the model is.
-	model, err := gateway.New(
-		gateway.AnthropicMessages{}, // or ChatCompletions{}, or Responses{}
-		gateway.Connection{
+	m, err := model.New(
+		model.AnthropicMessages{}, // or ChatCompletions{}, or Responses{}
+		model.Connection{
 			Endpoint: fake.URL + "/v1/messages", // the complete URL
 			APIKey:   "test-key",                // the README reads it from the environment
 		},
@@ -130,7 +130,7 @@ func Example_gatewayAndTool() {
 	// 3. A Session is one conversation: the model, an instruction and the tools.
 	s, err := gotato.NewSession(
 		context.Background(),
-		gotato.WithModel(model),
+		gotato.WithModel(m),
 		gotato.WithInstruction("You are a helpful assistant."),
 		gotato.WithTools(weather),
 	)

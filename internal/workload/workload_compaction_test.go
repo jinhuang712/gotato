@@ -13,11 +13,11 @@ import (
 	"testing"
 	"time"
 
-	"github.com/jinhuang712/gotato/gateway"
 	"github.com/jinhuang712/gotato/gotato"
 	"github.com/jinhuang712/gotato/internal/fakegateway"
 	"github.com/jinhuang712/gotato/internal/reftasks"
 	itext "github.com/jinhuang712/gotato/internal/text"
+	"github.com/jinhuang712/gotato/model"
 	"github.com/jinhuang712/gotato/profile"
 	"github.com/jinhuang712/gotato/record"
 	"github.com/jinhuang712/gotato/ref"
@@ -339,17 +339,17 @@ const (
 // provider's rules used to be.
 type wireKind struct {
 	api   wireName
-	wire  gateway.WireAPI
+	wire  model.WireAPI
 	path  string
 	model gotato.ModelConfig
 }
 
 var wireKinds = []wireKind{
-	{apiAnthropic, gateway.AnthropicMessages{}, "/v1/messages", gotato.ModelConfig{Name: "claude-sonnet-5-5", Facts: gotato.ModelFacts{
+	{apiAnthropic, model.AnthropicMessages{}, "/v1/messages", gotato.ModelConfig{Name: "claude-sonnet-5-5", Facts: gotato.ModelFacts{
 		Window: gotato.WindowUnknown(), CacheRetention: time.Hour, RoundReasoning: true, ThinkingBinding: true}}},
-	{apiResponses, gateway.Responses{}, "/v1/responses", gotato.ModelConfig{Name: "gpt-6.1-sol", Facts: gotato.ModelFacts{
+	{apiResponses, model.Responses{}, "/v1/responses", gotato.ModelConfig{Name: "gpt-6.1-sol", Facts: gotato.ModelFacts{
 		Window: gotato.WindowUnknown(), CacheRetention: 30 * time.Minute, RoundReasoning: true}}},
-	{apiChat, gateway.ChatCompletions{CacheKeyField: "prompt_cache_key"}, "/v1/chat/completions", gotato.ModelConfig{Name: "deepseek-reasoner", Facts: gotato.ModelFacts{
+	{apiChat, model.ChatCompletions{CacheKeyField: "prompt_cache_key"}, "/v1/chat/completions", gotato.ModelConfig{Name: "deepseek-reasoner", Facts: gotato.ModelFacts{
 		Window: gotato.WindowUnknown()}}},
 }
 
@@ -365,7 +365,7 @@ func newWireEncoder(t *testing.T, kind wireKind) *wireEncoder {
 		w.Header().Set("Content-Type", "text/event-stream")
 	}))
 	t.Cleanup(server.Close)
-	client, err := gateway.New(kind.wire, gateway.Connection{Endpoint: server.URL + kind.path, APIKey: "k", CacheKeyHeader: "X-Cache-Key"}, kind.model)
+	client, err := model.New(kind.wire, model.Connection{Endpoint: server.URL + kind.path, APIKey: "k", CacheKeyHeader: "X-Cache-Key"}, kind.model)
 	if err != nil {
 		t.Fatal(err)
 	}

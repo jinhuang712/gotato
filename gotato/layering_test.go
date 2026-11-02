@@ -33,7 +33,7 @@ var allowedImports = map[string][]string{
 	"gotato":          {"internal/hostlink", "internal/text", "ref"},
 	"record":          {"gotato", "internal/text", "ref"},
 	"store":           {"gotato", "record"},
-	"gateway":         {"gotato", "internal/text"}, // text.Cut: an error body is cut on a rune boundary
+	"model":           {"gotato", "internal/text"}, // text.Cut: an error body is cut on a rune boundary
 	"ref":             {},
 	"testkit":         {"gotato", "internal/hostlink", "internal/text", "record"}, // text.IsRecapAsk: the fake models recognize the Recap ask by the one definition
 	"store/storetest": {"gotato", "record", "store"},
