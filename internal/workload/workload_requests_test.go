@@ -11,13 +11,13 @@ import (
 	"sync"
 	"testing"
 
-	"github.com/jinhuang712/gotato/gateway"
 	"github.com/jinhuang712/gotato/gotato"
+	"github.com/jinhuang712/gotato/host"
 	"github.com/jinhuang712/gotato/internal/reftasks"
-	"github.com/jinhuang712/gotato/modelctx"
+	"github.com/jinhuang712/gotato/model"
+	"github.com/jinhuang712/gotato/record"
 	"github.com/jinhuang712/gotato/ref"
-	"github.com/jinhuang712/gotato/service"
-	"github.com/jinhuang712/gotato/session"
+	"github.com/jinhuang712/gotato/store"
 	"github.com/jinhuang712/gotato/testkit"
 )
 
@@ -82,7 +82,7 @@ type playOptions struct {
 	// reasoning makes every reply carry reasoning.
 	reasoning bool
 	// compactAfter, when above 0, compacts the Session explicitly after that
-	// many Runs, keeping the last two Messages (modelctx.Compact).
+	// many Runs, keeping the last two Messages (record.Compact).
 	compactAfter int
 }
 
@@ -97,7 +97,7 @@ var extraPrompts = []string{"Thanks. And where is order 17?", "Which order numbe
 // instance a, and the cycle repeats. A Runner is closed before the next
 // takes over. It returns the Session's ID and every request the model got,
 // in order, over all Runners.
-func playAcross(t *testing.T, store session.Store, task reftasks.Task, options playOptions) (string, [][]byte) {
+func playAcross(t *testing.T, st store.Store, task reftasks.Task, options playOptions) (string, [][]byte) {
 	t.Helper()
 	ctx := context.Background()
 	log := &requestLog{}
@@ -111,8 +111,8 @@ func playAcross(t *testing.T, store session.Store, task reftasks.Task, options p
 		prompts = append(prompts, extraPrompts[len(prompts)-len(task.Prompts)])
 	}
 	stages := []string{"a", "a", "b", "a"}
-	runner := taskRunner(t, store, logged, "a")
-	s, err := runner.CreateSession(ctx, service.CreateSessionRequest{Agent: task.Name, Messages: task.History})
+	runner := taskRunner(t, st, logged, "a")
+	s, err := runner.CreateSession(ctx, host.CreateSessionRequest{Agent: task.Name, Messages: task.History})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -123,10 +123,10 @@ func playAcross(t *testing.T, store session.Store, task reftasks.Task, options p
 				if err := runner.Close(ctx); err != nil {
 					t.Fatal(err)
 				}
-				runner = taskRunner(t, store, logged, stages[i%len(stages)])
+				runner = taskRunner(t, st, logged, stages[i%len(stages)])
 			}
 		}
-		result, err := runner.Run(ctx, service.RunRequest{SessionID: s.ID, Prompt: prompt})
+		result, err := runner.Run(ctx, host.RunRequest{SessionID: s.ID, Prompt: prompt})
 		if err != nil {
 			t.Fatalf("%s: Run %d on %s: %v", task.Name, i+1, runner.Instance(), err)
 		}
@@ -134,7 +134,7 @@ func playAcross(t *testing.T, store session.Store, task reftasks.Task, options p
 			t.Fatalf("%s: Run %d ended %s (compacted %t)", task.Name, i+1, result.Result.Status, result.Compacted)
 		}
 		if options.compactAfter == i+1 {
-			if _, err := runner.Compact(ctx, s.ID, modelctx.CompactConfig{KeepMessages: 2}); err != nil {
+			if _, err := runner.Compact(ctx, s.ID, record.CompactConfig{KeepMessages: 2}); err != nil {
 				t.Fatal(err)
 			}
 		}
@@ -153,27 +153,27 @@ func TestSameRecordSameRequest(t *testing.T) {
 	ctx := context.Background()
 	for _, task := range reftasks.ReferenceTasks() {
 		t.Run(task.Name, func(t *testing.T) {
-			store := memStore()
-			id, sent := playAcross(t, store, task, playOptions{})
-			final, err := session.Open(ctx, store.Records, id)
+			st := memStore()
+			id, sent := playAcross(t, st, task, playOptions{})
+			final, err := store.Open(ctx, st.Records, id)
 			if err != nil {
 				t.Fatal(err)
 			}
-			cacheKey, ok := final.Get(service.ReservedPrefix + "cache_key")
+			cacheKey, ok := final.Get(host.ReservedPrefix + "cache_key")
 			if !ok || cacheKey == "" {
-				cacheKey = service.CacheKey(id)
+				cacheKey = host.CacheKey(id)
 			}
 			stored := final.Messages()
 			if len(final.Compactions()) != 0 || len(final.Segments()) != 0 {
 				t.Fatalf("%s compacted; the reference workload is played without compaction", task.Name)
 			}
 
-			viewA := taskRunner(t, store, task, "a")
-			viewB := taskRunner(t, store, task, "b")
-			reloaded := taskRunner(t, store, task, "a")
+			viewA := taskRunner(t, st, task, "a")
+			viewB := taskRunner(t, st, task, "b")
+			reloaded := taskRunner(t, st, task, "a")
 			views := []struct {
 				name   string
-				runner *service.Runner
+				runner *host.Runner
 			}{{"instance a", viewA}, {"instance b", viewB}, {"instance a after reload", reloaded}}
 
 			identical := 0
@@ -189,9 +189,9 @@ func TestSameRecordSameRequest(t *testing.T) {
 				// The Record as it stood at this Turn: a copy of its first n
 				// Messages under the same cache key, which is the only part of
 				// the Record's identity that reaches the request.
-				prefixID := plantRecord(t, store, task.Name, cacheKey, stored[:n])
+				prefixID := plantRecord(t, st, task.Name, cacheKey, stored[:n])
 				for _, view := range views {
-					report, err := view.runner.Inspect(ctx, prefixID, service.InspectConfig{})
+					report, err := view.runner.Inspect(ctx, prefixID, host.InspectConfig{})
 					if err != nil {
 						t.Fatal(err)
 					}
@@ -220,7 +220,7 @@ func TestSameRecordSameRequest(t *testing.T) {
 // The exceptions principle 2 in DESIGNS.md names do not occur in this play, and the test says
 // why for each:
 //   - A new Round leaving out the last Round's reasoning happens in the
-//     gateway's encoder (the RoundReasoning fact), after the
+//     model bridge's encoder (the RoundReasoning fact), after the
 //     request is built. The ModelRequest carries every reasoning artifact, so
 //     "with reasoning" plays tasks whose replies all carry reasoning and
 //     requires the prefix to hold with it.
@@ -236,9 +236,9 @@ func TestRequestOnlyGrowsAtItsEnd(t *testing.T) {
 		}
 		for _, task := range reftasks.ReferenceTasks() {
 			t.Run(name+"/"+task.Name, func(t *testing.T) {
-				store := memStore()
-				id, sent := playAcross(t, store, task, playOptions{reasoning: withReasoning})
-				final, err := session.Open(ctx, store.Records, id)
+				st := memStore()
+				id, sent := playAcross(t, st, task, playOptions{reasoning: withReasoning})
+				final, err := store.Open(ctx, st.Records, id)
 				if err != nil {
 					t.Fatal(err)
 				}
@@ -368,9 +368,9 @@ func checkToolLoading(t *testing.T, pair string, prev, next gotato.ModelRequest)
 	}
 }
 
-// wireBodies encodes every request with the gateway for one wire API and
-// deferred form, as the gateway would send it, and returns the JSON bodies and the form the Client used.
-func wireBodies(t *testing.T, api wireName, form gateway.DeferredForm, requests []gotato.ModelRequest) ([]map[string]json.RawMessage, gateway.DeferredForm) {
+// wireBodies encodes every request with the model bridge for one wire API and
+// deferred form, as the model bridge would send it, and returns the JSON bodies and the form the Client used.
+func wireBodies(t *testing.T, api wireName, form model.DeferredForm, requests []gotato.ModelRequest) ([]map[string]json.RawMessage, model.DeferredForm) {
 	t.Helper()
 	var mu sync.Mutex
 	var bodies []map[string]json.RawMessage
@@ -385,18 +385,18 @@ func wireBodies(t *testing.T, api wireName, form gateway.DeferredForm, requests 
 	}))
 	defer server.Close()
 	// Chat Completions has only the list form.
-	var wire gateway.WireAPI
+	var wire model.WireAPI
 	path := "/v1/chat/completions"
 	used := form
 	switch api {
 	case apiAnthropic:
-		wire, path = gateway.AnthropicMessages{Deferred: form}, "/v1/messages"
+		wire, path = model.AnthropicMessages{Deferred: form}, "/v1/messages"
 	case apiResponses:
-		wire, path = gateway.Responses{Deferred: form}, "/v1/responses"
+		wire, path = model.Responses{Deferred: form}, "/v1/responses"
 	default:
-		wire, used = gateway.ChatCompletions{}, gateway.DeferredFormList
+		wire, used = model.ChatCompletions{}, model.DeferredFormList
 	}
-	client, err := gateway.New(wire, gateway.Connection{Endpoint: server.URL + path, APIKey: "k"}, gotato.ModelConfig{Name: "m", Facts: gotato.ModelFacts{Window: gotato.WindowUnknown()}})
+	client, err := model.New(wire, model.Connection{Endpoint: server.URL + path, APIKey: "k"}, gotato.ModelConfig{Name: "m", Facts: gotato.ModelFacts{Window: gotato.WindowUnknown()}})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -450,10 +450,10 @@ func TestToolSearchRequestOnlyGrowsAtItsEnd(t *testing.T) {
 	t.Logf("%d request pairs, %d of them across a load", len(requests)-1, loads)
 }
 
-// TestWireRequestOnlyGrowsAtItsEnd checks G-G07 on the bytes the gateway
+// TestWireRequestOnlyGrowsAtItsEnd checks G-G07 on the bytes the model bridge
 // encodes, for every reference task, on each wire API and each form of deferred
 // tools. Each task is played as in TestRequestOnlyGrowsAtItsEnd, and the
-// gateway encodes its requests. Between two consecutive requests of a pair:
+// model bridge encodes its requests. Between two consecutive requests of a pair:
 //
 //   - the instruction keeps its bytes;
 //   - the Messages of the earlier request come first in the later one, byte for
@@ -476,8 +476,8 @@ func TestWireRequestOnlyGrowsAtItsEnd(t *testing.T) {
 		_, sent := playAcross(t, memStore(), task, playOptions{})
 		requests := decodeRequests(t, sent)
 		for _, wire := range wires {
-			for _, form := range []gateway.DeferredForm{gateway.DeferredFormNative, gateway.DeferredFormList} {
-				if wire.api == apiChat && form == gateway.DeferredFormNative {
+			for _, form := range []model.DeferredForm{model.DeferredFormNative, model.DeferredFormList} {
+				if wire.api == apiChat && form == model.DeferredFormNative {
 					continue // Chat Completions has no native form.
 				}
 				t.Run(task.Name+"/"+string(wire.api)+"/"+string(form), func(t *testing.T) {
@@ -492,9 +492,9 @@ func TestWireRequestOnlyGrowsAtItsEnd(t *testing.T) {
 						loaded := len(loadsBetween(requests[n-1], requests[n])) > 0
 						same := bytes.Equal(prev[wire.tools], next[wire.tools])
 						switch {
-						case used == gateway.DeferredFormNative && !same:
+						case used == model.DeferredFormNative && !same:
 							t.Errorf("%s: the tool list changed in the native form\nbefore: %s\n after: %s", pair, prev[wire.tools], next[wire.tools])
-						case used == gateway.DeferredFormList && same == loaded:
+						case used == model.DeferredFormList && same == loaded:
 							t.Errorf("%s: the tool list unchanged = %t, but a Tool loaded = %t", pair, same, loaded)
 						}
 						if !same {
@@ -511,7 +511,7 @@ func TestWireRequestOnlyGrowsAtItsEnd(t *testing.T) {
 							t.Errorf("%s: the Messages of the earlier request do not come first, byte for byte", pair)
 						}
 					}
-					if task.Name == reftasks.ToolSearchName && used == gateway.DeferredFormList && changed == 0 {
+					if task.Name == reftasks.ToolSearchName && used == model.DeferredFormList && changed == 0 {
 						t.Errorf("the list form never changed its tool list while Tools loaded")
 					}
 				})
@@ -522,11 +522,11 @@ func TestWireRequestOnlyGrowsAtItsEnd(t *testing.T) {
 
 // compactingToolSearch plays the tool_search task with an explicit compaction
 // after Run 5, and returns the Session's ID, the store and the requests.
-func compactingToolSearch(t *testing.T) (session.Store, string, []gotato.ModelRequest) {
+func compactingToolSearch(t *testing.T) (store.Store, string, []gotato.ModelRequest) {
 	t.Helper()
-	store := memStore()
-	id, sent := playAcross(t, store, reftasks.ToolSearchTask(), playOptions{compactAfter: 5})
-	return store, id, decodeRequests(t, sent)
+	st := memStore()
+	id, sent := playAcross(t, st, reftasks.ToolSearchTask(), playOptions{compactAfter: 5})
+	return st, id, decodeRequests(t, sent)
 }
 
 // TestToolSearchRequestAcrossACompaction checks the other half of G-G07 for
@@ -536,15 +536,15 @@ func compactingToolSearch(t *testing.T) (session.Store, string, []gotato.ModelRe
 // loaded Tools are fewer, and the Segment's read_segment may join the Tools.
 func TestToolSearchRequestAcrossACompaction(t *testing.T) {
 	ctx := context.Background()
-	store, id, requests := compactingToolSearch(t)
-	final, err := session.Open(ctx, store.Records, id)
+	st, id, requests := compactingToolSearch(t)
+	final, err := store.Open(ctx, st.Records, id)
 	if err != nil {
 		t.Fatal(err)
 	}
 	if len(final.Compactions()) != 1 {
 		t.Fatalf("%d compactions, want 1", len(final.Compactions()))
 	}
-	events, err := session.StoredEvents(ctx, store.Records, id, 0, 0)
+	events, err := store.StoredEvents(ctx, st.Records, id, 0, 0)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -602,7 +602,7 @@ func TestSameRecordSameRequestAcrossLoadsAndUnloads(t *testing.T) {
 	compared, loadedAtRun := 0, []int{}
 	stages := []string{"a", "a", "b", "a"}
 	runner := taskRunner(t, store, task, "a")
-	s, err := runner.CreateSession(ctx, service.CreateSessionRequest{Agent: task.Name})
+	s, err := runner.CreateSession(ctx, host.CreateSessionRequest{Agent: task.Name})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -613,25 +613,25 @@ func TestSameRecordSameRequestAcrossLoadsAndUnloads(t *testing.T) {
 			}
 			runner = taskRunner(t, store, task, stages[i%len(stages)])
 		}
-		if result, err := runner.Run(ctx, service.RunRequest{SessionID: s.ID, Prompt: prompt}); err != nil || result.Result.Status != gotato.RunStatusCompleted {
+		if result, err := runner.Run(ctx, host.RunRequest{SessionID: s.ID, Prompt: prompt}); err != nil || result.Result.Status != gotato.RunStatusCompleted {
 			t.Fatalf("Run %d: %v (%s)", i+1, err, result.Result.Status)
 		}
 		if i+1 == 5 {
-			if _, err := runner.Compact(ctx, s.ID, modelctx.CompactConfig{KeepMessages: 2}); err != nil {
+			if _, err := runner.Compact(ctx, s.ID, record.CompactConfig{KeepMessages: 2}); err != nil {
 				t.Fatal(err)
 			}
 		}
-		live, err := runner.Inspect(ctx, s.ID, service.InspectConfig{})
+		live, err := runner.Inspect(ctx, s.ID, host.InspectConfig{})
 		if err != nil {
 			t.Fatal(err)
 		}
 		want := jsonOf(t, live.Request)
 		loadedAtRun = append(loadedAtRun, len(live.Request.LoadedTools))
-		for name, view := range map[string]*service.Runner{
+		for name, view := range map[string]*host.Runner{
 			"the other instance":      taskRunner(t, store, task, "other"),
 			"a new Runner (a reload)": taskRunner(t, store, task, runner.Instance()),
 		} {
-			report, err := view.Inspect(ctx, s.ID, service.InspectConfig{})
+			report, err := view.Inspect(ctx, s.ID, host.InspectConfig{})
 			if err != nil {
 				t.Fatal(err)
 			}

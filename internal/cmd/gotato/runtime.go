@@ -13,10 +13,10 @@ import (
 	"time"
 
 	"github.com/jinhuang712/gotato/gotato"
+	"github.com/jinhuang712/gotato/host"
 	"github.com/jinhuang712/gotato/internal/cmd/gatewayconf"
 	"github.com/jinhuang712/gotato/profile"
-	"github.com/jinhuang712/gotato/service"
-	"github.com/jinhuang712/gotato/session"
+	"github.com/jinhuang712/gotato/store"
 	"github.com/jinhuang712/gotato/testkit"
 )
 
@@ -79,19 +79,19 @@ func builtinTools() []gotato.Tool {
 	return []gotato.Tool{testkit.DemoEchoTool(), now}
 }
 
-// cliRuntime is the CLI's service.Runner plus the diagnostics gathered while
+// cliRuntime is the CLI's host.Runner plus the diagnostics gathered while
 // building it. The CLI and `gotato serve` run the same
 // Runner; the CLI simply drives it in-process.
 type cliRuntime struct {
-	runner *service.Runner
+	runner *host.Runner
 	// config is what runner was built from; serve builds another with admission
 	// settings.
-	config service.Config
+	config host.Config
 	// profiles and defs hold the AgentProfiles; defs keeps the variants that
 	// --instruction and --compact-ceiling make (variant.go).
 	profiles   *profile.Registry
-	defs       session.Definitions
-	store      session.Store
+	defs       store.Definitions
+	store      store.Store
 	storeDir   string
 	gatewayErr error
 	gatewayCfg string
@@ -110,11 +110,11 @@ var testAgents []profile.AgentProfile
 // newRuntime builds the Runner: echo and demo are always registered; gateway
 // is registered when its YAML loads.
 func (c *cli) newRuntime(flags modelFlags) (*cliRuntime, error) {
-	store, dir, err := c.store()
+	st, dir, err := c.store()
 	if err != nil {
 		return nil, err
 	}
-	defs, err := session.NewFileDefinitions(filepath.Join(dir, "definitions"))
+	defs, err := store.NewFileDefinitions(filepath.Join(dir, "definitions"))
 	if err != nil {
 		return nil, err
 	}
@@ -128,7 +128,7 @@ func (c *cli) newRuntime(flags modelFlags) (*cliRuntime, error) {
 		{Name: "demo", Model: testkit.DemoModel{}, ModelName: "demo", Instruction: defaultInstruction, Tools: tools},
 	}
 	agents = append(agents, testAgents...)
-	rt := &cliRuntime{store: store, defs: defs, storeDir: dir, gatewayCfg: c.gatewayConfigPath(flags)}
+	rt := &cliRuntime{store: st, defs: defs, storeDir: dir, gatewayCfg: c.gatewayConfigPath(flags)}
 	if config, err := gatewayconf.Load(rt.gatewayCfg); err != nil {
 		rt.gatewayErr = err
 	} else if client, err := config.New(); err != nil {
@@ -167,8 +167,8 @@ func (c *cli) newRuntime(flags modelFlags) (*cliRuntime, error) {
 	if err != nil {
 		return nil, err
 	}
-	rt.config = service.Config{Store: store, Profiles: rt.profiles, DefaultAgent: defaultAgent, TimeAwayAfter: timeAway}
-	runner, err := service.New(rt.config)
+	rt.config = host.Config{Store: st, Profiles: rt.profiles, DefaultAgent: defaultAgent, TimeAwayAfter: timeAway}
+	runner, err := host.New(rt.config)
 	if err != nil {
 		return nil, err
 	}
@@ -214,7 +214,7 @@ type runOutcome struct {
 	RecordEpoch string `json:"record_epoch,omitempty"`
 }
 
-func outcomeOf(result service.RunResponse) runOutcome {
+func outcomeOf(result host.RunResponse) runOutcome {
 	return runOutcome{
 		SessionID:    result.SessionID,
 		RunID:        result.Result.RunID,

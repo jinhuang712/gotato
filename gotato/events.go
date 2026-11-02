@@ -178,7 +178,7 @@ type RunStarted struct {
 
 // RunEnded is published when a Run settles, with its status, its cause and its
 // stop reason. It does not carry the final text, which can be long: read it
-// from the Run's result (service.RunResponse.FinalText), or from the
+// from the Run's result (host.RunResponse.FinalText), or from the
 // Transcript.
 type RunEnded struct {
 	Header
@@ -224,7 +224,7 @@ type ContextBuilt struct {
 	PrefixMessages   int    `json:"prefix_messages"`
 	SystemBytes      int    `json:"system_bytes"`
 	Tools            int    `json:"tools"`
-	// The estimates are in tokens, by the rule of modelctx.EstimateTokens
+	// The estimates are in tokens, by the rule of record.EstimateTokens
 	// (bytes of the JSON encoding over 4): the instruction, the tool
 	// definitions, the Segment and Recap Messages, the user and assistant
 	// Messages, and the Tool Results. A Record written before they existed
@@ -290,7 +290,7 @@ type ReplyPartKept struct {
 	Reasoning string    `json:"reasoning,omitempty"`
 }
 
-// ModelRetried is published when the gateway calls the model again.
+// ModelRetried is published when the model bridge calls the model again.
 type ModelRetried struct {
 	Header
 	Attempt int     `json:"attempt"`

@@ -40,7 +40,7 @@ const (
 // qualified IDs of the catalog Tools the Model loaded in earlier Runs of the
 // Session, in the order it loaded them, with a compaction's unloads applied.
 // NewSession loads those Tools again, so every instance that loads the Session
-// from the same Record offers the same Tools; a session.Record implements it. An ID that no
+// from the same Record offers the same Tools; a record.Record implements it. An ID that no
 // installed ToolSet carries any more stays unloaded.
 type LoadedToolSource interface {
 	LoadedTools() []string

@@ -25,7 +25,7 @@ func MarshalEvent(event Event) ([]byte, error) {
 
 // UnmarshalEvent decodes the JSON that MarshalEvent wrote. A kind this package
 // does not know, whether a later version adds it or another package defines it
-// (the service's Instance Events, an Event of a host's own), comes back as an
+// (the host package's Instance Events, an Event of a host's own), comes back as an
 // UnknownEvent.
 func UnmarshalEvent(data []byte) (Event, error) {
 	var probe struct {

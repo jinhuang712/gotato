@@ -6,7 +6,7 @@ import (
 	"fmt"
 
 	"github.com/jinhuang712/gotato/gotato"
-	"github.com/jinhuang712/gotato/service"
+	"github.com/jinhuang712/gotato/host"
 )
 
 // Exit codes of the test tool.
@@ -81,11 +81,11 @@ var exitOfCode = map[gotato.ErrorCode]int{
 	gotato.CodeNotSupported:          ExitError,
 	gotato.CodeConflict:              ExitError,
 	gotato.CodeStoreFailure:          ExitError,
-	service.CodeOverloaded:           ExitError,
-	service.CodeDraining:             ExitError,
-	service.CodeCannotResume:         ExitError,
-	service.CodeNotWriter:            ExitError,
-	service.CodeAlreadyExists:        ExitError,
+	host.CodeOverloaded:              ExitError,
+	host.CodeDraining:                ExitError,
+	host.CodeCannotResume:            ExitError,
+	host.CodeNotWriter:               ExitError,
+	host.CodeAlreadyExists:           ExitError,
 }
 
 // failErr reports an error and returns the exit code of its code.

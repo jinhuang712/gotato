@@ -6,8 +6,8 @@ import (
 	"time"
 
 	"github.com/jinhuang712/gotato/gotato"
-	"github.com/jinhuang712/gotato/service"
-	"github.com/jinhuang712/gotato/session"
+	"github.com/jinhuang712/gotato/host"
+	"github.com/jinhuang712/gotato/store"
 )
 
 // A streaming card: for a Run this process starts, the bot posts a card at
@@ -83,7 +83,7 @@ func (b *bot) streamRun(ctx context.Context, sessionID, messageID, text string) 
 		return nil // an error would stop delivery, not the Run
 	}
 
-	req := service.RunRequest{SessionID: sessionID, Prompt: text, RequestID: messageID, Update: map[string]string{metaCard: cardID}}
+	req := host.RunRequest{SessionID: sessionID, Prompt: text, RequestID: messageID, Update: map[string]string{metaCard: cardID}}
 	resp, err := b.runner.StreamRunAdmitted(ctx, req, func() { b.setCard(sessionID, lc) }, sink)
 	b.mu.Lock()
 	if lc.runID == "" {
@@ -110,7 +110,7 @@ func (b *bot) setCard(sessionID string, lc *liveCard) {
 
 // idle says whether no Instance holds the Session: no Run is going on it, here or elsewhere.
 func (b *bot) idle(ctx context.Context, sessionID string) bool {
-	rec, err := session.View(ctx, b.records, sessionID)
+	rec, err := store.View(ctx, b.records, sessionID)
 	if err != nil {
 		return false // Send finds out what is wrong
 	}

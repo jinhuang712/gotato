@@ -33,7 +33,7 @@ An Event type says where it lives with its own `Class()`, beside `Kind()`, and n
  UnknownEvent                keeps the JSON; MarshalEvent writes the same bytes back; its class is empty
 ```
 
-The core defines the Events a Session makes: every stored Event, the deltas, and the two Instance Events it publishes itself, `session_unloaded` and `events_skipped`. The nine that only a Runner publishes (`run_requested`, `run_waiting`, `run_rejected`, `session_fenced`, `liveness_lapsed`, `session_deleted`, `session_loaded`, `session_saved`, `store_write_failed`) are types of `service` with the same kinds and fields, so a client of the HTTP API sees no difference. A Go program that reads the Instance stream switches on `service.RunRejected` and the others; `gotato.UnmarshalEvent` reads them as an `UnknownEvent`, because Gotato ships no Go client that needs more ([decision 026](../plan/decisions/026-gotato-ships-no-machine-no-client-and-no-tool-catalog.md)). `httpapi` writes every Event with `MarshalEvent`.
+The core defines the Events a Session makes: every stored Event, the deltas, and the two Instance Events it publishes itself, `session_unloaded` and `events_skipped`. The nine that only a Runner publishes (`run_requested`, `run_waiting`, `run_rejected`, `session_fenced`, `liveness_lapsed`, `session_deleted`, `session_loaded`, `session_saved`, `store_write_failed`) are types of `host` with the same kinds and fields, so a client of the HTTP API sees no difference. A Go program that reads the Instance stream switches on `host.RunRejected` and the others; `gotato.UnmarshalEvent` reads them as an `UnknownEvent`, because Gotato ships no Go client that needs more ([decision 026](../plan/decisions/026-gotato-ships-no-machine-no-client-and-no-tool-catalog.md)). `adapter/http` writes every Event with `MarshalEvent`.
 
 ## An Event's Run is stamped when it is numbered
 
@@ -86,7 +86,7 @@ A Feed fans each Event out to Subscriptions, and publishing never blocks.
                       each Subscription has its own queue and one goroutine, in order
 ```
 
-The calls that publish to a Feed, mirror one into another and label it belong to the host that runs the Session, and the core hands them to `service` and `testkit` through `internal/hostlink`, not through its API: a Feed's methods are `Subscribe` and `Close`. The Session puts the Event in each queue and moves on, so one slow reader slows only itself. A Run's stream and a Session's stream carry the Session's numbers. An Instance's stream mixes many Sessions, so it has no single number and cannot be read again. When its subscriber falls behind it skips Events and says how many in an `events_skipped` Event. Each stored Event names its Session and number, so the subscriber can read what it missed from the Record. Instance Events are not in a Run's stream.
+The calls that publish to a Feed, mirror one into another and label it belong to the host that runs the Session, and the core hands them to `host` and `testkit` through `internal/hostlink`, not through its API: a Feed's methods are `Subscribe` and `Close`. The Session puts the Event in each queue and moves on, so one slow reader slows only itself. A Run's stream and a Session's stream carry the Session's numbers. An Instance's stream mixes many Sessions, so it has no single number and cannot be read again. When its subscriber falls behind it skips Events and says how many in an `events_skipped` Event. Each stored Event names its Session and number, so the subscriber can read what it missed from the Record. Instance Events are not in a Run's stream.
 
 ## A subscriber that falls behind
 
@@ -108,7 +108,7 @@ A full queue drops its oldest delta first. With none to drop, the subscriber lea
 
 ## Resume with Last-Event-ID
 
-A client reconnects to any Instance with the last number and epoch it saw, and gets everything after, with no gap and no repeat.
+A client reconnects to any Instance with the last number and epoch it saw, and gets everything after, with no gap and no repeat. The endpoint below is served by the optional HTTP API, module `adapter/http`.
 
 ```text
  Client                          Instance B                      Store

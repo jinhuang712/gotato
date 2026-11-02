@@ -6,6 +6,7 @@ FROM golang:1.27 AS build
 ENV CGO_ENABLED=0 GOFLAGS=-trimpath GOPROXY=https://proxy.golang.org,direct
 WORKDIR /src
 COPY go.mod go.sum ./
+COPY adapter/http/go.mod adapter/http/go.sum adapter/http/
 COPY adapter/mcp/go.mod adapter/mcp/go.sum adapter/mcp/
 COPY examples/larkbot/go.mod examples/larkbot/go.sum examples/larkbot/
 WORKDIR /src/examples/larkbot

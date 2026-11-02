@@ -1,7 +1,7 @@
 // Command refservice is the reference service that GOALS.md G-B10 (startup
 // time) and G-B12 (footprint) measure: the smallest program a team would write
 // to embed Gotato in a Go service. It imports the core, the Runner, a file
-// store, the HTTP handler and a gateway model, and nothing else.
+// store, the HTTP handler and a model from package model, and nothing else.
 package main
 
 import (
@@ -17,12 +17,12 @@ import (
 	"syscall"
 	"time"
 
-	"github.com/jinhuang712/gotato/gateway"
+	httpapi "github.com/jinhuang712/gotato/adapter/http"
 	"github.com/jinhuang712/gotato/gotato"
+	"github.com/jinhuang712/gotato/host"
+	"github.com/jinhuang712/gotato/model"
 	"github.com/jinhuang712/gotato/profile"
-	"github.com/jinhuang712/gotato/service"
-	"github.com/jinhuang712/gotato/service/httpapi"
-	"github.com/jinhuang712/gotato/session"
+	"github.com/jinhuang712/gotato/store"
 )
 
 func main() {
@@ -46,21 +46,21 @@ func run(addr, storeDir, endpoint, modelName string) error {
 		defer func() { _ = os.RemoveAll(dir) }()
 		storeDir = dir
 	}
-	store, err := session.NewFileStore(storeDir)
+	st, err := store.NewFileStore(storeDir)
 	if err != nil {
 		return err
 	}
-	model, err := gateway.New(gateway.ChatCompletions{}, gateway.Connection{Endpoint: endpoint},
+	m, err := model.New(model.ChatCompletions{}, model.Connection{Endpoint: endpoint},
 		gotato.ModelConfig{Name: modelName, Facts: gotato.ModelFacts{Window: gotato.WindowUnknown()}})
 	if err != nil {
 		return err
 	}
 	profiles := profile.NewRegistry(nil)
-	if err := profiles.RegisterAgentProfileInline(profile.AgentProfile{Name: "assistant", Model: model, ModelName: modelName}); err != nil {
+	if err := profiles.RegisterAgentProfileInline(profile.AgentProfile{Name: "assistant", Model: m, ModelName: modelName}); err != nil {
 		return err
 	}
-	runner, err := service.New(service.Config{
-		Store:    session.Store{Records: store, Liveness: store},
+	runner, err := host.New(host.Config{
+		Store:    store.Store{Records: st, Liveness: st},
 		Profiles: profiles, DefaultAgent: "assistant",
 	})
 	if err != nil {

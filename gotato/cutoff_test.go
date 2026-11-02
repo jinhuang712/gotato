@@ -108,7 +108,7 @@ func TestCutOffReplyIsCommittedWhenTheStreamBreaks(t *testing.T) {
 			defer func() { _ = session.Close(context.Background()) }()
 			if tc.cancel {
 				// Abort cancels the Run and still returns its settled result,
-				// as service.Runner does for a cancel request.
+				// as host.Runner does for a cancel request.
 				go func() {
 					<-reached
 					session.Abort()

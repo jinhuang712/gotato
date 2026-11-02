@@ -9,7 +9,7 @@ import (
 type ModelRetry struct {
 	// Attempt is the number of the attempt that failed, from 1.
 	Attempt int
-	// Wait is how long the gateway waits before it calls the model again.
+	// Wait is how long the model bridge waits before it calls the model again.
 	Wait time.Duration
 	// Error says why the attempt failed, without anything a client should
 	// not see.
@@ -23,7 +23,7 @@ func withRetryReporter(ctx context.Context, report func(ModelRetry)) context.Con
 }
 
 // ReportModelRetry tells the Session that is calling the Model with ctx that
-// the call is being repeated, so it stores a ModelRetried Event. A gateway
+// the call is being repeated, so it stores a ModelRetried Event. The model bridge
 // that retries calls it before it waits. It does nothing, and returns false,
 // when ctx did not come from a Session.
 //

@@ -27,7 +27,7 @@
 
 An **Agent** is a definition: model, instruction, tools, limits. A **Session** is one conversation running it: a small loop, plus a runtime that saves every step to your store.
 
-Where the Agent lives depends on how you run it. With the Go API alone, the Agent is the options you pass to `gotato.NewSession` (a model, an instruction, tools). With a `service.Runner`, it is a `profile.AgentProfile` value you register once in a `profile.Registry`, and the Runner starts a Session from it for each conversation.
+Where the Agent lives depends on how you run it. With the Go API alone, the Agent is the options you pass to `gotato.NewSession` (a model, an instruction, tools). With a `host.Runner`, it is a `profile.AgentProfile` value you register once in a `profile.Registry`, and the Runner starts a Session from it for each conversation.
 
 A Session saves itself by writing its Record, an append-only log of everything that happened, to a Store. A Session built with `gotato.NewSession` alone keeps that Record in memory and is gone when the process exits; a Runner over a Store keeps it there.
 
@@ -82,7 +82,7 @@ Not a coding agent, a workflow language, a platform or infrastructure. Gotato ru
 | **Many instances** | one writer per Session, takeover, drain, `not_writer` forwarding | ✅ |
 | **Events** | every step as a Go type, streamed, resumable on any instance | ✅ |
 | **Endpoints** | Go API and HTTP | ✅ |
-| **Testing** | fake models, a fake gateway for each wire API, a reference workload | ✅ |
+| **Testing** | fake models, a fake model endpoint for each wire API, a reference workload | ✅ |
 | **Telemetry** | OpenTelemetry mapping of Events | later |
 
 ✅ built, 🚧 built with a gap named, and later. [FEATURES.md](FEATURES.md) lists every feature and its status.
@@ -93,16 +93,16 @@ A real model, one tool, one question:
 
 ```go
 import (
-    "github.com/jinhuang712/gotato/gateway"
     "github.com/jinhuang712/gotato/gotato"
+    "github.com/jinhuang712/gotato/model"
 )
 
 // 1. A model: a wire API, a connection, and what the model is (its facts).
-model, _ := gateway.New(
-    gateway.AnthropicMessages{}, // or gateway.ChatCompletions{}, or gateway.Responses{}
-    gateway.Connection{
-        Endpoint: "https://gateway.example.com/v1/messages",
-        APIKey:   os.Getenv("GATEWAY_API_KEY"),
+m, _ := model.New(
+    model.AnthropicMessages{}, // or model.ChatCompletions{}, or model.Responses{}
+    model.Connection{
+        Endpoint: "https://llm.example.com/v1/messages",
+        APIKey:   os.Getenv("LLM_API_KEY"),
     },
     gotato.ModelConfig{
         Name:  "a-model",
@@ -119,7 +119,7 @@ weather, _ := gotato.NewFuncTool("weather", "Returns the weather of a city.", fu
 
 // 3. A Session is one conversation: the model, an instruction and the tools.
 s, _ := gotato.NewSession(ctx,
-    gotato.WithModel(model),
+    gotato.WithModel(m),
     gotato.WithInstruction("You are a helpful assistant."),
     gotato.WithTools(weather),
 )
@@ -130,7 +130,7 @@ result, _ := s.Prompt(ctx, gotato.UserMessage("Do I need an umbrella in Paris?")
 fmt.Println(gotato.TextOf(*result.FinalMessage))
 ```
 
-`Prompt` returns when the Run settles, and `ctx` carries its cancellation and deadline. The model asks for the tool, Gotato runs it and goes on until the model answers. Errors are left out here. This code is run as a test, against a fake gateway that speaks the same wire API: [Example_gatewayAndTool](gotato/example_test.go).
+`Prompt` returns when the Run settles, and `ctx` carries its cancellation and deadline. The model asks for the tool, Gotato runs it and goes on until the model answers. Errors are left out here. This code is run as a test, against a fake model endpoint that speaks the same wire API: [Example_modelAndTool](gotato/example_test.go).
 
 ### Tools from an MCP server
 
@@ -142,7 +142,7 @@ import "github.com/jinhuang712/gotato/adapter/mcp"
 crm, _ := mcp.NewToolSet("crm", mcp.StreamableHTTP("https://crm.internal/mcp"))
 defer crm.Close() // the service closes it, never a Session
 
-s, _ := gotato.NewSession(ctx, gotato.WithModel(model), gotato.WithActiveToolSet(crm))
+s, _ := gotato.NewSession(ctx, gotato.WithModel(m), gotato.WithActiveToolSet(crm))
 ```
 
 [The MCP adapter](FEATURES.md#g-f12--the-mcp-adapter-) lists the transports (streamable HTTP and stdio), how a tool's annotations become its Effect, and how to authenticate.
@@ -171,11 +171,12 @@ Each feature, with its status, is in [FEATURES.md](FEATURES.md).
 
 ## 🚀 Install
 
-Gotato needs Go 1.24. The runtime is one module; the MCP adapter is a module of its own, so a service that does not use MCP carries none of it:
+Gotato needs Go 1.24. The runtime is one module; the MCP adapter and the HTTP adapter are modules of their own, so a service that uses neither carries none of them:
 
 ```sh
 go get github.com/jinhuang712/gotato@v0.2.0
 go get github.com/jinhuang712/gotato/adapter/mcp@v0.2.0   # only for MCP servers
+go get github.com/jinhuang712/gotato/adapter/http         # only for the HTTP API
 ```
 
 From 0.2.0 on, a break is written in [CHANGELOG.md](CHANGELOG.md). [Install](guides/install.md) has the details, and the 0.2.0 notes say what was never checked against a real provider.

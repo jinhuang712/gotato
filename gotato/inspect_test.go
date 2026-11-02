@@ -7,7 +7,7 @@ import (
 	"testing"
 
 	"github.com/jinhuang712/gotato/gotato"
-	"github.com/jinhuang712/gotato/session"
+	"github.com/jinhuang712/gotato/record"
 	"github.com/jinhuang712/gotato/testkit"
 )
 
@@ -97,7 +97,7 @@ func TestInspectContextIsRefusedDuringARun(t *testing.T) {
 		}
 		return testkit.Text("done"), nil
 	})
-	agent, err := gotato.NewSession(context.Background(), gotato.WithModel(model), gotato.WithTranscript(session.New()))
+	agent, err := gotato.NewSession(context.Background(), gotato.WithModel(model), gotato.WithTranscript(record.New()))
 	if err != nil {
 		t.Fatal(err)
 	}

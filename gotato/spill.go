@@ -27,7 +27,7 @@ import (
 // Tool Result is spilled, the size of a page of every read tool, and what the
 // preview counts its pages by, so the three cannot disagree. The Session asks
 // it once, in NewSession, and refuses a value below 1.
-// modelctx.ReadBack is the default.
+// record.ReadBack is the default.
 // [SEAM] a host replaces where originals are read from, how a page is cut and how a read is worded.
 type ReadBack interface {
 	ToolSource
@@ -116,7 +116,7 @@ func humanBytes(n int) string {
 }
 
 // keepsSpilled reports whether the Session's Transcript keeps what the spill
-// writes: a session.Record or session.Writer declares Capabilities.Spill; over
+// writes: a record.Record or store.Writer declares Capabilities.Spill; over
 // any other Transcript a Tool Result is committed whole.
 func (a *Session) keepsSpilled() (keeps bool, failure *RuntimeError) {
 	caps, failure := a.history.capabilities()

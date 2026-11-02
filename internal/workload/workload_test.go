@@ -8,7 +8,7 @@ import (
 	"github.com/jinhuang712/gotato/gotato"
 	"github.com/jinhuang712/gotato/internal/reftasks"
 	"github.com/jinhuang712/gotato/internal/workload"
-	"github.com/jinhuang712/gotato/session"
+	"github.com/jinhuang712/gotato/store"
 	"github.com/jinhuang712/gotato/testkit"
 )
 
@@ -94,11 +94,11 @@ func TestWorkloadUnderLoad(t *testing.T) {
 }
 
 func TestWorkloadOnAFileStore(t *testing.T) {
-	store, err := session.NewFileStore(t.TempDir())
+	st, err := store.NewFileStore(t.TempDir())
 	if err != nil {
 		t.Fatal(err)
 	}
-	report, err := workload.Run(context.Background(), workload.Config{Store: session.Store{Records: store, Liveness: store}}, []reftasks.Task{reftasks.HistoryTask(100)})
+	report, err := workload.Run(context.Background(), workload.Config{Store: store.Store{Records: st, Liveness: st}}, []reftasks.Task{reftasks.HistoryTask(100)})
 	if err != nil {
 		t.Fatal(err)
 	}

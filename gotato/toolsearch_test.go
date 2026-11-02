@@ -388,7 +388,7 @@ func TestAToolSwitchedOffForTheSessionIsNeverIndexedOrLoaded(t *testing.T) {
 	}
 }
 
-// loadedNames is a Transcript that remembers loaded tools, as a session.Record does.
+// loadedNames is a Transcript that remembers loaded tools, as a record.Record does.
 type loadedNames struct {
 	memoryTranscript
 	names []string
@@ -551,7 +551,7 @@ func TestTheRequestNamesTheLoadedAndTheUnloadedCatalogTools(t *testing.T) {
 	if !slices.Equal(second.LoadedTools, []string{"orders.lookup"}) || !slices.Equal(unloadedIDs(second), []string{"orders.list_open", "orders.refund"}) {
 		t.Fatalf("second request: loaded %v, unloaded %v", second.LoadedTools, unloadedIDs(second))
 	}
-	// The load is on the Tool Result that made it, for a gateway to show.
+	// The load is on the Tool Result that made it, for a client to show.
 	var found bool
 	for _, message := range second.Messages {
 		if message.ToolResult != nil && slices.Equal(message.ToolResult.LoadedTools, []string{"orders.lookup"}) {

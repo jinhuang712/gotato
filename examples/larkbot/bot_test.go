@@ -12,31 +12,31 @@ import (
 	"testing"
 	"time"
 
+	httpapi "github.com/jinhuang712/gotato/adapter/http"
 	"github.com/jinhuang712/gotato/examples/larkbot/internal/fakelark"
 	"github.com/jinhuang712/gotato/gotato"
+	"github.com/jinhuang712/gotato/host"
 	"github.com/jinhuang712/gotato/profile"
-	"github.com/jinhuang712/gotato/service"
-	"github.com/jinhuang712/gotato/service/httpapi"
-	"github.com/jinhuang712/gotato/session"
+	"github.com/jinhuang712/gotato/store"
 	"github.com/jinhuang712/gotato/testkit"
 	lark "github.com/larksuite/oapi-sdk-go/v3"
 )
 
 func TestTwoInstancesForwardToTheWriter(t *testing.T) {
-	store, err := session.NewFileStore(t.TempDir())
+	st, err := store.NewFileStore(t.TempDir())
 	if err != nil {
 		t.Fatal(err)
 	}
 	started, release := make(chan struct{}), make(chan struct{})
-	a := newInstance(t, store, "pod-a", gatedModel(started, release))
-	b := newInstance(t, store, "pod-b", testkit.NewFuncModel(func(context.Context, gotato.ModelRequest) (testkit.Script, error) {
+	a := newInstance(t, st, "pod-a", gatedModel(started, release))
+	b := newInstance(t, st, "pod-b", testkit.NewFuncModel(func(context.Context, gotato.ModelRequest) (testkit.Script, error) {
 		t.Error("instance B must not call its model")
 		return testkit.Text("wrong"), nil
 	}))
 
 	ctx := context.Background()
 	id := sessionIDFor(rootMsg)
-	if _, err := a.runner.CreateSession(ctx, service.CreateSessionRequest{Agent: "fake", ID: id, Metadata: map[string]string{metaChatID: chat, metaThread: rootMsg}}); err != nil {
+	if _, err := a.runner.CreateSession(ctx, host.CreateSessionRequest{Agent: "fake", ID: id, Metadata: map[string]string{metaChatID: chat, metaThread: rootMsg}}); err != nil {
 		t.Fatal(err)
 	}
 	// A's Run starts without A's bot seeing a Lark message, so A has no
@@ -44,7 +44,7 @@ func TestTwoInstancesForwardToTheWriter(t *testing.T) {
 	runDone := make(chan struct{})
 	go func() {
 		defer close(runDone)
-		_, _ = a.runner.Run(ctx, service.RunRequest{SessionID: id, Prompt: "first"})
+		_, _ = a.runner.Run(ctx, host.RunRequest{SessionID: id, Prompt: "first"})
 	}()
 	<-started
 
@@ -112,23 +112,23 @@ func TestForwardLoopIsNotCreated(t *testing.T) {
 }
 
 func TestFailedForwardTellsTheUserOnce(t *testing.T) {
-	store, err := session.NewFileStore(t.TempDir())
+	st, err := store.NewFileStore(t.TempDir())
 	if err != nil {
 		t.Fatal(err)
 	}
 	started, release := make(chan struct{}), make(chan struct{})
 	defer close(release)
-	a := newInstance(t, store, "pod-a", gatedModel(started, release))
-	b := newInstance(t, store, "pod-b", testkit.NewFuncModel(func(context.Context, gotato.ModelRequest) (testkit.Script, error) {
+	a := newInstance(t, st, "pod-a", gatedModel(started, release))
+	b := newInstance(t, st, "pod-b", testkit.NewFuncModel(func(context.Context, gotato.ModelRequest) (testkit.Script, error) {
 		return testkit.Text("wrong"), nil
 	}))
 	b.bot.retry = retryPolicy{} // no retry: the failed forward is told at once
 	ctx := context.Background()
 	id := sessionIDFor(rootMsg)
-	if _, err := a.runner.CreateSession(ctx, service.CreateSessionRequest{Agent: "fake", ID: id, Metadata: map[string]string{metaChatID: chat, metaThread: rootMsg}}); err != nil {
+	if _, err := a.runner.CreateSession(ctx, host.CreateSessionRequest{Agent: "fake", ID: id, Metadata: map[string]string{metaChatID: chat, metaThread: rootMsg}}); err != nil {
 		t.Fatal(err)
 	}
-	go func() { _, _ = a.runner.Run(ctx, service.RunRequest{SessionID: id, Prompt: "first"}) }()
+	go func() { _, _ = a.runner.Run(ctx, host.RunRequest{SessionID: id, Prompt: "first"}) }()
 	<-started
 	a.srv.Close() // the writer is alive in the store, but its endpoint is gone
 
@@ -149,7 +149,7 @@ func TestFailedForwardTellsTheUserOnce(t *testing.T) {
 // larkInstance is one bot in `-lark-events http` mode: it receives events on
 // /lark/event and posts cards through the Lark client pointed at the fake.
 type larkInstance struct {
-	runner    *service.Runner
+	runner    *host.Runner
 	bot       *bot
 	srv       *httptest.Server
 	runsEnded atomic.Int32
@@ -157,13 +157,13 @@ type larkInstance struct {
 	ackDelay  atomic.Int64 // ns to wait before answering /lark/event (events are processed first)
 }
 
-func newLarkInstance(t *testing.T, store storeParts, name, fakeURL string, model gotato.Model) *larkInstance {
+func newLarkInstance(t *testing.T, st storeParts, name, fakeURL string, model gotato.Model) *larkInstance {
 	t.Helper()
 	li := &larkInstance{}
 	srv := httptest.NewUnstartedServer(nil)
 	t.Cleanup(srv.Close)
-	runner, err := service.New(service.Config{
-		Store: session.Store{Records: store, Liveness: store}, Instance: name, Address: "http://" + srv.Listener.Addr().String(),
+	runner, err := host.New(host.Config{
+		Store: store.Store{Records: st, Liveness: st}, Instance: name, Address: "http://" + srv.Listener.Addr().String(),
 		Profiles: registryOf(profile.AgentProfile{Name: "fake", Model: model, ModelName: "fake", Limits: botLimits()}), DefaultAgent: "fake",
 	})
 	if err != nil {
@@ -171,7 +171,7 @@ func newLarkInstance(t *testing.T, store storeParts, name, fakeURL string, model
 	}
 	t.Cleanup(func() { closeRunner(runner) })
 	api := lark.NewClient("fake", "fake", lark.WithOpenBaseUrl(fakeURL))
-	b := newBot(runner, store, larkSender{api}, "fake", "fake", name, logger(t))
+	b := newBot(runner, st, larkSender{api}, "fake", "fake", name, logger(t))
 	li.runner, li.bot, li.srv = runner, b, srv
 
 	events := larkEventHandler(b)
@@ -192,7 +192,7 @@ func newLarkInstance(t *testing.T, store storeParts, name, fakeURL string, model
 	ctx, cancel := context.WithCancel(context.Background())
 	t.Cleanup(cancel)
 	go b.replyLoop(ctx)
-	sub, err := runner.SubscribeInstance(ctx, service.ForAgents("fake"))
+	sub, err := runner.SubscribeInstance(ctx, host.ForAgents("fake"))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -221,7 +221,7 @@ func slowModel(d time.Duration) *testkit.FuncModel {
 	})
 }
 
-func userTexts(t *testing.T, r *service.Runner, id string) []string {
+func userTexts(t *testing.T, r *host.Runner, id string) []string {
 	t.Helper()
 	rec, err := r.Record(context.Background(), id)
 	if err != nil {
@@ -239,9 +239,9 @@ func userTexts(t *testing.T, r *service.Runner, id string) []string {
 // The fake's event, decoded by the SDK's webhook adapter, reaches onMessage;
 // the card comes back through the Lark client pointed at the fake.
 func TestFakeEventReachesTheBotHandler(t *testing.T) {
-	store, _ := session.NewFileStore(t.TempDir())
+	st, _ := store.NewFileStore(t.TempDir())
 	fl, _, flStart := newFake(t)
-	a := newLarkInstance(t, store, "pod-a", fl.url, slowModel(0))
+	a := newLarkInstance(t, st, "pod-a", fl.url, slowModel(0))
 	flStart(fakelark.Config{Bots: []string{a.srv.URL}})
 	sent := fl.srv.Deliver(context.Background(), "oc_x", "hello", "", "")
 	if d := sent.Deliveries[0]; d.Status != 200 {
@@ -277,10 +277,10 @@ func newFake(t *testing.T) (*fakeHandle, *httptest.Server, func(fakelark.Config)
 }
 
 func burst(t *testing.T, replies int, seed int64) (fl *fakelark.Server, a, b *larkInstance, sent []fakelark.Sent, turns []string) {
-	store, _ := session.NewFileStore(t.TempDir())
+	st, _ := store.NewFileStore(t.TempDir())
 	h, _, start := newFake(t)
-	a = newLarkInstance(t, store, "pod-a", h.url, slowModel(300*time.Millisecond))
-	b = newLarkInstance(t, store, "pod-b", h.url, slowModel(300*time.Millisecond))
+	a = newLarkInstance(t, st, "pod-a", h.url, slowModel(300*time.Millisecond))
+	b = newLarkInstance(t, st, "pod-b", h.url, slowModel(300*time.Millisecond))
 	start(fakelark.Config{Bots: []string{a.srv.URL, b.srv.URL}, Seed: seed})
 	turns = []string{"first"}
 	for i := 1; i <= replies; i++ {
@@ -333,7 +333,7 @@ func TestConversationBurstOverTwoInstances(t *testing.T) {
 // writer. The writer's Run is held in flight by a model the test releases, so
 // the reply meets not_writer whatever the timing.
 func TestReplyOnTheInstanceWithoutTheRunIsForwarded(t *testing.T) {
-	store, _ := session.NewFileStore(t.TempDir())
+	st, _ := store.NewFileStore(t.TempDir())
 	h, _, start := newFake(t)
 	entered, release := make(chan struct{}), make(chan struct{})
 	var once sync.Once
@@ -346,8 +346,8 @@ func TestReplyOnTheInstanceWithoutTheRunIsForwarded(t *testing.T) {
 		}
 		return testkit.Text("ok"), nil
 	})
-	a := newLarkInstance(t, store, "pod-a", h.url, gated)
-	b := newLarkInstance(t, store, "pod-b", h.url, slowModel(0))
+	a := newLarkInstance(t, st, "pod-a", h.url, gated)
+	b := newLarkInstance(t, st, "pod-b", h.url, slowModel(0))
 	start(fakelark.Config{Bots: []string{a.srv.URL, b.srv.URL}, Seed: seedPicking(2, 0, 1)})
 
 	first := h.srv.Deliver(context.Background(), "oc_x", "first", "", "")
@@ -404,10 +404,10 @@ func seedPicking(n int, want ...int) int64 {
 // again. This test documents today's behavior; it is not a goal.
 func TestRedeliveryToAnotherInstanceCurrentlyDuplicates(t *testing.T) {
 	setup := func(t *testing.T, model func() gotato.Model, picks ...int) (fl *fakelark.Server, a, b *larkInstance) {
-		store, _ := session.NewFileStore(t.TempDir())
+		st, _ := store.NewFileStore(t.TempDir())
 		h, _, start := newFake(t)
-		a = newLarkInstance(t, store, "pod-a", h.url, model())
-		b = newLarkInstance(t, store, "pod-b", h.url, model())
+		a = newLarkInstance(t, st, "pod-a", h.url, model())
+		b = newLarkInstance(t, st, "pod-b", h.url, model())
 		a.ackDelay.Store(int64(400 * time.Millisecond)) // A processes the event but acks late
 		start(fakelark.Config{Bots: []string{a.srv.URL, b.srv.URL}, Redeliver: true, MaxRedeliver: 1,
 			AckTimeout: 150 * time.Millisecond, Seed: seedPicking(2, picks...)})
@@ -473,9 +473,9 @@ func TestRedeliveryToAnotherInstanceCurrentlyDuplicates(t *testing.T) {
 
 // -ack-delay holds the event's answer, and the message is handled at once all the same.
 func TestAckDelayHoldsTheAnswerNotTheWork(t *testing.T) {
-	store, _ := session.NewFileStore(t.TempDir())
+	st, _ := store.NewFileStore(t.TempDir())
 	fl, _, flStart := newFake(t)
-	a := newLarkInstance(t, store, "pod-a", fl.url, slowModel(0))
+	a := newLarkInstance(t, st, "pod-a", fl.url, slowModel(0))
 	a.bot.ackDelay = 600 * time.Millisecond
 	flStart(fakelark.Config{Bots: []string{a.srv.URL}, Redeliver: false})
 	sent := fl.srv.Deliver(context.Background(), "oc_x", "hello", "", "")

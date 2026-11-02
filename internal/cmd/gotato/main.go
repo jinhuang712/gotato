@@ -25,8 +25,10 @@ import (
 	"strings"
 	"time"
 
-	"github.com/jinhuang712/gotato/service"
-	"github.com/jinhuang712/gotato/session"
+	"github.com/jinhuang712/gotato/record"
+
+	"github.com/jinhuang712/gotato/host"
+	"github.com/jinhuang712/gotato/store"
 )
 
 // Version is the version reported by doctor.
@@ -53,7 +55,7 @@ type cli struct {
 
 	// runners are the Runners this invocation built. They are closed when it
 	// ends, so the next process takes their Sessions over at once.
-	runners []*service.Runner
+	runners []*host.Runner
 }
 
 // closeRunners removes the Liveness rows of the Runners this invocation built.
@@ -220,7 +222,7 @@ func (c *cli) prescanMachineFlags(args []string) {
 }
 
 // store opens the configured Session store.
-func (c *cli) store() (session.Store, string, error) {
+func (c *cli) store() (store.Store, string, error) {
 	dir := c.storeDir
 	if dir == "" {
 		if home := c.getenv("GOTATO_HOME"); home != "" {
@@ -228,26 +230,26 @@ func (c *cli) store() (session.Store, string, error) {
 		} else {
 			userHome, err := os.UserHomeDir()
 			if err != nil {
-				return session.Store{}, "", err
+				return store.Store{}, "", err
 			}
 			dir = filepath.Join(userHome, ".gotato", "sessions")
 		}
 	}
-	store, err := session.NewFileStore(dir)
+	st, err := store.NewFileStore(dir)
 	if err != nil {
-		return session.Store{}, dir, err
+		return store.Store{}, dir, err
 	}
-	return session.Store{Records: store, Liveness: store}, dir, nil
+	return store.Store{Records: st, Liveness: st}, dir, nil
 }
 
 // listAll reads every page of the store's listing.
-func listAll(ctx context.Context, store session.Store) ([]session.RecordInfo, error) {
-	lister, ok := store.Records.(session.Lister)
+func listAll(ctx context.Context, st store.Store) ([]record.Info, error) {
+	lister, ok := st.Records.(store.Lister)
 	if !ok {
 		return nil, errors.New("the store does not list Sessions")
 	}
-	var all []session.RecordInfo
-	var q session.ListQuery
+	var all []record.Info
+	var q store.ListQuery
 	for {
 		page, err := lister.List(ctx, q)
 		if err != nil {

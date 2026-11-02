@@ -5,7 +5,7 @@ import "github.com/jinhuang712/gotato/internal/hostlink"
 // The calls that only the host of a Session needs are not methods of the
 // core's API (decision 048): a library user who sees them could call them by
 // mistake, and each is contract once exported. The core sets them as function
-// values in internal/hostlink, and the service and testkit assert their types
+// values in internal/hostlink, and package host and testkit assert their types
 // once. They are in four groups: the options that tie a Session to its host
 // (withFeed, withRunStart, withQueueHandoff, withRequestID), the messages a Run
 // leaves (takeQueued, requeue, dropQueued), the Feeds (newFeed,

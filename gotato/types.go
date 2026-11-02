@@ -194,9 +194,9 @@ type ToolResult struct {
 	// Loaded lists the qualified IDs of the catalog Tools this result loaded
 	// (search_tools, or a call to a Tool that was not loaded). Core owns it:
 	// it is cleared on the result of any other Tool, and a PostToolUse or a
-	// PreToolDecision cannot change it. A gateway that
+	// PreToolDecision cannot change it. A Model that
 	// defers tools natively shows each to the Model as a reference at this
-	// place of the history, and a gateway that does not ignores the field.
+	// place of the history, and a Model that does not ignores the field.
 	LoadedTools []string `json:"loaded_tools,omitempty"`
 }
 

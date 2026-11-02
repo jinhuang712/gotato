@@ -11,7 +11,7 @@ import (
 )
 
 // The text of a Model's error stays on the Cause: the Message of the Run's
-// error is fixed, because the service layer returns it to HTTP clients.
+// error is fixed, because an adapter returns it to HTTP clients.
 func TestModelErrorTextStaysOffTheMessage(t *testing.T) {
 	s, err := gotato.NewSession(context.Background(), gotato.WithModel(erroringModel{errors.New("dial tcp 10.0.0.7:443: secret-host refused")}))
 	if err != nil {

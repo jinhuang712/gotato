@@ -6,8 +6,8 @@ import (
 	"strings"
 
 	"github.com/jinhuang712/gotato/gotato"
-	"github.com/jinhuang712/gotato/service"
-	"github.com/jinhuang712/gotato/session"
+	"github.com/jinhuang712/gotato/host"
+	"github.com/jinhuang712/gotato/record"
 )
 
 // Kind is what failed.
@@ -28,7 +28,7 @@ const (
 	// CauseModel means the model got a tool call wrong, or its answers missed the
 	// task's goal.
 	CauseModel Cause = "model"
-	// CauseProvider means a model call failed after the gateway's retries, or its
+	// CauseProvider means a model call failed after the model bridge's retries, or its
 	// reply could not be read.
 	CauseProvider Cause = "provider"
 	// CauseTool means the tool ran and failed.
@@ -63,11 +63,11 @@ type failure struct {
 }
 
 // runFailure attributes a Run that did not complete.
-func runFailure(result service.RunResponse, err error) (failure, bool) {
+func runFailure(result host.RunResponse, err error) (failure, bool) {
 	switch {
-	case errors.Is(err, service.ErrNotPersisted):
+	case errors.Is(err, host.ErrNotPersisted):
 		return failure{kind: KindRun, cause: CauseStore, code: "not_persisted", message: err.Error()}, true
-	case errors.Is(err, session.ErrNotFound):
+	case errors.Is(err, record.ErrNotFound):
 		return failure{kind: KindRun, cause: CauseStore, code: "not_found", message: err.Error()}, true
 	case err == nil && result.Result.Status == gotato.RunStatusCompleted:
 		return failure{}, false

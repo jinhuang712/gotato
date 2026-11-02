@@ -7,7 +7,7 @@ A Session grows with every Turn, and the model can read only so much. Compaction
 - Code builds the Segment; the model writes only the Recap, which may be absent.
 - Past their budget, the oldest Segments merge. A failed compaction never half-writes.
 - What a Segment leaves out stays readable: each tool call line and each kept message carries a ref, and `read_result` returns the original from the Record.
-- A fixed frame, `modelctx.Compactor`, runs the steps and alone writes. A user replaces a step (when, where to cut, how a Segment is built, the Recap, how many merge) without copying the rest, and the frame keeps every guarantee whatever the step returns.
+- A fixed frame, `record.Compactor`, runs the steps and alone writes. A user replaces a step (when, where to cut, how a Segment is built, the Recap, how many merge) without copying the rest, and the frame keeps every guarantee whatever the step returns.
 
 ## The Record over time
 
@@ -75,14 +75,14 @@ Read it left to right. The Trigger answers "is a compaction due, and why". The C
 
 | Part | Does | Default |
 |---|---|---|
-| `SegmentStore` | the Context's Segments, tail and loaded Tools, and the two batches `CloseSegment` and `MergeSegments` | `*session.Record`; any Transcript can implement it |
+| `SegmentStore` | the Context's Segments, tail and loaded Tools, and the two batches `CloseSegment` and `MergeSegments` | `*record.Record`; any Transcript can implement it |
 | `Trigger` | `Due(ctx, TurnState) (why, bool)`: when a compaction is due | `CeilingTrigger`: overflow, past the ceiling, or Segments past budget on a Run's first Turn (`past_budget`, which merges only) |
 | `Cutter` | `Cut(stretch, CutInfo) int`: where the tail starts | `TailBudget{KeepMessages, TailTokens}` |
 | `Builder` | `Build(closed, SegmentInfo) (Segment, error)`: the words of the Segment | `CodeSegments{SegmentSettings}` |
 | `RecapWriter`, `MergeRecapWriter` | the Recap of a Segment, and of a merge | none: no Recap, and a merge gets the digest |
 | `Picker` | `Pick(segments, budgetTokens) int`: how many oldest Segments merge | `OldestToHalf` |
 
-`modelctx.Compactor{CompactPolicy, Trigger, Cut, Builder, Recap, Merge}` holds them. A nil part is its default, so the zero `Compactor` behaves as compaction did before the parts were named. `CompactPolicy` keeps only the numbers: `CeilingTokens`, `WindowTokens`, `DropReasoning`, `SegmentBudgetTokens` and `Location` (the time zone of Segment times, digests, Recap asks and `read_segment`).
+`record.Compactor{CompactPolicy, Trigger, Cut, Builder, Recap, Merge}` holds them. A nil part is its default, so the zero `Compactor` behaves as compaction did before the parts were named. `CompactPolicy` keeps only the numbers: `CeilingTokens`, `WindowTokens`, `DropReasoning`, `SegmentBudgetTokens` and `Location` (the time zone of Segment times, digests, Recap asks and `read_segment`).
 
 What the frame keeps, whatever a part returns:
 
@@ -95,7 +95,7 @@ What the frame keeps, whatever a part returns:
 
 A ref is checked in the two shapes the default Builder writes: `[result:<call_id> ...]` ending a tool call line inside `<tool_calls>`, and a line `ref msg:<message_id>` inside `<segment>`. A Trigger that panics, or says "due" with no reason, drops that Turn's compaction and publishes an `extension_failed` Event (stage `compaction_trigger`).
 
-The line between the two is who can be trusted with what. The frame does what a mistake would turn into lost history or a cold cache: the write, the numbers, the escaping, the cut at a Turn boundary. A part does what a team has a view on: when, where, what to say. To run one, `modelctx.Compact(ctx, store, compactor, cfg)` compacts once and `modelctx.AutoCompact(store, compactor)` is the `TurnPreparer`; in a service, `profile.AgentProfile.Compact` is the `Compactor`. A `CompactConfig` changes the numbers, the kept tail (`KeepMessages`, as `TailBudget`) and the Recap writer for one call. Examples of each part: [Extension points](../guides/extension-points.md).
+The line between the two is who can be trusted with what. The frame does what a mistake would turn into lost history or a cold cache: the write, the numbers, the escaping, the cut at a Turn boundary. A part does what a team has a view on: when, where, what to say. To run one, `record.Compact(ctx, st, compactor, cfg)` compacts once and `record.AutoCompact(st, compactor)` is the `TurnPreparer`; in a service, `profile.AgentProfile.Compact` is the `Compactor`. A `CompactConfig` changes the numbers, the kept tail (`KeepMessages`, as `TailBudget`) and the Recap writer for one call. Examples of each part: [Extension points](../guides/extension-points.md).
 
 ## A merge
 

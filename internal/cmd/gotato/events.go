@@ -2,7 +2,7 @@ package main
 
 import (
 	"github.com/jinhuang712/gotato/gotato"
-	"github.com/jinhuang712/gotato/session"
+	"github.com/jinhuang712/gotato/store"
 )
 
 func (c *cli) cmdEvents(args []string) int {
@@ -26,11 +26,11 @@ func (c *cli) cmdEvents(args []string) int {
 	}
 	ctx, cancel := c.ctx()
 	defer cancel()
-	store, _, err := c.store()
+	st, _, err := c.store()
 	if err != nil {
 		return c.failErr(err)
 	}
-	events, err := session.StoredEvents(ctx, store.Records, *sessionID, 0, 0)
+	events, err := store.StoredEvents(ctx, st.Records, *sessionID, 0, 0)
 	if err != nil {
 		return c.failErr(err)
 	}

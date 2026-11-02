@@ -13,16 +13,16 @@ import (
 	"testing"
 	"time"
 
-	"github.com/jinhuang712/gotato/gateway"
 	"github.com/jinhuang712/gotato/gotato"
+	"github.com/jinhuang712/gotato/host"
 	"github.com/jinhuang712/gotato/internal/fakegateway"
 	"github.com/jinhuang712/gotato/internal/reftasks"
 	itext "github.com/jinhuang712/gotato/internal/text"
-	"github.com/jinhuang712/gotato/modelctx"
+	"github.com/jinhuang712/gotato/model"
 	"github.com/jinhuang712/gotato/profile"
+	"github.com/jinhuang712/gotato/record"
 	"github.com/jinhuang712/gotato/ref"
-	"github.com/jinhuang712/gotato/service"
-	"github.com/jinhuang712/gotato/session"
+	"github.com/jinhuang712/gotato/store"
 )
 
 // compactingTurns is how many Turns the compacting plays take: enough for dozens
@@ -56,13 +56,13 @@ func (m windowedLogging) Config() gotato.ModelConfig {
 	return gotato.ModelConfig{Facts: gotato.ModelFacts{Window: gotato.WindowTokens(m.window)}}
 }
 
-func longRunner(t *testing.T, store session.Store, task reftasks.Task, model gotato.Model, instance string) *service.Runner {
+func longRunner(t *testing.T, st store.Store, task reftasks.Task, model gotato.Model, instance string) *host.Runner {
 	t.Helper()
 	agent := profile.AgentProfile{Name: task.Name, Model: model, Instruction: task.Instruction, Tools: task.Tools, ToolSets: task.ToolSets, Limits: task.Limits}
 	if task.Recap {
-		agent.Compact.Recap = modelctx.ModelRecap{}
+		agent.Compact.Recap = record.ModelRecap{}
 	}
-	runner, err := service.New(withAgents(service.Config{Store: store, Instance: instance}, []profile.AgentProfile{agent}...))
+	runner, err := host.New(withAgents(host.Config{Store: st, Instance: instance}, []profile.AgentProfile{agent}...))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -73,14 +73,14 @@ func longRunner(t *testing.T, store session.Store, task reftasks.Task, model got
 // playLongAcross plays a compacting task as Runs that move between instances
 // and reloads (a, a after a reload, b, a after a reload, and so on), and hands
 // each Run's end to check. It returns the Session's ID and the requests.
-func playLongAcross(t *testing.T, store session.Store, task reftasks.Task, afterRun func(runner *service.Runner, id string)) (string, [][]byte) {
+func playLongAcross(t *testing.T, st store.Store, task reftasks.Task, afterRun func(runner *host.Runner, id string)) (string, [][]byte) {
 	t.Helper()
 	ctx := context.Background()
 	log := &requestLog{}
 	model := windowedLogging{inner: task.Model, window: task.Window, log: log}
 	stages := []string{"a", "a", "b", "a"}
-	runner := longRunner(t, store, task, model, "a")
-	s, err := runner.CreateSession(ctx, service.CreateSessionRequest{Agent: task.Name})
+	runner := longRunner(t, st, task, model, "a")
+	s, err := runner.CreateSession(ctx, host.CreateSessionRequest{Agent: task.Name})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -89,9 +89,9 @@ func playLongAcross(t *testing.T, store session.Store, task reftasks.Task, after
 			if err := runner.Close(ctx); err != nil {
 				t.Fatal(err)
 			}
-			runner = longRunner(t, store, task, model, stages[i%len(stages)])
+			runner = longRunner(t, st, task, model, stages[i%len(stages)])
 		}
-		result, err := runner.Run(ctx, service.RunRequest{SessionID: s.ID, Prompt: prompt})
+		result, err := runner.Run(ctx, host.RunRequest{SessionID: s.ID, Prompt: prompt})
 		if err != nil || result.Result.Status != gotato.RunStatusCompleted {
 			t.Fatalf("Run %d on %s: %v (%s)", i+1, runner.Instance(), err, result.Result.Status)
 		}
@@ -104,9 +104,9 @@ func playLongAcross(t *testing.T, store session.Store, task reftasks.Task, after
 
 // segmentTexts collects, as JSON, the Messages of every Segment the log holds,
 // merged and merged away alike: the bytes a request may carry as a Segment's.
-func segmentTexts(t *testing.T, store session.Store, id string) map[string]bool {
+func segmentTexts(t *testing.T, st store.Store, id string) map[string]bool {
 	t.Helper()
-	events, err := session.StoredEvents(context.Background(), store.Records, id, 0, 0)
+	events, err := store.StoredEvents(context.Background(), st.Records, id, 0, 0)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -161,9 +161,9 @@ func TestRequestOnlyGrowsAtItsEndAcrossCompactions(t *testing.T) {
 	for _, recap := range []bool{false, true} {
 		t.Run(fmt.Sprintf("recap=%t", recap), func(t *testing.T) {
 			task := reftasks.LongSession(compactingTurns, 10, 4096, 32_000, recap)
-			store := memStore()
-			id, sent := playLongAcross(t, store, task, nil)
-			final, err := session.Open(context.Background(), store.Records, id)
+			st := memStore()
+			id, sent := playLongAcross(t, st, task, nil)
+			final, err := store.Open(context.Background(), st.Records, id)
 			if err != nil {
 				t.Fatal(err)
 			}
@@ -178,7 +178,7 @@ func TestRequestOnlyGrowsAtItsEndAcrossCompactions(t *testing.T) {
 			if closings < 10 || merges < 1 {
 				t.Fatalf("%d closings and %d merges: the play must compact and merge", closings, merges)
 			}
-			segments := segmentTexts(t, store, id)
+			segments := segmentTexts(t, st, id)
 			// The requests that ask for a Recap are not Turns: they are the Context
 			// with an ask after it, and their own options.
 			var requests []gotato.ModelRequest
@@ -270,22 +270,22 @@ func TestSameRecordSameRequestAcrossCompactions(t *testing.T) {
 	for _, recap := range []bool{false, true} {
 		t.Run(fmt.Sprintf("recap=%t", recap), func(t *testing.T) {
 			task := reftasks.LongSession(compactingTurns, 10, 4096, 32_000, recap)
-			store := memStore()
+			st := memStore()
 			model := windowedLogging{inner: task.Model, window: task.Window, log: &requestLog{}}
 			compared := 0
-			check := func(runner *service.Runner, id string) {
+			check := func(runner *host.Runner, id string) {
 				ctx := context.Background()
-				live, err := runner.Inspect(ctx, id, service.InspectConfig{})
+				live, err := runner.Inspect(ctx, id, host.InspectConfig{})
 				if err != nil {
 					t.Fatal(err)
 				}
 				want := jsonOf(t, live.Request)
-				views := map[string]*service.Runner{
-					"the other instance":      longRunner(t, store, task, model, "other"),
-					"a new Runner (a reload)": longRunner(t, store, task, model, runner.Instance()),
+				views := map[string]*host.Runner{
+					"the other instance":      longRunner(t, st, task, model, "other"),
+					"a new Runner (a reload)": longRunner(t, st, task, model, runner.Instance()),
 				}
 				for name, view := range views {
-					report, err := view.Inspect(ctx, id, service.InspectConfig{})
+					report, err := view.Inspect(ctx, id, host.InspectConfig{})
 					if err != nil {
 						t.Fatal(err)
 					}
@@ -295,8 +295,8 @@ func TestSameRecordSameRequestAcrossCompactions(t *testing.T) {
 				}
 				compared++
 			}
-			id, _ := playLongAcross(t, store, task, check)
-			final, err := session.Open(context.Background(), store.Records, id)
+			id, _ := playLongAcross(t, st, task, check)
+			final, err := store.Open(context.Background(), st.Records, id)
 			if err != nil {
 				t.Fatal(err)
 			}
@@ -311,13 +311,13 @@ func TestSameRecordSameRequestAcrossCompactions(t *testing.T) {
 	}
 }
 
-// This file checks G-G07 on the bytes the gateway sends where the Session
+// This file checks G-G07 on the bytes the model bridge sends where the Session
 // compacts and merges (GOALS.md → G-G07). It plays the long_session task as
 // TestRequestOnlyGrowsAtItsEndAcrossCompactions does, and encodes every request
-// with the gateway for each wire API, with the facts of a Claude model, an
+// with the model bridge for each wire API, with the facts of a Claude model, an
 // OpenAI model and a DeepSeek model.
 
-// wireEncoder encodes requests with a gateway Client, as it would send them.
+// wireEncoder encodes requests with a model.Client, as it would send them.
 type wireEncoder struct {
 	api  wireName
 	mu   sync.Mutex
@@ -339,17 +339,17 @@ const (
 // provider's rules used to be.
 type wireKind struct {
 	api   wireName
-	wire  gateway.WireAPI
+	wire  model.WireAPI
 	path  string
 	model gotato.ModelConfig
 }
 
 var wireKinds = []wireKind{
-	{apiAnthropic, gateway.AnthropicMessages{}, "/v1/messages", gotato.ModelConfig{Name: "claude-sonnet-5-5", Facts: gotato.ModelFacts{
+	{apiAnthropic, model.AnthropicMessages{}, "/v1/messages", gotato.ModelConfig{Name: "claude-sonnet-5-5", Facts: gotato.ModelFacts{
 		Window: gotato.WindowUnknown(), CacheRetention: time.Hour, RoundReasoning: true, ThinkingBinding: true}}},
-	{apiResponses, gateway.Responses{}, "/v1/responses", gotato.ModelConfig{Name: "gpt-6.1-sol", Facts: gotato.ModelFacts{
+	{apiResponses, model.Responses{}, "/v1/responses", gotato.ModelConfig{Name: "gpt-6.1-sol", Facts: gotato.ModelFacts{
 		Window: gotato.WindowUnknown(), CacheRetention: 30 * time.Minute, RoundReasoning: true}}},
-	{apiChat, gateway.ChatCompletions{CacheKeyField: "prompt_cache_key"}, "/v1/chat/completions", gotato.ModelConfig{Name: "deepseek-reasoner", Facts: gotato.ModelFacts{
+	{apiChat, model.ChatCompletions{CacheKeyField: "prompt_cache_key"}, "/v1/chat/completions", gotato.ModelConfig{Name: "deepseek-reasoner", Facts: gotato.ModelFacts{
 		Window: gotato.WindowUnknown()}}},
 }
 
@@ -365,7 +365,7 @@ func newWireEncoder(t *testing.T, kind wireKind) *wireEncoder {
 		w.Header().Set("Content-Type", "text/event-stream")
 	}))
 	t.Cleanup(server.Close)
-	client, err := gateway.New(kind.wire, gateway.Connection{Endpoint: server.URL + kind.path, APIKey: "k", CacheKeyHeader: "X-Cache-Key"}, kind.model)
+	client, err := model.New(kind.wire, model.Connection{Endpoint: server.URL + kind.path, APIKey: "k", CacheKeyHeader: "X-Cache-Key"}, kind.model)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -530,9 +530,9 @@ func withoutReadSegment(tools []string) []string {
 }
 
 // TestWireRequestOnlyGrowsAtItsEndAcrossCompactions checks GOALS.md G-G07 on
-// the gateway's bytes where the Session compacts and merges. The long_session
+// the model bridge's bytes where the Session compacts and merges. The long_session
 // task is played as in TestRequestOnlyGrowsAtItsEndAcrossCompactions, with and
-// without the model's Recap, and the gateway encodes every request for each wire
+// without the model's Recap, and the model bridge encodes every request for each wire
 // API (Claude, OpenAI and DeepSeek rules). In each pair of consecutive requests:
 //
 //   - the cache key and every option keep their bytes, and the instruction

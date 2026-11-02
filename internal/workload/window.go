@@ -8,7 +8,7 @@ import (
 	"github.com/jinhuang712/gotato/gotato"
 	"github.com/jinhuang712/gotato/internal/reftasks"
 	itext "github.com/jinhuang712/gotato/internal/text"
-	"github.com/jinhuang712/gotato/session"
+	"github.com/jinhuang712/gotato/record"
 )
 
 // WindowReport is what a task with a window (reftasks.Task.Window) measured:
@@ -139,7 +139,7 @@ func (r refusal) ContextLimit() int   { return r.limit }
 
 // add adds what one play's Model series and final Record show to
 // the task's report.
-func (r *WindowReport) add(s windowSeries, record *session.Record, first bool) {
+func (r *WindowReport) add(s windowSeries, rec *record.Record, first bool) {
 	r.Requests += len(s.tokens)
 	r.OverWindow += s.over
 	r.RecapAsks += s.recapAsks
@@ -152,11 +152,11 @@ func (r *WindowReport) add(s windowSeries, record *session.Record, first bool) {
 			}
 		}
 	}
-	if record == nil {
+	if rec == nil {
 		return
 	}
 	var cost RecapCost
-	for _, c := range record.Compactions() {
+	for _, c := range rec.Compactions() {
 		r.Compactions++
 		if len(c.Merged) > 0 {
 			r.Merges++

@@ -95,7 +95,7 @@ The copy holds no Claim, so another Instance can take the Session over at any ti
 
 ## A Runner is built from parts
 
-A Runner does eight jobs, and each is a part with its own lock and file, called in order ([decision 048](../plan/decisions/048-the-runner-and-the-session-are-built-from-parts-and-host-plumbing-is-internal.md)). The parts that guard the Instance are under `service/internal/`, so no part reaches into another.
+A Runner does eight jobs, and each is a part with its own lock and file, called in order ([decision 048](../plan/decisions/048-the-runner-and-the-session-are-built-from-parts-and-host-plumbing-is-internal.md)). The parts that guard the Instance are under `host/internal/`, so no part reaches into another.
 
 ```text
  Runner
@@ -120,7 +120,7 @@ Whether a Run may start is decided in a fixed order, and only the last step is a
      ─▶ registered, counted; release is called once when the Run ends
 ```
 
-The drain and the memory bound guard the Instance, not a policy, so a policy cannot hold more Sessions than memory allows; they run before `Admit`. The default `Admitter` is `service.Limits{MaxActiveRuns}`, and a service writes its own to give one tenant ten Runs and another fifty ([extension points](../guides/extension-points.md#admission)). The `Admission` it is given names the Session, the AgentProfile (`Agent`) and, for a Run of a TaskSpec, the TaskSpec (`Task`), so a policy may treat a nightly job apart from a chat.
+The drain and the memory bound guard the Instance, not a policy, so a policy cannot hold more Sessions than memory allows; they run before `Admit`. The default `Admitter` is `host.Limits{MaxActiveRuns}`, and a service writes its own to give one tenant ten Runs and another fifty ([extension points](../guides/extension-points.md#admission)). The `Admission` it is given names the Session, the AgentProfile (`Agent`) and, for a Run of a TaskSpec, the TaskSpec (`Task`), so a policy may treat a nightly job apart from a chat.
 
 Every Instance of a service registers the same definitions, and each looks them up by name when it builds a Session, so a profile replaced in a shared store reaches the Sessions that are built after it, on any Instance, and never a Run in flight. A Session opened for a TaskSpec carries the spec in its Record, so an Instance that loads it later builds it as the first one did ([the Record](record.md)).
 

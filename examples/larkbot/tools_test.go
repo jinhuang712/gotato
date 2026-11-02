@@ -12,10 +12,10 @@ import (
 
 	"github.com/jinhuang712/gotato/adapter/mcp"
 	"github.com/jinhuang712/gotato/gotato"
-	"github.com/jinhuang712/gotato/modelctx"
+	"github.com/jinhuang712/gotato/host"
 	"github.com/jinhuang712/gotato/profile"
-	"github.com/jinhuang712/gotato/service"
-	"github.com/jinhuang712/gotato/session"
+	"github.com/jinhuang712/gotato/record"
+	"github.com/jinhuang712/gotato/store"
 
 	"github.com/jinhuang712/gotato/examples/larkbot/internal/fakemcp"
 )
@@ -36,7 +36,7 @@ func TestParseTools(t *testing.T) {
 }
 
 // runner builds a Runner with the scripted model over the tools, on store, as one bot instance would.
-func scriptedRunner(t *testing.T, store storeParts, instance, kinds, mcpURL string, with ...func(*profile.AgentProfile)) *service.Runner {
+func scriptedRunner(t *testing.T, st storeParts, instance, kinds, mcpURL string, with ...func(*profile.AgentProfile)) *host.Runner {
 	t.Helper()
 	agent, err := buildAgent("echo")
 	if err != nil {
@@ -57,7 +57,7 @@ func scriptedRunner(t *testing.T, store storeParts, instance, kinds, mcpURL stri
 	if closeTools != nil {
 		t.Cleanup(func() { _ = closeTools() })
 	}
-	runner, err := service.New(service.Config{Store: session.Store{Records: store, Liveness: store}, Profiles: registryOf(agent), DefaultAgent: agent.Name, Instance: instance})
+	runner, err := host.New(host.Config{Store: store.Store{Records: st, Liveness: st}, Profiles: registryOf(agent), DefaultAgent: agent.Name, Instance: instance})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -66,9 +66,9 @@ func scriptedRunner(t *testing.T, store storeParts, instance, kinds, mcpURL stri
 }
 
 // lastReply runs prompt in the Session and returns the text of the last assistant message.
-func lastReply(t *testing.T, r *service.Runner, id, prompt string) string {
+func lastReply(t *testing.T, r *host.Runner, id, prompt string) string {
 	t.Helper()
-	if _, err := r.Run(context.Background(), service.RunRequest{SessionID: id, Prompt: prompt}); err != nil {
+	if _, err := r.Run(context.Background(), host.RunRequest{SessionID: id, Prompt: prompt}); err != nil {
 		t.Fatal(err)
 	}
 	rec, err := r.Record(context.Background(), id)
@@ -82,12 +82,12 @@ func lastReply(t *testing.T, r *service.Runner, id, prompt string) string {
 // The export script calls the 1 MB export tool, whose result the core spills, and says it is done; a message
 // with no directive goes to the wrapped model.
 func TestScriptExport(t *testing.T) {
-	store, err := session.NewFileStore(t.TempDir())
+	st, err := store.NewFileStore(t.TempDir())
 	if err != nil {
 		t.Fatal(err)
 	}
-	a := scriptedRunner(t, store, "pod-a", "export", "")
-	if _, err := a.CreateSession(context.Background(), service.CreateSessionRequest{Agent: "echo", ID: "s1"}); err != nil {
+	a := scriptedRunner(t, st, "pod-a", "export", "")
+	if _, err := a.CreateSession(context.Background(), host.CreateSessionRequest{Agent: "echo", ID: "s1"}); err != nil {
 		t.Fatal(err)
 	}
 	if got := lastReply(t, a, "s1", "T[a] [script:export]"); got != ansExported {
@@ -103,17 +103,17 @@ func TestScriptMCPCallAndSearch(t *testing.T) {
 	t.Cleanup(srv.Close) // runs after the ToolSets' Close, which ends their connections
 	ctx := context.Background()
 
-	active := scriptedRunner(t, session.NewMemoryStore(), "pod-a", "mcp", srv.URL+"/mcp")
-	if _, err := active.CreateSession(ctx, service.CreateSessionRequest{Agent: "echo", ID: "s1"}); err != nil {
+	active := scriptedRunner(t, store.NewMemoryStore(), "pod-a", "mcp", srv.URL+"/mcp")
+	if _, err := active.CreateSession(ctx, host.CreateSessionRequest{Agent: "echo", ID: "s1"}); err != nil {
 		t.Fatal(err)
 	}
 	if got := lastReply(t, active, "s1", "T[a] [script:mcp=10ms]"); got != "mcp-ok: order ord-1: status paid, total 42.50" {
 		t.Fatalf("mcp reply = %q", got)
 	}
 
-	store := session.NewMemoryStore()
-	first := scriptedRunner(t, store, "pod-a", "mcp-search", srv.URL+"/mcp")
-	if _, err := first.CreateSession(ctx, service.CreateSessionRequest{Agent: "echo", ID: "s2"}); err != nil {
+	st := store.NewMemoryStore()
+	first := scriptedRunner(t, st, "pod-a", "mcp-search", srv.URL+"/mcp")
+	if _, err := first.CreateSession(ctx, host.CreateSessionRequest{Agent: "echo", ID: "s2"}); err != nil {
 		t.Fatal(err)
 	}
 	if got := lastReply(t, first, "s2", "T[a] [script:loaded]"); got != "loaded: false" {
@@ -122,7 +122,7 @@ func TestScriptMCPCallAndSearch(t *testing.T) {
 	if got := lastReply(t, first, "s2", "T[b] [script:search]"); !strings.HasPrefix(got, ansMCPOK+" invoice inv-1") {
 		t.Fatalf("search reply = %q", got)
 	}
-	second := scriptedRunner(t, store, "pod-b", "mcp-search", srv.URL+"/mcp")
+	second := scriptedRunner(t, st, "pod-b", "mcp-search", srv.URL+"/mcp")
 	if got := lastReply(t, second, "s2", "T[c] [script:loaded]"); got != "loaded: true" {
 		t.Fatalf("on the other instance: %q", got)
 	}
@@ -181,11 +181,11 @@ func TestScriptCompactionUnloadsAndSegmentIsReadOnAnotherInstance(t *testing.T) 
 	srv := httptest.NewServer(fakemcp.New(slog.New(slog.DiscardHandler), true))
 	t.Cleanup(srv.Close)
 	ctx := context.Background()
-	store := session.NewMemoryStore()
-	recap := func(a *profile.AgentProfile) { a.Compact.Recap = modelctx.TruncateRecap{} }
-	a := scriptedRunner(t, store, "pod-a", "mcp-search", srv.URL+"/mcp", recap)
-	b := scriptedRunner(t, store, "pod-b", "mcp-search", srv.URL+"/mcp", recap)
-	if _, err := a.CreateSession(ctx, service.CreateSessionRequest{Agent: "echo", ID: "s1"}); err != nil {
+	st := store.NewMemoryStore()
+	recap := func(a *profile.AgentProfile) { a.Compact.Recap = record.TruncateRecap{} }
+	a := scriptedRunner(t, st, "pod-a", "mcp-search", srv.URL+"/mcp", recap)
+	b := scriptedRunner(t, st, "pod-b", "mcp-search", srv.URL+"/mcp", recap)
+	if _, err := a.CreateSession(ctx, host.CreateSessionRequest{Agent: "echo", ID: "s1"}); err != nil {
 		t.Fatal(err)
 	}
 	if got := lastReply(t, a, "s1", "T[a] [script:load]"); got != ansLoadDone {
@@ -194,7 +194,7 @@ func TestScriptCompactionUnloadsAndSegmentIsReadOnAnotherInstance(t *testing.T) 
 	if got := lastReply(t, b, "s1", "T[b] [script:loaded]"); got != "loaded: true" {
 		t.Fatalf("before the compaction: %q", got)
 	}
-	res, err := b.Compact(ctx, "s1", modelctx.CompactConfig{})
+	res, err := b.Compact(ctx, "s1", record.CompactConfig{})
 	if err != nil || !res.Replaced {
 		t.Fatalf("compact = %+v, %v", res, err)
 	}

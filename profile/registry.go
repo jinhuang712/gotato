@@ -9,7 +9,9 @@ import (
 	"strings"
 	"sync"
 
-	"github.com/jinhuang712/gotato/session"
+	"github.com/jinhuang712/gotato/record"
+
+	"github.com/jinhuang712/gotato/store"
 )
 
 // Registry holds the definitions a host runs, by name, and answers one lookup
@@ -21,7 +23,7 @@ import (
 //   - inline: the definition is a Go value (RegisterAgentProfileInline,
 //     RegisterTaskSpecInline);
 //   - from a store: the name is registered and its document is read from a
-//     session.Definitions at every lookup (RegisterAgentProfileWithStore,
+//     store.Definitions at every lookup (RegisterAgentProfileWithStore,
 //     RegisterTaskSpecWithStore). The store is the service's own: its query, its
 //     cache and its connection are not Gotato's, and a row that is not
 //     registered by name is not a definition.
@@ -40,7 +42,7 @@ type Registry struct {
 // source is where a registered name comes from: a value, or a store.
 type source[T any] struct {
 	value *T
-	defs  session.Definitions
+	defs  store.Definitions
 }
 
 // NewRegistry returns an empty Registry whose stored definitions resolve their
@@ -81,7 +83,7 @@ func (r *Registry) RegisterTaskSpecInline(t TaskSpec) error {
 // RegisterAgentProfileWithStore registers name as an AgentProfile read from
 // defs, under kind KindAgentProfile, at every lookup. The document is not read
 // here: a row may be written after the name is registered.
-func (r *Registry) RegisterAgentProfileWithStore(name string, defs session.Definitions) error {
+func (r *Registry) RegisterAgentProfileWithStore(name string, defs store.Definitions) error {
 	name, err := storeName(name, defs)
 	if err != nil {
 		return err
@@ -94,7 +96,7 @@ func (r *Registry) RegisterAgentProfileWithStore(name string, defs session.Defin
 
 // RegisterTaskSpecWithStore registers name as a TaskSpec read from defs, under
 // kind KindTaskSpec, at every lookup.
-func (r *Registry) RegisterTaskSpecWithStore(name string, defs session.Definitions) error {
+func (r *Registry) RegisterTaskSpecWithStore(name string, defs store.Definitions) error {
 	name, err := storeName(name, defs)
 	if err != nil {
 		return err
@@ -105,9 +107,9 @@ func (r *Registry) RegisterTaskSpecWithStore(name string, defs session.Definitio
 	return nil
 }
 
-func storeName(name string, defs session.Definitions) (string, error) {
+func storeName(name string, defs store.Definitions) (string, error) {
 	name = strings.TrimSpace(name)
-	if err := session.CheckDefinitionKey(KindAgentProfile, name); err != nil {
+	if err := store.CheckDefinitionKey(KindAgentProfile, name); err != nil {
 		return "", invalid(fmt.Sprintf("name %q: %v", name, err))
 	}
 	if defs == nil {
@@ -191,7 +193,7 @@ func (r *Registry) TaskSpecs() []string {
 
 // loadFailed says a registered name has no document, or the store failed.
 func loadFailed(kind, name string, err error) error {
-	if errors.Is(err, session.ErrNotFound) {
+	if errors.Is(err, record.ErrNotFound) {
 		return fmt.Errorf("%w: %s %q has no document in its store", ErrNotRegistered, kind, name)
 	}
 	return fmt.Errorf("profile: load %s %q: %w", kind, name, err)

@@ -22,7 +22,7 @@ const (
 // NewSession builds a live Session from an Agent's parts, given as options,
 // and starts it. A Model is required. The Session takes its ID from its
 // Transcript when the Transcript declares one (Capabilities.ID, as a
-// session.Record does), and generates one otherwise. A single-valued option
+// record.Record does), and generates one otherwise. A single-valued option
 // given twice fails with invalid_argument, naming it, and so does a Transcript
 // that declares Durable without a Journal, Events and Loaded. Close it when it is no longer needed.
 //
@@ -131,8 +131,8 @@ func NewSession(ctx context.Context, options ...SessionOption) (*Session, error)
 // and SubscribeRun stream its Events; Status and Done report its life; Tools
 // and InspectContext show what its next Turn would send.
 //
-// The Runner builds one from a session.Record when a Run needs it, keeps it
-// warm in memory between Runs (service.WarmPolicy), and closes it when it
+// The Runner builds one from a record.Record when a Run needs it, keeps it
+// warm in memory between Runs (host.WarmPolicy), and closes it when it
 // leaves memory. The Record stays the truth.
 type Session struct {
 	// def is what the Agent gave, which nothing changes once the Session runs,
@@ -146,7 +146,7 @@ type Session struct {
 	// events is the Session's stored Events: the Journal, what is staged, the
 	// numbers and the Feed.
 	events sessionEvents
-	// history is the committed history, such as a session.Record, and its size.
+	// history is the committed history, such as a record.Record, and its size.
 	history sessionHistory
 	// tools is the Tool registry, with its own lock.
 	tools sessionTools

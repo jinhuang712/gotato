@@ -7,7 +7,7 @@
 // own Events: calls that only a host needs, and that a library user could call
 // by mistake if they were methods of the core. Each is a function value the
 // core sets in its init, in the way grpc-go's internal package does. A package
-// that uses one (service, testkit) asserts its type once, when it is loaded, so
+// that uses one (host, testkit) asserts its type once, when it is loaded, so
 // a drift between the two fails the first program that imports both instead of
 // a call in the middle of a Run:
 //

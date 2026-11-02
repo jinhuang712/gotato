@@ -1,12 +1,13 @@
 # `gotato`, the maintainers' test tool
 
-`gotato` is a small command-line tool for the maintainers of this repository. It drives a `service.Runner` in-process, the same object `gotato serve` exposes over HTTP, so it exercises the real behavior of the packages by hand and in tests. It is not shipped and has no contract: its commands, flags, JSON fields and exit codes change freely. It carries no runtime logic of its own; a behavior it needs lives in a package first.
+`gotato` is a small command-line tool for the maintainers of this repository. It drives a `host.Runner` in-process, the same object `gotato serve` exposes over HTTP, so it exercises the real behavior of the packages by hand and in tests. It is not shipped and has no contract: its commands, flags, JSON fields and exit codes change freely. It carries no runtime logic of its own; a behavior it needs lives in a package first.
 
-Build and run it from the repository root:
+It is a Go module of its own (it runs `serve`, which needs `adapter/http`), with a `replace` to the root module and to `adapter/http`. Build and run it from its directory, `internal/cmd/gotato`:
 
 ```bash
-go run ./internal/cmd/gotato doctor --json
-go build -o "$(mktemp -d)/gotato" ./internal/cmd/gotato     # or build it outside the tree
+cd internal/cmd/gotato
+go run . doctor --json
+go build -o "$(mktemp -d)/gotato" .     # or build it outside the tree
 ```
 
 ## Conventions
@@ -39,7 +40,7 @@ Run `gotato <command> --help` for the flags.
 | `context inspect\|build\|compact <id>` | see what the model would receive, and compact the Session |
 | `tools list\|describe\|active\|activate\|deactivate` | list and switch the tools of a Session |
 | `events --session <id> [--kind K]` | the Session's Events, one per line |
-| `serve [--addr HOST:PORT]` | serves the Runner over HTTP (`service/httpapi`) |
+| `serve [--addr HOST:PORT]` | serves the Runner over HTTP (`adapter/http`) |
 | `doctor` | checks the store, the models, the gateway configuration and the tools |
 
 ## A smoke run

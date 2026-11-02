@@ -46,7 +46,7 @@ func (c *sessionConfig) once(option string) error {
 }
 
 // withFeed has the Session publish its Events to feed instead of a Feed of
-// its own, so the host that built it, such as a service.Runner, can offer
+// its own, so the host that built it, such as a host.Runner, can offer
 // the Session's stream across Runs. The host owns the Feed and closes it; it
 // also sets the Feed's source, which is where a subscriber that falls behind
 // catches up.
@@ -310,7 +310,7 @@ func WithToolFilter(keep func(toolID string) bool) SessionOption {
 }
 
 // WithTranscript makes the Session commit to an external Transcript, such as
-// the session.Record it is loaded from, instead of a private in-memory one.
+// the record.Record it is loaded from, instead of a private in-memory one.
 //
 // A Transcript declares what it can do in Capabilities (the ID the Session
 // takes, a Journal that stores and numbers Events, whether they are durable,
@@ -320,7 +320,7 @@ func WithToolFilter(keep func(toolID string) bool) SessionOption {
 // declaration in code, so one that forgets a capability says so. NewSession
 // refuses a Transcript that declares Durable without a Journal, Events and
 // Loaded. A Session whose Transcript has no Journal stores nothing and numbers
-// its Events in memory (service.Runner does this on purpose for a Run that is
+// its Events in memory (host.Runner does this on purpose for a Run that is
 // not saved).
 func WithTranscript(transcript Transcript) SessionOption {
 	return func(c *sessionConfig) error {

@@ -6,7 +6,9 @@ import (
 	"runtime"
 	"strings"
 
-	"github.com/jinhuang712/gotato/session"
+	"github.com/jinhuang712/gotato/record"
+
+	"github.com/jinhuang712/gotato/store"
 )
 
 type doctorReport struct {
@@ -44,8 +46,8 @@ func (c *cli) cmdDoctor(args []string) int {
 	if err != nil {
 		add(doctorCheck{Name: "store", OK: false, Detail: err.Error()})
 	} else {
-		probe := session.New()
-		if _, err := session.CreateWriter(ctx, rt.store.Records, probe, rt.runner.Instance()); err != nil {
+		probe := record.New()
+		if _, err := store.CreateWriter(ctx, rt.store.Records, probe, rt.runner.Instance()); err != nil {
 			add(doctorCheck{Name: "store", OK: false, Detail: rt.storeDir + ": not writable: " + err.Error()})
 		} else if err := rt.store.Records.Delete(ctx, probe.ID()); err != nil {
 			add(doctorCheck{Name: "store", OK: false, Detail: rt.storeDir + ": probe cleanup failed: " + err.Error()})

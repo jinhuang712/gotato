@@ -1,7 +1,7 @@
 # Copy this file to gateway.yaml and fill in the deployment-specific values.
 # Gotato's command line tools read it (gotato --gateway-config, and
 # gotato-workload -gateway-config); a service builds its Client in Go instead,
-# with gateway.New(wire, connection, model). A key the loader does not know is
+# with model.New(wire, connection, model). A key the loader does not know is
 # an error. ${NAME} in a value is replaced by the environment variable NAME
 # when the file is loaded, so a key never has to be written here. A bare $NAME
 # is not.
@@ -40,7 +40,7 @@ headers:
 # How long to open a connection (the dial and the TLS handshake, each), and
 # how long to wait for the response headers after the request is sent. A
 # model behind a proxy that sends headers only with its first token may need
-# more. Go durations, the arguments of gateway.NewHTTPClient. Defaults: 10s
+# more. Go durations, the arguments of model.NewHTTPClient. Defaults: 10s
 # and 60s.
 # connect_timeout: 10s
 # response_header_timeout: 60s
@@ -51,7 +51,7 @@ headers:
 model: your-model
 
 # The model's context window in tokens, or "unknown". REQUIRED: a window left
-# out is never an accident, and gateway.New refuses it. Compaction takes its
+# out is never an accident, and model.New refuses it. Compaction takes its
 # default ceiling from it. With "unknown" (or a Session whose Agent sets no
 # CeilingTokens) compaction runs only after the model refuses a request as too
 # long (and only if overflow_phrases or the built-in 400/413 wording
@@ -117,7 +117,7 @@ window: 200000
 # Your own wording, or codes, for "the request was too long": added to the
 # built-in list. A 400 or 413 whose message, code or type contains one
 # (any case) is reported as context_overflow. Default: none. This wraps
-# gateway.DefaultClassifier; in Go a team passes its own Classifier to
-# gateway.WithClassifier.
+# model.DefaultClassifier; in Go a team passes its own Classifier to
+# model.WithClassifier.
 # overflow_phrases:
 #   - too_much_context

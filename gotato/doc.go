@@ -25,7 +25,7 @@
 // <notice kind="…">…</notice>.
 //
 // Session Records and stores, context strategies, Tool registries, providers,
-// and the service layer live in sibling packages that build on these
+// and the host layer live in sibling packages that build on these
 // contracts.
 //
 // # Where things are

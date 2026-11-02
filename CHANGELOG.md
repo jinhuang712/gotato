@@ -6,6 +6,31 @@ What changed in Gotato, from the user's side. Newest first. A breaking change ca
 
 ### Breaking
 
+- **Each package is one layer named for its job: `session`, `modelctx`, `gateway` and `service` are gone, and `service/httpapi` is a module of its own** (D-050). Every import path below changes; nothing else about these types does. The entries further down this list name packages as they were when each change was made: read them through this table.
+  - Before: `session` held the Record and the Store; `modelctx` was the Context a Record yields, and imported `session`; `gateway` bridged to a model; `service` held the Runner and the HTTP API's parent; `service/httpapi` was in the root module.
+  - After: one package per layer, each importing only the layers below it: `host` -> `profile` -> `store` -> `record` -> `gotato` -> `ref`, with `model` and the adapters beside them, importing down. `gotato/layering_test.go` enforces the order.
+
+    | Old | New |
+    |---|---|
+    | `session.Record`, `Entry`, `Layer`, `Header`, `Loaded`, `Claim`, `Document`, `RunInfo`, `New`, `NewID`, `Fork`, `FromDocument`, `WithID`, `WithMessages`, `WithMetadata`, `EntryLog`, `CommittedMessages`, `SameRecord`, `FindSpilled`, `ErrNotFound` | `record.<same name>` |
+    | `session.RecordInfo`, `session.RecordOption` | `record.Info`, `record.Option` |
+    | `modelctx.<anything>` (Context, `Compact`, `Compactor`, `AutoCompact`, `ReadBack`, `Originals`, the parts, `ErrBadPart`, ...) | `record.<same name>` |
+    | `modelctx.RecordOriginals` | `record.OriginalsOf` |
+    | `session.Store`, `Records`, `Liveness`, `Lister`, `ListQuery`, `ListPage`, `InstanceRow`, `InstanceState`, `Definitions` and its memory and file stores, `MemoryStore`, `FileStore`, `NewMemoryStore`, `NewFileStore`, `WithClock`, `CheckID`, `CheckBatch`, `CheckDefinitionKey`, `Open`, `View`, `StoredEvents`, `ErrInvalidID`, `ErrExists`, `ErrConflict`, `ErrExpired` | `store.<same name>` |
+    | `session.CreateWriter`, `OpenWriter`, `Writer`, `WriterOption`, `WithIdle`, `WithPublisher`, `WithWaited`, `WithGuard`, `WithHolderCheck`, `WriteStats`, `WriteTimeout` | `store.<same name>` |
+    | `session.StoreOption` | `store.Option` |
+    | `session/storetest` | `store/storetest` |
+    | `gateway.<anything>` (`New`, `Client`, `Connection`, `WireAPI`, `Retry`, `Classifier`, the wire APIs, ...) | `model.<same name>` |
+    | `service.<anything>` (`Runner`, `New`, `Config`, `RunRequest`, `Admitter`, `ErrBusy`, ...) | `host.<same name>` |
+    | `service/internal/*` | `host/internal/*` (still internal) |
+    | `service/httpapi` | `adapter/http`, a Go module of its own |
+    | `profile`, `gotato`, `ref`, `adapter/mcp` | unchanged |
+
+    - **Domain or saving.** `record` holds what exists without being saved: the Record, its Entries, `Header`, `Info`, `Loaded` (what a Record is rebuilt from), `Claim`, the Context built from it, compaction and read-back, and `ErrNotFound`, because the log-reading seam `EntryLog` is the record's and must tell "no such Record". `store` holds what only exists to save: the contract, `CheckID`, `CheckBatch`, `ListQuery`, `ListPage`, the other errors, the Writer and loading, and the stores.
+    - **A Record is driven through exported methods now.** The Writer is in another package, so `Record.StartWriting`, `Attach`, `TakeOver`, `Reclaim`, `Release`, `TakePending` and `Stored` are exported, with `record.FromLoaded` and `record.View`. A Store adapter is unaffected: it returns `record.Entry`, `record.Header` and `record.Loaded`. The unexported `eventOf` is `Entry.Event(sessionID) (gotato.Event, error)`.
+    - **Error text changes with the package**: `session:` is `record:` or `store:`, `gateway:` is `model:`, `service:` is `host:`. Codes are unchanged, so `errors.Is` and `gotato.IsCode` match as before.
+    - **`adapter/http` is its own module, and its package is `http`.** `go get github.com/jinhuang712/gotato/adapter/http`, and import it as `httpapi "github.com/jinhuang712/gotato/adapter/http"` beside `net/http`. The root module no longer carries a transport; `internal/cmd/gotato` (the CLI, whose `serve` runs it) is a module of its own at the same path.
+    - **Nothing stored changes.** JSON field names and the FileStore layout on disk are as before.
 - **`gotato.ModelConfig` is now the model's description, and the sampling struct is `gotato.Sampling`** (D-045).
   - Before: `gotato.ModelConfig{Temperature, MaxTokens, ReasoningEffort, ReasoningSummary}` was the sampling and reasoning hints of a call.
   - After: `gotato.ModelConfig{Name, Facts ModelFacts, Sampling Sampling}` describes one model. The four sampling fields moved to `gotato.Sampling`, and `ModelFacts{Window, CacheRetention, RoundReasoning, ThinkingBinding}` is what the model is. Rename `gotato.ModelConfig{Temperature: ...}` to `gotato.Sampling{Temperature: ...}`.

@@ -29,10 +29,10 @@ Pick by what the test needs to show. A `Script` is the sequence of events one mo
 | a tool that returns a fixed result, and records its calls | `testkit.NewFakeTool(id, text)`; read `Calls()` and `Uses()` |
 | every Event of a Session, in order | `testkit.RecordEvents(s)`, or `testkit.RecordSubscription(sub)` |
 | a Session Record that already holds a conversation | `testkit.NewRecord("question", "answer", ...)` |
-| a Store of your own that keeps the contract | `storetest.RunRecords`, `RunLiveness` and `RunLister` in `session/storetest` ([Write a Store](write-a-store.md)) |
+| a Store of your own that keeps the contract | `storetest.RunRecords`, `RunLiveness` and `RunLister` in `store/storetest` ([Write a Store](write-a-store.md)) |
 
 - A `FakeModel` repeats its last Script once the list ends, so a loop always finishes. A `ReplayModel` fails instead.
-- A fake never touches the network. A test that needs a provider's wire quirks (a refusal as too long, a cut stream) belongs to the Gotato repository, which has a fake gateway for it under `internal/`; your own tests do not need it.
+- A fake never touches the network. A test that needs a provider's wire quirks (a refusal as too long, a cut stream) belongs to the Gotato repository, which has a fake model endpoint for it under `internal/`; your own tests do not need it.
 
 ## A model that calls a tool, then answers
 
@@ -51,11 +51,11 @@ import (
 	"testing"
 	"time"
 
+	httpapi "github.com/jinhuang712/gotato/adapter/http"
 	"github.com/jinhuang712/gotato/gotato"
+	"github.com/jinhuang712/gotato/host"
 	"github.com/jinhuang712/gotato/profile"
-	"github.com/jinhuang712/gotato/service"
-	"github.com/jinhuang712/gotato/service/httpapi"
-	"github.com/jinhuang712/gotato/session"
+	"github.com/jinhuang712/gotato/store"
 	"github.com/jinhuang712/gotato/testkit"
 )
 ```
@@ -66,12 +66,12 @@ import (
 func TestAgentCallsAToolThenAnswers(t *testing.T) {
 	ctx := context.Background()
 	lookup := testkit.NewFakeTool("lookup", "sunny")
-	model := testkit.NewFakeModel(
+	m := testkit.NewFakeModel(
 		testkit.ToolCalls(gotato.ToolCall{ID: "c1", ToolID: "lookup", Arguments: []byte(`{"city":"Oslo"}`)}),
 		testkit.Text("It is sunny in Oslo."),
 	)
 
-	s, err := gotato.NewSession(ctx, gotato.WithModel(model), gotato.WithTools(lookup))
+	s, err := gotato.NewSession(ctx, gotato.WithModel(m), gotato.WithTools(lookup))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -89,8 +89,8 @@ func TestAgentCallsAToolThenAnswers(t *testing.T) {
 	if lookup.Calls() != 1 || string(lookup.Uses()[0].Arguments) != `{"city":"Oslo"}` {
 		t.Fatalf("tool uses = %v", lookup.Uses())
 	}
-	if model.Calls() != 2 {
-		t.Fatalf("model calls = %d, want 2 (the call, then the answer)", model.Calls())
+	if m.Calls() != 2 {
+		t.Fatalf("model calls = %d, want 2 (the call, then the answer)", m.Calls())
 	}
 	t.Log(events.Kinds())
 	for _, kind := range []gotato.EventKind{gotato.EventKindToolStarted, gotato.EventKindToolEnded, gotato.EventKindRunEnded} {
@@ -99,7 +99,7 @@ func TestAgentCallsAToolThenAnswers(t *testing.T) {
 		}
 	}
 	// The second model call saw the tool result.
-	last, _ := model.LastRequest()
+	last, _ := m.LastRequest()
 	if last.Messages[len(last.Messages)-1].Role != gotato.RoleToolResult {
 		t.Errorf("the second request ends with %s", last.Messages[len(last.Messages)-1].Role)
 	}
@@ -107,8 +107,8 @@ func TestAgentCallsAToolThenAnswers(t *testing.T) {
 ```
 
 - The tool call names the tool by its `ToolID`, which is its ID in `NewFuncTool` or in `NewFakeTool`.
-- `model.Calls()` is 2: the call that asked for the tool, and the one that answered after the Tool Result.
-- `model.LastRequest()` is what the model was sent, so a test can check the Context: here, that the Tool Result came last.
+- `m.Calls()` is 2: the call that asked for the tool, and the one that answered after the Tool Result.
+- `m.LastRequest()` is what the model was sent, so a test can check the Context: here, that the Tool Result came last.
 - Use the Session in `defer s.Close(ctx)` as the first page does.
 
 ## Read the Events of a Run
@@ -133,10 +133,10 @@ Set `Delay` on a `FakeModel` and every event of its stream waits that long, so t
 
 ```go
 func TestACanceledRunSettlesCanceled(t *testing.T) {
-	model := testkit.NewFakeModel(testkit.Text("a long answer"))
-	model.Delay = 200 * time.Millisecond // each event waits, so the stream is open for a while
+	m := testkit.NewFakeModel(testkit.Text("a long answer"))
+	m.Delay = 200 * time.Millisecond // each event waits, so the stream is open for a while
 
-	s, err := gotato.NewSession(context.Background(), gotato.WithModel(model))
+	s, err := gotato.NewSession(context.Background(), gotato.WithModel(m))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -162,15 +162,15 @@ A `ReplayModel` plays back recorded Scripts and fails when they run out, so a lo
 ```go
 func TestReplayModelFailsOnAnExtraCall(t *testing.T) {
 	ctx := context.Background()
-	model := testkit.NewReplayModel(testkit.Text("one"))
-	s, _ := gotato.NewSession(ctx, gotato.WithModel(model))
+	m := testkit.NewReplayModel(testkit.Text("one"))
+	s, _ := gotato.NewSession(ctx, gotato.WithModel(m))
 	defer s.Close(ctx)
 
 	if _, err := s.Prompt(ctx, gotato.UserMessage("first")); err != nil {
 		t.Fatal(err)
 	}
-	if model.Remaining() != 0 {
-		t.Fatalf("remaining = %d", model.Remaining())
+	if m.Remaining() != 0 {
+		t.Fatalf("remaining = %d", m.Remaining())
 	}
 	result, err := s.Prompt(ctx, gotato.UserMessage("second"))
 	t.Log(result.Status, err)
@@ -190,10 +190,10 @@ When several agents share a model, or the order of calls is not fixed, a fixed l
 ```go
 func TestFuncModelAnswersFromTheRequest(t *testing.T) {
 	ctx := context.Background()
-	model := testkit.NewFuncModel(func(_ context.Context, req gotato.ModelRequest) (testkit.Script, error) {
+	m := testkit.NewFuncModel(func(_ context.Context, req gotato.ModelRequest) (testkit.Script, error) {
 		return testkit.Text("you said: " + strings.TrimSpace(testkit.UserText(req))), nil
 	})
-	s, _ := gotato.NewSession(ctx, gotato.WithModel(model))
+	s, _ := gotato.NewSession(ctx, gotato.WithModel(m))
 	defer s.Close(ctx)
 	result, err := s.Prompt(ctx, gotato.UserMessage("ping"))
 	if err != nil || gotato.TextOf(*result.FinalMessage) != "you said: ping" {
@@ -212,9 +212,9 @@ Set `Err` on a `FakeModel` and its `Stream` returns that error, as a provider ou
 ```go
 func TestAModelThatFails(t *testing.T) {
 	ctx := context.Background()
-	model := testkit.NewFakeModel()
-	model.Err = errors.New("provider down")
-	s, _ := gotato.NewSession(ctx, gotato.WithModel(model))
+	m := testkit.NewFakeModel()
+	m.Err = errors.New("provider down")
+	s, _ := gotato.NewSession(ctx, gotato.WithModel(m))
 	defer s.Close(ctx)
 	result, err := s.Prompt(ctx, gotato.UserMessage("hi"))
 	t.Log(result.Status, err)
@@ -225,20 +225,20 @@ The Run settles as `failed` with the code `model_failure`, and the error is retu
 
 ## A Runner and its HTTP endpoint
 
-A `service.Runner` takes the same fakes as an AgentProfile's `Model`, registered in a `profile.Registry`. Test the Runner in process, or put its handler behind `httptest.NewServer` and call it as a client would.
+A `host.Runner` takes the same fakes as an AgentProfile's `Model`, registered in a `profile.Registry`. Test the Runner in process, or put its handler behind `httptest.NewServer` and call it as a client would. The handler is `adapter/http`, a module of its own, imported as `httpapi` because the test imports `net/http` too (`go get github.com/jinhuang712/gotato/adapter/http`).
 
 ```go
 func TestRunnerWithoutHTTP(t *testing.T) {
-	memory := session.NewMemoryStore()
+	memory := store.NewMemoryStore()
 	profiles := profile.NewRegistry(nil)
 	_ = profiles.RegisterAgentProfileInline(profile.AgentProfile{Name: "default", Model: testkit.EchoModel{}})
-	runner, _ := service.New(service.Config{
-		Store:        session.Store{Records: memory, Liveness: memory},
+	runner, _ := host.New(host.Config{
+		Store:        store.Store{Records: memory, Liveness: memory},
 		Profiles:     profiles,
 		DefaultAgent: "default",
 	})
 	defer runner.Close(context.Background())
-	out, err := runner.Run(context.Background(), service.RunRequest{Prompt: "hi"})
+	out, err := runner.Run(context.Background(), host.RunRequest{Prompt: "hi"})
 	if err != nil || out.FinalText != "echo: hi" {
 		t.Fatal(out, err)
 	}
@@ -247,13 +247,13 @@ func TestRunnerWithoutHTTP(t *testing.T) {
 
 ```go
 func TestARunOverHTTP(t *testing.T) {
-	memory := session.NewMemoryStore()
+	memory := store.NewMemoryStore()
 	profiles := profile.NewRegistry(nil)
 	if err := profiles.RegisterAgentProfileInline(profile.AgentProfile{Name: "default", Model: testkit.NewFakeModel(testkit.Text("pong"))}); err != nil {
 		t.Fatal(err)
 	}
-	runner, err := service.New(service.Config{
-		Store:        session.Store{Records: memory, Liveness: memory},
+	runner, err := host.New(host.Config{
+		Store:        store.Store{Records: memory, Liveness: memory},
 		Profiles:     profiles,
 		DefaultAgent: "default",
 	})

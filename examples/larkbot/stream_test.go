@@ -8,7 +8,7 @@ import (
 
 	"github.com/jinhuang712/gotato/examples/larkbot/internal/fakelark"
 	"github.com/jinhuang712/gotato/gotato"
-	"github.com/jinhuang712/gotato/session"
+	"github.com/jinhuang712/gotato/store"
 	"github.com/jinhuang712/gotato/testkit"
 )
 
@@ -28,9 +28,9 @@ const allPieces = "p0 p1 p2 p3 p4 p5 p6 p7"
 
 func streamingBot(t *testing.T, model gotato.Model, every time.Duration) (*fakelark.Server, *larkInstance) {
 	t.Helper()
-	store, _ := session.NewFileStore(t.TempDir())
+	st, _ := store.NewFileStore(t.TempDir())
 	h, _, start := newFake(t)
-	a := newLarkInstance(t, store, "pod-a", h.url, model)
+	a := newLarkInstance(t, st, "pod-a", h.url, model)
 	a.bot.streamEvery = every
 	start(fakelark.Config{Bots: []string{a.srv.URL}})
 	return h.srv, a
@@ -119,11 +119,11 @@ func TestQueuedMessageDoesNotMakeACard(t *testing.T) {
 // A message that lands on the instance without the Run is forwarded, and the
 // placeholder the refused start posted is recalled: one card is left.
 func TestRefusedStartLeavesNoPlaceholder(t *testing.T) {
-	store, _ := session.NewFileStore(t.TempDir())
+	st, _ := store.NewFileStore(t.TempDir())
 	h, _, start := newFake(t)
 	entered, release := make(chan struct{}), make(chan struct{})
-	a := newLarkInstance(t, store, "pod-a", h.url, gatedModel(entered, release))
-	b := newLarkInstance(t, store, "pod-b", h.url, slowModel(0))
+	a := newLarkInstance(t, st, "pod-a", h.url, gatedModel(entered, release))
+	b := newLarkInstance(t, st, "pod-b", h.url, slowModel(0))
 	start(fakelark.Config{Bots: []string{a.srv.URL, b.srv.URL}, Seed: seedPicking(2, 0, 1)})
 
 	first := h.srv.Deliver(context.Background(), "oc_x", "first", "", "")

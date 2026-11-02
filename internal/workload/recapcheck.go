@@ -6,12 +6,13 @@ import (
 	"fmt"
 	"strings"
 
+	"github.com/jinhuang712/gotato/record"
+
 	"github.com/jinhuang712/gotato/gotato"
+	"github.com/jinhuang712/gotato/host"
 	"github.com/jinhuang712/gotato/internal/reftasks"
-	"github.com/jinhuang712/gotato/modelctx"
 	"github.com/jinhuang712/gotato/profile"
-	"github.com/jinhuang712/gotato/service"
-	"github.com/jinhuang712/gotato/session"
+	"github.com/jinhuang712/gotato/store"
 )
 
 // RecapCheckConfig says how to run the Recap check (GOALS.md G-E01).
@@ -21,7 +22,7 @@ type RecapCheckConfig struct {
 	// ModelName names the Model in the report.
 	ModelName string
 	// Store holds the Session. Nil uses a memory store.
-	Store session.Store
+	Store store.Store
 	// MaxTokens is the Recap's output limit; 0 keeps the default (8K).
 	MaxTokens uint32
 }
@@ -87,9 +88,9 @@ func RunRecapCheck(ctx context.Context, cfg RecapCheckConfig, check reftasks.Rec
 	if model == nil {
 		return RecapReport{}, errors.New("workload: the Recap check has no Model")
 	}
-	store := cfg.Store
-	if store.Records == nil || store.Liveness == nil {
-		store = memoryStore()
+	st := cfg.Store
+	if st.Records == nil || st.Liveness == nil {
+		st = memoryStore()
 	}
 	switchedOff := make([]gotato.Tool, len(check.Tools))
 	for i, tool := range check.Tools {
@@ -97,13 +98,13 @@ func RunRecapCheck(ctx context.Context, cfg RecapCheckConfig, check reftasks.Rec
 	}
 	conversation := profile.AgentProfile{
 		Name: check.Name, Model: model, ModelName: cfg.ModelName, Instruction: check.Instruction, Tools: check.Tools,
-		Compact: modelctx.Compactor{Recap: modelctx.ModelRecap{MaxTokens: cfg.MaxTokens}},
+		Compact: record.Compactor{Recap: record.ModelRecap{MaxTokens: cfg.MaxTokens}},
 	}
 	// Same model, instruction and tool definitions, so the questions read the
 	// conversation's prefix from the cache; only the tools' results differ.
 	questions := conversation
-	questions.Name, questions.Tools, questions.Compact = check.Name+"-questions", switchedOff, modelctx.Compactor{}
-	runner, err := service.New(withAgents(service.Config{Store: store}, []profile.AgentProfile{conversation, questions}...))
+	questions.Name, questions.Tools, questions.Compact = check.Name+"-questions", switchedOff, record.Compactor{}
+	runner, err := host.New(withAgents(host.Config{Store: st}, []profile.AgentProfile{conversation, questions}...))
 	if err != nil {
 		return RecapReport{}, err
 	}
@@ -114,7 +115,7 @@ func RunRecapCheck(ctx context.Context, cfg RecapCheckConfig, check reftasks.Rec
 	}
 	var id string
 	for _, prompt := range check.Prompts {
-		result, err := runner.Run(ctx, service.RunRequest{SessionID: id, Agent: check.Name, Prompt: prompt})
+		result, err := runner.Run(ctx, host.RunRequest{SessionID: id, Agent: check.Name, Prompt: prompt})
 		if err != nil {
 			return report, fmt.Errorf("workload: %s: the conversation failed: %w", check.Name, err)
 		}
@@ -126,7 +127,7 @@ func RunRecapCheck(ctx context.Context, cfg RecapCheckConfig, check reftasks.Rec
 	report.Answers = make([]RecapAnswer, len(check.Questions))
 	ask := func(set func(*RecapAnswer, string, bool)) error {
 		for i, question := range check.Questions {
-			result, err := runner.Run(ctx, service.RunRequest{SessionID: id, Agent: questions.Name, SkipSave: true, Prompt: reftasks.QuestionPrefix + question.Ask})
+			result, err := runner.Run(ctx, host.RunRequest{SessionID: id, Agent: questions.Name, SkipSave: true, Prompt: reftasks.QuestionPrefix + question.Ask})
 			if err != nil {
 				return fmt.Errorf("workload: %s: question %d failed: %w", check.Name, i+1, err)
 			}
@@ -138,7 +139,7 @@ func RunRecapCheck(ctx context.Context, cfg RecapCheckConfig, check reftasks.Rec
 	if err := ask(func(a *RecapAnswer, text string, ok bool) { a.Before, a.BeforeCorrect = text, ok }); err != nil {
 		return report, err
 	}
-	compacted, err := runner.Compact(ctx, id, modelctx.CompactConfig{})
+	compacted, err := runner.Compact(ctx, id, record.CompactConfig{})
 	if err != nil {
 		return report, fmt.Errorf("workload: %s: the compaction failed: %w", check.Name, err)
 	}
@@ -148,8 +149,8 @@ func RunRecapCheck(ctx context.Context, cfg RecapCheckConfig, check reftasks.Rec
 		report.RecapWritten = compacted.Compaction.Recap != "none"
 		report.RecapUsage = compacted.Compaction.RecapUsage
 	}
-	if record, err := session.View(ctx, store.Records, id); err == nil {
-		if segments := record.Segments(); len(segments) > 0 {
+	if rec, err := store.View(ctx, st.Records, id); err == nil {
+		if segments := rec.Segments(); len(segments) > 0 {
 			report.Recap = segments[len(segments)-1].Recap
 		}
 	}

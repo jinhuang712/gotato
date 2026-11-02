@@ -14,11 +14,11 @@ import (
 	"testing"
 	"time"
 
+	httpapi "github.com/jinhuang712/gotato/adapter/http"
 	"github.com/jinhuang712/gotato/gotato"
+	"github.com/jinhuang712/gotato/host"
 	"github.com/jinhuang712/gotato/profile"
-	"github.com/jinhuang712/gotato/service"
-	"github.com/jinhuang712/gotato/service/httpapi"
-	"github.com/jinhuang712/gotato/session"
+	"github.com/jinhuang712/gotato/store"
 	"github.com/jinhuang712/gotato/testkit"
 )
 
@@ -86,19 +86,19 @@ func waitFor(t *testing.T, what string, cond func() bool) {
 
 // storeParts is what a MemoryStore or a FileStore is: both halves of a Store.
 type storeParts interface {
-	session.Records
-	session.Liveness
+	store.Records
+	store.Liveness
 }
 
 // memStore is a Store of one MemoryStore.
-func memStore() session.Store {
-	m := session.NewMemoryStore()
-	return session.Store{Records: m, Liveness: m}
+func memStore() store.Store {
+	m := store.NewMemoryStore()
+	return store.Store{Records: m, Liveness: m}
 }
 
 // instance is one in-process bot: a Runner on the shared store, its handler on an httptest server.
 type instance struct {
-	runner *service.Runner
+	runner *host.Runner
 	bot    *bot
 	sender *fakeSender
 	srv    *httptest.Server
@@ -122,12 +122,12 @@ func newInstance(t *testing.T, store storeParts, name string, model *testkit.Fun
 }
 
 // newInstanceWith lets a test wrap the instance's HTTP handler.
-func newInstanceWith(t *testing.T, store storeParts, name string, model *testkit.FuncModel, wrap func(http.Handler) http.Handler) *instance {
+func newInstanceWith(t *testing.T, st storeParts, name string, model *testkit.FuncModel, wrap func(http.Handler) http.Handler) *instance {
 	t.Helper()
 	srv := httptest.NewUnstartedServer(nil)
 	t.Cleanup(srv.Close)
-	runner, err := service.New(service.Config{
-		Store: session.Store{Records: store, Liveness: store}, Instance: name, Address: "http://" + srv.Listener.Addr().String(),
+	runner, err := host.New(host.Config{
+		Store: store.Store{Records: st, Liveness: st}, Instance: name, Address: "http://" + srv.Listener.Addr().String(),
 		Profiles: registryOf(profile.AgentProfile{Name: "fake", Model: model, ModelName: "fake"}), DefaultAgent: "fake",
 	})
 	if err != nil {
@@ -140,7 +140,7 @@ func newInstanceWith(t *testing.T, store storeParts, name string, model *testkit
 	}
 	srv.Start()
 	snd := &fakeSender{}
-	b := newBot(runner, store, snd, "fake", "fake", name, logger(t))
+	b := newBot(runner, st, snd, "fake", "fake", name, logger(t))
 	ctx, cancel := context.WithCancel(context.Background())
 	t.Cleanup(cancel)
 	go b.replyLoop(ctx)
@@ -171,7 +171,7 @@ const (
 // closeRunner settles a test's Runner the way Gotato documents: Drain lets every
 // Run in flight finish and save, then Close removes the Liveness row. Closing
 // alone leaves a Run writing into a store directory the test is about to delete.
-func closeRunner(runner *service.Runner) {
+func closeRunner(runner *host.Runner) {
 	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 	defer cancel()
 	_ = runner.Drain(ctx)

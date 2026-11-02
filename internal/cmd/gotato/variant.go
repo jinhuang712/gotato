@@ -8,14 +8,16 @@ import (
 	"slices"
 	"strings"
 
+	"github.com/jinhuang712/gotato/record"
+
+	"github.com/jinhuang712/gotato/host"
 	"github.com/jinhuang712/gotato/profile"
-	"github.com/jinhuang712/gotato/service"
-	"github.com/jinhuang712/gotato/session"
+	"github.com/jinhuang712/gotato/store"
 )
 
 // agentKey is the Session metadata key that names a Session's Agent, which the
 // Runner owns and a client only reads.
-const agentKey = service.ReservedPrefix + "agent"
+const agentKey = host.ReservedPrefix + "agent"
 
 // A run with --instruction or --compact-ceiling uses another AgentProfile: the
 // one it would use, with those two values replaced. The variant is a document
@@ -40,7 +42,7 @@ func (rt *cliRuntime) registerStoredVariants(ctx context.Context) error {
 		if name == "" || slices.Contains(have, name) {
 			continue
 		}
-		if _, err := rt.defs.LoadDefinition(ctx, profile.KindAgentProfile, name); errors.Is(err, session.ErrNotFound) {
+		if _, err := rt.defs.LoadDefinition(ctx, profile.KindAgentProfile, name); errors.Is(err, record.ErrNotFound) {
 			continue
 		} else if err != nil {
 			return err
@@ -64,7 +66,7 @@ func (rt *cliRuntime) agentFor(ctx context.Context, flags modelFlags, env func(s
 		return name, err
 	}
 	if name == "" && sessionID != "" {
-		s, err := session.Open(ctx, rt.store.Records, sessionID)
+		s, err := store.Open(ctx, rt.store.Records, sessionID)
 		if err != nil {
 			return "", err
 		}

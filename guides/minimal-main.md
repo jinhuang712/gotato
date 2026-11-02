@@ -1,6 +1,6 @@
 # A minimal main
 
-By the end of this page you have a complete `main.go` that serves an agent over HTTP and stops without losing a Run when it gets SIGTERM, as a rolling deploy sends it. You need [HTTP in five minutes](http-in-five-minutes.md) first.
+By the end of this page you have a complete `main.go` that serves an agent over HTTP and stops without losing a Run when it gets SIGTERM, as a rolling deploy sends it. You need [HTTP in five minutes](http-in-five-minutes.md) first, and `adapter/http` in your `go.mod` (`go get github.com/jinhuang712/gotato/adapter/http`, a module of its own; see [Install](install.md)).
 
 - [The program](#the-program)
 - [The shutdown order](#the-shutdown-order)
@@ -24,11 +24,11 @@ import (
 	"syscall"
 	"time"
 
+	httpapi "github.com/jinhuang712/gotato/adapter/http"
 	"github.com/jinhuang712/gotato/gotato"
+	"github.com/jinhuang712/gotato/host"
 	"github.com/jinhuang712/gotato/profile"
-	"github.com/jinhuang712/gotato/service"
-	"github.com/jinhuang712/gotato/service/httpapi"
-	"github.com/jinhuang712/gotato/session"
+	"github.com/jinhuang712/gotato/store"
 	"github.com/jinhuang712/gotato/testkit"
 )
 
@@ -40,7 +40,7 @@ func main() {
 
 func run() error {
 	// The Store is the truth: a directory here, your own Records and Liveness later.
-	store, err := session.NewFileStore(os.Getenv("SESSIONS_DIR"))
+	st, err := store.NewFileStore(os.Getenv("SESSIONS_DIR"))
 	if err != nil {
 		return err
 	}
@@ -48,15 +48,15 @@ func run() error {
 	profiles := profile.NewRegistry(nil)
 	if err := profiles.RegisterAgentProfileInline(profile.AgentProfile{
 		Name:        "default",
-		Model:       testkit.DemoModel{}, // swap for a gateway model
+		Model:       testkit.DemoModel{}, // swap for a model from package model
 		Instruction: "You are a helpful assistant.",
 		Tools:       []gotato.Tool{testkit.DemoEchoTool()},
 	}); err != nil {
 		return err
 	}
 
-	runner, err := service.New(service.Config{
-		Store:        session.Store{Records: store, Liveness: store},
+	runner, err := host.New(host.Config{
+		Store:        store.Store{Records: st, Liveness: st},
 		Profiles:     profiles,
 		DefaultAgent: "default",
 		DrainTimeout: 20 * time.Second, // how long Runs in flight may finish
@@ -117,7 +117,7 @@ Three steps, in this order. Each one makes the next safe.
 | 2. Stop the server | `server.Shutdown(ctx)` | Closes the listener and the idle connections, and waits for the rest. After step 1 nothing is left to wait for but streams. |
 | 3. Remove the Instance | `runner.Close(ctx)` | Removes the Liveness row, so other Instances take its Sessions over at once instead of waiting for the row to expire. |
 
-- Why `Drain` is first: it is the step that keeps a Run safe, and it turns new work away at the Runner, before the listener closes. The package comment of [`service/httpapi`](../service/httpapi/handler.go) gives the same order: `Drain`, then `Shutdown`, then `Close`.
+- Why `Drain` is first: it is the step that keeps a Run safe, and it turns new work away at the Runner, before the listener closes. The package comment of [`adapter/http`](../adapter/http/handler.go) gives the same order: `Drain`, then `Shutdown`, then `Close`.
 - Why `Close` is last: a closed Runner writes nothing more. Closing before the Runs end would end them unsaved.
 - After `Drain` returns an error, still go on to step 2 and 3. The error is `context.DeadlineExceeded` when the timeout ended the wait; the Runs left were stopped, saved and released, and a client that streamed one gets a `reconnect` event.
 
@@ -135,7 +135,7 @@ $ curl -i -XPOST localhost:8080/v1/sessions/$ID/runs -d '{"prompt":"again"}'
 HTTP/1.1 503 Service Unavailable
 Gotato-Not-Run: true
 Gotato-Retryable: true
-{"code":"draining","message":"draining: service: draining","not_run":true,"retryable":true}
+{"code":"draining","message":"draining: host: draining","not_run":true,"retryable":true}
 run: completed slow answer      # the Run in flight finished
 exit=0                          # the process exited by itself
 ```

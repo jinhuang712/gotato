@@ -12,7 +12,7 @@ import (
 	"time"
 
 	"github.com/jinhuang712/gotato/gotato"
-	"github.com/jinhuang712/gotato/session"
+	"github.com/jinhuang712/gotato/record"
 	"github.com/jinhuang712/gotato/testkit"
 )
 
@@ -94,7 +94,7 @@ func BenchmarkSessionFootprint(b *testing.B) {
 				context.Background(),
 				gotato.WithModel(&footprintModel{}),
 				gotato.WithInstruction("You are a worker."),
-				gotato.WithTranscript(session.New()),
+				gotato.WithTranscript(record.New()),
 				gotato.WithTools(readTool(i)),
 			)
 			if err != nil {

@@ -4,6 +4,7 @@ go 1.26.0
 
 require (
 	github.com/jinhuang712/gotato v0.2.0
+	github.com/jinhuang712/gotato/adapter/http v0.0.0
 	github.com/jinhuang712/gotato/adapter/mcp v0.0.0
 	github.com/larksuite/oapi-sdk-go/v3 v3.12.2
 	github.com/modelcontextprotocol/go-sdk v1.8.0
@@ -26,3 +27,5 @@ require (
 replace github.com/jinhuang712/gotato => ../..
 
 replace github.com/jinhuang712/gotato/adapter/mcp => ../../adapter/mcp
+
+replace github.com/jinhuang712/gotato/adapter/http => ../../adapter/http

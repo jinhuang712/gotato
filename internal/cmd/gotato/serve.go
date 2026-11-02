@@ -10,8 +10,8 @@ import (
 	"syscall"
 	"time"
 
-	"github.com/jinhuang712/gotato/service"
-	"github.com/jinhuang712/gotato/service/httpapi"
+	httpapi "github.com/jinhuang712/gotato/adapter/http"
+	"github.com/jinhuang712/gotato/host"
 )
 
 // cmdServe runs the same Runner behind the HTTP API.
@@ -32,7 +32,7 @@ func (c *cli) cmdServe(args []string) int {
 		return c.parseError(err)
 	}
 	switch *queue {
-	case string(service.QueuePolicyReject), string(service.QueuePolicyWait):
+	case string(host.QueuePolicyReject), string(host.QueuePolicyWait):
 	default:
 		return c.usageError("--queue accepts reject or wait")
 	}
@@ -48,11 +48,11 @@ func (c *cli) cmdServe(args []string) int {
 	}
 	// Rebuild with admission settings: the Runner is cheap to construct.
 	cfg := rt.config
-	cfg.Warm = service.WarmPolicy{TTL: *warmTTL, NoIdleCompaction: *noIdleCompaction}
+	cfg.Warm = host.WarmPolicy{TTL: *warmTTL, NoIdleCompaction: *noIdleCompaction}
 	cfg.Address, cfg.DrainTimeout = *advertise, *drain
-	cfg.Bounds = service.Bounds{MaxActiveSessions: *maxSessions, Queue: service.QueuePolicy(*queue)}
-	cfg.Admitter = service.Limits{MaxActiveRuns: *maxRuns}
-	runner, err := service.New(cfg)
+	cfg.Bounds = host.Bounds{MaxActiveSessions: *maxSessions, Queue: host.QueuePolicy(*queue)}
+	cfg.Admitter = host.Limits{MaxActiveRuns: *maxRuns}
+	runner, err := host.New(cfg)
 	if err != nil {
 		return c.failErr(err)
 	}

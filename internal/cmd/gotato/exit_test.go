@@ -8,27 +8,27 @@ import (
 	"strings"
 	"testing"
 
+	httpapi "github.com/jinhuang712/gotato/adapter/http"
 	"github.com/jinhuang712/gotato/gotato"
-	"github.com/jinhuang712/gotato/service"
-	"github.com/jinhuang712/gotato/service/httpapi"
+	"github.com/jinhuang712/gotato/host"
 )
 
 // defaultsOf says what an error of the code says about its request when it is
-// made: gotato.ErrorOf for the core's codes, the service's own errors for its
+// made: gotato.ErrorOf for the core's codes, the host package's own errors for its
 // codes (not_writer is made with an address and is not run and retryable, as
 // draining and overloaded are).
 func defaultsOf(code gotato.ErrorCode) *gotato.RuntimeError {
 	var sentinel *gotato.RuntimeError
 	switch code {
-	case service.CodeDraining:
-		errors.As(service.ErrDraining, &sentinel)
-	case service.CodeOverloaded:
-		errors.As(service.ErrOverloaded, &sentinel)
-	case service.CodeCannotResume:
-		errors.As(service.ErrCannotResume, &sentinel)
-	case service.CodeAlreadyExists:
-		errors.As(service.ErrSessionExists, &sentinel)
-	case service.CodeNotWriter:
+	case host.CodeDraining:
+		errors.As(host.ErrDraining, &sentinel)
+	case host.CodeOverloaded:
+		errors.As(host.ErrOverloaded, &sentinel)
+	case host.CodeCannotResume:
+		errors.As(host.ErrCannotResume, &sentinel)
+	case host.CodeAlreadyExists:
+		errors.As(host.ErrSessionExists, &sentinel)
+	case host.CodeNotWriter:
 		sentinel = &gotato.RuntimeError{Code: code, NotRun: true, Retryable: true}
 	default:
 		sentinel = gotato.ErrorOf(code, "x")
@@ -52,7 +52,7 @@ func TestRunbookErrorTableMatchesTheCode(t *testing.T) {
 		}
 		code := gotato.ErrorCode(strings.Trim(strings.TrimSpace(cells[0]), "`"))
 		known := false
-		for _, c := range append(gotato.ErrorCodes(), service.ErrorCodes()...) {
+		for _, c := range append(gotato.ErrorCodes(), host.ErrorCodes()...) {
 			known = known || c == code
 		}
 		if !known {
@@ -79,7 +79,7 @@ func TestRunbookErrorTableMatchesTheCode(t *testing.T) {
 			t.Errorf("%s: the table says exit %s, the tool exits %d", code, cells[4], exitOfCode[code])
 		}
 	}
-	for _, code := range append(gotato.ErrorCodes(), service.ErrorCodes()...) {
+	for _, code := range append(gotato.ErrorCodes(), host.ErrorCodes()...) {
 		if !seen[code] {
 			t.Errorf("RUNBOOK.md has no row for %s", code)
 		}

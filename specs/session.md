@@ -60,27 +60,27 @@ A value that a layer owns is set only through that layer. The table is the whole
 | the prompt cache key | the Runner | `Runner.Fork` | a `gotato.cache_key` key: `ErrReservedKey` |
 | a single-valued option of a live Session | `gotato.Session` | one `WithTranscript`, `WithInstruction`, `WithMaxEffect`, `WithToolFilter`, `WithSampling`, ... | the option given twice: `NewSession` fails, naming it |
 | what a Transcript stores | the Transcript | `Transcript.Capabilities()` | a wrapper that hides the Journal while it says `Durable`: `NewSession` fails |
-| the stored Record | the Runner and its Writer | `CreateSession`, `Run`, `Fork`; they answer values (`RecordInfo`, `Document`) | `Runner.Store()` is gone, and a value returned has no `Set` |
+| the stored Record | the Runner and its Writer | `CreateSession`, `Run`, `Fork`; they answer values (`record.Info`, `record.Document`) | `Runner.Store()` is gone, and a value returned has no `Set` |
 
-Every metadata key that starts with `gotato.` (`service.ReservedPrefix`) is the Runner's. `CreateSession`, `RunRequest.Metadata`, `RunRequest.Update` and `POST /v1/sessions` refuse it, so a remote caller cannot replace an instruction, move a ceiling or switch an Agent through metadata. The application's own keys are free. A Transcript declares what it can do in `Capabilities` (an ID, a Journal, whether its Events are durable, whether a large Tool Result is spilled, an EventSource and loaded Tools); one that stores must declare all of the parts a store needs, and `NewSession` refuses a Transcript that does not, so a wrapper that loses durability fails at construction and not weeks later.
+Every metadata key that starts with `gotato.` (`host.ReservedPrefix`) is the Runner's. `CreateSession`, `RunRequest.Metadata`, `RunRequest.Update` and `POST /v1/sessions` refuse it, so a remote caller cannot replace an instruction, move a ceiling or switch an Agent through metadata. The application's own keys are free. A Transcript declares what it can do in `Capabilities` (an ID, a Journal, whether its Events are durable, whether a large Tool Result is spilled, an EventSource and loaded Tools); one that stores must declare all of the parts a store needs, and `NewSession` refuses a Transcript that does not, so a wrapper that loses durability fails at construction and not weeks later.
 
 ## Agent profiles and task specs
 
-The Agent in the picture above is, in code, a `profile.AgentProfile`, held by a `profile.Registry` that the host gives the Runner. This diagram shows where a Session's AgentProfile comes from ([decision 044](../plan/decisions/044-an-agent-profile-and-a-task-spec-are-registered-inline-or-from-a-store.md)). The package `profile` is optional and sits between `service` and `session`: it imports no `service`, and the core runs without it.
+The Agent in the picture above is, in code, a `profile.AgentProfile`, held by a `profile.Registry` that the host gives the Runner. This diagram shows where a Session's AgentProfile comes from ([decision 044](../plan/decisions/044-an-agent-profile-and-a-task-spec-are-registered-inline-or-from-a-store.md)). The package `profile` is optional and sits between `host` and `store`: it imports no `host`, and the core runs without it.
 
 ```text
- service.Config{Profiles, DefaultAgent, Warm, TimeAwayAfter}
+ host.Config{Profiles, DefaultAgent, Warm, TimeAwayAfter}
    │ asks the Registry by name, each time a Session is built
    ▼
  profile.Registry
    ├─ inline:     a Go value
-   └─ from store: session.Definitions ─▶ document ─▶ resolved through the Catalog
+   └─ from store: store.Definitions ─▶ document ─▶ resolved through the Catalog
    ▼
  AgentProfile  ◀── narrowed by ── TaskSpec (checked by TaskSpec.Narrow)
 ```
 
 - **Two definitions.** An AgentProfile is a kind of Agent: name, instruction, model, Tools and ToolSets, Effect cap, Sampling, compaction parts, limits, a Run timeout and, optionally, its own ReadBack. A TaskSpec is a job that runs again: a name, its AgentProfile, a Background and bounds that only narrow it. How the host keeps Sessions (`Config.Warm`, `Config.TimeAwayAfter`) is the host's setting and not a profile's.
-- **Four registrations.** `RegisterAgentProfileInline(p)` and `RegisterTaskSpecInline(t)` register a value; `RegisterAgentProfileWithStore(name, defs)` and `RegisterTaskSpecWithStore(name, defs)` register a name whose document is read from a `session.Definitions` at each lookup. Each name is registered once and a later registration replaces. There is no fallback store: a row that is not registered by name is not a definition.
+- **Four registrations.** `RegisterAgentProfileInline(p)` and `RegisterTaskSpecInline(t)` register a value; `RegisterAgentProfileWithStore(name, defs)` and `RegisterTaskSpecWithStore(name, defs)` register a name whose document is read from a `store.Definitions` at each lookup. Each name is registered once and a later registration replaces. There is no fallback store: a row that is not registered by name is not a definition.
 - **Stored documents are data only.** A document names a model, Tools and ToolSets, and holds numbers and text; the `profile.Catalog` the service fills with its Go models, Tools and ToolSets resolves the names. A stored definition selects what the code offers and never adds to it. Values that are Go code (Extensions, ToolSources, the parts of `Compact`) are set inline.
 - **Narrowing.** After a value is resolved, inline or stored, `TaskSpec.Narrow` refuses a spec that widens its profile (a Tool or ToolSet the profile lacks, a higher Effect cap, a longer timeout, a higher `MaxTokens`) and a name the Catalog lacks. Its other Sampling fields may differ.
 - **Lookup per build.** A Session looks its AgentProfile up by name each time it is built, so a replaced profile reaches new and rebuilt Sessions and never a Run in flight. `Config.DefaultAgent` names the one a request that names none runs; an unknown name is `ErrUnknownAgent`.

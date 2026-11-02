@@ -8,9 +8,9 @@ import (
 	"time"
 
 	"github.com/jinhuang712/gotato/gotato"
+	"github.com/jinhuang712/gotato/host"
 	"github.com/jinhuang712/gotato/profile"
-	"github.com/jinhuang712/gotato/service"
-	"github.com/jinhuang712/gotato/session"
+	"github.com/jinhuang712/gotato/store"
 	"github.com/jinhuang712/gotato/testkit"
 )
 
@@ -38,19 +38,19 @@ func (m *holdModel) Config() gotato.ModelConfig { return gotato.ModelConfig{} }
 // CLI's, which advertises an address, and returns a function that ends it.
 func outsideRun(t *testing.T, h *harness, id, address string) func() {
 	t.Helper()
-	store, err := session.NewFileStore(filepath.Join(h.home, "sessions"))
+	st, err := store.NewFileStore(filepath.Join(h.home, "sessions"))
 	if err != nil {
 		t.Fatal(err)
 	}
 	model := &holdModel{started: make(chan struct{}, 1), release: make(chan struct{})}
-	runner, err := service.New(withAgents(service.Config{Store: session.Store{Records: store, Liveness: store}, Instance: "outside", Address: address}, []profile.AgentProfile{{Name: "echo", Model: model}}...))
+	runner, err := host.New(withAgents(host.Config{Store: store.Store{Records: st, Liveness: st}, Instance: "outside", Address: address}, []profile.AgentProfile{{Name: "echo", Model: model}}...))
 	if err != nil {
 		t.Fatal(err)
 	}
 	done := make(chan struct{})
 	go func() {
 		defer close(done)
-		_, _ = runner.Run(context.Background(), service.RunRequest{SessionID: id, Prompt: "hello"})
+		_, _ = runner.Run(context.Background(), host.RunRequest{SessionID: id, Prompt: "hello"})
 	}()
 	select {
 	case <-model.started:

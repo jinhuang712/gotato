@@ -6,7 +6,7 @@ import (
 	"testing"
 
 	"github.com/jinhuang712/gotato/gotato"
-	"github.com/jinhuang712/gotato/session"
+	"github.com/jinhuang712/gotato/record"
 	"github.com/jinhuang712/gotato/testkit"
 )
 
@@ -31,16 +31,16 @@ type hidingWrapper struct{ gotato.Transcript }
 // Loaded Tools a store needs; one that does not is refused at NewSession, naming
 // what it lacks, not found out weeks later as a Session that stores less.
 func TestNewSessionRefusesDurableWithoutJournalEventsAndLoaded(t *testing.T) {
-	record := session.New()
+	rec := record.New()
 	cases := []struct {
 		name    string
 		caps    gotato.Capabilities
 		missing string
 	}{
 		{"nothing", gotato.Capabilities{Durable: true}, "Journal, Events, Loaded"},
-		{"no Journal", gotato.Capabilities{Durable: true, Events: record, Loaded: record}, "Journal"},
-		{"no Events", gotato.Capabilities{Durable: true, Journal: record, Loaded: record}, "Events"},
-		{"no Loaded", gotato.Capabilities{Durable: true, Journal: record, Events: record}, "Loaded"},
+		{"no Journal", gotato.Capabilities{Durable: true, Events: rec, Loaded: rec}, "Journal"},
+		{"no Events", gotato.Capabilities{Durable: true, Journal: rec, Loaded: rec}, "Events"},
+		{"no Loaded", gotato.Capabilities{Durable: true, Journal: rec, Events: rec}, "Loaded"},
 	}
 	for _, c := range cases {
 		t.Run(c.name, func(t *testing.T) {
@@ -63,7 +63,7 @@ func TestNewSessionRefusesAWrapperThatHidesTheJournalWhileDurable(t *testing.T) 
 	}
 
 	// A wrapper that embeds the concrete type forwards every part, and is accepted.
-	forwarding := struct{ *session.Record }{session.New()}
+	forwarding := struct{ *record.Record }{record.New()}
 	s, err := gotato.NewSession(context.Background(), gotato.WithModel(testkit.EchoModel{}), gotato.WithTranscript(forwarding))
 	if err != nil {
 		t.Fatal(err)

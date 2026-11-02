@@ -23,7 +23,7 @@ RuntimeError
 └─────────────────────────────────────────────────────┘
 ```
 
-The codes are two lists. `gotato.ErrorCodes()` lists the core's, and `service.ErrorCodes()` the five only a Runner makes: `not_writer`, `draining`, `overloaded`, `cannot_resume` and `already_exists` ([decision 048](../plan/decisions/048-the-runner-and-the-session-are-built-from-parts-and-host-plumbing-is-internal.md)). Their strings, their JSON and their HTTP statuses did not change. A layer that maps every code, a transport or a CLI, ranges over both. `gotato.ErrorOf` knows the defaults of the core's codes only; the service says for its own that draining, overloaded and not_writer are not run and retryable.
+The codes are two lists. `gotato.ErrorCodes()` lists the core's, and `host.ErrorCodes()` the five only a Runner makes: `not_writer`, `draining`, `overloaded`, `cannot_resume` and `already_exists` ([decision 048](../plan/decisions/048-the-runner-and-the-session-are-built-from-parts-and-host-plumbing-is-internal.md)). Their strings, their JSON and their HTTP statuses did not change. A layer that maps every code, a transport or a CLI, ranges over both. `gotato.ErrorOf` knows the defaults of the core's codes only; the service says for its own that draining, overloaded and not_writer are not run and retryable.
 
 `NotRun` and `Retryable` are separate on purpose. A 404 did not run, yet it fails the same everywhere, so it is not worth sending again. A transient model failure did run, so it is retryable but not safe to send to another Instance blindly. The codes whose answer is the same wherever they are made get it by default; any other error gets its answer from the place that knows better. Both functions look through wrapped errors.
 
@@ -84,7 +84,7 @@ A tool is something the model uses, so its failure is information for the model,
 
 ## How HTTP and the CLI translate
 
-Each surface keeps one table from code to its own form, and a test fails when a code is missing.
+Each surface keeps one table from code to its own form, and a test fails when a code is missing. HTTP is the optional `adapter/http` module and the CLI is `internal/cmd/gotato`.
 
 ```text
  RuntimeError ──▶ HTTP   status from the code (one table)

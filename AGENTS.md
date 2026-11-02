@@ -24,18 +24,18 @@ These documents are the single source of truth for Gotato's design. PROPOSAL to 
 
 - **Never introduce `sub-agent`, `ChildAgent`, `SupervisorAgent`, `WorkerAgent`, or any role as a Gotato runtime type.** There are only agents. Roles are application composition.
 - **Keep Agent identity flat.** Roles, hierarchy, and lineage belong to applications, stored in `Session.Metadata`.
-- **Keep Agent, Session, Transcript and Context separate.** An Agent is a definition; a Session runs it and commits to its Transcript; the model receives the output of a `ContextBuilder` (the Context). Model input is always a built value, separate from the full history. In code, the Agent is `profile.AgentProfile`, the live Session `gotato.Session` and its Record `session.Record`; GLOSSARY.md maps every term.
+- **Keep Agent, Session, Transcript and Context separate.** An Agent is a definition; a Session runs it and commits to its Transcript; the model receives the output of a `ContextBuilder` (the Context). Model input is always a built value, separate from the full history. In code, the Agent is `profile.AgentProfile`, the live Session `gotato.Session` and its Record `record.Record`; GLOSSARY.md maps every term.
 - **Keep Session generic.** Task graphs, project state, worktrees, and product workflow live in `Metadata`.
 - **Keep Context as model-view construction**, built from the Transcript on every Turn.
 - **Preserve library-first use.** A small `main` must be able to build an agent with a fake model and run it in-process, with server, daemon, and database all optional.
-- **Keep the service on top.** `service` and `service/httpapi` turn the runtime into a service by composing it; Agent semantics stay in the runtime. `adapter/mcp` is the other adapter: it supplies an MCP server's tools as a `ToolSet`. `adapter/mcp` is a Go module of its own, with a `replace` to the root. Core and standard runtime packages must never import it. `examples/larkbot` is a Go module of its own too, an application (a Lark chat bot and a local-cluster harness) that imports the root module and the adapters through `replace`; nothing imports it.
+- **Keep the service on top.** `host` and `adapter/http` turn the runtime into a service by composing it; Agent semantics stay in the runtime. `adapter/http` is the HTTP API over `host`, and `adapter/mcp` is the other adapter: it supplies an MCP server's tools as a `ToolSet`. Each adapter is a Go module of its own, with a `replace` to the root. Core and standard runtime packages must never import an adapter. `examples/larkbot` is a Go module of its own too, an application (a Lark chat bot and a local-cluster harness) that imports the root module and the adapters through `replace`; nothing imports it.
 - **UI lives in applications.** Gotato has no human-facing surface of its own; widgets, TUIs, and desktop state belong to the applications above it.
-- **The CLI is our test tool, not a deliverable.** `internal/cmd/gotato` is a thin client of the packages: it carries no runtime logic, so it tests the library's real behavior. If the CLI needs a behavior, add it to a package first. It promises no contract: its flags, JSON fields and exit codes are not versioned.
+- **The CLI is our test tool, not a deliverable.** `internal/cmd/gotato` is a thin client of the packages, and a Go module of its own because `serve` needs `adapter/http`: it carries no runtime logic, so it tests the library's real behavior. If the CLI needs a behavior, add it to a package first. It promises no contract: its flags, JSON fields and exit codes are not versioned.
 - **Prefer ordinary Go** over framework machinery: options functions, interfaces, channels, `context.Context`.
 - **Preserve `context.Context` cancellation** through every model call, tool call, storage call, and stream.
-- **Keep the package layout** (guides/packages.md shows the tree). The module root holds no Go code: it holds the documents, `specs/` and `plan/` (with `plan/decisions/`), and the module files, and `gotato/layering_test.go` fails when a `.go` file appears there. A directory's name is its package's name, so no import needs an alias. A test-helper package sits next to what it tests, like `net/http/httptest`: `session/storetest` beside `session`.
-- **Keep dependencies layered** ([decision 010](plan/decisions/010-gotato-is-a-light-library-with-a-versioned-contract.md)). The core package imports only the standard library and the shared packages of `internal/`: it lives in `gotato/`, so code reads `gotato.NewSession`. `session`, `modelctx`, `testkit` import the core. `profile` (the AgentProfiles and TaskSpecs a host registers) imports `session` and `modelctx`, and sits between them and `service`: service -> profile -> session (and modelctx) -> gotato, and `profile` imports no `service`. Providers and the service layer import inward. `gotato/layering_test.go` enforces this; keep it passing.
-- **`internal/` holds two kinds of package.** Shared packages (today only `internal/text`) import the standard library only, and any shipped package, the core included, may import them; `gotato/layering_test.go` lists them. Our test tools (`internal/reftasks`, `internal/workload`, `internal/fakegateway`, `internal/cmd/...`) are imported by no shipped package.
+- **Keep the package layout** (guides/packages.md shows the tree). The module root holds no Go code: it holds the documents, `specs/` and `plan/` (with `plan/decisions/`), and the module files, and `gotato/layering_test.go` fails when a `.go` file appears there. A directory's name is its package's name, so no import needs an alias, except `adapter/http`, whose package is named `http` like `net/http`: a program that imports both imports it as `httpapi "github.com/jinhuang712/gotato/adapter/http"`. A test-helper package sits next to what it tests, like `net/http/httptest`: `store/storetest` beside `store`.
+- **Keep dependencies layered** ([decision 010](plan/decisions/010-gotato-is-a-light-library-with-a-versioned-contract.md)). The core package imports only the standard library, `ref` and the shared packages of `internal/`: it lives in `gotato/`, so code reads `gotato.NewSession`. Each package is one layer named for its job, and imports only the layers below it: `host` -> `profile` -> `store` -> `record` -> `gotato` -> `ref`. `store` imports `record`, never the reverse. `profile` (the AgentProfiles and TaskSpecs a host registers) sits between `host` and `store` and imports no `host`. `model` (the bridge to a model), `testkit` and the adapters (`adapter/http`, `adapter/mcp`) sit beside the layers and import down; no layer imports them. `gotato/layering_test.go` enforces this; keep it passing.
+- **`internal/` holds two kinds of package.** Shared packages (today `internal/text` and `internal/hostlink`) import the standard library only, and any shipped package, the core included, may import them; `gotato/layering_test.go` lists them. Our test tools (`internal/reftasks`, `internal/workload`, `internal/fakegateway`, `internal/cmd/...`) are imported by no shipped package.
 - **Prefer the standard library.** Add a dependency only after checking that the standard library or a smaller solution falls short. The root module depends only on `gopkg.in/yaml.v3` (used by `internal/cmd/gatewayconf`, the test tools' gateway file; no shipped package imports it).
 
 ## Naming
@@ -46,15 +46,15 @@ Exported names follow one set of rules, so a reader can guess a name before look
 |---|---|
 | American spelling, in Go names and in wire strings alike | `canceled`, as in `context.Canceled` |
 | One verb per action, the glossary's | a Run is stopped with `Abort` |
-| An error code is `Code…` of type `ErrorCode`; a sentinel error is `Err…` and carries a code; a code's name matches its string | `gotato.CodeBusy` is `"busy"`; `service.ErrBusy` has it |
-| A type or method is named as the glossary names the thing | a method that returns a `session.Record` is called `Record` |
+| An error code is `Code…` of type `ErrorCode`; a sentinel error is `Err…` and carries a code; a code's name matches its string | `gotato.CodeBusy` is `"busy"`; `host.ErrBusy` has it |
+| A type or method is named as the glossary names the thing | a method that returns a `record.Record` is called `Record` |
 | A constant is prefixed with the name of its type | `RunStatusRunning`, `ToolEffectRead` |
-| A struct of settings is a `Config` or a `Policy`, never `Options`; a function type that configures is an `Option`, prefixed when a package has two | `CompactPolicy`, `session.WriterOption` |
-| `Load` reads from a store or a path, `Parse` from bytes, `From…` builds from a value in memory | `gatewayconf.Load(path)`, `session.FromDocument(doc)` |
+| A struct of settings is a `Config` or a `Policy`, never `Options`; a function type that configures is an `Option`, prefixed when a package has two | `CompactPolicy`, `store.WriterOption` |
+| `Load` reads from a store or a path, `Parse` from bytes, `From…` builds from a value in memory | `gatewayconf.Load(path)`, `record.FromDocument(doc)` |
 | A boolean method is the adjective with no `Is` (`Retryable()`, `Durable()`); a noun keeps `Is` (`IsCheckpoint()`), as the standard library does | `Durable()`, `IsCheckpoint()` |
 | An Event type is a past participle; a stream piece is a `…Delta`, and `ToolProgress` is the one other noun | `RunStarted`, `TextDelta` |
-| A package's main type is built by a bare `New` | `service.New`, `gateway.New` |
-| A package's sentinel errors live in its `errors.go`, in one `var` block; the codes live in `gotato/errors.go` | `service.ErrBusy` in `service/errors.go`, `gotato.CodeBusy` in `gotato/errors.go` |
+| A package's main type is built by a bare `New` | `host.New`, `model.New` |
+| A package's sentinel errors live in its `errors.go`, in one `var` block; the codes live in `gotato/errors.go` | `host.ErrBusy` in `host/errors.go`, `gotato.CodeBusy` in `gotato/errors.go` |
 | Every exported name has a doc comment that starts with its name, which the linter checks | `// RunStarted is published when a Run starts.` |
 | A field that holds a count names its unit: `Tokens`, `Messages` or `Bytes` | `TailTokens`, `KeepMessages`, `TokensBefore` |
 | The reason an Event happened is a `…Why` type and the JSON field `why`; the reason a thing stopped or was asked for is a `…Reason` | `ClaimWhy`, `CompactionWhy`; `StopReason`, `CompactReason` |
@@ -66,11 +66,13 @@ Exported names follow one set of rules, so a reader can guess a name before look
 1. **Inspect before editing.** Read the package, its tests, and the FEATURES.md row you are about to change.
 2. **Focused tests first, then full tests.**
    ```bash
-   go test ./session/...                 # focused
+   go test ./record/... ./store/...       # focused
    gofmt -l . && go vet ./... && go test -race ./...   # full, root module
    golangci-lint run ./...               # 0 issues; config in .golangci.yml
+   (cd adapter/http && gofmt -l . && go vet ./... && go test -race ./... && golangci-lint run ./...)  # when you touched host, or a type the HTTP API uses (host.Runner, record.Info)
    (cd adapter/mcp && gofmt -l . && go vet ./... && go test -race ./... && golangci-lint run ./...)  # when you touched ToolSet, Tool or ToolResult
-   (cd examples/larkbot && gofmt -l . && go vet ./... && go test -race ./... && golangci-lint run ./...)  # when you touched the example, or a type it uses (service.Runner, profile.AgentProfile, ToolSet)
+   (cd internal/cmd/gotato && gofmt -l . && go vet ./... && go test -race ./... && golangci-lint run ./...)  # when you touched the CLI, or a package it drives
+   (cd examples/larkbot && gofmt -l . && go vet ./... && go test -race ./... && golangci-lint run ./...)  # when you touched the example, or a type it uses (host.Runner, profile.AgentProfile, ToolSet)
    ```
 3. **Add regression tests for behavior changes.** A bug fix ships with a test that fails before the fix.
 4. **Use fake/replay models** (`testkit.FakeModel`, `testkit.ReplayModel`) for deterministic tests. Never make a unit test depend on a network provider or a credential.
@@ -118,7 +120,7 @@ When writing or rewriting a project document:
 | a model that replays recorded `ModelEvent`s and fails when exhausted | `testkit.ReplayModel` |
 | a model that answers from the request (shared by agents, racy input order) | `testkit.FuncModel` with `testkit.ToolResults` / `testkit.UserText` |
 | a tool that returns a fixed result / records calls | `testkit.FakeTool` |
-| prove a `session.Records`, `session.Liveness`, `session.Lister` or `session.Definitions` adapter keeps its contract | `storetest.RunRecords`, `RunLiveness`, `RunLister`, `RunDefinitions` in `session/storetest` |
+| prove a `store.Records`, `store.Liveness`, `store.Lister` or `store.Definitions` adapter keeps its contract | `storetest.RunRecords`, `RunLiveness`, `RunLister`, `RunDefinitions` in `store/storetest` |
 | capture every Event of a live Session or a Subscription in order | `testkit.RecordEvents(session)` right after `gotato.NewSession`, or `testkit.RecordSubscription(sub)`; read `Events()`, `Kinds()`, `OfKind(kind)` |
 | a pre-populated Session Record | `testkit.NewRecord("q", "a", ...)` |
 | a provider's wire API and its quirks over HTTP: a refusal as too long (before output and mid-stream), a cut stream, cached tokens, a reasoning replay, a mid-conversation `system`/`developer` message, a slow reply | `fakegateway.New()` in `internal/fakegateway` behind `httptest.NewServer`; quirks by `[quirk:name]` in the last user text or the `X-Fake-Quirk` header; `g.Requests()` records every request; `go run ./internal/fakegateway/cmd/fakegateway` serves it on a port |
@@ -131,7 +133,7 @@ When writing or rewriting a project document:
 A smoke run of the test tool, to see the packages work end to end:
 
 ```bash
-go build -o ./bin/gotato ./internal/cmd/gotato
+(cd internal/cmd/gotato && go build -o ../../../bin/gotato .)   # the CLI is a module of its own
 export GOTATO_HOME=$(mktemp -d)
 ./bin/gotato doctor --json
 id=$(./bin/gotato session create --json | jq -r .id)
@@ -227,6 +229,6 @@ gofmt -l .                        # empty
 go vet ./...                      # clean
 golangci-lint run ./...           # 0 issues
 go test ./...                     # green
-go build -o /dev/null ./internal/cmd/gotato   # CLI builds
+(cd internal/cmd/gotato && go build -o /dev/null .)   # CLI builds (a module of its own)
 docs updated?                     # FEATURES.md / README / package docs
 ```

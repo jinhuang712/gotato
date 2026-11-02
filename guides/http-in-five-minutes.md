@@ -13,7 +13,9 @@ By the end of this page you have a Gotato agent behind an HTTP endpoint, and you
 
 ## 1. Serve a Runner
 
-`httpapi.New` takes a `service.Runner` and returns an `http.Handler`. The whole program is a Store, a Runner and one line of `net/http`.
+`httpapi.New` takes a `host.Runner` and returns an `http.Handler`. The whole program is a Store, a Runner and one line of `net/http`.
+
+The HTTP API is a module of its own, so add it to your module first (see [Install](install.md)): `go get github.com/jinhuang712/gotato/adapter/http`. Its package is named `http`, like `net/http`, so the program imports it as `httpapi`.
 
 ```go
 package main
@@ -23,16 +25,16 @@ import (
 	"net/http"
 	"os"
 
+	httpapi "github.com/jinhuang712/gotato/adapter/http"
 	"github.com/jinhuang712/gotato/gotato"
+	"github.com/jinhuang712/gotato/host"
 	"github.com/jinhuang712/gotato/profile"
-	"github.com/jinhuang712/gotato/service"
-	"github.com/jinhuang712/gotato/service/httpapi"
-	"github.com/jinhuang712/gotato/session"
+	"github.com/jinhuang712/gotato/store"
 	"github.com/jinhuang712/gotato/testkit"
 )
 
 func main() {
-	store, err := session.NewFileStore(os.TempDir() + "/gotato-sessions")
+	st, err := store.NewFileStore(os.TempDir() + "/gotato-sessions")
 	if err != nil {
 		log.Fatal(err)
 	}
@@ -44,8 +46,8 @@ func main() {
 	}); err != nil {
 		log.Fatal(err)
 	}
-	runner, err := service.New(service.Config{
-		Store:        session.Store{Records: store, Liveness: store},
+	runner, err := host.New(host.Config{
+		Store:        store.Store{Records: st, Liveness: st},
 		Profiles:     profiles,
 		DefaultAgent: "default",
 	})
@@ -56,7 +58,7 @@ func main() {
 }
 ```
 
-- The Agent is a definition (a `profile.AgentProfile`, registered by name); every Session you create runs one, the `DefaultAgent` when a request names none. Swap `testkit.DemoModel` for a model from the `gateway` package when you have a provider.
+- The Agent is a definition (a `profile.AgentProfile`, registered by name); every Session you create runs one, the `DefaultAgent` when a request names none. Swap `testkit.DemoModel` for a model from the `model` package when you have a provider.
 - This program has no graceful shutdown. [A minimal main](minimal-main.md) adds it.
 - Authentication, rate limiting and logging are yours: wrap the handler in your own middleware. The handler has none.
 
@@ -75,7 +77,7 @@ curl -s -XPOST localhost:8080/v1/sessions/s1/runs -d '{"prompt":"hello"}'
 - `id` is optional: leave the body as `{}` and Gotato picks one, returned in the body and in the `Session-Id` header.
 - Creating an `id` that is taken answers 409 with the code `already_exists`.
 - `metadata` is yours, except for keys that start with `gotato.`: those belong to the Runner, and a create that sets one answers 400 with the code `invalid_argument` and `not_run`, naming the key, and creates nothing. A Session has no instruction of its own on the wire: it runs the Agent it names (`agent`), and a run body can carry `agent` to change it.
-- `GET /v1/sessions` lists Sessions a page at a time, the most recently updated first: `{"sessions":[...],"next":"..."}`. Send `limit` and, for the next page, `cursor` set to the last `next`; `next` is left out after the last page. It needs a store whose `Records` can list (`session.Lister`; the memory and file stores can), and answers 400 `not_supported` otherwise.
+- `GET /v1/sessions` lists Sessions a page at a time, the most recently updated first: `{"sessions":[...],"next":"..."}`. Send `limit` and, for the next page, `cursor` set to the last `next`; `next` is left out after the last page. It needs a store whose `Records` can list (`store.Lister`; the memory and file stores can), and answers 400 `not_supported` otherwise.
 - The body of a Run is `{"prompt": "..."}` or `{"continue": true}`, with an optional `timeout_ms`. A Run that outlasts it settles as `deadline_exceeded`.
 - The Run holds the request open until it settles. A client that drops the request ends the Run: it settles as `canceled`.
 - Unknown fields in a body are refused with 400, so a typo does not pass quietly.
@@ -144,11 +146,11 @@ curl -s -XPOST localhost:8080/v1/sessions/s1/abort
 
 A Session has one Writer at a time. With several Instances behind a load balancer, a message can reach an Instance that is not the one running the Session. That Instance answers 409 `not_writer` and names the Writer, and nothing ran.
 
-For the Instance to name an address, give each one `service.Config.Address`: where a caller can reach it.
+For the Instance to name an address, give each one `host.Config.Address`: where a caller can reach it.
 
 ```go
-runner, err := service.New(service.Config{
-	Store:        session.Store{Records: store, Liveness: store},
+runner, err := host.New(host.Config{
+	Store:        store.Store{Records: st, Liveness: st},
 	Instance:     "pod-a",                // a label; each start adds a random suffix
 	Address:      "http://10.0.0.7:8080", // advertised in the Liveness row
 	Profiles:     profiles,
@@ -161,7 +163,7 @@ Here is what a second Instance answers while the first runs the Session (a run o
 ```text
 POST pod-b/v1/sessions/ID/messages  {"text":"also check X"}
 409  Gotato-Not-Run: true   Gotato-Retryable: true   Gotato-Writer: http://127.0.0.1:58129
-{"code":"not_writer","message":"not_writer: service: the session's run is going on another instance (http://127.0.0.1:58129)","not_run":true,"retryable":true,"writer":"http://127.0.0.1:58129"}
+{"code":"not_writer","message":"not_writer: host: the session's run is going on another instance (http://127.0.0.1:58129)","not_run":true,"retryable":true,"writer":"http://127.0.0.1:58129"}
 ```
 
 A client can resend to the `Gotato-Writer` address itself. Or the handler forwards the message once, with `WithForwarding`:
@@ -182,7 +184,7 @@ handler := httpapi.New(runner, httpapi.WithForwarding(nil, allow))
 - The address comes from the Store, and anyone who can write that row can name it. A forward goes only to an address for which `allow` returns true; for any other, the answer is `not_writer`, as without forwarding.
 - A nil `allow` forwards nowhere. Pass the check you trust: the host is an IP literal inside your cluster's CIDR (as above; never a string prefix, which `http://10.0.evil.com` passes), or a lookup in your own list of Instances.
 - A forwarded request carries the caller's headers, so your authentication runs at the Writer. It carries `Gotato-Forwarded: true`, and the Writer never forwards it again.
-- Only a message, a notice and an abort are forwarded. A `/runs` request for a Session that another Instance is running does not answer `not_writer`: it waits for that Run to end, for at most `service.Heartbeat.Wait` (5 seconds unless set), then runs on this Instance, or is refused `busy` (409, not run, retryable). Send Runs through your load balancer, which hashes the `session-id` header so every request for one Session reaches one Instance.
+- Only a message, a notice and an abort are forwarded. A `/runs` request for a Session that another Instance is running does not answer `not_writer`: it waits for that Run to end, for at most `host.Heartbeat.Wait` (5 seconds unless set), then runs on this Instance, or is refused `busy` (409, not run, retryable). Send Runs through your load balancer, which hashes the `session-id` header so every request for one Session reaches one Instance.
 
 With forwarding on, the same message to the second Instance answers the Writer's own `202 {"session_id":...,"queued":true}`.
 
@@ -215,7 +217,7 @@ A client or load balancer sends a request to another Instance when both headers 
 ```text
 POST /v1/sessions/ID/runs  {"prompt":"again"}
 503  Gotato-Not-Run: true   Gotato-Retryable: true
-{"code":"draining","message":"draining: service: draining","not_run":true,"retryable":true}
+{"code":"draining","message":"draining: host: draining","not_run":true,"retryable":true}
 ```
 
 [RUNBOOK.md](../RUNBOOK.md) has the table of every code with its status.
@@ -224,4 +226,4 @@ POST /v1/sessions/ID/runs  {"prompt":"again"}
 
 - Shut down in order, and keep a Run safe through a deploy: [A minimal main](minimal-main.md).
 - Test a handler and a Runner without a provider: [Test with fakes](test-with-fakes.md).
-- The route table and the rules of a stream: the package comment of [`service/httpapi`](../service/httpapi/handler.go).
+- The route table and the rules of a stream: the package comment of [`adapter/http`](../adapter/http/handler.go).

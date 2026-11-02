@@ -25,7 +25,7 @@ const (
 	CodeModelFailure   ErrorCode = "model_failure"
 	// CodeContextOverflow means the Model refused a request as longer than its
 	// context window. A Model reports it by returning an error with a
-	// `ContextOverflow() bool` method that answers true, as the gateway's
+	// `ContextOverflow() bool` method that answers true, as model.Error's
 	// Error does; any other Model failure is CodeModelFailure. A request
 	// refused before any output is compacted and sent again once. A reply
 	// that overflows after some text ends the Run with this code and keeps the
@@ -54,14 +54,14 @@ const (
 	CodeStoreFailure ErrorCode = "store_failure"
 	// CodeNotFound means the Session (or the Record it names) does not exist.
 	// The request did not run, and sending it again changes nothing.
-	// session.ErrNotFound carries it.
+	// record.ErrNotFound carries it.
 	CodeNotFound ErrorCode = "not_found"
 )
 
 // ErrorCodes lists every ErrorCode of the core, so a layer that maps codes (a
 // transport, a CLI) can check that it maps each one. A new code is added here
-// too; a test fails when it is not. The codes of the service, which only a
-// Runner makes, are service.ErrorCodes.
+// too; a test fails when it is not. The codes of package host, which only a
+// Runner makes, are host.ErrorCodes.
 func ErrorCodes() []ErrorCode {
 	return []ErrorCode{
 		CodeInvalidArgument, CodeInvalidState, CodeBusy, CodeSessionClosed, CodeSessionClosing,
@@ -147,8 +147,8 @@ func runtimeError(code ErrorCode, operation, message string, cause error) *Runti
 //	store_failure    unknown  yes
 //
 // Any other code is neither: it is set by the place that knows better, such
-// as a model failure the provider calls retryable. The codes of the service
-// (draining, overloaded, not_writer) are set where the service makes them.
+// as a model failure the provider calls retryable. The codes of package host
+// (draining, overloaded, not_writer) are set where the host package makes them.
 func (e *RuntimeError) applyDefaults() {
 	switch e.Code {
 	case CodeBusy:
@@ -176,7 +176,7 @@ func Retryable(err error) bool {
 	return errors.As(err, &re) && re != nil && re.Retryable
 }
 
-// ErrorOf builds a typed error for a layer outside Core. The service layer,
+// ErrorOf builds a typed error for a layer outside Core. The host package,
 // protocol adapters, and applications classify their own failures with the
 // same codes so a caller reads one error vocabulary across the whole boundary.
 func ErrorOf(code ErrorCode, message string) *RuntimeError {
@@ -202,10 +202,10 @@ var (
 	// ErrEventsLost ends a Subscription that needs Events its source no longer
 	// holds.
 	//
-	// Its code is cannot_resume, which is also the code of a stream the service
-	// cannot resume (service.CodeCannotResume): the same string, so a transport
-	// answers both alike. The core states it as a string because the code is the
-	// service's.
+	// Its code is cannot_resume, which is also the code of a stream the host
+	// cannot resume (host.CodeCannotResume): the same string, so a transport
+	// answers both alike. The core states it as a string because the code is
+	// the host's.
 	ErrEventsLost = ErrorOf(ErrorCode("cannot_resume"), "gotato: the Events this subscriber missed are no longer available")
 )
 
@@ -264,7 +264,7 @@ func classifyModelError(err error, runCtx, modelCtx context.Context, limit time.
 	// [SECURITY] a Model's error can carry a host, a query or a secret, and Message reaches clients.
 	failure := runtimeError(CodeModelFailure, "Model", PublicText(err, "model call failed"), err)
 	// A Model that knows the failure is transient (a rate limit, an overload,
-	// a broken stream) says so with `Retryable() bool`, as the gateway's
+	// a broken stream) says so with `Retryable() bool`, as model.Error's
 	// Error does. The Model was called, so the request is not "not run".
 	var transient interface{ Retryable() bool }
 	// [FAILURE-CLASS] a Model failure is Retryable only when the Model says so.

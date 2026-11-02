@@ -39,7 +39,7 @@ type Transcript interface {
 // Events and Loaded: a Session that stores must be able to number, read back and
 // restore what it stores.
 type Capabilities struct {
-	// ID is the Session's ID when not empty, as a session.Record's is; the
+	// ID is the Session's ID when not empty, as a record.Record's is; the
 	// Session generates one otherwise.
 	ID string
 	// Journal keeps the Session's Events, numbered, as the Entries of its
@@ -48,7 +48,7 @@ type Capabilities struct {
 	// Durable says the Events the Journal keeps are stored, so they survive
 	// the process, and a Session writes the parts of a streaming reply, which
 	// exist so that a crash loses at most the last of them. It may change
-	// during the Transcript's life: a session.Record is not durable until it is
+	// during the Transcript's life: a record.Record is not durable until it is
 	// stored.
 	Durable bool
 	// Spill says the Journal keeps the Entries it writes, so the body of a
