@@ -111,7 +111,7 @@ func TestRunEventsJSONLStreamsThenResult(t *testing.T) {
 		if i == 0 && event.Kind() != gotato.EventKindSessionCreated {
 			t.Fatalf("first line kind = %s, want session_created", event.Kind())
 		}
-		if event.Kind().Class() == gotato.EventClassInstance {
+		if event.Class() == gotato.EventClassInstance {
 			t.Fatalf("line %d is the Instance Event %s", i, event.Kind())
 		}
 	}

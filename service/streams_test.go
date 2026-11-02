@@ -358,7 +358,7 @@ func TestSessionStreamHasNoGapAfterAnotherInstanceWrote(t *testing.T) {
 		if err != nil {
 			t.Fatalf("after %d: %v", prev, err)
 		}
-		if event.Kind().Class() != gotato.EventClassStored {
+		if event.Class() != gotato.EventClassStored {
 			continue
 		}
 		if number := event.Head().Number; number != prev+1 {
@@ -425,7 +425,7 @@ func TestOpenStreamEndsWhenItsSessionIsCreatedAgain(t *testing.T) {
 					}
 					return
 				}
-				if event.Kind().Class() == gotato.EventClassStored {
+				if event.Class() == gotato.EventClassStored {
 					t.Fatalf("the stream delivered Event %d (%s) of the Record created again", event.Head().Number, event.Kind())
 				}
 			}

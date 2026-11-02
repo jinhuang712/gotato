@@ -180,7 +180,7 @@ func (f *Feed) PublishLabeled(event Event, label string) {
 		f.mu.Unlock()
 		return
 	}
-	if !f.mixed && event.Kind().Class() == EventClassStored {
+	if !f.mixed && event.Class() == EventClassStored {
 		if number := event.Head().Number; number > f.last {
 			f.last = number
 		}

@@ -281,7 +281,7 @@ func TestSSEClientThatStopsReadingDoesNotSlowTheRun(t *testing.T) {
 		if err != nil {
 			t.Fatalf("bad event %q: %v", data, err)
 		}
-		if event.Kind().Class() == gotato.EventClassStored {
+		if event.Class() == gotato.EventClassStored {
 			got = append(got, fmt.Sprintf("%s#%d", event.Kind(), event.Head().Number))
 		}
 	}

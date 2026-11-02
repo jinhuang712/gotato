@@ -225,7 +225,7 @@ func (s *subscription) offer(event Event, label string) {
 	if s.ending && !s.behind {
 		return
 	}
-	class := event.Kind().Class()
+	class := event.Class()
 	stored := class == EventClassStored && !s.feed.mixed
 	if s.behind {
 		// A stored Event is read again from the Record; a delta is skipped.
@@ -257,7 +257,7 @@ func (s *subscription) offer(event Event, label string) {
 		// Make room by dropping the oldest delta; only deltas may be skipped.
 		dropped := false
 		for i, queued := range s.queue {
-			if queued.Kind().Class() == EventClassDelta {
+			if queued.Class() == EventClassDelta {
 				s.queue = append(s.queue[:i], s.queue[i+1:]...)
 				dropped = true
 				break

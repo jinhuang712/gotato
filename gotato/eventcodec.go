@@ -6,12 +6,27 @@ import (
 	"fmt"
 )
 
-// MarshalEvent encodes an Event as one flat JSON object whose "kind" names
-// its type.
-func MarshalEvent(event Event) ([]byte, error) { return json.Marshal(event) }
+// MarshalEvent encodes any Event as one flat JSON object whose "kind" names its
+// type. An Event type of Gotato writes its own kind; a type of another package,
+// which embeds Header and states its Kind and Class, needs no MarshalJSON: the
+// kind is written first, followed by its fields. UnmarshalEvent reads the
+// kinds of this package back as their types, and any other as an UnknownEvent,
+// which MarshalEvent writes as it was read, so the JSON of an Event of another
+// package round-trips unchanged.
+func MarshalEvent(event Event) ([]byte, error) {
+	if event == nil {
+		return nil, fmt.Errorf("gotato: encode Event: nil Event")
+	}
+	if _, writesItsKind := event.(json.Marshaler); writesItsKind {
+		return json.Marshal(event)
+	}
+	return marshalKind(event.Kind(), event)
+}
 
-// UnmarshalEvent decodes the JSON that MarshalEvent wrote. A kind this
-// version does not know comes back as an UnknownEvent.
+// UnmarshalEvent decodes the JSON that MarshalEvent wrote. A kind this package
+// does not know, whether a later version adds it or another package defines it
+// (the service's Instance Events, an Event of a host's own), comes back as an
+// UnknownEvent.
 func UnmarshalEvent(data []byte) (Event, error) {
 	var probe struct {
 		Kind EventKind `json:"kind"`
@@ -65,6 +80,11 @@ type UnknownEvent struct {
 
 // Kind implements Event.
 func (e UnknownEvent) Kind() EventKind { return e.EventKind }
+
+// Class implements Event. An Event of an unknown kind has no class that can be
+// read from its JSON, so it is the empty class: not stored, not a delta, and
+// not an Instance Event.
+func (UnknownEvent) Class() EventClass { return "" }
 
 // MarshalJSON writes the Event as it was read.
 func (e UnknownEvent) MarshalJSON() ([]byte, error) {

@@ -2,6 +2,7 @@ package gotato_test
 
 import (
 	"context"
+	"encoding/json"
 	"runtime"
 	"strings"
 	"sync"
@@ -200,15 +201,98 @@ func TestRequeueIntoAClosedSessionReturnsEveryMessage(t *testing.T) {
 	}
 }
 
-// appEvent is an Event defined outside the core: embedding Header is enough.
-type appEvent struct{ gotato.Header }
+// appEvent is an Event defined outside the core: it embeds Header and states
+// its own Kind and Class, and needs no MarshalJSON.
+type appEvent struct {
+	gotato.Header
+	Tenant string `json:"tenant"`
+	Count  int    `json:"count,omitempty"`
+}
 
-func (appEvent) Kind() gotato.EventKind { return "app_event" }
+func (appEvent) Kind() gotato.EventKind   { return "app_event" }
+func (appEvent) Class() gotato.EventClass { return gotato.EventClassInstance }
+
+// A delta of another package says it is one, whatever its kind is called.
+type appDelta struct{ gotato.Header }
+
+func (appDelta) Kind() gotato.EventKind   { return "app_delta" }
+func (appDelta) Class() gotato.EventClass { return gotato.EventClassDelta }
 
 func TestAnEventTypeOutsideTheCoreEmbedsHeader(t *testing.T) {
 	var event gotato.Event = appEvent{}
-	if event.Kind() != "app_event" {
-		t.Fatal("kind")
+	if event.Kind() != "app_event" || event.Class() != gotato.EventClassInstance {
+		t.Fatalf("kind %q class %q", event.Kind(), event.Class())
+	}
+	if (appDelta{}).Class() != gotato.EventClassDelta {
+		t.Fatal("a type states its own class, not its kind's")
+	}
+}
+
+// MarshalEvent writes the kind of any Event, with no MarshalJSON of its own,
+// and UnmarshalEvent reads it back as an UnknownEvent that writes the same
+// bytes again.
+func TestAnEventOfAnotherPackageRoundTrips(t *testing.T) {
+	original := appEvent{Header: gotato.NewHeader("s-1", "r-1", 2), Tenant: "acme", Count: 3}
+	original.Number = 7
+	data, err := gotato.MarshalEvent(original)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var flat map[string]any
+	if err := json.Unmarshal(data, &flat); err != nil {
+		t.Fatalf("%s: %v", data, err)
+	}
+	if flat["kind"] != "app_event" || flat["tenant"] != "acme" || flat["count"] != float64(3) || flat["session_id"] != "s-1" || flat["number"] != float64(7) {
+		t.Fatalf("MarshalEvent wrote %s, want a flat object with the kind first, the Header's and the type's fields", data)
+	}
+	if !strings.HasPrefix(string(data), `{"kind":"app_event",`) {
+		t.Fatalf("the kind is not the first key: %s", data)
+	}
+
+	back, err := gotato.UnmarshalEvent(data)
+	if err != nil {
+		t.Fatal(err)
+	}
+	unknown, ok := back.(gotato.UnknownEvent)
+	if !ok || unknown.Kind() != "app_event" || unknown.Head().SessionID != "s-1" || unknown.Head().Number != 7 {
+		t.Fatalf("UnmarshalEvent = %#v, want an UnknownEvent with the kind and the Header", back)
+	}
+	if unknown.Class() != "" {
+		t.Fatalf("an UnknownEvent has class %q: its JSON does not say", unknown.Class())
+	}
+	again, err := gotato.MarshalEvent(back)
+	if err != nil || string(again) != string(data) {
+		t.Fatalf("round trip = %s (%v), want %s", again, err, data)
+	}
+
+	// An Event of the core still writes its own kind, once.
+	core, err := gotato.MarshalEvent(gotato.TurnStarted{Header: gotato.NewHeader("s", "r", 1)})
+	if err != nil || strings.Count(string(core), `"kind"`) != 1 || !strings.Contains(string(core), `"kind":"turn_started"`) {
+		t.Fatalf("a core Event = %s (%v)", core, err)
+	}
+	if _, err := gotato.MarshalEvent(nil); err == nil {
+		t.Fatal("MarshalEvent(nil) returned no error")
+	}
+}
+
+// A Feed sorts an Event of another package by the class the Event states.
+func TestAFeedHonoursTheClassAnEventStates(t *testing.T) {
+	feed := gotato.NewInstanceFeed()
+	defer feed.Close()
+	sub, err := feed.Subscribe(context.Background())
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer func() { _ = sub.Close() }()
+	feed.Publish(appEvent{Header: gotato.NewHeader("", "", 0), Tenant: "acme"})
+	feed.Publish(appDelta{Header: gotato.NewHeader("", "", 0)})
+	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
+	defer cancel()
+	for _, want := range []gotato.EventKind{"app_event", "app_delta"} {
+		event, err := sub.Next(ctx)
+		if err != nil || event.Kind() != want {
+			t.Fatalf("Next = %v, %v, want %s", event, err, want)
+		}
 	}
 }
 

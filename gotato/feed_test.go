@@ -71,7 +71,7 @@ func TestSlowSubscriberCatchesUpFromTheRecord(t *testing.T) {
 		default:
 		}
 		event := next(t, sub)
-		if event.Kind().Class() == EventClassStored {
+		if event.Class() == EventClassStored {
 			stored = append(stored, event.Head().Number)
 		}
 	}

@@ -43,9 +43,6 @@ func TestEventJSONIsFlatAndRoundTrips(t *testing.T) {
 
 // Every kind round-trips through JSON as its own type, and names itself.
 func TestEveryKindDecodesToItsType(t *testing.T) {
-	if len(eventDecoders) != len(eventClasses) {
-		t.Fatalf("%d decoders for %d classes", len(eventDecoders), len(eventClasses))
-	}
 	for kind, decode := range eventDecoders {
 		event, err := decode([]byte(`{"time":"2026-10-18T00:00:00Z"}`))
 		if err != nil {
@@ -58,8 +55,10 @@ func TestEveryKindDecodesToItsType(t *testing.T) {
 		if err != nil || !strings.Contains(string(data), `"kind":"`+string(kind)+`"`) {
 			t.Errorf("%s marshals as %s (%v)", kind, data, err)
 		}
-		if kind.Class() == "" {
-			t.Errorf("%s has no class", kind)
+		switch event.Class() {
+		case EventClassStored, EventClassDelta, EventClassInstance:
+		default:
+			t.Errorf("%s has class %q, want one of the three", kind, event.Class())
 		}
 	}
 }
@@ -103,7 +102,7 @@ func TestReasoningDeltaIsSentNotStored(t *testing.T) {
 	for _, event := range seen.events() {
 		if e, ok := event.(ReasoningDelta); ok {
 			text = append(text, e.Text)
-			if e.Kind().Class() != EventClassDelta || e.MessageID == "" {
+			if e.Class() != EventClassDelta || e.MessageID == "" {
 				t.Fatalf("ReasoningDelta = %+v", e)
 			}
 		}
@@ -160,4 +159,18 @@ func jsonEqual(a, b any) bool {
 	x, _ := json.Marshal(a)
 	y, _ := json.Marshal(b)
 	return string(x) == string(y)
+}
+
+// classOfKind is the class of the type that decodes the kind, or "" when
+// no type of this package does.
+func classOfKind(kind EventKind) EventClass {
+	decode, ok := eventDecoders[kind]
+	if !ok {
+		return ""
+	}
+	event, err := decode([]byte(`{}`))
+	if err != nil {
+		return ""
+	}
+	return event.Class()
 }

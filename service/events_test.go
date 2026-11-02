@@ -65,7 +65,7 @@ func checkStreamIsRecord(t *testing.T, runner *service.Runner, sessionID string,
 		t.Fatalf("the stream's stored Events differ from the Record's\n got: %v\nwant: %v", got, want)
 	}
 	for _, event := range streamed {
-		if event.Kind().Class() == gotato.EventClassInstance {
+		if event.Class() == gotato.EventClassInstance {
 			t.Fatalf("the Run's stream carries the Instance Event %s", event.Kind())
 		}
 	}
@@ -250,7 +250,7 @@ func TestStreamSessionCatchesUpThenGoesLive(t *testing.T) {
 	all := recordRange(t, runner, first.SessionID, after+1, 1<<62)
 	end := all[len(all)-1].Head().Number
 	if !recorder.Wait(5*time.Second, func(event gotato.Event) bool {
-		return event.Head().Number == end && event.Kind().Class() == gotato.EventClassStored
+		return event.Head().Number == end && event.Class() == gotato.EventClassStored
 	}) {
 		t.Fatalf("the live Events never reached #%d: %v", end, numbered(recorder.Events()))
 	}
@@ -287,7 +287,7 @@ func TestSubscribeInstanceSeesAllAgentsAndForAgentsFilters(t *testing.T) {
 		}
 	}
 	for _, event := range streamed {
-		if event.Kind().Class() == gotato.EventClassInstance {
+		if event.Class() == gotato.EventClassInstance {
 			t.Fatalf("a Run's stream carries the Instance Event %s", event.Kind())
 		}
 	}
@@ -377,7 +377,7 @@ func TestStoreEventsAreInstanceEvents(t *testing.T) {
 		t.Fatalf("the Run's stream = %v, want it to hold run_started and end at run_ended", kinds)
 	}
 	for _, event := range events {
-		if event.Kind().Class() == gotato.EventClassInstance {
+		if event.Class() == gotato.EventClassInstance {
 			t.Fatalf("the Run's stream carries the Instance Event %s", event.Kind())
 		}
 	}
@@ -416,7 +416,7 @@ func TestStoreEventsAreInstanceEvents(t *testing.T) {
 		t.Fatal(err)
 	}
 	for _, event := range stored {
-		if event.Kind().Class() == gotato.EventClassInstance {
+		if event.Class() == gotato.EventClassInstance {
 			t.Fatalf("the Record holds %s", event.Kind())
 		}
 	}

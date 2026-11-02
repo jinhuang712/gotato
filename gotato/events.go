@@ -23,12 +23,18 @@ import (
 // that a later version adds.
 //
 // Event is sealed: its unexported method comes from Header, so a type in any
-// package is an Event by embedding Header, and no other way. That lets a later
-// version add a method without breaking implementers. Subscription, which a
-// test double or a service may implement, stays open.
+// package is an Event by embedding Header and stating its Kind and its Class,
+// and no other way. A type of another package needs no MarshalJSON:
+// MarshalEvent writes its kind with its fields, and UnmarshalEvent reads it back
+// as an UnknownEvent. Subscription, which a test double or a service may
+// implement, stays open.
 type Event interface {
 	// Kind names the Event's type, such as "run_started".
 	Kind() EventKind
+	// Class says where an Event of this type lives: stored in the Record, only
+	// sent, or an Instance Event. Every type states its own, so a type of
+	// another package does too.
+	Class() EventClass
 	// Head returns the Event's Header.
 	Head() Header
 	isEvent()
@@ -36,10 +42,6 @@ type Event interface {
 
 // EventKind names the type of an Event, in its JSON "kind".
 type EventKind string
-
-// Class returns where an Event of this kind lives: stored in the Record, only
-// sent, or an Instance Event.
-func (k EventKind) Class() EventClass { return eventClasses[k] }
 
 // EventClass says where an Event lives.
 type EventClass string

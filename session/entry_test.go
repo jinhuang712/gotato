@@ -354,14 +354,20 @@ func TestEveryStoredKindHasALayer(t *testing.T) {
 	stored := 0
 	for _, kind := range kinds {
 		layer, err := session.LayerOf(kind)
+		// The type that decodes the kind states its class.
+		decoded, decodeErr := gotato.UnmarshalEvent([]byte(`{"kind":"` + string(kind) + `"}`))
+		if decodeErr != nil {
+			t.Fatal(decodeErr)
+		}
+		class := decoded.Class()
 		switch {
-		case kind.Class() == gotato.EventClassStored:
+		case class == gotato.EventClassStored:
 			stored++
 			if err != nil || (layer != session.LayerFact && layer != session.LayerLog) {
 				t.Errorf("the stored kind %s has no Layer (%q, %v): list it in storedLayers", kind, layer, err)
 			}
 		case err == nil:
-			t.Errorf("%s is %s, not stored, yet storedLayers gives it the Layer %s", kind, kind.Class(), layer)
+			t.Errorf("%s is %s, not stored, yet storedLayers gives it the Layer %s", kind, class, layer)
 		}
 	}
 	if stored < 20 {

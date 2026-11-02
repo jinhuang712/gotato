@@ -2,7 +2,6 @@ package httpapi
 
 import (
 	"context"
-	"encoding/json"
 	"net/http"
 	"strconv"
 
@@ -125,12 +124,15 @@ func (h *Handler) events(w http.ResponseWriter, r *http.Request) {
 	}
 	kind := r.URL.Query().Get("kind")
 	w.Header().Set("Content-Type", "application/x-ndjson")
-	enc := json.NewEncoder(w)
 	for _, event := range events {
 		if kind != "" && string(event.Kind()) != kind {
 			continue
 		}
-		if err := enc.Encode(event); err != nil {
+		data, err := gotato.MarshalEvent(event)
+		if err != nil {
+			return
+		}
+		if _, err := w.Write(append(data, '\n')); err != nil {
 			return
 		}
 	}

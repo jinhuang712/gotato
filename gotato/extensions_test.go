@@ -194,7 +194,7 @@ func TestSubscriberSeesProductionOrder(t *testing.T) {
 	}
 	var last uint64
 	for _, event := range seen.events() {
-		if event.Kind().Class() != EventClassStored {
+		if event.Class() != EventClassStored {
 			continue
 		}
 		if event.Head().Number != last+1 {
@@ -320,8 +320,8 @@ func TestAdvisoryExtensionFailureIsRecordedAndTheRunGoesOn(t *testing.T) {
 	if failed[0].Stage != "ContextTransformer" || failed[0].Code != CodeExtensionFailure || failed[0].Number == 0 {
 		t.Fatalf("ExtensionFailed = %+v", failed[0])
 	}
-	if failed[0].Kind().Class() != EventClassStored {
-		t.Fatalf("ExtensionFailed class = %s", failed[0].Kind().Class())
+	if failed[0].Class() != EventClassStored {
+		t.Fatalf("ExtensionFailed class = %s", failed[0].Class())
 	}
 }
 

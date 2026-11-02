@@ -923,7 +923,7 @@ func readNumbers(t *testing.T, stream *service.SessionStream, count int) []uint6
 		if err != nil {
 			t.Fatalf("after %v: %v", out, err)
 		}
-		if event.Kind().Class() == gotato.EventClassStored {
+		if event.Class() == gotato.EventClassStored {
 			out = append(out, event.Head().Number)
 		}
 	}
@@ -965,7 +965,7 @@ func endsWithoutNewEvents(t *testing.T, sub gotato.Subscription) {
 			}
 			return
 		}
-		if event.Kind().Class() == gotato.EventClassStored {
+		if event.Class() == gotato.EventClassStored {
 			t.Fatalf("the stream delivered Event %d (%s) of the Record created again", event.Head().Number, event.Kind())
 		}
 	}
@@ -975,7 +975,7 @@ func endsWithoutNewEvents(t *testing.T, sub gotato.Subscription) {
 func storedOnly(events []gotato.Event) []gotato.Event {
 	var out []gotato.Event
 	for _, event := range events {
-		if event.Kind().Class() == gotato.EventClassStored {
+		if event.Class() == gotato.EventClassStored {
 			out = append(out, event)
 		}
 	}

@@ -29,8 +29,8 @@ func TestSegmentClosedRoundTrips(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if got.Kind() != gotato.EventKindSegmentClosed || got.Kind().Class() != gotato.EventClassStored {
-		t.Fatalf("kind %q class %v, want a stored segment_closed", got.Kind(), got.Kind().Class())
+	if got.Kind() != gotato.EventKindSegmentClosed || got.Class() != gotato.EventClassStored {
+		t.Fatalf("kind %q class %v, want a stored segment_closed", got.Kind(), got.Class())
 	}
 	if !reflect.DeepEqual(got.(gotato.SegmentClosed).Segment, segment) {
 		t.Fatalf("round trip = %+v, want %+v", got.(gotato.SegmentClosed).Segment, segment)

@@ -66,8 +66,8 @@ func TestRecordIsAJournalInMemory(t *testing.T) {
 				t.Fatalf("run_ended = %+v", e)
 			}
 		}
-		if event.Kind().Class() != gotato.EventClassStored {
-			t.Fatalf("the Record keeps a %s Event: %s", event.Kind().Class(), event.Kind())
+		if event.Class() != gotato.EventClassStored {
+			t.Fatalf("the Record keeps a %s Event: %s", event.Class(), event.Kind())
 		}
 	}
 	if started != 1 || ended != 1 {
