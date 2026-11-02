@@ -7,6 +7,7 @@ import (
 	"unicode/utf8"
 
 	"github.com/jinhuang712/gotato/internal/text"
+	"github.com/jinhuang712/gotato/ref"
 )
 
 // A Tool Result whose text is longer than one page is spilled: its full text
@@ -21,9 +22,6 @@ const (
 	// SpillPreviewBytes is the start of a spilled result that stays in the
 	// Context: about 2K tokens (bytes ÷ 4), cut on a rune boundary.
 	SpillPreviewBytes = 8000
-	// ReadResultToolID is the ID of the built-in tool that reads a spilled
-	// result back, a sibling of read_segment.
-	ReadResultToolID = "read_result"
 )
 
 // SpillKeeper is an optional method of a Transcript: it says the Transcript's
@@ -68,7 +66,7 @@ func spillPreview(call ToolCallID, body string) string {
 	if !strings.HasSuffix(b.String(), "\n") {
 		b.WriteByte('\n')
 	}
-	fmt.Fprintf(&b, "[Result cut: %s, %d pages. Read it page by page with %s(ref=%q, page=1); the preview is only the start of page 1.]", humanBytes(len(body)), pages, ReadResultToolID, text.SpillRef(string(call)))
+	fmt.Fprintf(&b, "[Result cut: %s, %d pages. Read it page by page with %s(ref=%q, page=1); the preview is only the start of page 1.]", humanBytes(len(body)), pages, ref.ReadResult, ref.Result(string(call)).String())
 	return b.String()
 }
 

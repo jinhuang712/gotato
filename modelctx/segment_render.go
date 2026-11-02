@@ -12,6 +12,7 @@ import (
 
 	"github.com/jinhuang712/gotato/gotato"
 	"github.com/jinhuang712/gotato/internal/text"
+	"github.com/jinhuang712/gotato/ref"
 )
 
 // renderLine writes a tool call as one line. The arguments are quoted as text
@@ -55,10 +56,10 @@ type callLine struct {
 // Segment: its ref, on a line of its own, `ref msg:<id>`. It is empty for a
 // Message with no ID that can stand in a ref.
 func refPartOf(number int, id gotato.MessageID) []gotato.ContentPart {
-	if !text.RefSafe(string(id)) {
+	if !ref.Safe(string(id)) {
 		return nil
 	}
-	return []gotato.ContentPart{taggedPart(gotato.TagSegment, numberAttr(number), "ref "+text.MessageRef(string(id)))}
+	return []gotato.ContentPart{taggedPart(gotato.TagSegment, numberAttr(number), "ref "+ref.Message(string(id)).String())}
 }
 
 // toolsCalled lists the loaded Tools (qualified IDs) the Messages call, in the

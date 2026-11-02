@@ -8,6 +8,7 @@ import (
 
 	"github.com/jinhuang712/gotato/gotato"
 	"github.com/jinhuang712/gotato/internal/text"
+	"github.com/jinhuang712/gotato/ref"
 )
 
 // The defaults of a Segment built by code (FEATURES.md → G-F06, the Segment settings table).
@@ -215,8 +216,8 @@ func collect(closed []gotato.Message, settings SegmentSettings, number int, posi
 					}
 				}
 				var refs []string
-				if text.RefSafe(string(call.ID)) {
-					refs = []string{text.SpillRef(string(call.ID))}
+				if ref.Safe(string(call.ID)) {
+					refs = []string{ref.Result(string(call.ID)).String()}
 				}
 				if n := len(pending); n > 0 && sameCall(pending[n-1].ToolCallLine, line) {
 					pending[n-1].Count = max(pending[n-1].Count, 1) + 1

@@ -10,11 +10,9 @@ import (
 
 	"github.com/jinhuang712/gotato/gotato"
 	"github.com/jinhuang712/gotato/internal/text"
+	"github.com/jinhuang712/gotato/ref"
 	"github.com/jinhuang712/gotato/session"
 )
-
-// ReadSegmentID is the ID of the built-in tool that reads a Segment back.
-const ReadSegmentID = "read_segment"
 
 // defaultReadSegmentPageBytes is the most one page of a read_segment result
 // holds, in bytes of text: about 8K tokens, so a
@@ -79,7 +77,7 @@ type readSegmentInput struct {
 // or the system in it. It is cut into pages of opts.PageBytes. When the log no
 // longer holds the Entries (the team pruned it), the result says so.
 func ReadSegmentTool(record *session.Record, log session.EntryLog, opts ReadSegmentConfig) gotato.Tool {
-	tool, err := gotato.NewFuncTool(ReadSegmentID,
+	tool, err := gotato.NewFuncTool(ref.ReadSegment,
 		"Returns the messages of a segment of this conversation word for word, tool calls and tool results included, as they were before the segment was closed or merged. "+
 			"Use it when a recap leaves out a detail you need, such as an ID or a number a tool returned.",
 		func(ctx context.Context, in readSegmentInput) (string, error) {

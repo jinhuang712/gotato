@@ -9,12 +9,9 @@ import (
 
 	"github.com/jinhuang712/gotato/gotato"
 	"github.com/jinhuang712/gotato/internal/text"
+	"github.com/jinhuang712/gotato/ref"
 	"github.com/jinhuang712/gotato/session"
 )
-
-// ReadResultID is the ID of the built-in tool that reads a spilled Tool Result
-// back, a sibling of read_segment.
-const ReadResultID = gotato.ReadResultToolID
 
 // defaultReadResultPageBytes is the most one page of a read_result result
 // holds: the page of read_segment, and the size past which a Tool Result is
@@ -68,7 +65,7 @@ type readResultInput struct {
 // no tag of its own: like any Tool Result it has the four tags escaped when it
 // goes into a request.
 func ReadResultTool(record *session.Record, log session.EntryLog, opts ReadResultConfig) gotato.Tool {
-	tool, err := gotato.NewFuncTool(ReadResultID,
+	tool, err := gotato.NewFuncTool(ref.ReadResult,
 		"Returns the full text of one tool result or one message by its ref, such as result:call_9a2 or msg:m12, page by page. "+
 			"Use it with a ref in a segment's tool call line or after a message, or with the ref in the line that says a result was cut.",
 		func(ctx context.Context, in readResultInput) (string, error) {
@@ -81,14 +78,14 @@ func ReadResultTool(record *session.Record, log session.EntryLog, opts ReadResul
 }
 
 func readResult(ctx context.Context, record *session.Record, log session.EntryLog, opts ReadResultConfig, in readResultInput) (string, error) {
-	if id, ok := text.IDOfMessageRef(in.Ref); ok {
-		return readFromRecord(ctx, record, log, opts, in.Page, text.MessageRef(id), func(m gotato.Message) bool {
+	if id, ok := refOf(in.Ref, ref.KindMessage); ok {
+		return readFromRecord(ctx, record, log, opts, in.Page, ref.Message(id).String(), func(m gotato.Message) bool {
 			return m.ID == gotato.MessageID(id) && m.ToolResult == nil && (m.Role == gotato.RoleUser || m.Role == gotato.RoleAssistant)
 		})
 	}
-	callID, ok := text.CallOfRef(in.Ref)
+	callID, ok := refOf(in.Ref, ref.KindResult)
 	if !ok {
-		return "", readErrorf("%q is not a ref of a result or a message; a ref looks like %s<call_id> or %s<message_id>%s", in.Ref, text.SpillRefPrefix, text.MessageRefPrefix, listRefs(record))
+		return "", readErrorf("%q is not a ref of a result or a message; a ref looks like %s<call_id> or %s<message_id>%s", in.Ref, ref.ResultPrefix, ref.MessagePrefix, listRefs(record))
 	}
 	call := gotato.ToolCallID(callID)
 	_, byCall := record.SpilledResults()
@@ -105,7 +102,7 @@ func readResult(ctx context.Context, record *session.Record, log session.EntryLo
 	if !found {
 		// A result under one page is not spilled: it is read from the Record
 		// like a message.
-		return readFromRecord(ctx, record, log, opts, in.Page, text.SpillRef(string(call)), func(m gotato.Message) bool {
+		return readFromRecord(ctx, record, log, opts, in.Page, ref.Result(string(call)).String(), func(m gotato.Message) bool {
 			return m.ToolResult != nil && m.ToolResult.CallID == call
 		})
 	}
@@ -114,31 +111,31 @@ func readResult(ctx context.Context, record *session.Record, log session.EntryLo
 		pruned, err = true, nil
 	}
 	if err != nil {
-		return "", readErrorf("%s could not be read", text.SpillRef(string(call)))
+		return "", readErrorf("%s could not be read", ref.Result(string(call)).String())
 	}
 	if pruned {
-		return fmt.Sprintf("The body of %s was removed from the Record, so only the preview that stayed in the conversation is left.", text.SpillRef(string(call))), nil
+		return fmt.Sprintf("The body of %s was removed from the Record, so only the preview that stayed in the conversation is left.", ref.Result(string(call)).String()), nil
 	}
 
-	return readPage("Result", text.SpillRef(string(call)), body, opts, in.Page)
+	return readPage("Result", ref.Result(string(call)).String(), body, opts, in.Page)
 }
 
 // readPage returns one page of body, with the line that says which page it is
 // and how to read the next.
-func readPage(kind, ref, body string, opts ReadResultConfig, page int) (string, error) {
+func readPage(kind, name, body string, opts ReadResultConfig, page int) (string, error) {
 	page = max(page, 1)
 	limit := opts.pageBytes()
 	pages := text.Paginate(text.SplitLines(body, limit), limit)
 	if page > len(pages) {
-		return "", readErrorf("%s has %d pages; there is no page %d", ref, len(pages), page)
+		return "", readErrorf("%s has %d pages; there is no page %d", name, len(pages), page)
 	}
 	var b strings.Builder
-	fmt.Fprintf(&b, "%s %s, %d bytes. Page %d of %d.\n", kind, ref, len(body), page, len(pages))
+	fmt.Fprintf(&b, "%s %s, %d bytes. Page %d of %d.\n", kind, name, len(body), page, len(pages))
 	b.WriteString(strings.Join(pages[page-1], "\n"))
 	if page < len(pages) {
-		fmt.Fprintf(&b, "\nMore: %s(ref=%q, page=%d).", ReadResultID, ref, page+1)
+		fmt.Fprintf(&b, "\nMore: %s(ref=%q, page=%d).", ref.ReadResult, name, page+1)
 	} else {
-		fmt.Fprintf(&b, "\nEnd of %s.", ref)
+		fmt.Fprintf(&b, "\nEnd of %s.", name)
 	}
 	return b.String(), nil
 }
@@ -147,19 +144,19 @@ func readPage(kind, ref, body string, opts ReadResultConfig, page int) (string, 
 // the Record: first from what the Context holds, then from the Entries each
 // Segment closed over, newest Segment first. A reference into Entries that a
 // team pruned reads as removed.
-func readFromRecord(ctx context.Context, record *session.Record, log session.EntryLog, opts ReadResultConfig, page int, ref string, match func(gotato.Message) bool) (string, error) {
+func readFromRecord(ctx context.Context, record *session.Record, log session.EntryLog, opts ReadResultConfig, page int, name string, match func(gotato.Message) bool) (string, error) {
 	found, gap, err := findOriginal(ctx, record, log, match)
 	if err != nil {
-		return "", readErrorf("%s could not be read", ref)
+		return "", readErrorf("%s could not be read", name)
 	}
 	if found == nil {
 		if gap {
-			return fmt.Sprintf("%s was removed from the Record, so only what the conversation keeps of it is left.", ref), nil
+			return fmt.Sprintf("%s was removed from the Record, so only what the conversation keeps of it is left.", name), nil
 		}
-		return "", readErrorf("there is nothing in this conversation with the ref %s%s", ref, listRefs(record))
+		return "", readErrorf("there is nothing in this conversation with the ref %s%s", name, listRefs(record))
 	}
 	if found.ToolResult != nil {
-		return readPage("Result", ref, toolResultText(*found), opts, page)
+		return readPage("Result", name, toolResultText(*found), opts, page)
 	}
 	var parts []string
 	for _, part := range found.Parts {
@@ -167,7 +164,7 @@ func readFromRecord(ctx context.Context, record *session.Record, log session.Ent
 			parts = append(parts, t)
 		}
 	}
-	return readPage("Message ("+string(found.Role)+")", ref, strings.Join(parts, "\n"), opts, page)
+	return readPage("Message ("+string(found.Role)+")", name, strings.Join(parts, "\n"), opts, page)
 }
 
 // findOriginal looks for the latest Message that match accepts: in the
@@ -181,12 +178,12 @@ func findOriginal(ctx context.Context, record *session.Record, log session.Entry
 		}
 	}
 	refs, _ := refsOf(record.Segments())
-	for _, ref := range slices.Backward(refs) {
+	for _, at := range slices.Backward(refs) {
 		id := record.ID()
-		if ref.source.SessionID != "" {
-			id = string(ref.source.SessionID)
+		if at.source.SessionID != "" {
+			id = string(at.source.SessionID)
 		}
-		same, err := session.SameRecord(ctx, log, id, ref.source.RecordEpoch)
+		same, err := session.SameRecord(ctx, log, id, at.source.RecordEpoch)
 		if err != nil {
 			return nil, false, err
 		}
@@ -194,7 +191,7 @@ func findOriginal(ctx context.Context, record *session.Record, log session.Entry
 			gap = true
 			continue
 		}
-		messages, complete, err := session.CommittedMessages(ctx, log, id, ref.source.FromNumber, ref.source.ToNumber)
+		messages, complete, err := session.CommittedMessages(ctx, log, id, at.source.FromNumber, at.source.ToNumber)
 		if err != nil {
 			return nil, false, err
 		}
@@ -217,7 +214,14 @@ func listRefs(record *session.Record) string {
 	}
 	refs := make([]string, len(calls))
 	for i, call := range calls {
-		refs[i] = text.SpillRef(string(call))
+		refs[i] = ref.Result(string(call)).String()
 	}
 	return "; the results you can read are " + strings.Join(refs, ", ")
+}
+
+// refOf returns the ID a ref of the given kind names, and false for a string
+// that is not a ref of that kind.
+func refOf(s string, kind ref.Kind) (string, bool) {
+	parsed, ok := ref.Parse(s)
+	return parsed.ID, ok && parsed.Kind == kind
 }

@@ -19,6 +19,7 @@ import (
 	"github.com/jinhuang712/gotato/internal/reftasks"
 	itext "github.com/jinhuang712/gotato/internal/text"
 	"github.com/jinhuang712/gotato/modelctx"
+	"github.com/jinhuang712/gotato/ref"
 	"github.com/jinhuang712/gotato/service"
 	"github.com/jinhuang712/gotato/session"
 )
@@ -247,7 +248,7 @@ func isReadSegmentAdded(prev, next []gotato.ToolSpec) bool {
 	}
 	rest := make([]gotato.ToolSpec, 0, len(prev))
 	for _, spec := range next {
-		if spec.ID != modelctx.ReadSegmentID {
+		if spec.ID != ref.ReadSegment {
 			rest = append(rest, spec)
 		}
 	}
@@ -524,7 +525,7 @@ func classifyPair(t *testing.T, prev, next gotato.ModelRequest, segments map[str
 
 // withoutReadSegment is the tool list less the read_segment tool.
 func withoutReadSegment(tools []string) []string {
-	return slices.DeleteFunc(slices.Clone(tools), func(tool string) bool { return strings.Contains(tool, `"name":"`+modelctx.ReadSegmentID+`"`) })
+	return slices.DeleteFunc(slices.Clone(tools), func(tool string) bool { return strings.Contains(tool, `"name":"`+ref.ReadSegment+`"`) })
 }
 
 // TestWireRequestOnlyGrowsAtItsEndAcrossCompactions checks GOALS.md G-G07 on
