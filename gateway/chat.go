@@ -26,11 +26,11 @@ func (c *Client) streamChat(ctx context.Context, request gotato.ModelRequest) (g
 		return nil, err
 	}
 	return &chatStream{
-		sseBody:  newSSEBody(response),
-		nameMap:  names,
-		byIndex:  make(map[int]*chatCall),
-		restart:  restarter{client: c, body: body, open: open},
-		overflow: c.overflow,
+		sseBody: newSSEBody(response),
+		nameMap: names,
+		byIndex: make(map[int]*chatCall),
+		restart: restarter{client: c, body: body, open: open},
+		fail:    c.fail,
 	}, nil
 }
 
@@ -185,9 +185,9 @@ type chatStream struct {
 	finished bool
 	// err is the stream error a chunk carried, returned again by every Recv
 	// after it, so a second call never reads as a clean end.
-	err      error
-	restart  restarter
-	overflow overflowMatcher
+	err     error
+	restart restarter
+	fail    func(Failure) *Error
 }
 
 type chatCall struct {
@@ -289,7 +289,7 @@ func (s *chatStream) Recv(ctx context.Context) (gotato.ModelEvent, error) {
 			if message == "" {
 				message = chunk.Error.Type
 			}
-			s.err = s.overflow.streamError("Chat Completions stream error", message, errorCode(chunk.Error.Code), chunk.Error.Type)
+			s.err = s.fail(Failure{Message: "Chat Completions stream error: " + message, Code: errorCode(chunk.Error.Code), Type: chunk.Error.Type})
 			return gotato.ModelEvent{}, s.err
 		}
 		if err := s.processChunk(chunk); err != nil {

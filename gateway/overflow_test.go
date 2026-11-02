@@ -322,12 +322,13 @@ func TestARefusalNamesItsLimitWhenItsWordingDoes(t *testing.T) {
 		{"no number", "Prompt is too long", 0},
 		{"a number that is not a limit", "prompt is too long for 3 items", 0},
 	} {
-		err := &Error{Message: tc.message, Overflow: true}
+		verdict := DefaultClassifier(Failure{Status: 400, Message: tc.message, Type: "context_length_exceeded"})
+		err := newError(Failure{Status: 400, Message: tc.message}, verdict)
 		if got := err.ContextLimit(); got != tc.want {
 			t.Errorf("%s: ContextLimit = %d, want %d", tc.name, got, tc.want)
 		}
 	}
-	if got := (&Error{Message: "maximum context length is 8192 tokens"}).ContextLimit(); got != 0 {
+	if got := newError(Failure{Status: 500, Message: "maximum context length is 8192 tokens"}, DefaultClassifier(Failure{Status: 500, Message: "maximum context length is 8192 tokens"})).ContextLimit(); got != 0 {
 		t.Errorf("an error that is no overflow names the limit %d", got)
 	}
 	var none *Error

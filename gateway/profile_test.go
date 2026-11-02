@@ -85,7 +85,7 @@ func TestProfileOnAConnectionBehavesAsTheFlatConfig(t *testing.T) {
 	if viaProfile.ContextWindowTokens() != 1000 || viaProfile.provider != ProviderAnthropic || viaProfile.model != "m" {
 		t.Errorf("window/provider/model = %d %q %q", viaProfile.ContextWindowTokens(), viaProfile.provider, viaProfile.model)
 	}
-	if viaProfile.CacheRetention() != flat.CacheRetention() || !reflect.DeepEqual(viaProfile.rules, flat.rules) || !reflect.DeepEqual(viaProfile.overflow, flat.overflow) {
+	if viaProfile.CacheRetention() != flat.CacheRetention() || !reflect.DeepEqual(viaProfile.rules, flat.rules) {
 		t.Errorf("rules differ: %+v vs %+v", viaProfile.rules, flat.rules)
 	}
 	if viaProfile.endpoint != flat.endpoint {

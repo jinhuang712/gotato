@@ -24,9 +24,6 @@ import (
 const (
 	defaultMaxRetries   = 2
 	defaultRetryBackoff = 200 * time.Millisecond
-	// statusOverloaded is the non-standard status a provider returns when it
-	// sheds load.
-	statusOverloaded = 529
 )
 
 // Config is the settings of one Client: which wire API to speak, where, as
@@ -119,7 +116,7 @@ type Config struct {
 // wire API. It keeps no per-request state, so one Client serves many
 // concurrent Runs.
 type Client struct {
-	overflow       overflowMatcher
+	classify       Classifier
 	api            API
 	endpoint       string
 	apiKey         string
@@ -212,7 +209,7 @@ func New(config Config) (*Client, error) {
 		provider:       provider,
 		rules:          rules,
 		contextWindow:  config.ContextWindowTokens,
-		overflow:       newOverflowMatcher(config.OverflowPhrases),
+		classify:       withOverflowPhrases(DefaultClassifier, config.OverflowPhrases),
 	}, nil
 }
 
@@ -379,6 +376,39 @@ func normalizeAPI(api API) (API, error) {
 		return APIAnthropicMessages, nil
 	default:
 		return "", fmt.Errorf("gateway: unsupported API %q (use %s, %s, or %s)", api, APIChatCompletions, APIResponses, APIAnthropicMessages)
+	}
+}
+
+// fail is the Error a Failure becomes under the Client's Classifier.
+func (c *Client) fail(failure Failure) *Error { return newError(failure, c.classify(failure)) }
+
+// withOverflowPhrases wraps a Classifier so that a refusal whose message, code
+// or type holds one of the team's own phrases, matched without regard to case,
+// is an overflow too (Config.OverflowPhrases).
+func withOverflowPhrases(base Classifier, phrases []string) Classifier {
+	var extra []string
+	for _, phrase := range phrases {
+		if phrase = strings.ToLower(strings.TrimSpace(phrase)); phrase != "" {
+			extra = append(extra, phrase)
+		}
+	}
+	if len(extra) == 0 {
+		return base
+	}
+	return func(f Failure) Verdict {
+		v := base(f)
+		if v.Overflow || (f.Status != 0 && f.Status != http.StatusBadRequest && f.Status != http.StatusRequestEntityTooLarge) {
+			return v
+		}
+		for _, text := range []string{f.Message, f.Code, f.Type} {
+			lower := strings.ToLower(text)
+			for _, phrase := range extra {
+				if strings.Contains(lower, phrase) {
+					return Verdict{Overflow: true, Limit: limitIn(f.Message)}
+				}
+			}
+		}
+		return v
 	}
 }
 

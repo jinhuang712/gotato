@@ -67,15 +67,17 @@ func (r *restarter) recover(ctx context.Context, cause error) (*http.Response, e
 	if !interrupted(cause) {
 		return nil, cause
 	}
-	if r.restarts >= r.client.maxRetries {
-		// [FAILURE-CLASS] the cause keeps the text but not the chain: an Error that unwrapped to io.EOF would read as a clean end.
-		return nil, &Error{retryable: true, Message: streamInterruptedMessage, cause: errors.New(cause.Error())}
+	// [FAILURE-CLASS] the cause keeps the text but not the chain: an Error that unwrapped to io.EOF would read as a clean end.
+	failure := Failure{Message: streamInterruptedMessage, Err: errors.New(cause.Error())}
+	verdict := r.client.classify(failure)
+	if !verdict.Retryable || r.restarts >= r.client.maxRetries {
+		return nil, newError(failure, verdict)
 	}
 	delay := withJitter(r.client.retryBackoff * time.Duration(r.restarts+1))
 	reported := gotato.ReportModelRetry(ctx, gotato.ModelRetry{Attempt: r.restarts + 1, Wait: delay, Error: "the stream was cut off"})
 	if r.delivered && !reported {
 		// [DATA-LOSS] a restart after delivered output would repeat that output when nobody drops it.
-		return nil, &Error{retryable: true, Message: streamInterruptedMessage, cause: errors.New(cause.Error())}
+		return nil, newError(failure, verdict)
 	}
 	r.restarts++
 	if err := wait(ctx, delay); err != nil {

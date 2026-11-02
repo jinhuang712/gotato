@@ -70,7 +70,7 @@ type anthropicStream struct {
 	model    string
 	finished bool
 	restart  restarter
-	overflow overflowMatcher
+	fail     func(Failure) *Error
 }
 
 func (s *anthropicStream) Recv(ctx context.Context) (gotato.ModelEvent, error) {
@@ -203,7 +203,7 @@ func (s *anthropicStream) messageDelta(event anthropicEvent) error {
 		// The window ran out during the reply. That is an overflow, not
 		// an output limit: a continuation would ask the model again on
 		// a full window. The text received stays as a cut-off reply.
-		return &Error{Message: "the context window was exceeded during the reply", Overflow: true}
+		return s.fail(Failure{Message: "the context window was exceeded during the reply", Code: event.Delta.StopReason})
 	}
 	if event.Delta != nil && event.Delta.StopReason != "" {
 		stop, ok := anthropicStopReason(event.Delta.StopReason)
@@ -236,11 +236,7 @@ func (s *anthropicStream) streamError(event anthropicEvent) error {
 	if event.Error != nil {
 		message, kind = event.Error.Message, event.Error.Type
 	}
-	return &Error{
-		retryable: transientStream(kind),
-		Message:   message,
-		Overflow:  kind == "invalid_request_error" && s.overflow.mentions(message) || s.overflow.mentions(kind),
-	}
+	return s.fail(Failure{Message: message, Type: kind})
 }
 
 // [LIMITATION] a tool call's arguments are emitted whole once complete, never as partial JSON, because the Session runs a call only on complete arguments.

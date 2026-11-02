@@ -32,12 +32,12 @@ func (c *Client) streamResponses(ctx context.Context, request gotato.ModelReques
 		return nil, err
 	}
 	return &responsesStream{
-		sseBody:  newSSEBody(response),
-		nameMap:  names,
-		calls:    make(map[int]*responsesCall),
-		texts:    make(map[int]bool),
-		restart:  restarter{client: c, body: body, open: open},
-		overflow: c.overflow,
+		sseBody: newSSEBody(response),
+		nameMap: names,
+		calls:   make(map[int]*responsesCall),
+		texts:   make(map[int]bool),
+		restart: restarter{client: c, body: body, open: open},
+		fail:    c.fail,
 	}, nil
 }
 

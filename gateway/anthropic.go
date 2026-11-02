@@ -35,11 +35,11 @@ func (c *Client) streamAnthropic(ctx context.Context, request gotato.ModelReques
 		return nil, err
 	}
 	return &anthropicStream{
-		sseBody:  newSSEBody(response),
-		nameMap:  names,
-		blocks:   make(map[int]*anthropicBlockState),
-		restart:  restarter{client: c, body: body, open: open},
-		overflow: c.overflow,
+		sseBody: newSSEBody(response),
+		nameMap: names,
+		blocks:  make(map[int]*anthropicBlockState),
+		restart: restarter{client: c, body: body, open: open},
+		fail:    c.fail,
 	}, nil
 }
 

@@ -22,7 +22,7 @@ type responsesStream struct {
 	finished bool
 	terminal error
 	restart  restarter
-	overflow overflowMatcher
+	fail     func(Failure) *Error
 }
 
 type responsesCall struct {
@@ -195,7 +195,7 @@ func (s *responsesStream) processResponsesEvent(event responsesEvent, raw []byte
 		if event.Response != nil && event.Response.Error != nil {
 			code = event.Response.Error.Code
 		}
-		s.finishWithError(s.overflow.streamError("Responses response failed", message, code))
+		s.finishWithError(s.fail(Failure{Message: "Responses response failed: " + message, Code: code}))
 	case "error":
 		message := event.Message
 		if message == "" {
@@ -204,7 +204,7 @@ func (s *responsesStream) processResponsesEvent(event responsesEvent, raw []byte
 		if message == "" {
 			message = "Responses stream error"
 		}
-		s.finishWithError(s.overflow.streamError("Responses stream error", message, event.Code))
+		s.finishWithError(s.fail(Failure{Message: "Responses stream error: " + message, Code: event.Code}))
 	}
 }
 
