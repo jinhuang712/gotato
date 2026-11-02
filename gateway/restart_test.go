@@ -24,6 +24,16 @@ import (
 // new reply is the whole reply. What was received before the cut stays in the
 // Record as a log, and no model is sent it.
 
+// testClient is a Client for a wire over an endpoint that sends again up to max
+// times with a 1ms backoff; 0 is no retry.
+func testClient(wire WireAPI, endpoint string, max int) (*Client, error) {
+	retry := Retry{}
+	if max > 0 {
+		retry = Retry{Max: max, Backoff: time.Millisecond, MaxWait: time.Second}
+	}
+	return New(wire, Connection{Endpoint: endpoint, APIKey: "k"}, modelOf(gotato.ModelFacts{}), WithRetry(retry))
+}
+
 func chatText(text string) string {
 	return `data: {"choices":[{"delta":{"content":"` + text + `"}}]}` + "\n\n"
 }
@@ -73,7 +83,7 @@ func (s *cutServer) requests() []string {
 
 func cutSession(t *testing.T, s *cutServer, maxRetries int, opts ...gotato.SessionOption) (*gotato.Session, *testkit.EventRecorder) {
 	t.Helper()
-	client, err := New(Config{Endpoint: s.URL, Model: "m", MaxRetries: maxRetries, RetryBackoff: time.Millisecond})
+	client, err := testClient(ChatCompletions{}, s.URL, maxRetries)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -211,7 +221,7 @@ func TestCutAfterOutputIsNotRetriedWhenTheRunIsCanceled(t *testing.T) {
 		<-r.Context().Done()
 	}))
 	defer server.Close()
-	client, err := New(Config{Endpoint: server.URL, Model: "m", MaxRetries: 5, RetryBackoff: time.Millisecond})
+	client, err := testClient(ChatCompletions{}, server.URL, 5)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -257,7 +267,7 @@ func TestInterruptDuringStreamingIsNotRetriedAsACut(t *testing.T) {
 		<-r.Context().Done()
 	}))
 	defer server.Close()
-	client, err := New(Config{Endpoint: server.URL, Model: "m", MaxRetries: 5, RetryBackoff: time.Millisecond})
+	client, err := testClient(ChatCompletions{}, server.URL, 5)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -308,7 +318,7 @@ func TestACutStreamsMessageDoesNotNameTheConnection(t *testing.T) {
 		fmt.Fprint(w, `data: {"choices":[{"delta":{"content":"x"}}]}`+"\n\n")
 	}))
 	defer server.Close()
-	client, err := New(Config{BaseURL: server.URL, Model: "m", MaxRetries: -1})
+	client, err := testClient(ChatCompletions{}, server.URL, 0)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -366,7 +376,7 @@ func TestStreamRestartsWhenInterruptedBeforeOutput(t *testing.T) {
 				_, _ = w.Write([]byte("data: {\"choices\":[{\"delta\":{\"content\":\"ok\"},\"finish_reason\":\"stop\"}]}\n\ndata: [DONE]\n\n"))
 			}))
 			defer server.Close()
-			client, err := New(Config{Endpoint: server.URL, Model: "m", MaxRetries: 2, RetryBackoff: time.Millisecond})
+			client, err := testClient(ChatCompletions{}, server.URL, 2)
 			if err != nil {
 				t.Fatal(err)
 			}
@@ -396,7 +406,7 @@ func TestStreamIsNotReplayedAfterOutputBegan(t *testing.T) {
 		dropConnection(t, w, "data: {\"choices\":[{\"delta\":{\"content\":\"partial\"}}]}\n\n")
 	}))
 	defer server.Close()
-	client, err := New(Config{Endpoint: server.URL, Model: "m", MaxRetries: 3, RetryBackoff: time.Millisecond})
+	client, err := testClient(ChatCompletions{}, server.URL, 3)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -425,7 +435,7 @@ func TestStreamRestartsAreBounded(t *testing.T) {
 		dropConnection(t, w, "")
 	}))
 	defer server.Close()
-	client, err := New(Config{Endpoint: server.URL, Model: "m", MaxRetries: 2, RetryBackoff: time.Millisecond})
+	client, err := testClient(ChatCompletions{}, server.URL, 2)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -454,7 +464,7 @@ func TestStreamRestartStopsOnCancellation(t *testing.T) {
 		}
 	}))
 	defer server.Close()
-	client, err := New(Config{Endpoint: server.URL, Model: "m", MaxRetries: 5, RetryBackoff: time.Hour})
+	client, err := New(ChatCompletions{}, Connection{Endpoint: server.URL, APIKey: "k"}, modelOf(gotato.ModelFacts{}), WithRetry(Retry{Max: 5, Backoff: time.Hour, MaxWait: time.Hour}))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -486,7 +496,7 @@ func TestStreamToleratesMissingDoneAfterFinishReason(t *testing.T) {
 		_, _ = w.Write([]byte("data: {\"choices\":[{\"delta\":{\"content\":\"done\"},\"finish_reason\":\"stop\"}]}\n\n"))
 	}))
 	defer server.Close()
-	client, err := New(Config{Endpoint: server.URL, Model: "m", MaxRetries: 2, RetryBackoff: time.Millisecond})
+	client, err := testClient(ChatCompletions{}, server.URL, 2)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -523,7 +533,7 @@ func TestResponsesStreamRestartsWhenInterruptedBeforeOutput(t *testing.T) {
 		_ = bw.Flush()
 	}))
 	defer server.Close()
-	client, err := New(Config{API: APIResponses, Endpoint: server.URL, APIKey: "k", Model: "m", MaxRetries: 1, RetryBackoff: time.Millisecond})
+	client, err := testClient(Responses{}, server.URL, 1)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -548,7 +558,7 @@ func TestResponsesStreamIsNotReplayedAfterOutputBegan(t *testing.T) {
 		dropConnection(t, w, "data: {\"type\":\"response.output_text.delta\",\"output_index\":0,\"delta\":\"partial\"}\n\n")
 	}))
 	defer server.Close()
-	client, err := New(Config{API: APIResponses, Endpoint: server.URL, APIKey: "k", Model: "m", MaxRetries: 3, RetryBackoff: time.Millisecond})
+	client, err := testClient(Responses{}, server.URL, 3)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -591,7 +601,7 @@ func TestAnthropicStreamRestartsWhenInterruptedBeforeOutput(t *testing.T) {
 		_ = bw.Flush()
 	}))
 	defer server.Close()
-	client, err := New(Config{API: APIAnthropicMessages, BaseURL: server.URL, Model: "m", MaxRetries: 1, RetryBackoff: time.Millisecond})
+	client, err := testClient(AnthropicMessages{}, server.URL, 1)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -618,7 +628,7 @@ func TestAnthropicStreamIsNotReplayedAfterOutputBegan(t *testing.T) {
 			"data: {\"type\":\"content_block_delta\",\"index\":0,\"delta\":{\"type\":\"text_delta\",\"text\":\"partial\"}}\n\n")
 	}))
 	defer server.Close()
-	client, err := New(Config{API: APIAnthropicMessages, BaseURL: server.URL, Model: "m", MaxRetries: 3, RetryBackoff: time.Millisecond})
+	client, err := testClient(AnthropicMessages{}, server.URL, 3)
 	if err != nil {
 		t.Fatal(err)
 	}

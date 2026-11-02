@@ -167,6 +167,9 @@ func (m paymentsModel) Stream(_ context.Context, request gotato.ModelRequest) (g
 	return playScript(testkit.Text("You are welcome.")), nil
 }
 
+// Config states nothing: no window, no retention, no sampling.
+func (m paymentsModel) Config() gotato.ModelConfig { return gotato.ModelConfig{} }
+
 // recap writes the Recap, from the Tool Results in the request when faithful.
 func (m paymentsModel) recap(messages []gotato.Message) string {
 	var b strings.Builder

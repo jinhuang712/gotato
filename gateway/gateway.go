@@ -1,19 +1,39 @@
-// Package gateway provides provider streaming Model adapters for Gotato: the
-// OpenAI-compatible Chat Completions and Responses APIs and the Anthropic
-// Messages API.
+// Package gateway provides the Model Gotato calls a provider through: a Client
+// built from four layers a team can replace, over one description of the
+// model.
 //
-// It builds on the provider-neutral gotato Model contract and net/http, and
-// reads its configuration file with yaml.v3 (LoadYAML; gateway.example.yaml is
-// the commented file to copy). Provider authentication, request
-// encoding, retries, SSE decoding, and provider error classification live here,
-// outside Core, and so do the rules a few providers set for sending reasoning
-// back and for prompt cache retention (see Config.Provider).
+//   - the wire API, a WireAPI, writes a request and reads its reply:
+//     ChatCompletions, Responses and AnthropicMessages are shipped, and a new
+//     protocol is one type outside Gotato;
+//   - the Connection says where to send it and as whom, with the timeouts
+//     NewHTTPClient puts on the HTTP client and any other authentication in its
+//     RoundTripper;
+//   - Retry, set with WithRetry, says how often to send again;
+//   - a Classifier, set with WithClassifier, says what a failure means:
+//     DefaultClassifier holds the gateway's own tables.
+//
+// The model is a gotato.ModelConfig: its name, its facts (the window, the cache
+// retention, how it takes reasoning) and its default sampling. Gotato keeps no
+// table of providers or models and guesses nothing from a name or an address:
+// what the model is, the team states.
+//
+//	client, err := gateway.New(gateway.AnthropicMessages{}, gateway.Connection{
+//		Endpoint: "https://llm.example.com/v1/messages",
+//		APIKey:   key,
+//	}, gotato.ModelConfig{
+//		Name:  "a-model",
+//		Facts: gotato.ModelFacts{Window: gotato.WindowTokens(200_000)},
+//	})
+//
+// The package builds on the provider-neutral gotato Model contract and
+// net/http only. Request encoding, retries, SSE reading and the reading of
+// provider errors live here, outside Core.
 package gateway
 
 import (
 	"context"
 	"fmt"
-	"net"
+	"math"
 	"net/http"
 	"strings"
 	"time"
@@ -21,380 +41,203 @@ import (
 	"github.com/jinhuang712/gotato/gotato"
 )
 
-const (
-	defaultMaxRetries   = 2
-	defaultRetryBackoff = 200 * time.Millisecond
-	// statusOverloaded is the non-standard status a provider returns when it
-	// sheds load.
-	statusOverloaded = 529
-)
+// Option is a setting of New beyond the wire, the Connection and the model:
+// WithRetry or WithClassifier.
+type Option func(*options)
 
-// Config is the settings of one Client: which wire API to speak, where, as
-// whom, and how to retry. Only Model and an address (Endpoint or BaseURL) are
-// required: the Responses and Anthropic Messages APIs have a default address.
-// The Responses API also needs an APIKey. LoadYAML reads a Config from a file.
-type Config struct {
-	// API selects the wire protocol: APIChatCompletions (the default when
-	// empty), APIResponses, or APIAnthropicMessages. Any other
-	// value is refused.
-	API API
-	// Endpoint is the complete provider URL. When empty, BaseURL is used.
-	Endpoint string
-	// BaseURL may be an origin or an API base URL.
-	BaseURL string
-	APIKey  string
-	Model   string
-
-	HTTPClient *http.Client
-	Headers    map[string]string
-	// CacheKeyHeader, when set, sends each request's ModelRequest.CacheKey in
-	// this HTTP header, for a provider that routes its prompt cache by a
-	// session header such as "session-id".
-	CacheKeyHeader string
-	// CacheKeyField names the top-level body field that carries the
-	// CacheKey. Empty uses the wire API's default: "prompt_cache_key" for
-	// openai-responses, none for openai-chat-completions. "none" sends no
-	// field. It must not name a field the wire API already sends. The
-	// Anthropic Messages API takes no such field; it caches by cache_control.
-	CacheKeyField string
-	// MaxRetries counts retries after the first attempt. 0 means the
-	// default; -1 turns retries off. Any other negative value is refused.
-	MaxRetries   int
-	RetryBackoff time.Duration
-	// MaxRetryWait caps the wait before a retry, including a provider's
-	// Retry-After. 0 means 60 seconds; negative is refused.
-	MaxRetryWait time.Duration
-	// ConnectTimeout bounds opening a connection: the dial and the TLS
-	// handshake each. 0 means 10 seconds; negative is refused. It, and
-	// ResponseHeaderTimeout, apply to the HTTP client the gateway makes; a
-	// Config.HTTPClient is used as it is and keeps its own.
-	ConnectTimeout time.Duration
-	// ResponseHeaderTimeout bounds the wait for the response headers after
-	// the request is sent. A model behind a proxy that sends headers only
-	// with its first token may need more. 0 means 60 seconds; negative is
-	// refused. The stream that follows is bounded by the caller's context.
-	ResponseHeaderTimeout time.Duration
-	// Provider names who serves the model: ProviderAnthropic,
-	// ProviderOpenAI, ProviderDeepSeek, or ProviderOther. Empty recognizes
-	// only the providers' own addresses (api.anthropic.com, api.openai.com,
-	// api.deepseek.com); behind any other address, name the provider here.
-	Provider Provider
-	// CacheRetention is how long the provider should keep the prompt cache.
-	// Zero asks a recognized provider for its longest: an hour on Claude,
-	// and 30 minutes on OpenAI's Responses API from GPT-5.6 on. A shorter
-	// value than the provider's longer option keeps its default. An
-	// unrecognized provider is sent no retention.
-	CacheRetention time.Duration
-	// NoDropBlock stops asking Claude to drop a thinking block whose prefix
-	// changed (block_binding drop_block) on the models that check it; the
-	// provider then refuses such a request instead. The models that take
-	// block_binding are chosen by name (thinkingPrefixModels in
-	// reasoning_replay.go); this is the opt-out.
-	NoDropBlock bool
-	// ContextWindowTokens is the model's context window in tokens. Zero means
-	// unknown: the gateway keeps no table of windows, and compaction then
-	// has no default ceiling. Negative is refused.
-	ContextWindowTokens int
-	// OverflowPhrases adds a team's own wording to the phrases by which an
-	// error says the request was longer than the model's context window.
-	// Each is a fragment of an error's message, code or type, matched
-	// without regard to case, as the defaults in overflow.go are; a phrase
-	// that is only a code, such as "request_too_big", works too. A 400 or
-	// 413 that matches any of them is reported as a context overflow.
-	OverflowPhrases []string
-	// DeferredTools is how the wire API shows the tools a Session loads
-	// one by one from its catalog: DeferredFormNative or DeferredFormList. Empty
-	// uses the wire API's default: native on openai-responses and
-	// anthropic-messages, list on openai-chat-completions. Native keeps the
-	// tool list of the request the same while tools load (every catalog
-	// tool is sent deferred, and a load shows as a reference to it in the
-	// history), so the prompt cache survives a load. List sends the tools
-	// loaded so far, so the tool list grows when one loads. A wire API
-	// without a native form (openai-chat-completions) always uses list,
-	// whatever is set here; Client.DeferredTools reports what is used.
-	DeferredTools DeferredForm
+type options struct {
+	retry    Retry
+	classify Classifier
 }
 
-// Client is a gotato.Model that streams from one provider endpoint over one
-// wire API. It keeps no per-request state, so one Client serves many
-// concurrent Runs.
+// WithClassifier sets the Classifier, which says what every Failure means.
+// Wrap DefaultClassifier to add to it. A nil Classifier is DefaultClassifier.
+func WithClassifier(classifier Classifier) Option {
+	return func(o *options) { o.classify = classifier }
+}
+
+// Client is a gotato.Model that streams from one endpoint over one wire API.
+// It keeps no per-request state, so one Client serves many concurrent Runs.
 type Client struct {
-	overflow       overflowMatcher
-	api            API
-	endpoint       string
-	apiKey         string
-	model          string
-	httpClient     *http.Client
-	headers        map[string]string
-	cacheKeyHeader string
-	cacheKeyField  string
-	maxRetries     int
-	retryBackoff   time.Duration
-	maxRetryWait   time.Duration
-	provider       Provider
-	rules          providerRules
-	contextWindow  int
+	wire       WireAPI
+	conn       Connection
+	httpClient *http.Client
+	model      gotato.ModelConfig
+	retry      Retry
+	classify   Classifier
 }
 
-// New checks config and returns a Client for it. It makes no request: a
-// refusal here is a mistake in the settings, and every one is reported
-// before the first call to Stream.
-func New(config Config) (*Client, error) {
-	api, err := normalizeAPI(config.API)
-	if err != nil {
+// New checks its arguments and returns a Client. It makes no request: a
+// refusal here is a mistake in the settings, and every one is reported before
+// the first call to Stream.
+//
+// The model's window must be stated, with gotato.WindowTokens(n) for n above 0
+// or gotato.WindowUnknown(): a window left out is never an accident. Every
+// other fact may be left out. A team that omits RoundReasoning sends the
+// provider more reasoning than it takes, and one that omits CacheRetention
+// gets the provider's default retention; a provider accepts both.
+func New(wire WireAPI, conn Connection, model gotato.ModelConfig, opts ...Option) (*Client, error) {
+	if wire == nil {
+		return nil, fmt.Errorf("gateway: a WireAPI is required (use gateway.ChatCompletions{}, gateway.Responses{} or gateway.AnthropicMessages{})")
+	}
+	if validator, ok := wire.(interface{ Validate() error }); ok {
+		if err := validator.Validate(); err != nil {
+			return nil, err
+		}
+	}
+	if err := checkEndpoint(conn.Endpoint); err != nil {
 		return nil, err
 	}
-	endpoint, err := resolveEndpoint(config, api)
-	if err != nil {
-		return nil, err
-	}
-	if err := checkEndpoint(endpoint); err != nil {
-		return nil, err
-	}
-	if config.Model == "" {
-		return nil, fmt.Errorf("gateway: Model is required")
-	}
-	if err := checkHeaders(config.Headers); err != nil {
+	if err := checkHeaders(conn.Headers); err != nil {
 		return nil, fmt.Errorf("gateway: Headers: %w", err)
 	}
-	provider, err := resolveProvider(config.Provider, endpoint)
-	if err != nil {
+	if conn.CacheKeyHeader != "" && !validHeaderName(conn.CacheKeyHeader) {
+		return nil, fmt.Errorf("gateway: CacheKeyHeader %q is not a header name", conn.CacheKeyHeader)
+	}
+	if err := checkModel(model); err != nil {
 		return nil, err
 	}
-	retention, err := cacheRetention(config.CacheRetention)
-	if err != nil {
-		return nil, err
-	}
-	if config.ContextWindowTokens < 0 {
-		return nil, fmt.Errorf("gateway: ContextWindowTokens cannot be negative")
-	}
-	maxRetries, err := resolveRetries(config)
-	if err != nil {
-		return nil, err
-	}
-	deferred, err := resolveDeferredTools(config.DeferredTools, api)
-	if err != nil {
-		return nil, err
-	}
-	cacheKeyHeader, cacheKeyField, err := resolveCacheKey(config, api)
-	if err != nil {
-		return nil, err
-	}
-	backoff := config.RetryBackoff
-	if backoff == 0 {
-		backoff = defaultRetryBackoff
-	}
-	if backoff < 0 {
-		return nil, fmt.Errorf("gateway: RetryBackoff cannot be negative")
-	}
-	maxRetryWait, connect, headerWait, err := resolveHTTPLimits(config)
-	if err != nil {
-		return nil, err
-	}
-	client := config.HTTPClient
-	if client == nil {
-		client = newHTTPClient(connect, headerWait)
-	}
-	rules := newProviderRules(provider, api, config.Model, retention, config.NoDropBlock)
-	rules.deferredNative = deferred == DeferredFormNative
-	return &Client{
-		api:            api,
-		endpoint:       endpoint,
-		apiKey:         config.APIKey,
-		model:          config.Model,
-		httpClient:     client,
-		headers:        cloneHeaders(config.Headers),
-		cacheKeyHeader: cacheKeyHeader,
-		cacheKeyField:  cacheKeyField,
-		maxRetries:     maxRetries,
-		retryBackoff:   backoff,
-		maxRetryWait:   maxRetryWait,
-		provider:       provider,
-		rules:          rules,
-		contextWindow:  config.ContextWindowTokens,
-		overflow:       newOverflowMatcher(config.OverflowPhrases),
-	}, nil
-}
-
-// resolveEndpoint returns the URL requests go to: Config.Endpoint as given, or
-// the wire API's path under BaseURL (its own origin for Responses and
-// Anthropic Messages when BaseURL is empty). A path gets /v1 in front unless
-// BaseURL already ends in it.
-func resolveEndpoint(config Config, api API) (string, error) {
-	endpoint := strings.TrimSpace(config.Endpoint)
-	if endpoint != "" {
-		return endpoint, nil
-	}
-	base := strings.TrimRight(strings.TrimSpace(config.BaseURL), "/")
-	if base == "" && api == APIResponses {
-		base = defaultResponsesBaseURL
-	}
-	if base == "" && api == APIAnthropicMessages {
-		base = defaultAnthropicBaseURL
-	}
-	if base == "" {
-		return "", fmt.Errorf("gateway: BaseURL or Endpoint is required")
-	}
-	path := "/chat/completions"
-	switch api {
-	case APIResponses:
-		path = "/responses"
-	case APIAnthropicMessages:
-		path = "/messages"
-	}
-	if !strings.HasSuffix(base, "/v1") {
-		path = "/v1" + path
-	}
-	return base + path, nil
-}
-
-// resolveRetries returns how many times a failed request is sent again: none
-// with MaxRetries -1, MaxRetries when set, the default otherwise.
-func resolveRetries(config Config) (int, error) {
-	switch {
-	case config.MaxRetries < -1:
-		return 0, fmt.Errorf("gateway: MaxRetries cannot be below -1")
-	case config.MaxRetries == -1:
-		return 0, nil
-	case config.MaxRetries == 0:
-		return defaultMaxRetries, nil
-	}
-	return config.MaxRetries, nil
-}
-
-// resolveCacheKey returns the header and the body field that carry the
-// request's CacheKey, empty for one that is not sent.
-func resolveCacheKey(config Config, api API) (header, field string, err error) {
-	header = strings.TrimSpace(config.CacheKeyHeader)
-	if header != "" && !validHeaderName(header) {
-		return "", "", fmt.Errorf("gateway: CacheKeyHeader %q is not a header name", config.CacheKeyHeader)
-	}
-	field = strings.TrimSpace(config.CacheKeyField)
-	switch {
-	case field == "none":
-		field = ""
-	case field == "" && api == APIResponses:
-		field = defaultResponsesCacheKeyField
-	case field != "" && api == APIAnthropicMessages:
-		return "", "", fmt.Errorf("gateway: CacheKeyField is not supported by %s, which caches by cache_control", APIAnthropicMessages)
-	}
-	// [CONTRACT] a cache key field that equals a field the request sends would silently replace it; refused at New, not at the first call.
-	if reservedBodyField(api, field) {
-		return "", "", fmt.Errorf("gateway: CacheKeyField %q is a field %s already sends", field, api)
-	}
-	return header, field, nil
-}
-
-// The limits the gateway uses when Config sets none.
-const (
-	defaultMaxRetryWait          = 60 * time.Second
-	defaultConnectTimeout        = 10 * time.Second
-	defaultResponseHeaderTimeout = 60 * time.Second
-)
-
-// resolveHTTPLimits returns MaxRetryWait, ConnectTimeout and
-// ResponseHeaderTimeout with their defaults for zero.
-func resolveHTTPLimits(config Config) (retryWait, connect, header time.Duration, err error) {
-	if config.MaxRetryWait < 0 || config.ConnectTimeout < 0 || config.ResponseHeaderTimeout < 0 {
-		return 0, 0, 0, fmt.Errorf("gateway: MaxRetryWait, ConnectTimeout and ResponseHeaderTimeout cannot be negative")
-	}
-	retryWait, connect, header = config.MaxRetryWait, config.ConnectTimeout, config.ResponseHeaderTimeout
-	if retryWait == 0 {
-		retryWait = defaultMaxRetryWait
-	}
-	if connect == 0 {
-		connect = defaultConnectTimeout
-	}
-	if header == 0 {
-		header = defaultResponseHeaderTimeout
-	}
-	return retryWait, connect, header, nil
-}
-
-// newHTTPClient is the client used when Config.HTTPClient is nil. A
-// stalled upstream must not hold a Run open forever. Overall stream duration
-// stays governed by the caller's context; these bound only connection setup
-// and the wait for response headers.
-func newHTTPClient(connect, header time.Duration) *http.Client {
-	return &http.Client{
-		Transport: &http.Transport{
-			Proxy:                 http.ProxyFromEnvironment,
-			DialContext:           (&net.Dialer{Timeout: connect, KeepAlive: 30 * time.Second}).DialContext,
-			TLSHandshakeTimeout:   connect,
-			ResponseHeaderTimeout: header,
-			ExpectContinueTimeout: time.Second,
-			IdleConnTimeout:       90 * time.Second,
-		},
-	}
-}
-
-// DeferredTools reports the form this Client sends deferred tools in:
-// DeferredFormNative or DeferredFormList.
-func (c *Client) DeferredTools() DeferredForm {
-	if c.rules.deferredNative {
-		return DeferredFormNative
-	}
-	return DeferredFormList
-}
-
-// ContextWindowTokens returns the model's context window in tokens as
-// configured, or 0 when it is not. The gateway keeps no table of windows.
-func (c *Client) ContextWindowTokens() int { return c.contextWindow }
-
-// CacheRetention returns how long the provider keeps the prompt cache after a
-// request, as far as this client knows: the cache_control ttl it sends on
-// Anthropic Messages (1h, or 5m, the provider's default, when a shorter
-// retention is configured), and 30m when it sends the Responses API a
-// prompt_cache_options ttl. It is 0, unknown, everywhere else.
-func (c *Client) CacheRetention() time.Duration {
-	switch {
-	case c.provider == ProviderAnthropic && c.api == APIAnthropicMessages:
-		if c.rules.anthropicCacheTTL == anthropicLongTTL {
-			return time.Hour
+	var set options
+	set.retry = DefaultRetry
+	for _, opt := range opts {
+		if opt != nil {
+			opt(&set)
 		}
-		return 5 * time.Minute
-	case c.rules.responsesCacheTTL == responsesTTL:
-		return 30 * time.Minute
 	}
-	return 0
+	retry, err := set.retry.checked()
+	if err != nil {
+		return nil, err
+	}
+	if set.classify == nil {
+		set.classify = DefaultClassifier
+	}
+	client := conn.HTTPClient
+	if client == nil {
+		client = NewHTTPClient(defaultConnectTimeout, defaultResponseHeaderTimeout)
+	}
+	conn.Headers = cloneHeaders(conn.Headers)
+	if model.Sampling.Temperature != nil {
+		temperature := *model.Sampling.Temperature
+		model.Sampling.Temperature = &temperature
+	}
+	return &Client{wire: wire, conn: conn, httpClient: client, model: model, retry: retry, classify: set.classify}, nil
 }
 
-// API is a wire protocol (Config.API): APIChatCompletions, APIResponses or
-// APIAnthropicMessages.
-type API string
-
-// The wire protocols a Config can name. An empty API means APIChatCompletions.
-const (
-	APIChatCompletions API = "openai-chat-completions"
-	APIResponses       API = "openai-responses"
-)
-
-func normalizeAPI(api API) (API, error) {
-	switch API(strings.TrimSpace(string(api))) {
-	case "", APIChatCompletions:
-		return APIChatCompletions, nil
-	case APIResponses:
-		return APIResponses, nil
-	case APIAnthropicMessages:
-		return APIAnthropicMessages, nil
-	default:
-		return "", fmt.Errorf("gateway: unsupported API %q (use %s, %s, or %s)", api, APIChatCompletions, APIResponses, APIAnthropicMessages)
+// checkModel refuses a model the gateway cannot call: no name, a window not
+// stated or not usable, a negative retention, a temperature no provider takes.
+func checkModel(model gotato.ModelConfig) error {
+	if strings.TrimSpace(model.Name) == "" {
+		return fmt.Errorf("gateway: ModelConfig.Name is required")
 	}
+	if !model.Facts.Window.Stated() {
+		return fmt.Errorf("gateway: ModelConfig.Facts.Window is not stated: use gotato.WindowTokens(n) with n > 0, or gotato.WindowUnknown()")
+	}
+	if err := model.Facts.Window.Valid(); err != nil {
+		return fmt.Errorf("gateway: ModelConfig.Facts.Window: %w", err)
+	}
+	if model.Facts.CacheRetention < 0 {
+		return fmt.Errorf("gateway: ModelConfig.Facts.CacheRetention cannot be negative")
+	}
+	if t := model.Sampling.Temperature; t != nil && (!(*t >= 0) || math.IsInf(*t, 1)) {
+		return fmt.Errorf("gateway: ModelConfig.Sampling.Temperature is not a finite number of at least 0")
+	}
+	return nil
 }
+
+// Config implements gotato.Model: the ModelConfig the Client was built with,
+// which the runtime reads for the model's facts and default sampling.
+func (c *Client) Config() gotato.ModelConfig {
+	config := c.model
+	if config.Sampling.Temperature != nil {
+		temperature := *config.Sampling.Temperature
+		config.Sampling.Temperature = &temperature
+	}
+	return config
+}
+
+// fail is the Error a Failure becomes under the Client's Classifier.
+func (c *Client) fail(failure Failure) *Error { return newError(failure, c.classify(failure)) }
 
 // Stream sends the request and returns the reply as it arrives. A refused
 // request is an *Error; a stream cut after its headers is sent again within
-// MaxRetries (see restart.go). Closing the stream, or canceling ctx, ends the
+// the Retry (see stream.go). Closing the stream, or canceling ctx, ends the
 // connection.
 func (c *Client) Stream(ctx context.Context, request gotato.ModelRequest) (gotato.ModelStream, error) {
 	if ctx == nil {
 		ctx = context.Background()
 	}
-	switch c.api {
-	case APIResponses:
-		return c.streamResponses(ctx, request)
-	case APIAnthropicMessages:
-		return c.streamAnthropic(ctx, request)
+	if err := checkHeaders(RequestHeaders(ctx)); err != nil {
+		// Sending it again cannot help, so it is not a transport failure.
+		return nil, &Error{Message: "a request header is not valid: " + err.Error()}
 	}
-	return c.streamChat(ctx, request)
+	base := c.baseHeader(ctx, request.CacheKey)
+	encoded, err := c.wire.Encode(Call{Model: c.Config(), Request: request, APIKey: c.conn.APIKey, CacheKey: request.CacheKey, Header: base.Clone()})
+	if err != nil {
+		return nil, err
+	}
+	if encoded == nil || encoded.NewDecoder == nil {
+		return nil, fmt.Errorf("gateway: the wire API returned no request or no decoder")
+	}
+	if err := checkHeaders(singleValues(encoded.Header)); err != nil {
+		return nil, &Error{Message: "a header of the wire API is not valid: " + err.Error()}
+	}
+	header := base
+	header.Set("Content-Type", "application/json")
+	header.Set("Accept", "text/event-stream")
+	for name, values := range encoded.Header {
+		header[http.CanonicalHeaderKey(name)] = append([]string(nil), values...)
+	}
+	open := func(ctx context.Context) (*http.Response, error) { return c.send(ctx, encoded.Body, header) }
+	response, err := open(ctx)
+	if err != nil {
+		return nil, err
+	}
+	return newStream(c, response, encoded.NewDecoder, open), nil
+}
+
+// baseHeader is the headers the Connection and the context give a request: the
+// default User-Agent, then the Connection's, then the context's, then the
+// cache key. The wire's own headers come after, so they win.
+func (c *Client) baseHeader(ctx context.Context, cacheKey string) http.Header {
+	header := http.Header{}
+	header.Set("User-Agent", defaultUserAgent)
+	for name, value := range c.conn.Headers {
+		header.Set(name, value)
+	}
+	for name, value := range RequestHeaders(ctx) {
+		header.Set(name, value)
+	}
+	if c.conn.CacheKeyHeader != "" && cacheKey != "" {
+		header.Set(c.conn.CacheKeyHeader, cacheKey)
+	}
+	return header
+}
+
+// singleValues flattens headers for checkHeaders, which reads one value per
+// name.
+func singleValues(header http.Header) map[string]string {
+	out := make(map[string]string, len(header))
+	for name, values := range header {
+		out[name] = strings.Join(values, ", ")
+	}
+	return out
+}
+
+// withDefault returns value, or fallback when value is empty.
+func withDefault(value, fallback string) string {
+	if value == "" {
+		return fallback
+	}
+	return value
+}
+
+// retryWait is how long to wait before attempt+1: the Retry's backoff, which
+// grows with the attempt, or the provider's Retry-After, whichever applies,
+// never more than MaxWait.
+func (c *Client) retryWait(header http.Header, attempt int) time.Duration {
+	delay := withJitter(c.retry.Backoff * time.Duration(attempt+1))
+	if retryAfter := retryAfterDuration(header); retryAfter >= 0 {
+		delay = retryAfter
+	}
+	return min(delay, c.retry.MaxWait)
 }

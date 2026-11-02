@@ -57,6 +57,9 @@ func (m *breakingModel) Stream(_ context.Context, request ModelRequest) (ModelSt
 	return &testStream{events: []ModelEvent{{Kind: ModelEventKindTextDelta, Text: "again"}, {Kind: ModelEventKindDone, StopReason: StopReasonEndTurn}}}, nil
 }
 
+// Config states nothing: no window, no retention, no sampling.
+func (m *breakingModel) Config() ModelConfig { return ModelConfig{} }
+
 func (m *breakingModel) request(i int) ModelRequest {
 	m.mu.Lock()
 	defer m.mu.Unlock()

@@ -23,7 +23,7 @@ func TestAnthropicStreamNormalizesReasoningTextToolsAndUsage(t *testing.T) {
 		if got := r.Header.Get("x-api-key"); got != "secret" {
 			t.Errorf("x-api-key = %q", got)
 		}
-		if got := r.Header.Get("anthropic-version"); got != anthropicVersion {
+		if got := r.Header.Get("anthropic-version"); got != defaultAnthropicVersion {
 			t.Errorf("anthropic-version = %q", got)
 		}
 		if got := r.Header.Get("x-session-affinity"); got != "agent-1" {
@@ -58,8 +58,8 @@ func TestAnthropicStreamNormalizesReasoningTextToolsAndUsage(t *testing.T) {
 	}))
 	defer server.Close()
 
-	client, err := New(Config{API: APIAnthropicMessages, BaseURL: server.URL, APIKey: "secret", Model: "model-m",
-		Headers: map[string]string{"x-session-affinity": "agent-1"}})
+	client, err := New(AnthropicMessages{}, Connection{Endpoint: server.URL + "/v1/messages", APIKey: "secret",
+		Headers: map[string]string{"x-session-affinity": "agent-1"}}, gotato.ModelConfig{Name: "model-m", Facts: gotato.ModelFacts{Window: gotato.WindowTokens(200_000)}})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -134,9 +134,9 @@ func TestAnthropicRequestReplaysReasoningMergesToolResultsAndPlacesCacheMarkers(
 			{After: gotato.CacheAnchorAfterTools},
 			{After: gotato.CacheAnchorAfterMessage, Index: 3},
 		},
-		Config: gotato.ModelConfig{MaxTokens: 512},
+		Sampling: gotato.Sampling{MaxTokens: 512},
 	}
-	body, _, err := encodeAnthropicRequest("m", request, providerRules{})
+	body, _, err := encodeAnthropicRequest(modelOf(gotato.ModelFacts{}), request, true)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -196,7 +196,7 @@ func TestAnthropicCacheBreakpointsKeepTheLastFour(t *testing.T) {
 		request.CacheBreakpoints = append(request.CacheBreakpoints, gotato.CacheBreakpoint{After: gotato.CacheAnchorAfterMessage, Index: 2*i + 1})
 	}
 	request.CacheBreakpoints = append([]gotato.CacheBreakpoint{{After: gotato.CacheAnchorAfterSystem}}, request.CacheBreakpoints...)
-	body, _, err := encodeAnthropicRequest("m", request, providerRules{})
+	body, _, err := encodeAnthropicRequest(modelOf(gotato.ModelFacts{}), request, true)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -233,7 +233,7 @@ func TestAnthropicRetriesOverloadedStatus(t *testing.T) {
 	}))
 	defer server.Close()
 
-	client, err := New(Config{API: APIAnthropicMessages, BaseURL: server.URL, Model: "m", RetryBackoff: time.Millisecond})
+	client, err := New(AnthropicMessages{}, Connection{Endpoint: server.URL}, modelOf(gotato.ModelFacts{}), WithRetry(Retry{Max: 2, Backoff: time.Millisecond}))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -260,7 +260,7 @@ func TestAnthropicStreamErrorEventAndTruncation(t *testing.T) {
 				}
 			}))
 			defer server.Close()
-			client, err := New(Config{API: APIAnthropicMessages, BaseURL: server.URL, Model: "m", MaxRetries: 1, RetryBackoff: time.Millisecond})
+			client, err := New(AnthropicMessages{}, Connection{Endpoint: server.URL}, modelOf(gotato.ModelFacts{}), WithRetry(Retry{Max: 1, Backoff: time.Millisecond}))
 			if err != nil {
 				t.Fatal(err)
 			}
@@ -277,7 +277,7 @@ func TestAnthropicStreamErrorEventAndTruncation(t *testing.T) {
 					t.Fatalf("err = %v", err)
 				}
 			case "truncated":
-				if !errors.As(err, &gatewayErr) || !gatewayErr.Retryable() || !strings.Contains(gatewayErr.Message, "before message_stop") {
+				if !errors.As(err, &gatewayErr) || !gatewayErr.Retryable() || !strings.Contains(gatewayErr.Message, "stream interrupted") {
 					t.Fatalf("err = %v", err)
 				}
 			}
@@ -285,19 +285,27 @@ func TestAnthropicStreamErrorEventAndTruncation(t *testing.T) {
 	}
 }
 
-func TestAnthropicEndpointDefaults(t *testing.T) {
-	for base, want := range map[string]string{
-		"":                       "https://api.anthropic.com/v1/messages",
-		"http://127.0.0.1:3456":  "http://127.0.0.1:3456/v1/messages",
-		"http://127.0.0.1:3456/": "http://127.0.0.1:3456/v1/messages",
-		"https://example.com/v1": "https://example.com/v1/messages",
-	} {
-		client, err := New(Config{API: APIAnthropicMessages, BaseURL: base, Model: "m"})
+// The Endpoint is the complete URL: no path is added to it, and none is
+// guessed from the wire or a version prefix.
+func TestEndpointIsPostedToAsGiven(t *testing.T) {
+	for _, path := range []string{"/v1/messages", "/proxy/anthropic/messages", "/v1", "/"} {
+		var got string
+		server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			got = r.URL.Path
+			w.Header().Set("Content-Type", "text/event-stream")
+		}))
+		client, err := New(AnthropicMessages{}, Connection{Endpoint: server.URL + path}, modelOf(gotato.ModelFacts{}), WithRetry(Retry{}))
 		if err != nil {
 			t.Fatal(err)
 		}
-		if client.endpoint != want {
-			t.Fatalf("base %q: endpoint = %q, want %q", base, client.endpoint, want)
+		stream, err := client.Stream(context.Background(), gotato.ModelRequest{Messages: []gotato.Message{gotato.UserMessage("hi")}})
+		if err != nil {
+			t.Fatal(err)
+		}
+		_ = stream.Close()
+		server.Close()
+		if got != path {
+			t.Fatalf("endpoint path %q: request path = %q", path, got)
 		}
 	}
 }

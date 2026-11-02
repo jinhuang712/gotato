@@ -20,7 +20,9 @@ type windowedEcho struct {
 	window int
 }
 
-func (m windowedEcho) ContextWindowTokens() int { return m.window }
+func (m windowedEcho) Config() gotato.ModelConfig {
+	return gotato.ModelConfig{Facts: gotato.ModelFacts{Window: gotato.WindowTokens(m.window)}}
+}
 
 // A compaction on demand takes what the call leaves unset from the Agent: its
 // Recap writer, its time zone, and the Model's window.

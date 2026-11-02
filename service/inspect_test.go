@@ -25,13 +25,13 @@ func (briefNote) Transform(_ context.Context, snapshot gotato.ContextSnapshot) (
 // model options included.
 func TestInspectMatchesTheNextRun(t *testing.T) {
 	model := testkit.NewFakeModel(testkit.Text("on its way"))
-	maxTokens := gotato.ModelConfig{MaxTokens: 256}
+	maxTokens := gotato.Sampling{MaxTokens: 256}
 	runner, _ := newRunner(t, service.Agent{
 		Name:        "orders",
 		Model:       model,
 		Instruction: "You track orders.",
 		Tools:       []gotato.Tool{testkit.NewFakeTool("orders.lookup", "shipped")},
-		Options:     []gotato.SessionOption{gotato.WithExtension(briefNote{}), gotato.WithModelConfig(maxTokens)},
+		Options:     []gotato.SessionOption{gotato.WithExtension(briefNote{}), gotato.WithSampling(maxTokens)},
 	})
 	ctx := context.Background()
 	s, err := runner.CreateSession(ctx, "orders", nil, session.WithMessages(gotato.UserMessage("where is order 42?")))
@@ -43,7 +43,7 @@ func TestInspectMatchesTheNextRun(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if report.Request.Config.MaxTokens != 256 || gotato.TextOf(report.Request.Messages[0]) != "note: answer briefly" {
+	if report.Request.Sampling.MaxTokens != 256 || gotato.TextOf(report.Request.Messages[0]) != "note: answer briefly" {
 		t.Fatalf("the report left out the Spec's Extensions or model options: %+v", report.Request)
 	}
 	if report.CompactionPending || report.CompactCeilingTokens != 0 {

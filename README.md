@@ -77,7 +77,7 @@ Not a coding agent, a workflow language, a platform or infrastructure. Gotato ru
 | **Tools** | Go functions with an Effect; tool search; large results spilled and read back in pages | ✅ |
 | **MCP** | MCP servers as tool sets, over streamable HTTP or stdio | ✅ |
 | **Extensions** | six stages around the loop, from `TurnPreparer` to `TurnStopper` | ✅ |
-| **Models** | OpenAI Chat Completions, OpenAI Responses, Anthropic Messages, or your own | ✅ |
+| **Models** | OpenAI Chat Completions, OpenAI Responses, Anthropic Messages, or your own; four layers (wire API, connection, retry, error meaning) a team can replace | ✅ |
 | **Storage** | memory, file, or your own database behind eight calls, with a conformance suite | ✅ |
 | **Many instances** | one writer per Session, takeover, drain, `not_writer` forwarding | ✅ |
 | **Events** | every step as a Go type, streamed, resumable on any instance | ✅ |
@@ -97,12 +97,18 @@ import (
     "github.com/jinhuang712/gotato/gotato"
 )
 
-// 1. A model. A provider is configuration: a wire API, a model and a key.
-model, _ := gateway.New(gateway.Config{
-    API:    gateway.APIAnthropicMessages, // or OpenAI Chat Completions, or Responses
-    Model:  "claude-sonnet-5-5",
-    APIKey: os.Getenv("ANTHROPIC_API_KEY"),
-})
+// 1. A model: a wire API, a connection, and what the model is (its facts).
+model, _ := gateway.New(
+    gateway.AnthropicMessages{}, // or gateway.ChatCompletions{}, or gateway.Responses{}
+    gateway.Connection{
+        Endpoint: "https://gateway.example.com/v1/messages",
+        APIKey:   os.Getenv("GATEWAY_API_KEY"),
+    },
+    gotato.ModelConfig{
+        Name:  "a-model",
+        Facts: gotato.ModelFacts{Window: gotato.WindowTokens(200_000)},
+    },
+)
 
 // 2. A tool is a Go function. Its input type becomes the schema the model sees.
 weather, _ := gotato.NewFuncTool("weather", "Returns the weather of a city.", func(_ context.Context, in struct {

@@ -389,7 +389,9 @@ func ExampleRunner_Run() {
 // provider, which is sent only the current Round's reasoning.
 type roundModel struct{ *testkit.FakeModel }
 
-func (roundModel) RoundReasoningOnly() bool { return true }
+func (roundModel) Config() gotato.ModelConfig {
+	return gotato.ModelConfig{Facts: gotato.ModelFacts{RoundReasoning: true}}
+}
 
 func thinkingReply(text string) testkit.Script {
 	return testkit.Script{
@@ -535,7 +537,7 @@ func TestAnAgentTurnsTheModelsRecapOnAndItAsksOnTheNextCallsContext(t *testing.T
 	n := len(before.Request.Messages)
 	prefix := sent[0]
 	prefix.Messages = prefix.Messages[:n]
-	prefix.Config.MaxTokens = before.Request.Config.MaxTokens
+	prefix.Sampling.MaxTokens = before.Request.Sampling.MaxTokens
 	want, _ := json.Marshal(before.Request)
 	got, _ := json.Marshal(prefix)
 	if string(want) != string(got) || len(sent[0].Messages) != n+1 {

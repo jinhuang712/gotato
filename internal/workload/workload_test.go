@@ -136,6 +136,9 @@ func (m usageModel) Stream(ctx context.Context, request gotato.ModelRequest) (go
 	return testkit.NewReplayModel(events).Stream(ctx, request)
 }
 
+// Config states nothing: no window, no retention, no sampling.
+func (m usageModel) Config() gotato.ModelConfig { return gotato.ModelConfig{} }
+
 func TestCostAndCacheHitRate(t *testing.T) {
 	price := workload.Price{Input: 3, Output: 15, CacheRead: 0.3, CacheWrite: 3.75}
 	task := reftasks.LookupTask()
@@ -168,6 +171,9 @@ type failingModel struct{}
 func (failingModel) Stream(context.Context, gotato.ModelRequest) (gotato.ModelStream, error) {
 	return nil, gotato.ErrorOf(gotato.CodeModelFailure, "provider unavailable")
 }
+
+// Config states nothing: no window, no retention, no sampling.
+func (failingModel) Config() gotato.ModelConfig { return gotato.ModelConfig{} }
 
 func TestFailedRunsAreAttributed(t *testing.T) {
 	report, err := workload.Run(context.Background(), workload.Config{Model: failingModel{}}, []reftasks.Task{reftasks.LookupTask()})

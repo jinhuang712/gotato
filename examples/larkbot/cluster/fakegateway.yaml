@@ -7,10 +7,11 @@ metadata:
 data:
   gateway.yaml: |
     api: anthropic-messages
-    base_url: http://fakegateway:8080
+    endpoint: http://fakegateway:8080/v1/messages
     api_key: dummy
     model: fake-model
-    max_retries: -1
+    window: unknown
+    max_retries: 0
 ---
 apiVersion: apps/v1
 kind: Deployment

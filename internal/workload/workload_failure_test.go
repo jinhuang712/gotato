@@ -125,6 +125,9 @@ func (m rigModel) Stream(_ context.Context, request gotato.ModelRequest) (gotato
 	}
 }
 
+// Config states nothing: no window, no retention, no sampling.
+func (m rigModel) Config() gotato.ModelConfig { return gotato.ModelConfig{} }
+
 type rigTool struct{ r *rig }
 
 func (rigTool) Spec() gotato.ToolSpec {

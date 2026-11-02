@@ -72,6 +72,9 @@ func (m *FakeModel) Stream(_ context.Context, request gotato.ModelRequest) (gota
 	return &stream{events: events, block: m.Block, delay: m.Delay}, nil
 }
 
+// Config states nothing: no window, no retention, no sampling.
+func (m *FakeModel) Config() gotato.ModelConfig { return gotato.ModelConfig{} }
+
 // Calls returns how many times Stream was called.
 func (m *FakeModel) Calls() int {
 	m.mu.Lock()
@@ -134,6 +137,9 @@ func (m *ReplayModel) Stream(context.Context, gotato.ModelRequest) (gotato.Model
 	m.calls++
 	return &stream{events: events}, nil
 }
+
+// Config states nothing: no window, no retention, no sampling.
+func (m *ReplayModel) Config() gotato.ModelConfig { return gotato.ModelConfig{} }
 
 // Remaining reports how many recorded calls are left.
 func (m *ReplayModel) Remaining() int {

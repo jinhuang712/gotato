@@ -488,6 +488,9 @@ func (m *stubbornModel) Stream(context.Context, gotato.ModelRequest) (gotato.Mod
 	return testkit.NewFakeModel(testkit.Text("late")).Stream(context.Background(), gotato.ModelRequest{})
 }
 
+// Config states nothing: no window, no retention, no sampling.
+func (m *stubbornModel) Config() gotato.ModelConfig { return gotato.ModelConfig{} }
+
 // A model call that ignores its context keeps the Run going after Drain
 // stopped it; Drain still returns after the stop wait.
 func TestDrainReturnsAfterTheStopWaitForAModelThatIgnoresItsContext(t *testing.T) {

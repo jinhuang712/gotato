@@ -1,80 +1,55 @@
 package gateway
 
 import (
-	"context"
 	"encoding/json"
 	"errors"
-	"net/http"
+	"fmt"
 	"reflect"
 	"strings"
 )
 
-// reservedBodyFields are the top-level fields the wire API's request carries
-// besides the ones its encoder struct declares: fields a provider takes that
-// a cache key must not replace either.
-var reservedBodyFields = map[API][]string{
-	APIChatCompletions: {"tool_choice", "parallel_tool_calls", "max_completion_tokens", "response_format", "stop", "n", "user", "metadata", "store"},
-	APIResponses:       {"max_tool_calls", "metadata", "text", "truncation", "user"},
-}
+// cacheKeyFieldNone is the CacheKeyField that sends no field, for a wire whose
+// default is one.
+const cacheKeyFieldNone = "none"
 
-// reservedBodyField reports whether name is a top-level field the request of
-// api already sends. The fields of the encoder's own struct are read from its
-// json tags, so a field added to the encoder is reserved with no second list.
-func reservedBodyField(api API, name string) bool {
-	if name == "" {
-		return false
-	}
-	var request reflect.Type
-	switch api {
-	case APIChatCompletions:
-		request = reflect.TypeFor[chatRequest]()
-	case APIResponses:
-		request = reflect.TypeFor[responsesRequest]()
-	default:
-		return false
+// checkCacheKeyField refuses a cache key field that equals a field the
+// request already sends: it would silently replace it. The fields of the
+// encoder's own struct are read from its json tags, so a field added to the
+// encoder is reserved with no second list; reserved names the fields the API
+// takes besides. [CONTRACT] a settings mistake is reported by New, before the
+// first Stream.
+func checkCacheKeyField(field string, request reflect.Type, reserved []string) error {
+	field = strings.TrimSpace(field)
+	if field == "" || field == cacheKeyFieldNone {
+		return nil
 	}
 	for i := range request.NumField() {
 		tag, _, _ := strings.Cut(request.Field(i).Tag.Get("json"), ",")
-		if strings.EqualFold(tag, name) {
-			return true
+		if strings.EqualFold(tag, field) {
+			return fmt.Errorf("gateway: CacheKeyField %q is a field the request already sends", field)
 		}
 	}
-	for _, reserved := range reservedBodyFields[api] {
-		if strings.EqualFold(reserved, name) {
-			return true
+	for _, name := range reserved {
+		if strings.EqualFold(name, field) {
+			return fmt.Errorf("gateway: CacheKeyField %q is a field the request already sends", field)
 		}
 	}
-	return false
-}
-
-// opener sends one encoded request and returns the provider's response.
-type opener func(context.Context, []byte) (*http.Response, error)
-
-// withCacheKeyHeader returns open with the request's cache key attached as
-// the configured header. The restarter keeps the returned opener, so a
-// restarted stream carries the key too.
-func (c *Client) withCacheKeyHeader(open opener, key string) opener {
-	if c.cacheKeyHeader == "" || key == "" {
-		return open
-	}
-	headers := map[string]string{c.cacheKeyHeader: key}
-	return func(ctx context.Context, body []byte) (*http.Response, error) {
-		return open(WithRequestHeaders(ctx, headers), body)
-	}
+	return nil
 }
 
 // withCacheKeyField adds the request's cache key to an encoded body as the
-// configured top-level field. It appends the field to the object, so the
-// fields before it keep their order.
-func (c *Client) withCacheKeyField(body []byte, key string) ([]byte, error) {
-	if c.cacheKeyField == "" || key == "" {
+// top-level field. It appends the field to the object, so the fields before it
+// keep their order.
+func withCacheKeyField(body []byte, field, key string) ([]byte, error) {
+	field = strings.TrimSpace(field)
+	if field == "" || field == cacheKeyFieldNone || key == "" {
 		return body, nil
 	}
 	// [IMPORTANT] the field is appended before the closing brace, so a body that is not an object would come out as corrupt JSON.
 	if len(body) < 2 || body[0] != '{' || body[len(body)-1] != '}' {
 		return nil, errors.New("gateway: the encoded request is not a JSON object")
 	}
-	name, err := json.Marshal(c.cacheKeyField)
+	name, err := json.Marshal(field)
 	if err != nil {
 		return nil, err
 	}

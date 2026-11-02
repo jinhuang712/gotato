@@ -109,7 +109,7 @@ func TestLostReleaseKeepsTheRunCompletedAndWarns(t *testing.T) {
 func unbuildableSpec() service.Agent {
 	negative := -1.0
 	return service.Agent{Name: "echo", Model: testkit.EchoModel{}, Options: []gotato.SessionOption{
-		gotato.WithModelConfig(gotato.ModelConfig{Temperature: &negative}),
+		gotato.WithSampling(gotato.Sampling{Temperature: &negative}),
 	}}
 }
 

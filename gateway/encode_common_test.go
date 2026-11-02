@@ -110,7 +110,7 @@ func TestBadToolCallArgumentsDoNotEndTheRun(t *testing.T) {
 				writeReply(t, w, textReply[api])
 			}))
 			defer server.Close()
-			client, err := New(Config{API: api, BaseURL: server.URL, APIKey: "k", Model: "m", MaxRetries: -1})
+			client, err := New(wireOf(api), Connection{Endpoint: server.URL, APIKey: "k"}, modelOf(gotato.ModelFacts{}), WithRetry(Retry{}))
 			if err != nil {
 				t.Fatal(err)
 			}
@@ -146,11 +146,6 @@ func TestBadToolCallArgumentsDoNotEndTheRun(t *testing.T) {
 // Every wire API sends a past call's arguments back as they were when they
 // are a JSON object, and as {} otherwise.
 func TestReplayedArgumentsAreAlwaysAJSONObject(t *testing.T) {
-	encoders := map[API]func(string, gotato.ModelRequest, providerRules) ([]byte, map[string]string, error){
-		APIChatCompletions:   encodeChatRequest,
-		APIResponses:         encodeResponsesRequest,
-		APIAnthropicMessages: encodeAnthropicRequest,
-	}
 	cases := map[string]string{
 		`{"q":"ab"}`: `{"q":"ab"}`,
 		`{"q":"ab`:   `{}`,
@@ -167,7 +162,7 @@ func TestReplayedArgumentsAreAlwaysAJSONObject(t *testing.T) {
 				Messages: []gotato.Message{gotato.UserMessage("go"), call, result},
 				Tools:    []gotato.ToolSpec{{ID: "echo"}},
 			}
-			body, _, err := encoders[api]("m", request, providerRules{})
+			body, _, err := wireEncoders[api](modelOf(gotato.ModelFacts{}), request)
 			if err != nil {
 				t.Fatalf("%s, arguments %q: %v", api, sent, err)
 			}
@@ -220,9 +215,9 @@ func TestEncodersSendEscapedJSONToolResult(t *testing.T) {
 		},
 	}
 	request := gotato.ModelRequest{Messages: gotato.ForModel(messages)}
-	chat, _, err1 := encodeChatRequest("m", request, providerRules{})
-	anthropic, _, err2 := encodeAnthropicRequest("m", request, providerRules{})
-	responses, _, err3 := encodeResponsesRequest("m", request, providerRules{})
+	chat, _, err1 := encodeChatRequest(modelOf(gotato.ModelFacts{}), request)
+	anthropic, _, err2 := encodeAnthropicRequest(modelOf(gotato.ModelFacts{}), request, true)
+	responses, _, err3 := encodeResponsesRequest(modelOf(gotato.ModelFacts{}), request, true)
 	for _, err := range []error{err1, err2, err3} {
 		if err != nil {
 			t.Fatal(err)
@@ -241,11 +236,6 @@ func TestEncodersSendEscapedJSONToolResult(t *testing.T) {
 // A Message's RunID is a record. No wire API may send it: the request bytes
 // are the same with a RunID and without, whatever the encoder is given.
 func TestRunIDNeverReachesAWireRequest(t *testing.T) {
-	encoders := map[API]func(string, gotato.ModelRequest, providerRules) ([]byte, map[string]string, error){
-		APIChatCompletions:   encodeChatRequest,
-		APIResponses:         encodeResponsesRequest,
-		APIAnthropicMessages: encodeAnthropicRequest,
-	}
 	build := func(runID gotato.RunID) gotato.ModelRequest {
 		user := gotato.UserMessage("go")
 		call := gotato.AssistantMessage("calling")
@@ -259,13 +249,13 @@ func TestRunIDNeverReachesAWireRequest(t *testing.T) {
 		}
 		return gotato.ModelRequest{Messages: messages, Tools: []gotato.ToolSpec{{ID: "echo"}}}
 	}
-	for api, encode := range encoders {
+	for api, encode := range wireEncoders {
 		t.Run(string(api), func(t *testing.T) {
-			with, _, err := encode("m", build("run-secret-7"), providerRules{})
+			with, _, err := encode(modelOf(gotato.ModelFacts{}), build("run-secret-7"))
 			if err != nil {
 				t.Fatal(err)
 			}
-			without, _, err := encode("m", build(""), providerRules{})
+			without, _, err := encode(modelOf(gotato.ModelFacts{}), build(""))
 			if err != nil {
 				t.Fatal(err)
 			}
@@ -282,11 +272,11 @@ func TestRunIDNeverReachesAWireRequest(t *testing.T) {
 // The Responses encoder sends no instruction and no verbosity of its own: a
 // request without them says nothing about either.
 func TestResponsesEncoderInventsNoInstructionOrVerbosity(t *testing.T) {
-	client, err := New(Config{API: APIResponses, BaseURL: "http://127.0.0.1:1", APIKey: "k", Model: "m"})
+	client, err := New(Responses{}, Connection{Endpoint: "http://127.0.0.1:1/v1/responses", APIKey: "k"}, modelOf(gotato.ModelFacts{}))
 	if err != nil {
 		t.Fatal(err)
 	}
-	body, _, err := encodeResponsesRequest(client.model, gotato.ModelRequest{Messages: []gotato.Message{gotato.UserMessage("hi")}}, client.rules)
+	body, _, err := encodeResponsesRequest(client.Config(), gotato.ModelRequest{Messages: []gotato.Message{gotato.UserMessage("hi")}}, true)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -307,16 +297,16 @@ func TestReasoningSettingsAreSentOrRefused(t *testing.T) {
 	cases := []struct {
 		name    string
 		api     API
-		config  gotato.ModelConfig
+		config  gotato.Sampling
 		refused bool
 	}{
-		{"responses effort", APIResponses, gotato.ModelConfig{ReasoningEffort: "high"}, false},
-		{"responses summary alone", APIResponses, gotato.ModelConfig{ReasoningSummary: "detailed"}, false},
-		{"chat effort", APIChatCompletions, gotato.ModelConfig{ReasoningEffort: "high"}, true},
-		{"chat summary", APIChatCompletions, gotato.ModelConfig{ReasoningSummary: "auto"}, true},
-		{"anthropic effort", APIAnthropicMessages, gotato.ModelConfig{ReasoningEffort: "high"}, true},
-		{"anthropic summary", APIAnthropicMessages, gotato.ModelConfig{ReasoningSummary: "auto"}, true},
-		{"chat none", APIChatCompletions, gotato.ModelConfig{}, false},
+		{"responses effort", APIResponses, gotato.Sampling{ReasoningEffort: "high"}, false},
+		{"responses summary alone", APIResponses, gotato.Sampling{ReasoningSummary: "detailed"}, false},
+		{"chat effort", APIChatCompletions, gotato.Sampling{ReasoningEffort: "high"}, true},
+		{"chat summary", APIChatCompletions, gotato.Sampling{ReasoningSummary: "auto"}, true},
+		{"anthropic effort", APIAnthropicMessages, gotato.Sampling{ReasoningEffort: "high"}, true},
+		{"anthropic summary", APIAnthropicMessages, gotato.Sampling{ReasoningSummary: "auto"}, true},
+		{"chat none", APIChatCompletions, gotato.Sampling{}, false},
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
@@ -326,11 +316,11 @@ func TestReasoningSettingsAreSentOrRefused(t *testing.T) {
 				writeSSE(t, w, `{"type":"response.completed","response":{"status":"completed"}}`)
 			}))
 			defer server.Close()
-			client, err := New(Config{API: tc.api, BaseURL: server.URL, APIKey: "k", Model: "m"})
+			client, err := New(wireOf(tc.api), Connection{Endpoint: server.URL, APIKey: "k"}, modelOf(gotato.ModelFacts{}))
 			if err != nil {
 				t.Fatal(err)
 			}
-			stream, err := client.Stream(context.Background(), gotato.ModelRequest{Messages: []gotato.Message{gotato.UserMessage("hi")}, Config: tc.config})
+			stream, err := client.Stream(context.Background(), gotato.ModelRequest{Messages: []gotato.Message{gotato.UserMessage("hi")}, Sampling: tc.config})
 			if tc.refused {
 				if !gotato.IsCode(err, gotato.CodeNotSupported) {
 					t.Fatalf("err = %v, want not_supported", err)

@@ -162,7 +162,7 @@ func RecapModelRequest(request RecapRequest, maxTokens uint32) (gotato.ModelRequ
 	if maxTokens == 0 {
 		maxTokens = DefaultRecapMaxTokens
 	}
-	out.Config.MaxTokens = maxTokens
+	out.Sampling.MaxTokens = maxTokens
 	return out, nil
 }
 
@@ -324,7 +324,7 @@ func mergeRecapModelRequest(request MergeRequest, maxTokens uint32) gotato.Model
 	}
 	return gotato.ModelRequest{
 		Messages: []gotato.Message{gotato.UserMessage(mergeRecapAsk(request))},
-		Config:   gotato.ModelConfig{MaxTokens: maxTokens},
+		Sampling: gotato.Sampling{MaxTokens: maxTokens},
 	}
 }
 

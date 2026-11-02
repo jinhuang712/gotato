@@ -25,7 +25,7 @@ go build -o "$(mktemp -d)/gotato" ./internal/cmd/gotato     # or build it outsid
 |---|---|
 | `echo` (default) | answers `echo: <prompt>`; no credentials |
 | `demo` | prompt `use-tool` calls `demo.echo` then answers; `use-big-tool` returns a large result; no credentials |
-| `gateway` | a provider configured by the gateway YAML file |
+| `gateway` | a provider configured by the gateway YAML file ([gatewayconf/gateway.example.yaml](../gatewayconf/gateway.example.yaml)), read through `internal/cmd/gatewayconf` |
 
 ## Commands
 

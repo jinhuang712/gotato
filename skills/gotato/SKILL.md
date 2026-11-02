@@ -25,7 +25,7 @@ Gotato is a minimal, synchronous Go library. An **Agent** is a definition (model
 ## Rules that save time
 
 - Import the core as `github.com/jinhuang712/gotato/gotato` (package `gotato`); `session`, `service`, `service/httpapi`, `modelctx`, `gateway`, `testkit` are siblings.
-- Start with `testkit` fakes (`EchoModel`, `DemoModel`, `NewFakeModel(testkit.ToolCalls(...), testkit.Text(...))`). A real model comes from `gateway` with a YAML config; no key is needed to start.
+- Start with `testkit` fakes (`EchoModel`, `DemoModel`, `NewFakeModel(testkit.ToolCalls(...), testkit.Text(...))`). A real model comes from `gateway.New(wire, connection, model)` (the CLI and the workload tool read a YAML file for it); no key is needed to start.
 - A Tool is `gotato.NewFuncTool(name, description, func(ctx, In) (string, error))`. Declare the effect read-only with `gotato.ToolWithEffect(tool, gotato.ToolEffectRead)` when it is; an undeclared Tool counts as destructive.
 - A `testkit.FakeModel` shares one script across all Runs; in a server test use `testkit.NewFuncModel` (it has no `Delay`: wait inside the function).
 - Pass `ctx` everywhere; it cancels model and tool calls.

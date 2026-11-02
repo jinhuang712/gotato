@@ -27,7 +27,7 @@ fmt.Println(gotato.TextOf(*result.FinalMessage)) // echo: hello
 
 - `ctx` carries cancellation and the deadline through every model call and tool call.
 - A Session keeps its conversation in memory unless you give it a place to write ([Embed Gotato in a service](embed-in-a-service.md)).
-- To talk to a real model, use a provider from the `gateway` package (OpenAI Chat Completions, OpenAI Responses, Anthropic Messages). Gotato takes a base URL and a key in a YAML file, so a team can point it at its own gateway.
+- To talk to a real model, build a Client with `gateway.New(wire, connection, model)`: a wire API from the `gateway` package (`ChatCompletions{}`, `Responses{}` or `AnthropicMessages{}`), a `gateway.Connection` with the complete endpoint URL and a key, and a `gotato.ModelConfig` that names the model and states its window. A team can point it at its own gateway through the endpoint.
 
 This example is run as a test: `Example` in [example_test.go](../gotato/example_test.go).
 

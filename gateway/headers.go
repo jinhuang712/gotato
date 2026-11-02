@@ -4,15 +4,14 @@ import (
 	"context"
 	"fmt"
 	"maps"
-	"net/http"
 	"net/url"
 	"strings"
 )
 
-// defaultUserAgent identifies Gotato when neither the configuration nor the
+// defaultUserAgent identifies Gotato when neither the Connection nor the
 // request context names a client. Providers that require callers to identify
 // themselves (for example with their own product name) are satisfied by a
-// User-Agent entry in Config.Headers or WithRequestHeaders.
+// User-Agent entry in Connection.Headers or WithRequestHeaders.
 const defaultUserAgent = "gotato/0.1"
 
 type requestHeadersKey struct{}
@@ -27,8 +26,8 @@ type requestHeadersKey struct{}
 //
 // A Session passes its Run context to Model.Stream, so the headers reach
 // every request of that Run. Headers from nested calls merge, the innermost
-// value winning. They are applied after Config.Headers and before the
-// adapter's protocol headers, so they can override configuration but never
+// value winning. They are applied after Connection.Headers and before the
+// wire's own headers, so they can override configuration but never
 // authentication, content type, or stream negotiation.
 func WithRequestHeaders(ctx context.Context, headers map[string]string) context.Context {
 	if len(headers) == 0 {
@@ -55,55 +54,18 @@ func RequestHeaders(ctx context.Context) map[string]string {
 	return maps.Clone(headers)
 }
 
-// addAnthropicBeta adds a beta to the anthropic-beta header, after any
-// betas the configuration or the request context already names.
-func addAnthropicBeta(header http.Header, beta string) {
-	current := header.Get("anthropic-beta")
+// withAnthropicBeta adds a beta to a comma-separated anthropic-beta list, after
+// any betas the Connection or the request context already names.
+func withAnthropicBeta(current, beta string) string {
 	for name := range strings.SplitSeq(current, ",") {
 		if strings.TrimSpace(name) == beta {
-			return
+			return current
 		}
 	}
 	if current != "" {
-		beta = current + "," + beta
+		return current + "," + beta
 	}
-	header.Set("anthropic-beta", beta)
-}
-
-// applyHeaders sets the default User-Agent, then configured headers, then
-// per-request headers. Callers set protocol headers afterwards.
-func (c *Client) applyHeaders(ctx context.Context, req *http.Request) {
-	req.Header.Set("User-Agent", defaultUserAgent)
-	for key, value := range c.headers {
-		req.Header.Set(key, value)
-	}
-	for key, value := range RequestHeaders(ctx) {
-		req.Header.Set(key, value)
-	}
-}
-
-// setProtocolHeaders sets the headers that belong to the wire API: the
-// credential, and for Anthropic Messages the version and beta flags.
-func (c *Client) setProtocolHeaders(req *http.Request) {
-	switch c.api {
-	case APIAnthropicMessages:
-		// A configured anthropic-version header pins another API version.
-		if req.Header.Get("anthropic-version") == "" {
-			req.Header.Set("anthropic-version", anthropicVersion)
-		}
-		if c.rules.blockBinding {
-			addAnthropicBeta(req.Header, anthropicBindingBeta)
-		}
-		if c.apiKey != "" {
-			req.Header.Set("x-api-key", c.apiKey)
-		}
-	case APIResponses:
-		req.Header.Set("Authorization", "Bearer "+c.apiKey)
-	default:
-		if c.apiKey != "" {
-			req.Header.Set("Authorization", "Bearer "+c.apiKey)
-		}
-	}
+	return beta
 }
 
 // validHeaderName reports whether name is an HTTP header field name: one or

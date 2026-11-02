@@ -30,7 +30,7 @@ func (f *fixture) contextOf(calls *int) func(context.Context) (gotato.ModelReque
 		request := report.Request
 		request.CacheKey = "gotato-key"
 		request.CacheBreakpoints = []gotato.CacheBreakpoint{{After: gotato.CacheAnchorAfterSystem}, {After: gotato.CacheAnchorAfterMessage, Index: 1}}
-		request.Config.ReasoningEffort = "low"
+		request.Sampling.ReasoningEffort = "low"
 		return request, nil
 	}
 }
@@ -72,14 +72,14 @@ func TestTheRecapRequestIsTheNextCallsContextAndOneAskAfterIt(t *testing.T) {
 	}
 	prefix := sent
 	prefix.Messages = sent.Messages[:n]
-	prefix.Config.MaxTokens = next.Config.MaxTokens
+	prefix.Sampling.MaxTokens = next.Sampling.MaxTokens
 	want, _ := json.Marshal(next)
 	got, _ := json.Marshal(prefix)
 	if string(want) != string(got) {
 		t.Fatalf("the prefix differs from the next call's Context:\n got %s\nwant %s", got, want)
 	}
-	if sent.Config.MaxTokens != 8192 || modelctx.DefaultRecapMaxTokens != 8192 {
-		t.Errorf("MaxTokens = %d, want 8192", sent.Config.MaxTokens)
+	if sent.Sampling.MaxTokens != 8192 || modelctx.DefaultRecapMaxTokens != 8192 {
+		t.Errorf("MaxTokens = %d, want 8192", sent.Sampling.MaxTokens)
 	}
 	ask := sent.Messages[n]
 	text := gotato.TextOf(ask)
@@ -228,8 +228,8 @@ func TestTheRecapOutputLimitIsConfigurable(t *testing.T) {
 	model := testkit.NewFakeModel(testkit.Text(goodRecap))
 	mustCompact(t, f.rec, modelctx.CompactConfig{CompactPolicy: modelctx.CompactPolicy{Recap: modelctx.ModelRecap{Model: model, MaxTokens: 1500}}}, modelctx.WithRecapContext(f.contextOf(nil)))
 	sent, _ := model.LastRequest()
-	if sent.Config.MaxTokens != 1500 {
-		t.Errorf("MaxTokens = %d", sent.Config.MaxTokens)
+	if sent.Sampling.MaxTokens != 1500 {
+		t.Errorf("MaxTokens = %d", sent.Sampling.MaxTokens)
 	}
 }
 
@@ -355,6 +355,9 @@ func (failingRecap) WriteRecap(context.Context, modelctx.RecapRequest) (gotato.M
 func (nilStreamModel) Stream(context.Context, gotato.ModelRequest) (gotato.ModelStream, error) {
 	return nil, nil
 }
+
+// Config states nothing: no window, no retention, no sampling.
+func (nilStreamModel) Config() gotato.ModelConfig { return gotato.ModelConfig{} }
 
 func (fixedRecap) Name() string { return "fixed" }
 
@@ -485,6 +488,9 @@ type stalledModel struct{}
 func (stalledModel) Stream(context.Context, gotato.ModelRequest) (gotato.ModelStream, error) {
 	return stalledStream{}, nil
 }
+
+// Config states nothing: no window, no retention, no sampling.
+func (stalledModel) Config() gotato.ModelConfig { return gotato.ModelConfig{} }
 
 type stalledStream struct{}
 

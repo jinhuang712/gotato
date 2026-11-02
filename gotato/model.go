@@ -2,13 +2,25 @@ package gotato
 
 import (
 	"context"
+	"time"
 )
 
 // Model is the interface Gotato calls for a reply, as a stream of events.
 // Stream starts a call and returns its ModelStream, or an error when the call
-// could not start. The ctx ends the call.
+// could not start. The ctx ends the call. Config says what the model is: its
+// name, the facts the runtime reads (the context window, the prompt cache
+// retention) and its default sampling. A wrapper that embeds a Model
+// forwards Config with it, so a fact is never hidden by a wrapper that forgot
+// to pass it on.
+//
+// A Model written by hand, a fake in a test for instance, returns the zero
+// ModelConfig when it has nothing to state. That is a valid answer: no
+// window, which reads as unknown, so compaction has no ceiling trigger and
+// runs only when the provider refuses a request as too long; no retention;
+// no default sampling.
 type Model interface {
 	Stream(context.Context, ModelRequest) (ModelStream, error)
+	Config() ModelConfig
 }
 
 // ModelRequest is what the Model receives for one call: the Context a
@@ -25,9 +37,12 @@ type ModelRequest struct {
 	// sends every catalog Tool as deferred in a fixed order, so the tool
 	// list stays the same while Tools load, and shows a load as a
 	// reference in the Tool Result that loaded it (ToolResult.LoadedTools).
-	LoadedTools   []string    `json:"loaded_tools,omitempty"`
-	UnloadedTools []ToolSpec  `json:"unloaded_tools,omitempty"`
-	Config        ModelConfig `json:"config,omitzero"`
+	LoadedTools   []string   `json:"loaded_tools,omitempty"`
+	UnloadedTools []ToolSpec `json:"unloaded_tools,omitempty"`
+	// Sampling is the sampling and reasoning hints of this call: the Model's
+	// own defaults (ModelConfig.Sampling) overridden field by field by the
+	// Session's WithSampling. A wire API maps the fields its provider takes.
+	Sampling Sampling `json:"sampling,omitzero"`
 	// CacheBreakpoints are provider-neutral prompt-cache hints in prefix
 	// order. An adapter maps them to its provider's mechanism (for example
 	// Anthropic cache_control) or ignores them when the provider caches
@@ -59,14 +74,70 @@ type CacheBreakpoint struct {
 	Index int         `json:"index,omitempty"`
 }
 
-// ModelConfig carries per-request sampling and reasoning hints. A Session
-// sends the options from WithModelConfig on every model call, and gateway
-// adapters map the fields their provider supports.
+// ModelConfig is one model, described once: what it is called, what it is,
+// and how it is sampled by default.
 type ModelConfig struct {
+	// Name is the model's id as its provider knows it.
+	Name string `json:"name,omitempty"`
+	// Facts is what the model is. Nothing overrides it, and Gotato guesses
+	// none of it from a name.
+	Facts ModelFacts `json:"facts,omitzero"`
+	// Sampling holds the defaults of every call. The Session's WithSampling
+	// overrides them field by field into ModelRequest.Sampling.
+	Sampling Sampling `json:"sampling,omitzero"`
+}
+
+// ModelFacts is what a model is, as the team that runs it states it. The zero
+// value of every field is the cautious answer: unknown, or off.
+type ModelFacts struct {
+	// Window is the context window in tokens, or "unknown", written out. The
+	// runtime reads it to size the ceiling that triggers compaction; an
+	// unknown or unstated window leaves no ceiling.
+	Window Window `json:"window,omitzero"`
+	// CacheRetention is how long the provider keeps the prompt cache after a
+	// request. Zero means unknown, never "no cache". The Runner reads it to
+	// time a warm Session's idle compaction, and a wire API may ask the
+	// provider for that retention.
+	CacheRetention time.Duration `json:"cache_retention,omitempty"`
+	// RoundReasoning is set when the provider takes back only the reasoning
+	// of the current Round (the replies after the last user Message). Gotato
+	// then sends no earlier reasoning, and a compaction leaves it out of the
+	// Messages it keeps. Left unset, every reasoning artifact goes back,
+	// which a provider accepts.
+	RoundReasoning bool `json:"round_reasoning,omitempty"`
+	// ThinkingBinding is set when the provider checks the prefix a thinking
+	// block was written under, so a wire API that can may ask it to drop a
+	// block whose prefix changed instead of refusing the request.
+	ThinkingBinding bool `json:"thinking_binding,omitempty"`
+}
+
+// Sampling carries sampling and reasoning hints. A model's defaults are in
+// ModelConfig.Sampling, a Session overrides them with WithSampling, and the
+// result is ModelRequest.Sampling. A wire API maps the fields its provider
+// supports.
+type Sampling struct {
 	Temperature      *float64 `json:"temperature,omitempty"`
 	MaxTokens        uint32   `json:"max_tokens,omitempty"`
 	ReasoningEffort  string   `json:"reasoning_effort,omitempty"`
 	ReasoningSummary string   `json:"reasoning_summary,omitempty"`
+}
+
+// over returns s with every field it leaves unset taken from defaults: the
+// Sampling a Session sends is its own WithSampling over the Model's.
+func (s Sampling) over(defaults Sampling) Sampling {
+	if s.Temperature == nil {
+		s.Temperature = defaults.Temperature
+	}
+	if s.MaxTokens == 0 {
+		s.MaxTokens = defaults.MaxTokens
+	}
+	if s.ReasoningEffort == "" {
+		s.ReasoningEffort = defaults.ReasoningEffort
+	}
+	if s.ReasoningSummary == "" {
+		s.ReasoningSummary = defaults.ReasoningSummary
+	}
+	return s
 }
 
 // ModelStream is the events of one model call. One goroutine reads it: Recv

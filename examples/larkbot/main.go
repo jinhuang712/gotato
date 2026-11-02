@@ -16,8 +16,8 @@ import (
 	"syscall"
 	"time"
 
-	"github.com/jinhuang712/gotato/gateway"
 	"github.com/jinhuang712/gotato/gotato"
+	"github.com/jinhuang712/gotato/internal/cmd/gatewayconf"
 	"github.com/jinhuang712/gotato/service"
 	"github.com/jinhuang712/gotato/service/httpapi"
 	"github.com/jinhuang712/gotato/session"
@@ -199,15 +199,15 @@ func buildAgent(model string) (service.Agent, error) {
 		if path == "" {
 			path = "gateway.yaml"
 		}
-		cfg, err := gateway.LoadYAML(path)
+		cfg, err := gatewayconf.Load(path)
 		if err != nil {
 			return service.Agent{}, fmt.Errorf("gateway config %s: %w", path, err)
 		}
-		client, err := gateway.New(cfg)
+		client, err := cfg.New()
 		if err != nil {
 			return service.Agent{}, err
 		}
-		return service.Agent{Name: "gateway", Model: client, ModelName: cfg.Model, Instruction: instruction, Limits: botLimits()}, nil
+		return service.Agent{Name: "gateway", Model: client, ModelName: cfg.Model.Name, Instruction: instruction, Limits: botLimits()}, nil
 	}
 	return service.Agent{}, fmt.Errorf("unknown -model %q (echo, demo or gateway)", model)
 }

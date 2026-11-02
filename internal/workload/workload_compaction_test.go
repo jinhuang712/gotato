@@ -11,9 +11,11 @@ import (
 	"strings"
 	"sync"
 	"testing"
+	"time"
 
 	"github.com/jinhuang712/gotato/gateway"
 	"github.com/jinhuang712/gotato/gotato"
+	"github.com/jinhuang712/gotato/internal/fakegateway"
 	"github.com/jinhuang712/gotato/internal/reftasks"
 	itext "github.com/jinhuang712/gotato/internal/text"
 	"github.com/jinhuang712/gotato/modelctx"
@@ -38,8 +40,6 @@ type windowedLogging struct {
 	log    *requestLog
 }
 
-func (m windowedLogging) ContextWindowTokens() int { return m.window }
-
 func (m windowedLogging) Stream(ctx context.Context, request gotato.ModelRequest) (gotato.ModelStream, error) {
 	b, err := json.Marshal(request)
 	if err != nil {
@@ -47,6 +47,11 @@ func (m windowedLogging) Stream(ctx context.Context, request gotato.ModelRequest
 	}
 	m.log.add(b)
 	return m.inner.Stream(ctx, request)
+}
+
+// Config states the window, so the Runner takes the default ceiling from it.
+func (m windowedLogging) Config() gotato.ModelConfig {
+	return gotato.ModelConfig{Facts: gotato.ModelFacts{Window: gotato.WindowTokens(m.window)}}
 }
 
 func longRunner(t *testing.T, store session.Store, task reftasks.Task, model gotato.Model, instance string) *service.Runner {
@@ -191,7 +196,7 @@ func TestRequestOnlyGrowsAtItsEndAcrossCompactions(t *testing.T) {
 					next.SystemInstructions != prev.SystemInstructions+"\n\n"+gotato.TagsSentence && next.SystemInstructions != prev.SystemInstructions+gotato.TagsSentence {
 					t.Errorf("%s: system instruction changed", pair)
 				}
-				if !bytes.Equal(jsonOf(t, prev.Config), jsonOf(t, next.Config)) || prev.CacheKey != next.CacheKey {
+				if !bytes.Equal(jsonOf(t, prev.Sampling), jsonOf(t, next.Sampling)) || prev.CacheKey != next.CacheKey {
 					t.Errorf("%s: options or cache key changed", pair)
 				}
 				extends := len(next.Messages) >= len(prev.Messages)
@@ -307,28 +312,43 @@ func TestSameRecordSameRequestAcrossCompactions(t *testing.T) {
 // This file checks G-G07 on the bytes the gateway sends where the Session
 // compacts and merges (GOALS.md → G-G07). It plays the long_session task as
 // TestRequestOnlyGrowsAtItsEndAcrossCompactions does, and encodes every request
-// with the gateway for each wire API, with the provider rules of Claude, OpenAI
-// and DeepSeek.
+// with the gateway for each wire API, with the facts of a Claude model, an
+// OpenAI model and a DeepSeek model.
 
 // wireEncoder encodes requests with a gateway Client, as it would send them.
 type wireEncoder struct {
-	api  gateway.API
+	api  wireName
 	mu   sync.Mutex
 	last map[string]any
 	key  string
 	send func(gotato.ModelRequest)
 }
 
+// wireName is the name of a wire API as the fake gateway spells it.
+type wireName string
+
+const (
+	apiAnthropic wireName = fakegateway.APIAnthropic
+	apiResponses wireName = fakegateway.APIResponses
+	apiChat      wireName = fakegateway.APIChat
+)
+
+// wireKind is a wire API with the model that speaks it: the facts are what a
+// provider's rules used to be.
 type wireKind struct {
-	api      gateway.API
-	provider gateway.Provider
-	model    string
+	api   wireName
+	wire  gateway.WireAPI
+	path  string
+	model gotato.ModelConfig
 }
 
 var wireKinds = []wireKind{
-	{gateway.APIAnthropicMessages, gateway.ProviderAnthropic, "claude-sonnet-5-5"},
-	{gateway.APIResponses, gateway.ProviderOpenAI, "gpt-6.1-sol"},
-	{gateway.APIChatCompletions, gateway.ProviderDeepSeek, "deepseek-reasoner"},
+	{apiAnthropic, gateway.AnthropicMessages{}, "/v1/messages", gotato.ModelConfig{Name: "claude-sonnet-5-5", Facts: gotato.ModelFacts{
+		Window: gotato.WindowUnknown(), CacheRetention: time.Hour, RoundReasoning: true, ThinkingBinding: true}}},
+	{apiResponses, gateway.Responses{}, "/v1/responses", gotato.ModelConfig{Name: "gpt-6.1-sol", Facts: gotato.ModelFacts{
+		Window: gotato.WindowUnknown(), CacheRetention: 30 * time.Minute, RoundReasoning: true}}},
+	{apiChat, gateway.ChatCompletions{CacheKeyField: "prompt_cache_key"}, "/v1/chat/completions", gotato.ModelConfig{Name: "deepseek-reasoner", Facts: gotato.ModelFacts{
+		Window: gotato.WindowUnknown()}}},
 }
 
 func newWireEncoder(t *testing.T, kind wireKind) *wireEncoder {
@@ -343,11 +363,7 @@ func newWireEncoder(t *testing.T, kind wireKind) *wireEncoder {
 		w.Header().Set("Content-Type", "text/event-stream")
 	}))
 	t.Cleanup(server.Close)
-	config := gateway.Config{API: kind.api, Provider: kind.provider, Model: kind.model, BaseURL: server.URL, APIKey: "k", CacheKeyHeader: "X-Cache-Key"}
-	if kind.api == gateway.APIChatCompletions {
-		config.CacheKeyField = "prompt_cache_key"
-	}
-	client, err := gateway.New(config)
+	client, err := gateway.New(kind.wire, gateway.Connection{Endpoint: server.URL + kind.path, APIKey: "k", CacheKeyHeader: "X-Cache-Key"}, kind.model)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -395,13 +411,13 @@ func (e *wireEncoder) encode(t *testing.T, request gotato.ModelRequest) wireRequ
 		}
 	}
 	switch e.api {
-	case gateway.APIResponses:
+	case apiResponses:
 		w.instruction, _ = body["instructions"].(string)
 		items, _ := body["input"].([]any)
 		for _, item := range items {
 			add(item)
 		}
-	case gateway.APIChatCompletions:
+	case apiChat:
 		messages, _ := body["messages"].([]any)
 		for i, m := range messages {
 			if message, _ := m.(map[string]any); i == 0 && message["role"] == "system" {
@@ -602,7 +618,7 @@ func checkWirePair(t *testing.T, enc *wireEncoder, pair string, prevReq, nextReq
 	if !slices.Equal(prev.tools, next.tools) && !slices.Equal(prev.tools, withoutReadSegment(next.tools)) {
 		t.Errorf("%s: the tool list changed beyond read_segment joining it\nbefore: %v\n after: %v", pair, prev.tools, next.tools)
 	}
-	if len(next.tools) > 0 && enc.api == gateway.APIAnthropicMessages && len(next.toolMarks) != 1 {
+	if len(next.tools) > 0 && enc.api == apiAnthropic && len(next.toolMarks) != 1 {
 		t.Errorf("%s: %d cache marks on the tools", pair, len(next.toolMarks))
 	}
 	// The conversation.
@@ -628,7 +644,7 @@ func checkWirePair(t *testing.T, enc *wireEncoder, pair string, prevReq, nextReq
 		}
 	}
 	// The breakpoints on Anthropic: each lands on the end of the Message it names.
-	if enc.api == gateway.APIAnthropicMessages {
+	if enc.api == apiAnthropic {
 		for _, point := range nextReq.CacheBreakpoints {
 			if point.After != gotato.CacheAnchorAfterMessage {
 				continue

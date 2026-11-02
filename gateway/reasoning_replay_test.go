@@ -24,17 +24,11 @@ import (
 // progress. Sending every earlier Round's reasoning would keep it in the
 // window, and on the bill, for as long as the Session lives, which can be
 // weeks. Only the replies after the last user Message keep their reasoning.
-func TestRecognizedProvidersSendOnlyTheCurrentRoundsReasoning(t *testing.T) {
-	for _, tc := range []struct {
-		provider Provider
-		api      API
-	}{
-		{ProviderAnthropic, APIAnthropicMessages},
-		{ProviderOpenAI, APIResponses},
-		{ProviderOpenAI, APIChatCompletions},
-	} {
-		t.Run(string(tc.provider)+"/"+string(tc.api), func(t *testing.T) {
-			rules := newProviderRules(tc.provider, tc.api, "m", 0, false)
+func TestRoundReasoningModelsSendOnlyTheCurrentRoundsReasoning(t *testing.T) {
+	for _, api := range wireAPIs {
+		tc := struct{ api API }{api}
+		t.Run(string(tc.api), func(t *testing.T) {
+			rules := gotato.ModelFacts{RoundReasoning: true}
 			body := encodeWith(t, tc.api, rules, twoRounds(tc.api))
 			for _, earlier := range []string{"r1", "r2"} {
 				if strings.Contains(body, sentReasoning(tc.api, earlier)) {
@@ -61,45 +55,41 @@ func TestResponsesLeavesOutTheItemIDsOfEarlierRounds(t *testing.T) {
 	messages := twoRounds(APIResponses)
 	messages[1].ToolCalls = []gotato.ToolCall{{ID: "c1|fc_1", ToolID: "echo", Arguments: []byte(`{}`)}}
 	messages[5].ToolCalls = []gotato.ToolCall{{ID: "c3|fc_3", ToolID: "echo", Arguments: []byte(`{}`)}}
-	openai := encodeWith(t, APIResponses, newProviderRules(ProviderOpenAI, APIResponses, "m", 0, false), messages)
+	openai := encodeWith(t, APIResponses, gotato.ModelFacts{RoundReasoning: true}, messages)
 	if strings.Contains(openai, "fc_1") || !strings.Contains(openai, `"call_id":"c1"`) {
 		t.Errorf("the earlier Round's call keeps its item ID, or lost its call:\n%s", openai)
 	}
 	if !strings.Contains(openai, "fc_3") {
 		t.Errorf("the current Round's call lost its item ID:\n%s", openai)
 	}
-	if other := encodeWith(t, APIResponses, providerRules{}, messages); !strings.Contains(other, "fc_1") {
-		t.Errorf("an unrecognized provider lost an item ID:\n%s", other)
+	if other := encodeWith(t, APIResponses, gotato.ModelFacts{}, messages); !strings.Contains(other, "fc_1") {
+		t.Errorf("a model that takes all reasoning lost an item ID:\n%s", other)
 	}
 }
 
 // DeepSeek refuses a request that leaves out any earlier reasoning_content
-// once tools are in play, and a provider the gateway cannot recognize may do
-// the same. Both get every reasoning artifact back, and no field or header the
-// gateway adds only for a recognized provider.
-func TestDeepSeekAndUnrecognizedProvidersGetEveryReasoningAndNothingElse(t *testing.T) {
-	for _, provider := range []Provider{ProviderDeepSeek, ""} {
-		for _, api := range wireAPIs {
-			t.Run(string(provider)+"/"+string(api), func(t *testing.T) {
-				for _, model := range []string{"claude-opus-5-5", "gpt-6.1-sol"} {
-					body := encodeWith(t, api, newProviderRules(provider, api, model, 0, false), twoRounds(api))
-					for _, label := range []string{"r1", "r2", "r3"} {
-						if !strings.Contains(body, sentReasoning(api, label)) {
-							t.Errorf("%s: reasoning %s is missing:\n%s", model, label, body)
-						}
-					}
-					fields := topLevel(t, body)
-					for _, field := range []string{"thinking", "prompt_cache_options", "prompt_cache_retention"} {
-						if _, ok := fields[field]; ok {
-							t.Errorf("%s: the request carries %s:\n%s", model, field, body)
-						}
-					}
-					if strings.Contains(body, `"ttl"`) {
-						t.Errorf("%s: the request carries a cache ttl:\n%s", model, body)
-					}
+// once tools are in play, and any model whose facts say nothing may do the
+// same. A model with no stated facts gets every reasoning artifact back, and
+// no field or header the gateway adds only for a stated fact.
+func TestAModelWithNoStatedFactsGetsEveryReasoningAndNothingElse(t *testing.T) {
+	for _, api := range wireAPIs {
+		t.Run(string(api), func(t *testing.T) {
+			body := encodeWith(t, api, gotato.ModelFacts{}, twoRounds(api))
+			for _, label := range []string{"r1", "r2", "r3"} {
+				if !strings.Contains(body, sentReasoning(api, label)) {
+					t.Errorf("reasoning %s is missing:\n%s", label, body)
 				}
-			})
-		}
+			}
+			fields := topLevel(t, body)
+			for _, field := range []string{"thinking", "prompt_cache_options", "prompt_cache_retention"} {
+				if _, ok := fields[field]; ok {
+					t.Errorf("the request carries %s:\n%s", field, body)
+				}
+			}
+			if strings.Contains(body, `"ttl"`) {
+				t.Errorf("the request carries a cache ttl:\n%s", body)
+			}
+		})
 	}
 }
 
@@ -165,7 +155,7 @@ func TestASteerStartsANewRoundAndAContinueDoesNot(t *testing.T) {
 				writeSSE(t, w, event)
 			}
 		}))
-		client, err := New(Config{API: APIAnthropicMessages, Provider: ProviderAnthropic, BaseURL: server.URL, APIKey: "k", Model: "claude-opus-4-6"})
+		client, err := New(AnthropicMessages{}, Connection{Endpoint: server.URL, APIKey: "k"}, modelOf(gotato.ModelFacts{RoundReasoning: true}))
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -203,38 +193,31 @@ func TestASteerStartsANewRoundAndAContinueDoesNot(t *testing.T) {
 	}
 }
 
-// Only Fable 5.1, Opus 5.5, Sonnet 5.5 and Haiku 5.5 check the prefix a
-// thinking block was written under, so only they are asked to drop a block
-// whose prefix changed instead of refusing the request. block_binding lives
-// in the thinking object, and "adaptive" is their default, so it changes
-// nothing else. Another Claude model gets no thinking object: "adaptive"
-// would turn thinking on for Opus 4.6 and be refused by Opus 4.5.
-func TestAnthropicBindsThinkingOnlyWhereThePrefixIsChecked(t *testing.T) {
+// A model whose facts say ThinkingBinding checks the prefix a thinking block
+// was written under, so it is asked to drop a block whose prefix changed
+// instead of refusing the request. block_binding lives in the thinking
+// object, and "adaptive" is its default, so it changes nothing else. A model
+// without the fact gets no thinking object: "adaptive" would turn thinking on
+// for a model that does not take it.
+func TestAnthropicBindsThinkingOnlyWhereTheFactIsStated(t *testing.T) {
 	const binding = `{"type":"adaptive","block_binding":{"prefix_mismatch_behavior":"drop_block"}}`
 	for _, tc := range []struct {
-		model       string
-		noDropBlock bool
-		want        bool
+		facts gotato.ModelFacts
+		want  bool
 	}{
-		{"claude-fable-5-1", false, true},
-		{"claude-opus-5-5", false, true},
-		{"claude-sonnet-5-5", false, true},
-		{"claude-haiku-5-5", false, true},
-		{"claude-opus-5-5-20261001", false, true},
-		{"claude-opus-5", false, false},
-		{"claude-opus-4-6", false, false},
-		{"claude-sonnet-4-5", false, false},
-		{"an-alias", false, false},
-		{"claude-opus-5-5", true, false},
+		{gotato.ModelFacts{ThinkingBinding: true}, true},
+		{gotato.ModelFacts{ThinkingBinding: true, RoundReasoning: true}, true},
+		{gotato.ModelFacts{RoundReasoning: true}, false},
+		{gotato.ModelFacts{}, false},
 	} {
-		body := encodeWith(t, APIAnthropicMessages, newProviderRules(ProviderAnthropic, APIAnthropicMessages, tc.model, 0, tc.noDropBlock), twoRounds(APIAnthropicMessages))
+		body := encodeWith(t, APIAnthropicMessages, tc.facts, twoRounds(APIAnthropicMessages))
 		thinking, ok := topLevel(t, body)["thinking"]
 		if ok != tc.want {
-			t.Errorf("%s (no_drop_block=%v): thinking sent = %v, want %v", tc.model, tc.noDropBlock, ok, tc.want)
+			t.Errorf("%+v: thinking sent = %v, want %v", tc.facts, ok, tc.want)
 			continue
 		}
 		if ok && string(thinking) != binding {
-			t.Errorf("%s: thinking = %s, want %s", tc.model, thinking, binding)
+			t.Errorf("%+v: thinking = %s, want %s", tc.facts, thinking, binding)
 		}
 	}
 }
@@ -243,14 +226,13 @@ func TestAnthropicBindsThinkingOnlyWhereThePrefixIsChecked(t *testing.T) {
 // joins any anthropic-beta value the configuration already sends.
 func TestAnthropicBindingSendsItsBetaHeader(t *testing.T) {
 	for _, tc := range []struct {
-		provider                Provider
-		model, configured, want string
+		binding          bool
+		configured, want string
 	}{
-		{ProviderAnthropic, "claude-opus-5-5", "", anthropicBindingBeta},
-		{ProviderAnthropic, "claude-opus-5-5", "files-api-2025-04-14", "files-api-2025-04-14," + anthropicBindingBeta},
-		{ProviderAnthropic, "claude-opus-4-6", "", ""},
-		{ProviderDeepSeek, "claude-opus-5-5", "", ""},
-		{"", "claude-opus-5-5", "", ""},
+		{true, "", anthropicBindingBeta},
+		{true, "files-api-2025-04-14", "files-api-2025-04-14," + anthropicBindingBeta},
+		{false, "", ""},
+		{false, "files-api-2025-04-14", "files-api-2025-04-14"},
 	} {
 		var got string
 		server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
@@ -264,7 +246,7 @@ func TestAnthropicBindingSendsItsBetaHeader(t *testing.T) {
 		if tc.configured != "" {
 			headers["anthropic-beta"] = tc.configured
 		}
-		client, err := New(Config{API: APIAnthropicMessages, Provider: tc.provider, BaseURL: server.URL, APIKey: "k", Model: tc.model, Headers: headers})
+		client, err := New(AnthropicMessages{}, Connection{Endpoint: server.URL, APIKey: "k", Headers: headers}, modelOf(gotato.ModelFacts{ThinkingBinding: tc.binding}))
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -277,7 +259,7 @@ func TestAnthropicBindingSendsItsBetaHeader(t *testing.T) {
 		}
 		server.Close()
 		if got != tc.want {
-			t.Errorf("%q %s: anthropic-beta = %q, want %q", tc.provider, tc.model, got, tc.want)
+			t.Errorf("binding=%v configured %q: anthropic-beta = %q, want %q", tc.binding, tc.configured, got, tc.want)
 		}
 	}
 }
@@ -304,7 +286,7 @@ func TestAnthropicMarksTheRoundsStartForTheCache(t *testing.T) {
 		t.Fatalf("no block with text %q", text)
 		return false
 	}
-	claude := newProviderRules(ProviderAnthropic, APIAnthropicMessages, "claude-opus-4-6", 0, false)
+	claude := gotato.ModelFacts{RoundReasoning: true}
 	newRound := twoRounds(APIAnthropicMessages)[:5]
 	if !marked(encodeWith(t, APIAnthropicMessages, claude, newRound), "q1") {
 		t.Error("the first request of a Round does not mark the start of the Round before it")
@@ -312,8 +294,8 @@ func TestAnthropicMarksTheRoundsStartForTheCache(t *testing.T) {
 	if !marked(encodeWith(t, APIAnthropicMessages, claude, twoRounds(APIAnthropicMessages)), "q2") {
 		t.Error("a request in a tool loop does not mark the start of its Round")
 	}
-	if marked(encodeWith(t, APIAnthropicMessages, providerRules{}, newRound), "q1") {
-		t.Error("an unrecognized provider got a marker it does not need: its prefix only grows")
+	if marked(encodeWith(t, APIAnthropicMessages, gotato.ModelFacts{}, newRound), "q1") {
+		t.Error("a model that takes all reasoning got a marker it does not need: its prefix only grows")
 	}
 }
 
@@ -349,7 +331,7 @@ func TestTheRequestIsTheSameAfterAReload(t *testing.T) {
 		}
 	}))
 	defer server.Close()
-	client, err := New(Config{API: APIAnthropicMessages, Provider: ProviderAnthropic, BaseURL: server.URL, APIKey: "k", Model: "claude-opus-5-5"})
+	client, err := New(AnthropicMessages{}, Connection{Endpoint: server.URL, APIKey: "k"}, modelOf(gotato.ModelFacts{RoundReasoning: true}))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -383,7 +365,7 @@ func TestTheRequestIsTheSameAfterAReload(t *testing.T) {
 		if err != nil {
 			t.Fatal(err)
 		}
-		body, _, err := encodeAnthropicRequest(client.model, report.Request, client.rules)
+		body, _, err := encodeAnthropicRequest(client.Config(), report.Request, true)
 		if err != nil {
 			t.Fatal(err)
 		}

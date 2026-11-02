@@ -14,14 +14,15 @@ import (
 
 // A streaming response can fail after its headers arrived: a provider or a
 // proxy resets the connection, or closes it before the terminal event. The
-// request-level retry in Client.do cannot see that, so the streams
-// handle it here:
+// request-level retry in Client.send cannot see that, so the stream loop
+// handles it here, for every wire alike, since nothing under it reads the
+// bytes:
 //
 //   - before any event has been handed to the caller, the stream re-issues
-//     the same request (within MaxRetries) and continues transparently: the
+//     the same request (within Retry.Max) and continues transparently: the
 //     caller cannot observe a difference, so nothing is duplicated;
 //   - after an event was delivered, the stream re-issues the same request
-//     too, within the same MaxRetries, when a Session is listening: it tells
+//     too, within the same Retry.Max, when a Session is listening: it tells
 //     the Session with gotato.ReportModelRetry, which drops what it received
 //     of the reply (a stream reader does on model_retried), and the new reply
 //     is the whole reply. With no Session to drop the output, or when the
@@ -50,8 +51,7 @@ func interrupted(err error) bool {
 // restarter re-issues one streaming request after an interruption.
 type restarter struct {
 	client   *Client
-	body     []byte
-	open     func(context.Context, []byte) (*http.Response, error)
+	open     func(context.Context) (*http.Response, error)
 	restarts int
 	// delivered is set once an event reached the caller. It does not stop a
 	// restart: the caller is told, and drops what it received.
@@ -67,19 +67,21 @@ func (r *restarter) recover(ctx context.Context, cause error) (*http.Response, e
 	if !interrupted(cause) {
 		return nil, cause
 	}
-	if r.restarts >= r.client.maxRetries {
-		// [FAILURE-CLASS] the cause keeps the text but not the chain: an Error that unwrapped to io.EOF would read as a clean end.
-		return nil, &Error{retryable: true, Message: streamInterruptedMessage, cause: errors.New(cause.Error())}
+	// [FAILURE-CLASS] the cause keeps the text but not the chain: an Error that unwrapped to io.EOF would read as a clean end.
+	failure := Failure{Message: streamInterruptedMessage, Err: errors.New(cause.Error())}
+	verdict := r.client.classify(failure)
+	if !verdict.Retryable || r.restarts >= r.client.retry.Max {
+		return nil, newError(failure, verdict)
 	}
-	delay := withJitter(r.client.retryBackoff * time.Duration(r.restarts+1))
+	delay := min(withJitter(r.client.retry.Backoff*time.Duration(r.restarts+1)), r.client.retry.MaxWait)
 	reported := gotato.ReportModelRetry(ctx, gotato.ModelRetry{Attempt: r.restarts + 1, Wait: delay, Error: "the stream was cut off"})
 	if r.delivered && !reported {
 		// [DATA-LOSS] a restart after delivered output would repeat that output when nobody drops it.
-		return nil, &Error{retryable: true, Message: streamInterruptedMessage, cause: errors.New(cause.Error())}
+		return nil, newError(failure, verdict)
 	}
 	r.restarts++
 	if err := wait(ctx, delay); err != nil {
 		return nil, err
 	}
-	return r.open(ctx, r.body)
+	return r.open(ctx)
 }

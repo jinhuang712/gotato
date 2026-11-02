@@ -30,6 +30,9 @@ func (m *holdModel) Stream(ctx context.Context, request gotato.ModelRequest) (go
 	return testkit.EchoModel{}.Stream(ctx, request)
 }
 
+// Config states nothing: no window, no retention, no sampling.
+func (m *holdModel) Config() gotato.ModelConfig { return gotato.ModelConfig{} }
+
 // outsideRun starts a Run on the harness's store from a Runner that is not the
 // CLI's, which advertises an address, and returns a function that ends it.
 func outsideRun(t *testing.T, h *harness, id, address string) func() {

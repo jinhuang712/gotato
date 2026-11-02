@@ -166,6 +166,9 @@ func (m *funcToolModel) Stream(ctx context.Context, request ModelRequest) (Model
 	return &testStream{events: []ModelEvent{{Kind: ModelEventKindTextDelta, Text: "done"}, {Kind: ModelEventKindDone, StopReason: StopReasonEndTurn}}}, nil
 }
 
+// Config states nothing: no window, no retention, no sampling.
+func (m *funcToolModel) Config() ModelConfig { return ModelConfig{} }
+
 func TestFuncToolRunsThroughTheLoop(t *testing.T) {
 	var seen weatherInput
 	agent, err := NewSession(
@@ -272,6 +275,9 @@ func (m *namedToolModel) Stream(ctx context.Context, request ModelRequest) (Mode
 	}
 	return &testStream{events: []ModelEvent{{Kind: ModelEventKindTextDelta, Text: "recovered"}, {Kind: ModelEventKindDone, StopReason: StopReasonEndTurn}}}, nil
 }
+
+// Config states nothing: no window, no retention, no sampling.
+func (m *namedToolModel) Config() ModelConfig { return ModelConfig{} }
 
 func TestFuncToolErrorBecomesFailedToolResult(t *testing.T) {
 	agent, err := NewSession(

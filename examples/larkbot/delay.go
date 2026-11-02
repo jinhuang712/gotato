@@ -27,6 +27,9 @@ func (m delayModel) Stream(ctx context.Context, r gotato.ModelRequest) (gotato.M
 	return m.Model.Stream(ctx, r)
 }
 
+// Config states nothing: no window, no retention, no sampling.
+func (m delayModel) Config() gotato.ModelConfig { return gotato.ModelConfig{} }
+
 // Close closes the wrapped model when it can be closed (a model that holds a connection).
 func (m delayModel) Close() error {
 	if c, ok := m.Model.(io.Closer); ok {

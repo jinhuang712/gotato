@@ -1,46 +1,80 @@
 package gateway
 
 import (
-	"context"
 	"encoding/base64"
 	"encoding/json"
 	"fmt"
+	"net/http"
+	"time"
 
 	"github.com/jinhuang712/gotato/gotato"
 )
 
-// APIAnthropicMessages selects the Anthropic Messages API.
-const APIAnthropicMessages API = "anthropic-messages"
-
 const (
-	defaultAnthropicBaseURL   = "https://api.anthropic.com"
-	anthropicVersion          = "2023-06-01"
+	defaultAnthropicVersion   = "2023-06-01"
 	defaultAnthropicMaxTokens = 8192
 	// maxAnthropicCacheBreakpoints is the provider's limit on cache_control
 	// markers per request.
 	maxAnthropicCacheBreakpoints = 4
+	// anthropicBindingBeta is the beta header block_binding needs; without
+	// it, the provider refuses the field.
+	anthropicBindingBeta = "thinking-binding-controls-2026-08-01"
+	// anthropicLongTTL is the longest cache_control ttl. A cache write with
+	// it costs twice the input price; the default, five minutes, 1.25 times.
+	anthropicLongTTL = "1h"
 )
 
-// streamAnthropic sends the CacheKey in its header only. There is no body
-// field for it: New refuses Config.CacheKeyField for this API, which caches by
-// cache_control.
-func (c *Client) streamAnthropic(ctx context.Context, request gotato.ModelRequest) (gotato.ModelStream, error) {
-	body, names, err := encodeAnthropicRequest(c.model, request, c.rules)
+// AnthropicMessages is the Anthropic Messages wire API. The zero value is the
+// default. It has no body field for the cache key: it caches by cache_control.
+type AnthropicMessages struct {
+	// Version is the anthropic-version header. Empty is 2023-06-01. A version
+	// a Connection's Headers already name is kept when Version is empty.
+	Version string
+	// Deferred is how the tools a Session loads one by one from its catalog
+	// are shown: DeferredFormNative (the default) or DeferredFormList.
+	Deferred DeferredForm
+}
+
+// Validate refuses a Deferred form that is neither native nor list. New calls
+// it.
+func (w AnthropicMessages) Validate() error {
+	_, err := w.Deferred.native()
+	return err
+}
+
+// Encode implements WireAPI. The model's facts steer three things: with
+// RoundReasoning the reasoning of an earlier Round is left out of the history
+// and a cache marker is added where the last Round started; with
+// ThinkingBinding the request asks the provider to drop a thinking block whose
+// prefix changed (block_binding drop_block, with its beta header) instead of
+// refusing the request; and with a CacheRetention of an hour or more every
+// cache_control marker asks for the one-hour ttl, which costs twice the input
+// price for a cache write, where a shorter or unknown retention keeps the
+// provider's default. It sends Sampling's Temperature and MaxTokens (8192 when
+// unset) and refuses a request that sets a reasoning effort or summary. The
+// CacheKey goes in the Connection's CacheKeyHeader only.
+func (w AnthropicMessages) Encode(call Call) (*Request, error) {
+	native, err := w.Deferred.native()
 	if err != nil {
 		return nil, err
 	}
-	open := c.withCacheKeyHeader(c.do, request.CacheKey)
-	response, err := open(ctx, body)
+	body, names, err := encodeAnthropicRequest(call.Model, call.Request, native)
 	if err != nil {
 		return nil, err
 	}
-	return &anthropicStream{
-		sseBody:  newSSEBody(response),
-		nameMap:  names,
-		blocks:   make(map[int]*anthropicBlockState),
-		restart:  restarter{client: c, body: body, open: open},
-		overflow: c.overflow,
-	}, nil
+	header := http.Header{}
+	if version := withDefault(w.Version, call.Header.Get("anthropic-version")); version != "" {
+		header.Set("anthropic-version", version)
+	} else {
+		header.Set("anthropic-version", defaultAnthropicVersion)
+	}
+	if call.Model.Facts.ThinkingBinding {
+		header.Set("anthropic-beta", withAnthropicBeta(call.Header.Get("anthropic-beta"), anthropicBindingBeta))
+	}
+	if call.APIKey != "" {
+		header.Set("x-api-key", call.APIKey)
+	}
+	return &Request{Body: body, Header: header, NewDecoder: func() Decoder { return newAnthropicDecoder(names) }}, nil
 }
 
 // anthropicBlock is one content block. A map keeps provider blocks, such as a
@@ -88,8 +122,8 @@ type anthropicTool struct {
 // blockRef locates the last content block a gotato Message produced.
 type blockRef struct{ message, block int }
 
-func encodeAnthropicRequest(model string, request gotato.ModelRequest, rules providerRules) ([]byte, map[string]string, error) {
-	if err := refuseReasoningConfig(APIAnthropicMessages, request.Config); err != nil {
+func encodeAnthropicRequest(model gotato.ModelConfig, request gotato.ModelRequest, native bool) ([]byte, map[string]string, error) {
+	if err := refuseReasoningConfig("Anthropic Messages", request.Sampling); err != nil {
 		return nil, nil, err
 	}
 	names, err := functionNames(request)
@@ -97,16 +131,16 @@ func encodeAnthropicRequest(model string, request gotato.ModelRequest, rules pro
 		return nil, nil, err
 	}
 	payload := anthropicRequest{
-		Model:       model,
+		Model:       model.Name,
 		MaxTokens:   defaultAnthropicMaxTokens,
-		Temperature: request.Config.Temperature,
+		Temperature: request.Sampling.Temperature,
 		Stream:      true,
 		Messages:    make([]anthropicMessage, 0, len(request.Messages)),
 	}
-	if request.Config.MaxTokens != 0 {
-		payload.MaxTokens = request.Config.MaxTokens
+	if request.Sampling.MaxTokens != 0 {
+		payload.MaxTokens = request.Sampling.MaxTokens
 	}
-	if rules.blockBinding {
+	if model.Facts.ThinkingBinding {
 		payload.Thinking = &anthropicThinking{Type: "adaptive", BlockBinding: anthropicBlockBinding{PrefixMismatchBehavior: "drop_block"}}
 	}
 	if request.SystemInstructions != "" {
@@ -120,7 +154,7 @@ func encodeAnthropicRequest(model string, request gotato.ModelRequest, rules pro
 	// tool_reference blocks ("Custom tool search implementation"). The deferred
 	// tools come last, so the cache_control marker sits on a tool that is not
 	// deferred, as the API requires.
-	layout := newDeferredLayout(request, rules)
+	layout := newDeferredLayout(request, native)
 	ordered := orderedTools(layout, request)
 	for _, entry := range ordered {
 		spec := entry.spec
@@ -138,7 +172,7 @@ func encodeAnthropicRequest(model string, request gotato.ModelRequest, rules pro
 	ends := make([]blockRef, len(request.Messages))
 	start := roundStart(request.Messages)
 	for i, message := range request.Messages {
-		role, blocks, err := anthropicBlocks(message, names, rules.keepsReasoning(i, start))
+		role, blocks, err := anthropicBlocks(message, names, keepsReasoning(model.Facts.RoundReasoning, i, start))
 		if err != nil {
 			return nil, nil, err
 		}
@@ -168,10 +202,14 @@ func encodeAnthropicRequest(model string, request gotato.ModelRequest, rules pro
 		ends[i] = blockRef{message: last, block: len(payload.Messages[last].Content) - 1}
 	}
 	breakpoints := request.CacheBreakpoints
-	if rules.roundReasoning {
+	if model.Facts.RoundReasoning {
 		breakpoints = withRoundBreakpoint(breakpoints, request.Messages)
 	}
-	applyAnthropicCacheBreakpoints(&payload, breakpoints, ends, rules.anthropicCacheTTL)
+	ttl := ""
+	if model.Facts.CacheRetention >= time.Hour {
+		ttl = anthropicLongTTL
+	}
+	applyAnthropicCacheBreakpoints(&payload, breakpoints, ends, ttl)
 
 	body, err := json.Marshal(payload)
 	if err != nil {

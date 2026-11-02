@@ -9,13 +9,13 @@ import (
 	"github.com/jinhuang712/gotato/testkit"
 )
 
-func TestWithModelConfigReachesEveryModelCall(t *testing.T) {
+func TestWithSamplingReachesEveryModelCall(t *testing.T) {
 	temperature := 0.2
 	model := testkit.NewFakeModel(testkit.Text("done"))
 	agent, err := gotato.NewSession(
 		context.Background(),
 		gotato.WithModel(model),
-		gotato.WithModelConfig(gotato.ModelConfig{Temperature: &temperature, MaxTokens: 256, ReasoningEffort: "low"}),
+		gotato.WithSampling(gotato.Sampling{Temperature: &temperature, MaxTokens: 256, ReasoningEffort: "low"}),
 	)
 	if err != nil {
 		t.Fatal(err)
@@ -30,9 +30,79 @@ func TestWithModelConfigReachesEveryModelCall(t *testing.T) {
 	if !ok {
 		t.Fatal("model received no request")
 	}
-	options := request.Config
+	options := request.Sampling
 	if options.Temperature == nil || *options.Temperature != 0.2 || options.MaxTokens != 256 || options.ReasoningEffort != "low" {
 		t.Fatalf("options = %+v (temperature %v)", options, options.Temperature)
+	}
+}
+
+// sampledModel is a Model whose own Config carries default Sampling, and
+// wrapper embeds it: a wrapper that embeds a Model forwards Config for free.
+type sampledModel struct{ *testkit.FakeModel }
+
+func (sampledModel) Config() gotato.ModelConfig {
+	temperature := 0.7
+	return gotato.ModelConfig{Name: "m", Sampling: gotato.Sampling{Temperature: &temperature, MaxTokens: 1000, ReasoningEffort: "medium"}}
+}
+
+type wrapper struct{ gotato.Model }
+
+// The Model's Config.Sampling holds the defaults, and WithSampling overrides
+// them field by field: a field it leaves unset keeps the default, even when
+// the Model sits behind a wrapper.
+func TestWithSamplingOverridesTheModelsDefaultsFieldByField(t *testing.T) {
+	for name, wrap := range map[string]func(gotato.Model) gotato.Model{
+		"bare":    func(m gotato.Model) gotato.Model { return m },
+		"wrapped": func(m gotato.Model) gotato.Model { return wrapper{m} },
+	} {
+		t.Run(name, func(t *testing.T) {
+			fake := testkit.NewFakeModel(testkit.Text("done"))
+			override := 0.1
+			session, err := gotato.NewSession(context.Background(),
+				gotato.WithModel(wrap(sampledModel{fake})),
+				gotato.WithSampling(gotato.Sampling{Temperature: &override, MaxTokens: 64}))
+			if err != nil {
+				t.Fatal(err)
+			}
+			defer func() { _ = session.Close(context.Background()) }()
+			if _, err := session.Prompt(context.Background(), gotato.UserMessage("hi")); err != nil {
+				t.Fatal(err)
+			}
+			request, _ := fake.LastRequest()
+			got := request.Sampling
+			if got.Temperature == nil || *got.Temperature != 0.1 || got.MaxTokens != 64 || got.ReasoningEffort != "medium" {
+				t.Fatalf("Sampling = %+v (temperature %v), want temperature 0.1, 64 tokens, effort medium from the default", got, got.Temperature)
+			}
+		})
+	}
+}
+
+func TestAModelWithNoConfigSendsNoDefaults(t *testing.T) {
+	fake := testkit.NewFakeModel(testkit.Text("done"))
+	if config := fake.Config(); config.Facts.Window.Stated() || config.Facts.Window.Tokens() != 0 || config.Sampling.MaxTokens != 0 {
+		t.Fatalf("a hand-written Model states nothing, got %+v", config)
+	}
+	session, err := gotato.NewSession(context.Background(), gotato.WithModel(fake))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer func() { _ = session.Close(context.Background()) }()
+	if _, err := session.Prompt(context.Background(), gotato.UserMessage("hi")); err != nil {
+		t.Fatal(err)
+	}
+	if request, _ := fake.LastRequest(); request.Sampling != (gotato.Sampling{}) {
+		t.Fatalf("Sampling = %+v, want none", request.Sampling)
+	}
+}
+
+type panickingConfig struct{ *testkit.FakeModel }
+
+func (panickingConfig) Config() gotato.ModelConfig { panic("config exploded") }
+
+func TestAModelWhoseConfigPanicsFailsNewSessionInsteadOfCrashing(t *testing.T) {
+	_, err := gotato.NewSession(context.Background(), gotato.WithModel(panickingConfig{testkit.NewFakeModel()}))
+	if !gotato.IsCode(err, gotato.CodeInvalidArgument) {
+		t.Fatalf("err = %v, want invalid_argument", err)
 	}
 }
 
@@ -76,27 +146,27 @@ func TestWithCacheKeyReachesEveryModelCallAndLeavesThePrefixAlone(t *testing.T) 
 	}
 }
 
-func TestWithModelConfigRejectsNegativeTemperature(t *testing.T) {
+func TestWithSamplingRejectsNegativeTemperature(t *testing.T) {
 	temperature := -1.0
 	_, err := gotato.NewSession(
 		context.Background(),
 		gotato.WithModel(testkit.NewFakeModel(testkit.Text("done"))),
-		gotato.WithModelConfig(gotato.ModelConfig{Temperature: &temperature}),
+		gotato.WithSampling(gotato.Sampling{Temperature: &temperature}),
 	)
 	if err == nil {
 		t.Fatal("NewSession accepted a negative temperature")
 	}
 }
 
-func TestWithModelConfigRefusesANonFiniteTemperature(t *testing.T) {
+func TestWithSamplingRefusesANonFiniteTemperature(t *testing.T) {
 	for name, value := range map[string]float64{"nan": math.NaN(), "inf": math.Inf(1)} {
 		t.Run(name, func(t *testing.T) {
 			temperature := value
 			agent, err := gotato.NewSession(context.Background(), gotato.WithModel(testkit.EchoModel{}),
-				gotato.WithModelConfig(gotato.ModelConfig{Temperature: &temperature}))
+				gotato.WithSampling(gotato.Sampling{Temperature: &temperature}))
 			if err == nil {
 				_ = agent.Close(context.Background())
-				t.Fatalf("WithModelConfig accepted temperature %v", value)
+				t.Fatalf("WithSampling accepted temperature %v", value)
 			}
 		})
 	}

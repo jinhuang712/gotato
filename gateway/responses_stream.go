@@ -1,19 +1,15 @@
 package gateway
 
 import (
-	"context"
 	"encoding/json"
-	"errors"
 	"fmt"
-	"io"
-	"net/http"
 	"sort"
 
 	"github.com/jinhuang712/gotato/gotato"
 )
 
-type responsesStream struct {
-	sseBody
+// responsesDecoder reads the reply of one Responses attempt.
+type responsesDecoder struct {
 	nameMap  map[string]string
 	calls    map[int]*responsesCall
 	texts    map[int]bool
@@ -21,8 +17,10 @@ type responsesStream struct {
 	model    string
 	finished bool
 	terminal error
-	restart  restarter
-	overflow overflowMatcher
+}
+
+func newResponsesDecoder(names map[string]string) *responsesDecoder {
+	return &responsesDecoder{nameMap: names, calls: make(map[int]*responsesCall), texts: make(map[int]bool)}
 }
 
 type responsesCall struct {
@@ -87,57 +85,25 @@ type responsesEvent struct {
 	Message     string               `json:"message,omitempty"`
 }
 
-func (s *responsesStream) Recv(ctx context.Context) (gotato.ModelEvent, error) {
-	if ctx == nil {
-		ctx = context.Background()
+// Decode reads one event. A body that ends before a response.completed,
+// response.incomplete or response.failed is handed back to the stream loop as
+// an interruption.
+func (s *responsesDecoder) Decode(event SSEEvent) ([]gotato.ModelEvent, bool, error) {
+	if !event.End && event.Data != "" && event.Data != "[DONE]" {
+		var parsed responsesEvent
+		if err := json.Unmarshal([]byte(event.Data), &parsed); err != nil {
+			return nil, false, fmt.Errorf("gateway: invalid Responses SSE event: %w", err)
+		}
+		s.processResponsesEvent(parsed, []byte(event.Data))
 	}
-	for len(s.queue) == 0 {
-		if s.finished {
-			if s.terminal != nil {
-				err := s.terminal
-				s.terminal = nil
-				return gotato.ModelEvent{}, err
-			}
-			return gotato.ModelEvent{}, io.EOF
-		}
-		data, err := readSSEEvent(ctx, s.reader)
-		if err != nil {
-			response, rerr := s.restart.recover(ctx, err)
-			if rerr != nil {
-				var gerr *Error
-				if errors.Is(err, io.EOF) && errors.As(rerr, &gerr) {
-					gerr.Message = "Responses stream ended before completion (" + gerr.Message + ")"
-				}
-				return gotato.ModelEvent{}, rerr
-			}
-			s.reopen(response)
-			continue
-		}
-		if data == "" || data == "[DONE]" {
-			continue
-		}
-		var event responsesEvent
-		if err := json.Unmarshal([]byte(data), &event); err != nil {
-			return gotato.ModelEvent{}, fmt.Errorf("gateway: invalid Responses SSE event: %w", err)
-		}
-		s.processResponsesEvent(event, []byte(data))
-	}
-	event := s.queue[0]
-	s.queue = s.queue[1:]
-	s.restart.delivered = true
-	return event, nil
-}
-
-// reopen continues on a re-issued response, discarding everything decoded
-// from the interrupted one (nothing of it reached the caller).
-func (s *responsesStream) reopen(response *http.Response) {
-	s.replace(response)
-	s.calls = make(map[int]*responsesCall)
-	s.texts = make(map[int]bool)
+	out := s.queue
 	s.queue = nil
+	err := s.terminal
+	s.terminal = nil
+	return out, s.finished, err
 }
 
-func (s *responsesStream) processResponsesEvent(event responsesEvent, raw []byte) {
+func (s *responsesDecoder) processResponsesEvent(event responsesEvent, raw []byte) {
 	switch event.Type {
 	case "response.created", "response.in_progress":
 		if event.Response != nil && event.Response.Model != "" {
@@ -195,7 +161,7 @@ func (s *responsesStream) processResponsesEvent(event responsesEvent, raw []byte
 		if event.Response != nil && event.Response.Error != nil {
 			code = event.Response.Error.Code
 		}
-		s.finishWithError(s.overflow.streamError("Responses response failed", message, code))
+		s.finishWithError(Failure{Message: "Responses response failed: " + message, Code: code})
 	case "error":
 		message := event.Message
 		if message == "" {
@@ -204,7 +170,7 @@ func (s *responsesStream) processResponsesEvent(event responsesEvent, raw []byte
 		if message == "" {
 			message = "Responses stream error"
 		}
-		s.finishWithError(s.overflow.streamError("Responses stream error", message, event.Code))
+		s.finishWithError(Failure{Message: "Responses stream error: " + message, Code: event.Code})
 	}
 }
 
@@ -218,7 +184,7 @@ func responsesItemRaw(event []byte) []byte {
 	return append([]byte(nil), envelope.Item...)
 }
 
-func (s *responsesStream) ensureResponsesCall(index int, item *responsesOutputItem) {
+func (s *responsesDecoder) ensureResponsesCall(index int, item *responsesOutputItem) {
 	if item.Type != "function_call" && item.Type != "tool_search_call" {
 		return
 	}
@@ -245,7 +211,7 @@ func (s *responsesStream) ensureResponsesCall(index int, item *responsesOutputIt
 	}
 }
 
-func (s *responsesStream) finishResponsesItem(index int, item responsesOutputItem, raw []byte) {
+func (s *responsesDecoder) finishResponsesItem(index int, item responsesOutputItem, raw []byte) {
 	if item.Type == "reasoning" {
 		artifact, err := json.Marshal(item)
 		if err == nil && len(raw) > 0 {
@@ -273,7 +239,7 @@ func (s *responsesStream) finishResponsesItem(index int, item responsesOutputIte
 }
 
 // searchToolName is the provider name the search tool was sent under.
-func (s *responsesStream) searchToolName() string {
+func (s *responsesDecoder) searchToolName() string {
 	for name, id := range s.nameMap {
 		if isSearchToolID(id) {
 			return name
@@ -284,7 +250,7 @@ func (s *responsesStream) searchToolName() string {
 
 // emitResponsesCall queues a call's ToolCall event. It returns false when the
 // call cannot be delivered because it has no name or no call_id yet.
-func (s *responsesStream) emitResponsesCall(index int) bool {
+func (s *responsesDecoder) emitResponsesCall(index int) bool {
 	call := s.calls[index]
 	if call == nil || call.emitted {
 		return true
@@ -314,7 +280,7 @@ func (s *responsesStream) emitResponsesCall(index int) bool {
 	return true
 }
 
-func (s *responsesStream) finishResponsesResponse(response *responsesResponse) {
+func (s *responsesDecoder) finishResponsesResponse(response *responsesResponse) {
 	if response == nil {
 		s.finishWithError(fmt.Errorf("gateway: Responses completion has no response"))
 		return
@@ -389,7 +355,7 @@ func responsesStopReason(status string, details *struct {
 	return "", false
 }
 
-func (s *responsesStream) finishWithError(err error) {
+func (s *responsesDecoder) finishWithError(err error) {
 	if s.finished {
 		return
 	}

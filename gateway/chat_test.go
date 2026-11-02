@@ -24,7 +24,7 @@ func streamedCalls(t *testing.T, chunks ...string) []gotato.ToolCall {
 		}
 	}))
 	defer server.Close()
-	client, err := New(Config{BaseURL: server.URL, APIKey: "k", Model: "m"})
+	client, err := New(ChatCompletions{}, Connection{Endpoint: server.URL, APIKey: "k"}, modelOf(gotato.ModelFacts{}))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -108,7 +108,7 @@ func chatStreamOf(t *testing.T, chunks ...string) gotato.ModelStream {
 		}
 	}))
 	t.Cleanup(server.Close)
-	client, err := New(Config{BaseURL: server.URL, APIKey: "k", Model: "m"})
+	client, err := New(ChatCompletions{}, Connection{Endpoint: server.URL, APIKey: "k"}, modelOf(gotato.ModelFacts{}))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -177,7 +177,7 @@ func TestGatewayStreamNormalizesTextAndUsage(t *testing.T) {
 	}))
 	defer server.Close()
 
-	client, err := New(Config{BaseURL: server.URL, APIKey: "secret", Model: "gateway-model"})
+	client, err := New(ChatCompletions{}, Connection{Endpoint: server.URL, APIKey: "secret"}, gotato.ModelConfig{Name: "gateway-model", Facts: gotato.ModelFacts{Window: gotato.WindowTokens(200_000)}})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -223,7 +223,7 @@ func TestGatewayStreamReassemblesToolCall(t *testing.T) {
 		_, _ = w.Write([]byte("data: [DONE]\n\n"))
 	}))
 	defer server.Close()
-	client, err := New(Config{Endpoint: server.URL, APIKey: "secret", Model: "gateway-model"})
+	client, err := New(ChatCompletions{}, Connection{Endpoint: server.URL, APIKey: "secret"}, gotato.ModelConfig{Name: "gateway-model", Facts: gotato.ModelFacts{Window: gotato.WindowTokens(200_000)}})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -261,7 +261,7 @@ func TestGatewayStreamDefaultsEmptyToolArguments(t *testing.T) {
 		_, _ = w.Write([]byte("data: [DONE]\n\n"))
 	}))
 	defer server.Close()
-	client, err := New(Config{Endpoint: server.URL, APIKey: "secret", Model: "gateway-model"})
+	client, err := New(ChatCompletions{}, Connection{Endpoint: server.URL, APIKey: "secret"}, gotato.ModelConfig{Name: "gateway-model", Facts: gotato.ModelFacts{Window: gotato.WindowTokens(200_000)}})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -305,7 +305,7 @@ func TestChatReasoningContentIsKeptAndPassedBack(t *testing.T) {
 		_, _ = w.Write([]byte("data: [DONE]\n\n"))
 	}))
 	defer server.Close()
-	client, err := New(Config{BaseURL: server.URL, APIKey: "k", Model: "m"})
+	client, err := New(ChatCompletions{}, Connection{Endpoint: server.URL, APIKey: "k"}, modelOf(gotato.ModelFacts{}))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -338,7 +338,7 @@ func TestChatReasoningContentIsKeptAndPassedBack(t *testing.T) {
 // Reasoning is omitted from requests to providers that never produced it,
 // so a strict provider sees no unknown field.
 func TestChatRequestOmitsEmptyReasoning(t *testing.T) {
-	body, _, err := encodeChatRequest("m", gotato.ModelRequest{Messages: []gotato.Message{gotato.UserMessage("q"), gotato.AssistantMessage("a")}}, providerRules{})
+	body, _, err := encodeChatRequest(modelOf(gotato.ModelFacts{}), gotato.ModelRequest{Messages: []gotato.Message{gotato.UserMessage("q"), gotato.AssistantMessage("a")}})
 	if err != nil {
 		t.Fatal(err)
 	}

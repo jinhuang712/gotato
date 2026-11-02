@@ -62,6 +62,9 @@ func (m scriptModel) Stream(ctx context.Context, r gotato.ModelRequest) (gotato.
 	}).Stream(ctx, r)
 }
 
+// Config states nothing: no window, no retention, no sampling.
+func (m scriptModel) Config() gotato.ModelConfig { return gotato.ModelConfig{} }
+
 // Close closes the wrapped model when it can be closed.
 func (m scriptModel) Close() error {
 	if c, ok := m.Model.(io.Closer); ok {

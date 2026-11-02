@@ -1,13 +1,9 @@
 package gateway
 
 import (
-	"crypto/tls"
-	"crypto/x509"
 	"encoding/json"
-	"errors"
 	"fmt"
 	"io"
-	"net"
 	"strings"
 
 	"github.com/jinhuang712/gotato/gotato"
@@ -24,9 +20,17 @@ type Error struct {
 	// cause is the error under a transport failure, kept for errors.Is and
 	// errors.As; Message is the text callers show.
 	cause error
-	// Overflow is set when the provider refused the request, with a 400 or
-	// 413, because it was longer than the model's context window.
+	// Overflow is set when the request was refused for being longer than the
+	// model's context window, as the Classifier says (DefaultClassifier: a 400
+	// or 413 that says so, or an error event that does).
 	Overflow bool
+	// limit is the Verdict's Limit.
+	limit int
+}
+
+// newError is the Error a Failure becomes under the Classifier's Verdict.
+func newError(failure Failure, verdict Verdict) *Error {
+	return &Error{StatusCode: failure.Status, retryable: verdict.Retryable, Message: failure.Message, cause: failure.Err, Overflow: verdict.Overflow, limit: verdict.Limit}
 }
 
 // ContextOverflow reports whether the request was refused for being too long.
@@ -35,14 +39,14 @@ type Error struct {
 func (e *Error) ContextOverflow() bool { return e != nil && e.Overflow }
 
 // ContextLimit returns the limit, in tokens, that a refusal as too long names
-// in its message, such as the "200000" of "prompt is too long: 210000 tokens >
-// 200000 maximum", or 0 when it names none. Compaction reads it, by this
-// method, to size its merge of the oldest Segments.
+// (the Verdict's Limit), such as the "200000" of "prompt is too long: 210000
+// tokens > 200000 maximum", or 0 when it names none. Compaction reads it, by
+// this method, to size its merge of the oldest Segments.
 func (e *Error) ContextLimit() int {
 	if e == nil || !e.Overflow {
 		return 0
 	}
-	return limitIn(e.Message)
+	return e.limit
 }
 
 // Retryable reports whether the same request may succeed when sent again
@@ -122,60 +126,9 @@ func errorCode(raw json.RawMessage) string {
 	return string(raw)
 }
 
-// transientStreamKinds are the types and codes by which a provider, in an
-// error it sends in the middle of a stream, says the failure is its own and
-// may pass: Anthropic's overloaded_error, api_error and rate_limit_error,
-// and the server_error and rate_limit_exceeded of the OpenAI wires. They
-// are the one table of all three decoders. A stream that started is never
-// sent again by the gateway: the error is marked Retryable for the caller,
-// which can run the Turn again.
-var transientStreamKinds = map[string]bool{
-	"overloaded_error":          true,
-	"api_error":                 true,
-	"rate_limit_error":          true,
-	"server_error":              true,
-	"rate_limit_exceeded":       true,
-	"service_unavailable_error": true,
-}
-
-// transientStream reports whether any of the types and codes of a stream
-// error says the failure may pass.
-func transientStream(kinds ...string) bool {
-	for _, kind := range kinds {
-		if transientStreamKinds[strings.ToLower(strings.TrimSpace(kind))] {
-			return true
-		}
-	}
-	return false
-}
-
 // [SECURITY] a fixed text, so the transport error that names a host never reaches the Model or a client.
 // transportMessage is the public Message of a request that could not be sent.
 const transportMessage = "the request could not be sent"
-
-// transientTransport reports whether a failed send may succeed when sent
-// again. A certificate the client does not trust or that does not fit the
-// host, and a host name that does not exist, are mistakes in the settings
-// and stay the same on every attempt.
-func transientTransport(err error) bool {
-	var (
-		unknownAuthority x509.UnknownAuthorityError
-		invalid          x509.CertificateInvalidError
-		hostname         x509.HostnameError
-		verification     *tls.CertificateVerificationError
-		dns              *net.DNSError
-		invalidAddr      net.InvalidAddrError
-		unknownNetwork   net.UnknownNetworkError
-	)
-	switch {
-	case errors.As(err, &unknownAuthority), errors.As(err, &invalid), errors.As(err, &hostname),
-		errors.As(err, &verification), errors.As(err, &invalidAddr), errors.As(err, &unknownNetwork):
-		return false
-	case errors.As(err, &dns):
-		return !dns.IsNotFound
-	}
-	return true
-}
 
 // protocolFailure is the error of a reply that breaks the wire API's rules:
 // the runtime ends the Run with the code model_protocol_failure.

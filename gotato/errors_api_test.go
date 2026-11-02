@@ -37,6 +37,9 @@ func (m erroringModel) Stream(context.Context, gotato.ModelRequest) (gotato.Mode
 	return nil, m.err
 }
 
+// Config states nothing: no window, no retention, no sampling.
+func (m erroringModel) Config() gotato.ModelConfig { return gotato.ModelConfig{} }
+
 type panicModel struct{ onStream bool }
 
 func (m panicModel) Stream(context.Context, gotato.ModelRequest) (gotato.ModelStream, error) {
@@ -45,6 +48,9 @@ func (m panicModel) Stream(context.Context, gotato.ModelRequest) (gotato.ModelSt
 	}
 	return panicStream{}, nil
 }
+
+// Config states nothing: no window, no retention, no sampling.
+func (m panicModel) Config() gotato.ModelConfig { return gotato.ModelConfig{} }
 
 type panicStream struct{}
 

@@ -90,6 +90,9 @@ func (g *gate) Stream(ctx context.Context, request gotato.ModelRequest) (gotato.
 	return testkit.NewFakeModel(testkit.Text("reply to "+strings.TrimSpace(testkit.UserText(request)))).Stream(ctx, request)
 }
 
+// Config states nothing: no window, no retention, no sampling.
+func (g *gate) Config() gotato.ModelConfig { return gotato.ModelConfig{} }
+
 // instance is one server over a Runner, on a store it shares.
 type instance struct {
 	server   *httptest.Server

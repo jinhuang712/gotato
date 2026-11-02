@@ -32,7 +32,53 @@ func collectEvents(t *testing.T, stream gotato.ModelStream) ([]gotato.ModelEvent
 	}
 }
 
+// API names a wire in the tests, so a table can be keyed by it.
+type API string
+
+const (
+	APIChatCompletions   API = "chat"
+	APIResponses         API = "responses"
+	APIAnthropicMessages API = "anthropic"
+)
+
 var wireAPIs = []API{APIChatCompletions, APIResponses, APIAnthropicMessages}
+
+// wireOf is the shipped wire value for an API name, with its default settings.
+func wireOf(api API) WireAPI {
+	switch api {
+	case APIResponses:
+		return Responses{}
+	case APIAnthropicMessages:
+		return AnthropicMessages{}
+	}
+	return ChatCompletions{}
+}
+
+// modelOf is a model named "m" with a stated window and the given facts.
+func modelOf(facts gotato.ModelFacts) gotato.ModelConfig {
+	if !facts.Window.Stated() {
+		facts.Window = gotato.WindowTokens(200_000)
+	}
+	return gotato.ModelConfig{Name: "m", Facts: facts}
+}
+
+// endpointPaths are the paths the fake gateway serves each wire on.
+var endpointPaths = map[API]string{
+	APIChatCompletions:   "/v1/chat/completions",
+	APIResponses:         "/v1/responses",
+	APIAnthropicMessages: "/v1/messages",
+}
+
+// newClientFor builds a Client for a wire over a test endpoint, with a key and
+// a short retry backoff unless opts say otherwise.
+func newClientFor(t *testing.T, wire WireAPI, endpoint string, model gotato.ModelConfig, opts ...Option) *Client {
+	t.Helper()
+	client, err := New(wire, Connection{Endpoint: endpoint, APIKey: "k"}, model, append([]Option{WithRetry(Retry{Max: 2, Backoff: time.Millisecond, MaxWait: time.Second})}, opts...)...)
+	if err != nil {
+		t.Fatal(err)
+	}
+	return client
+}
 
 // textReply scripts, per wire API, a reply that answers "ok" and stops.
 var textReply = map[API][]string{
@@ -64,10 +110,13 @@ func writeReply(t *testing.T, w http.ResponseWriter, lines []string) {
 	}
 }
 
+// fakeWires are the three wires as the fake gateway serves them. The Anthropic
+// and Responses models take back only the current Round's reasoning; the chat
+// model takes all of it.
 var fakeWires = []fakeWire{
-	{fakegateway.APIAnthropic, Config{API: APIAnthropicMessages, Provider: ProviderAnthropic, Model: "claude-sonnet-5-5"}},
-	{fakegateway.APIResponses, Config{API: APIResponses, Provider: ProviderOpenAI, Model: "gpt-6.1-sol"}},
-	{fakegateway.APIChat, Config{API: APIChatCompletions, Provider: ProviderDeepSeek, Model: "deepseek-reasoner"}},
+	{fakegateway.APIAnthropic, AnthropicMessages{}, gotato.ModelConfig{Name: "claude-sonnet-5-5", Facts: gotato.ModelFacts{Window: gotato.WindowTokens(200_000), RoundReasoning: true}}, endpointPaths[APIAnthropicMessages]},
+	{fakegateway.APIResponses, Responses{}, gotato.ModelConfig{Name: "gpt-6.1-sol", Facts: gotato.ModelFacts{Window: gotato.WindowTokens(200_000), RoundReasoning: true}}, endpointPaths[APIResponses]},
+	{fakegateway.APIChat, ChatCompletions{}, gotato.ModelConfig{Name: "deepseek-reasoner", Facts: gotato.ModelFacts{Window: gotato.WindowTokens(200_000)}}, endpointPaths[APIChatCompletions]},
 }
 
 func newFake(t *testing.T, wire fakeWire, opts ...fakegateway.Option) (*fakegateway.Gateway, *Client) {
@@ -75,15 +124,7 @@ func newFake(t *testing.T, wire fakeWire, opts ...fakegateway.Option) (*fakegate
 	fake := fakegateway.New(opts...)
 	server := httptest.NewServer(fake)
 	t.Cleanup(server.Close)
-	config := wire.config
-	config.BaseURL = server.URL
-	config.APIKey = "k"
-	config.RetryBackoff = time.Millisecond
-	client, err := New(config)
-	if err != nil {
-		t.Fatal(err)
-	}
-	return fake, client
+	return fake, newClientFor(t, wire.wire, server.URL+wire.path, wire.model)
 }
 
 func newFakeSession(t *testing.T, client *Client, opts ...gotato.SessionOption) (*gotato.Session, *testkit.EventRecorder) {
@@ -97,8 +138,10 @@ func newFakeSession(t *testing.T, client *Client, opts ...gotato.SessionOption) 
 }
 
 type fakeWire struct {
-	name   string
-	config Config
+	name  string
+	wire  WireAPI
+	model gotato.ModelConfig
+	path  string
 }
 
 func drain(t *testing.T, stream gotato.ModelStream) []gotato.ModelEvent {
@@ -202,11 +245,11 @@ func twoRounds(api API) []gotato.Message {
 
 // encodeWith encodes messages as a Turn lays them out, with the cache
 // markers and the tool a Session would send.
-func encodeWith(t *testing.T, api API, rules providerRules, messages []gotato.Message) string {
+func encodeWith(t *testing.T, api API, facts gotato.ModelFacts, messages []gotato.Message) string {
 	t.Helper()
 	request, _ := gotato.AssembleRequest(gotato.ModelContext{SystemInstructions: "sys", Messages: messages},
 		[]gotato.ToolSpec{{ID: "echo", Name: "echo", InputSchema: []byte(`{"type":"object"}`)}})
-	body, _, err := wireEncoders[api]("m", request, rules)
+	body, _, err := wireEncoders[api](modelOf(facts), request)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -250,10 +293,16 @@ func cacheControls(t *testing.T, body string) []map[string]any {
 	return found
 }
 
-var wireEncoders = map[API]func(string, gotato.ModelRequest, providerRules) ([]byte, map[string]string, error){
-	APIChatCompletions:   encodeChatRequest,
-	APIResponses:         encodeResponsesRequest,
-	APIAnthropicMessages: encodeAnthropicRequest,
+// wireEncoders encode a request as each wire does by default (native deferred
+// tools where the wire has them).
+var wireEncoders = map[API]func(gotato.ModelConfig, gotato.ModelRequest) ([]byte, map[string]string, error){
+	APIChatCompletions: encodeChatRequest,
+	APIResponses: func(model gotato.ModelConfig, request gotato.ModelRequest) ([]byte, map[string]string, error) {
+		return encodeResponsesRequest(model, request, true)
+	},
+	APIAnthropicMessages: func(model gotato.ModelConfig, request gotato.ModelRequest) ([]byte, map[string]string, error) {
+		return encodeAnthropicRequest(model, request, true)
+	},
 }
 
 // reasoningPart is a reasoning Part as each wire API keeps it: its text, and

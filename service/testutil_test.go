@@ -490,6 +490,9 @@ func (m *askModel) Stream(ctx context.Context, request gotato.ModelRequest) (got
 	return m.reply.Stream(ctx, request)
 }
 
+// Config states nothing: no window, no retention, no sampling.
+func (m *askModel) Config() gotato.ModelConfig { return gotato.ModelConfig{} }
+
 // gatedEcho answers "done: <prompt>" once its gate opens, and reports each
 // call as it starts. A call whose context ends first fails with it.
 type gatedEcho struct {
@@ -507,6 +510,9 @@ func (m *gatedEcho) Stream(ctx context.Context, request gotato.ModelRequest) (go
 	}
 	return testkit.NewFakeModel(testkit.Text("done: "+prompt)).Stream(ctx, gotato.ModelRequest{})
 }
+
+// Config states nothing: no window, no retention, no sampling.
+func (m *gatedEcho) Config() gotato.ModelConfig { return gotato.ModelConfig{} }
 
 // sharedStores returns a function that opens handles on one new store of the
 // given kind, as several instances share one database.
@@ -598,6 +604,9 @@ func (m *gateModel) Stream(ctx context.Context, _ gotato.ModelRequest) (gotato.M
 	return testkit.NewFakeModel(testkit.Text("released")).Stream(ctx, gotato.ModelRequest{})
 }
 
+// Config states nothing: no window, no retention, no sampling.
+func (m *gateModel) Config() gotato.ModelConfig { return gotato.ModelConfig{} }
+
 // killableStore stops every write and renewal once its instance is killed.
 type killableStore struct {
 	session.Store
@@ -652,6 +661,9 @@ func (m ownerModel) Stream(ctx context.Context, request gotato.ModelRequest) (go
 	}
 	return testkit.NewFakeModel(testkit.Text(m.instance+": "+prompt)).Stream(ctx, gotato.ModelRequest{})
 }
+
+// Config states nothing: no window, no retention, no sampling.
+func (m ownerModel) Config() gotato.ModelConfig { return gotato.ModelConfig{} }
 
 // claimsOf returns the session_claimed Events of the Record.
 func claimsOf(t *testing.T, runner *service.Runner, sessionID string) []gotato.SessionClaimed {
@@ -760,6 +772,9 @@ func (m *stagedModel) Stream(ctx context.Context, request gotato.ModelRequest) (
 	}
 	return testkit.NewFakeModel(testkit.Text(m.replies[index])).Stream(ctx, request)
 }
+
+// Config states nothing: no window, no retention, no sampling.
+func (m *stagedModel) Config() gotato.ModelConfig { return gotato.ModelConfig{} }
 
 func (m *stagedModel) request(call int) []gotato.Message {
 	m.mu.Lock()

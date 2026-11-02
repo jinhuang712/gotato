@@ -379,6 +379,9 @@ func (overflowingModel) Stream(context.Context, gotato.ModelRequest) (gotato.Mod
 	return nil, overflowErr{}
 }
 
+// Config states nothing: no window, no retention, no sampling.
+func (overflowingModel) Config() gotato.ModelConfig { return gotato.ModelConfig{} }
+
 type overflowErr struct{}
 
 func (overflowErr) Error() string         { return "prompt is too long" }

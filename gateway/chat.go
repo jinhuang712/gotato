@@ -1,41 +1,66 @@
 package gateway
 
 import (
-	"context"
 	"encoding/json"
-	"errors"
 	"fmt"
-	"io"
 	"net/http"
+	"reflect"
 	"strings"
 
 	"github.com/jinhuang712/gotato/gotato"
 )
 
-func (c *Client) streamChat(ctx context.Context, request gotato.ModelRequest) (gotato.ModelStream, error) {
-	body, names, err := encodeChatRequest(c.model, request, c.rules)
-	if err == nil {
-		body, err = c.withCacheKeyField(body, request.CacheKey)
-	}
-	if err != nil {
-		return nil, err
-	}
-	open := c.withCacheKeyHeader(c.do, request.CacheKey)
-	response, err := open(ctx, body)
-	if err != nil {
-		return nil, err
-	}
-	return &chatStream{
-		sseBody:  newSSEBody(response),
-		nameMap:  names,
-		byIndex:  make(map[int]*chatCall),
-		restart:  restarter{client: c, body: body, open: open},
-		overflow: c.overflow,
-	}, nil
+// ChatCompletions is the OpenAI-compatible Chat Completions wire API, spoken by
+// OpenAI and by most compatible servers. The zero value is the default.
+type ChatCompletions struct {
+	// CacheKeyField names the top-level body field that carries the request's
+	// cache key, for a server that routes its prompt cache by one. Empty sends
+	// no field: the Chat Completions API names none of its own. "none" is the
+	// same. It must not name a field the request already sends.
+	CacheKeyField string
 }
 
-func encodeChatRequest(model string, request gotato.ModelRequest, rules providerRules) ([]byte, map[string]string, error) {
-	if err := refuseReasoningConfig(APIChatCompletions, request.Config); err != nil {
+// Validate refuses a CacheKeyField that names a field the request already
+// sends, which the cache key would silently replace. New calls it.
+func (w ChatCompletions) Validate() error {
+	return checkCacheKeyField(w.CacheKeyField, reflect.TypeFor[chatRequest](), chatReservedFields)
+}
+
+// chatReservedFields are the top-level fields the request carries besides the
+// ones its encoder struct declares: fields the API takes that a cache key must
+// not replace either.
+var chatReservedFields = []string{"tool_choice", "parallel_tool_calls", "max_completion_tokens", "response_format", "stop", "n", "user", "metadata", "store"}
+
+// Encode implements WireAPI. The model's facts steer one thing: with
+// RoundReasoning the reasoning of an earlier Round is left out of the history.
+// The Chat Completions API has no native form of deferred tools, so a Session
+// with a catalog gets the tools loaded so far, and the list grows when one
+// loads. It sends Sampling.Temperature and MaxTokens, and refuses a request
+// that sets a reasoning effort or summary, which it cannot carry.
+func (w ChatCompletions) Encode(call Call) (*Request, error) {
+	body, names, err := encodeChatRequest(call.Model, call.Request)
+	if err == nil {
+		body, err = withCacheKeyField(body, w.cacheKeyField(), call.CacheKey)
+	}
+	if err != nil {
+		return nil, err
+	}
+	header := http.Header{}
+	if call.APIKey != "" {
+		header.Set("Authorization", "Bearer "+call.APIKey)
+	}
+	return &Request{Body: body, Header: header, NewDecoder: func() Decoder { return newChatDecoder(names) }}, nil
+}
+
+func (w ChatCompletions) cacheKeyField() string {
+	if w.CacheKeyField == cacheKeyFieldNone {
+		return ""
+	}
+	return w.CacheKeyField
+}
+
+func encodeChatRequest(model gotato.ModelConfig, request gotato.ModelRequest) ([]byte, map[string]string, error) {
+	if err := refuseReasoningConfig("Chat Completions", request.Sampling); err != nil {
 		return nil, nil, err
 	}
 	names, err := functionNames(request)
@@ -48,7 +73,7 @@ func encodeChatRequest(model string, request gotato.ModelRequest, rules provider
 	}
 	start := roundStart(request.Messages)
 	for i, message := range request.Messages {
-		keep := rules.keepsReasoning(i, start)
+		keep := keepsReasoning(model.Facts.RoundReasoning, i, start)
 		converted, err := convertChatMessage(message, names, keep)
 		if err != nil {
 			return nil, nil, err
@@ -71,9 +96,9 @@ func encodeChatRequest(model string, request gotato.ModelRequest, rules provider
 		}
 		tools = append(tools, chatTool{Type: "function", Function: chatFunction{Name: name, Description: spec.Description, Parameters: parameters}})
 	}
-	payload := chatRequest{Model: model, Messages: messages, Tools: tools, Stream: true, StreamOptions: &chatStreamOptions{IncludeUsage: true}}
-	payload.Temperature = request.Config.Temperature
-	payload.MaxTokens = request.Config.MaxTokens
+	payload := chatRequest{Model: model.Name, Messages: messages, Tools: tools, Stream: true, StreamOptions: &chatStreamOptions{IncludeUsage: true}}
+	payload.Temperature = request.Sampling.Temperature
+	payload.MaxTokens = request.Sampling.MaxTokens
 	body, err := json.Marshal(payload)
 	if err != nil {
 		return nil, nil, fmt.Errorf("gateway: encode request: %w", err)
@@ -169,8 +194,8 @@ type chatFunctionCall struct {
 	Arguments string `json:"arguments"`
 }
 
-type chatStream struct {
-	sseBody
+// chatDecoder reads the reply of one Chat Completions attempt.
+type chatDecoder struct {
 	nameMap map[string]string
 	// calls are the Tool calls in the order they first appeared; byIndex
 	// is the call each provider index names now, and last the call the
@@ -183,11 +208,10 @@ type chatStream struct {
 	usage    gotato.Usage
 	model    string
 	finished bool
-	// err is the stream error a chunk carried, returned again by every Recv
-	// after it, so a second call never reads as a clean end.
-	err      error
-	restart  restarter
-	overflow overflowMatcher
+}
+
+func newChatDecoder(names map[string]string) *chatDecoder {
+	return &chatDecoder{nameMap: names, byIndex: make(map[int]*chatCall)}
 }
 
 type chatCall struct {
@@ -239,85 +263,57 @@ type chatChunk struct {
 	} `json:"usage"`
 }
 
-// Recv returns the next event. A stream that ends with no finish_reason is
-// handed to the restarter as an ordinary interruption, so its error has no
-// "ended before completion" text. The end of a chat reply is not one event
-// (a provider may omit [DONE] after a finish_reason), so there is no single
+// Decode reads one chunk. A stream that ends with no finish_reason is handed
+// back to the stream loop as an ordinary interruption, so its error has no
+// "ended before completion" text: the end of a chat reply is not one event (a
+// provider may omit [DONE] after a finish_reason), so there is no single
 // missing event to name, as the other two APIs name theirs.
-func (s *chatStream) Recv(ctx context.Context) (gotato.ModelEvent, error) {
-	if ctx == nil {
-		ctx = context.Background()
-	}
-	if s.err != nil {
-		return gotato.ModelEvent{}, s.err
-	}
-	for len(s.queue) == 0 {
-		if s.finished {
-			return gotato.ModelEvent{}, io.EOF
-		}
-		data, err := readSSEEvent(ctx, s.reader)
-		if errors.Is(err, io.EOF) && s.finish != "" {
-			// A provider that omits [DONE] after a finish_reason still
-			// completed the response.
-			s.finishStream()
-			continue
-		}
-		if err != nil {
-			response, rerr := s.restart.recover(ctx, err)
-			if rerr != nil {
-				return gotato.ModelEvent{}, rerr
-			}
-			s.reopen(response)
-			continue
-		}
-		if data == "[DONE]" {
-			s.finishStream()
-			continue
-		}
-		if data == "" {
-			continue
-		}
-		var chunk chatChunk
-		if err := json.Unmarshal([]byte(data), &chunk); err != nil {
-			return gotato.ModelEvent{}, fmt.Errorf("gateway: invalid SSE chunk: %w", err)
-		}
-		if chunk.Error != nil {
-			// An error is not an interruption: it is not sent again as a
-			// cut stream is, and an overflow is reported as one.
-			s.finished = true
-			message := chunk.Error.Message
-			if message == "" {
-				message = chunk.Error.Type
-			}
-			s.err = s.overflow.streamError("Chat Completions stream error", message, errorCode(chunk.Error.Code), chunk.Error.Type)
-			return gotato.ModelEvent{}, s.err
-		}
-		if err := s.processChunk(chunk); err != nil {
-			s.finished = true
-			s.err = err
-			return gotato.ModelEvent{}, err
-		}
-	}
-	event := s.queue[0]
-	s.queue = s.queue[1:]
-	s.restart.delivered = true
-	return event, nil
-}
-
-// reopen continues on a re-issued response, discarding everything decoded
-// from the interrupted one (nothing of it reached the caller).
-func (s *chatStream) reopen(response *http.Response) {
-	s.replace(response)
-	s.calls = nil
-	s.byIndex = make(map[int]*chatCall)
-	s.last = nil
+func (s *chatDecoder) Decode(event SSEEvent) ([]gotato.ModelEvent, bool, error) {
+	err := s.decode(event)
+	out := s.queue
 	s.queue = nil
-	s.finish = ""
-	s.usage = gotato.Usage{}
-	s.model = ""
+	return out, s.finished, err
 }
 
-func (s *chatStream) processChunk(chunk chatChunk) error {
+func (s *chatDecoder) decode(event SSEEvent) error {
+	if event.End {
+		// A provider that omits [DONE] after a finish_reason still completed
+		// the response.
+		if s.finish != "" {
+			s.finishStream()
+		}
+		return nil
+	}
+	data := event.Data
+	if data == "[DONE]" {
+		s.finishStream()
+		return nil
+	}
+	if data == "" {
+		return nil
+	}
+	var chunk chatChunk
+	if err := json.Unmarshal([]byte(data), &chunk); err != nil {
+		return fmt.Errorf("gateway: invalid SSE chunk: %w", err)
+	}
+	if chunk.Error != nil {
+		// An error is not an interruption: it is not sent again as a cut
+		// stream is, and an overflow is reported as one.
+		s.finished = true
+		message := chunk.Error.Message
+		if message == "" {
+			message = chunk.Error.Type
+		}
+		return Failure{Message: "Chat Completions stream error: " + message, Code: errorCode(chunk.Error.Code), Type: chunk.Error.Type}
+	}
+	if err := s.processChunk(chunk); err != nil {
+		s.finished = true
+		return err
+	}
+	return nil
+}
+
+func (s *chatDecoder) processChunk(chunk chatChunk) error {
 	if chunk.Model != "" {
 		s.model = chunk.Model
 	}
@@ -368,7 +364,7 @@ func (s *chatStream) processChunk(chunk chatChunk) error {
 // index, with a null one, or all at index 0. So a delta that names an ID
 // other than the one its index holds starts a new call, and a delta without
 // an index adds to the last call.
-func (s *chatStream) callFor(index *int, id string) *chatCall {
+func (s *chatDecoder) callFor(index *int, id string) *chatCall {
 	call := s.last
 	if index != nil {
 		call = s.byIndex[*index]
@@ -385,7 +381,7 @@ func (s *chatStream) callFor(index *int, id string) *chatCall {
 }
 
 // [LIMITATION] a tool call's arguments are emitted whole once complete, never as partial JSON, because the Session runs a call only on complete arguments.
-func (s *chatStream) finishStream() {
+func (s *chatDecoder) finishStream() {
 	for _, call := range s.calls {
 		name := call.name
 		if original, ok := s.nameMap[name]; ok {

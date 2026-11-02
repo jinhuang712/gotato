@@ -18,6 +18,9 @@ func (m errModel) Stream(ctx context.Context, _ ModelRequest) (ModelStream, erro
 	return nil, ctx.Err()
 }
 
+// Config states nothing: no window, no retention, no sampling.
+func (m errModel) Config() ModelConfig { return ModelConfig{} }
+
 func runWithModel(t *testing.T, model Model, limits CoreLimits) (RunResult, error) {
 	t.Helper()
 	session, err := NewSession(context.Background(), WithModel(model), WithLimits(limits))

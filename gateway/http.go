@@ -15,45 +15,28 @@ import (
 	"github.com/jinhuang712/gotato/gotato"
 )
 
-// do sends body to the endpoint and returns the first 2xx response. It is the
-// one retry loop of every wire API: a transport error, or a status that
-// retryableStatus accepts, is repeated within MaxRetries, each time reported
-// with gotato.ReportModelRetry before the wait. What differs between the APIs
-// is only authentication and protocol headers, which setProtocolHeaders sets.
-func (c *Client) do(ctx context.Context, body []byte) (*http.Response, error) {
-	// The Responses API has no anonymous mode, so a missing key is refused
-	// before any request; the other two APIs send no credential without one,
-	// which keyless local gateways rely on.
-	if c.api == APIResponses && strings.TrimSpace(c.apiKey) == "" {
-		return nil, &Error{Message: "api_key is required for the Responses API"}
-	}
-	if err := checkHeaders(RequestHeaders(ctx)); err != nil {
-		// Sending it again cannot help, so it is not a transport failure.
-		return nil, &Error{Message: "a request header is not valid: " + err.Error()}
-	}
+// send posts body with header to the endpoint and returns the first 2xx
+// response. It is the one retry loop of every wire API: a transport error, or
+// a failure the Classifier calls retryable, is repeated within Retry.Max, each
+// time reported with gotato.ReportModelRetry before the wait. What differs
+// between the wires is only the body and the headers, which they encoded.
+func (c *Client) send(ctx context.Context, body []byte, header http.Header) (*http.Response, error) {
 	for attempt := 0; ; attempt++ {
-		req, err := http.NewRequestWithContext(ctx, http.MethodPost, c.endpoint, bytes.NewReader(body))
+		req, err := http.NewRequestWithContext(ctx, http.MethodPost, c.conn.Endpoint, bytes.NewReader(body))
 		if err != nil {
 			return nil, err
 		}
-		// Configurable and per-request headers are applied first so protocol
-		// headers from this adapter win; neither may disable authentication
-		// or break SSE negotiation.
-		c.applyHeaders(ctx, req)
-		req.Header.Set("Content-Type", "application/json")
-		req.Header.Set("Accept", "text/event-stream")
-		c.setProtocolHeaders(req)
+		req.Header = header.Clone()
 		response, err := c.httpClient.Do(req)
 		if err != nil {
 			if ctx.Err() != nil {
 				return nil, ctx.Err()
 			}
-			if !transientTransport(err) {
-				// The error text names the endpoint's URL and host; it stays the cause.
-				return nil, &Error{Message: transportMessage, cause: err}
-			}
-			if attempt < c.maxRetries {
-				delay := withJitter(c.retryBackoff * time.Duration(attempt+1))
+			// The error text names the endpoint's URL and host; it stays the cause.
+			failure := Failure{Message: transportMessage, Err: err}
+			verdict := c.classify(failure)
+			if verdict.Retryable && attempt < c.retry.Max {
+				delay := withJitter(c.retry.Backoff * time.Duration(attempt+1))
 				// The error text can name hosts, and Events reach clients.
 				gotato.ReportModelRetry(ctx, gotato.ModelRetry{Attempt: attempt + 1, Wait: delay, Error: "the request could not be sent"})
 				if err := wait(ctx, delay); err != nil {
@@ -61,7 +44,7 @@ func (c *Client) do(ctx context.Context, body []byte) (*http.Response, error) {
 				}
 				continue
 			}
-			return nil, &Error{retryable: true, Message: transportMessage, cause: err}
+			return nil, newError(failure, verdict)
 		}
 		if response.StatusCode >= 200 && response.StatusCode < 300 {
 			if !startsWithJSONObject(response) {
@@ -71,44 +54,32 @@ func (c *Client) do(ctx context.Context, body []byte) (*http.Response, error) {
 			// provider's error told with a success status.
 			refusal := readErrorBody(response.Body)
 			_ = response.Body.Close()
-			retryable := transientStream(refusal.Type, refusal.Code) || retryableStatus(0, refusal.Message)
-			if retryable && attempt < c.maxRetries {
-				delay := c.retryDelay(response.Header, attempt)
+			failure := Failure{Message: refusal.Message, Code: refusal.Code, Type: refusal.Type, Header: response.Header}
+			verdict := c.classify(failure)
+			if verdict.Retryable && attempt < c.retry.Max {
+				delay := c.retryWait(response.Header, attempt)
 				gotato.ReportModelRetry(ctx, gotato.ModelRetry{Attempt: attempt + 1, Wait: delay, Error: "the provider answered with an error"})
 				if err := wait(ctx, delay); err != nil {
 					return nil, err
 				}
 				continue
 			}
-			return nil, &Error{retryable: retryable, Message: refusal.Message}
+			return nil, newError(failure, verdict)
 		}
-		body := readErrorBody(response.Body)
-		message := body.Message
+		refusal := readErrorBody(response.Body)
 		_ = response.Body.Close()
-		retryable := retryableStatus(response.StatusCode, message)
-		if retryable && attempt < c.maxRetries {
-			delay := c.retryDelay(response.Header, attempt)
+		failure := Failure{Status: response.StatusCode, Message: refusal.Message, Code: refusal.Code, Type: refusal.Type, Header: response.Header}
+		verdict := c.classify(failure)
+		if verdict.Retryable && attempt < c.retry.Max {
+			delay := c.retryWait(response.Header, attempt)
 			gotato.ReportModelRetry(ctx, gotato.ModelRetry{Attempt: attempt + 1, Wait: delay, Error: fmt.Sprintf("the provider answered %d", response.StatusCode)})
 			if err := wait(ctx, delay); err != nil {
 				return nil, err
 			}
 			continue
 		}
-		return nil, c.overflow.httpError(response.StatusCode, retryable, body)
+		return nil, newError(failure, verdict)
 	}
-}
-
-// retryDelay returns how long to wait before the next attempt. A provider
-// Retry-After/retry-after-ms header wins; otherwise the configured backoff
-// grows linearly with the attempt and carries jitter. Either is capped by
-// Config.MaxRetryWait.
-func (c *Client) retryDelay(header http.Header, attempt int) time.Duration {
-	delay := withJitter(c.retryBackoff * time.Duration(attempt+1))
-	if retryAfter := retryAfterDuration(header); retryAfter >= 0 {
-		delay = retryAfter
-	}
-	// A provider that asks for an hour does not hold the Run for one.
-	return min(delay, c.maxRetryWait)
 }
 
 // withJitter adds up to 25% to a backoff so a fleet recovering from the same
@@ -122,32 +93,6 @@ func withJitter(delay time.Duration) time.Duration {
 		return delay
 	}
 	return delay + time.Duration(rand.Int63n(int64(span)+1))
-}
-
-// retryableStatus is the shared retry policy for every wire API. A 429
-// that names a terminal quota is not retryable; transient 429/5xx responses
-// and known overload phrasing are.
-func retryableStatus(status int, message string) bool {
-	if status == http.StatusTooManyRequests && terminalQuotaLimit(message) {
-		return false
-	}
-	return status == http.StatusTooManyRequests || status == http.StatusInternalServerError ||
-		status == http.StatusBadGateway || status == http.StatusServiceUnavailable ||
-		status == http.StatusGatewayTimeout || status == statusOverloaded || strings.Contains(strings.ToLower(message), "rate limit") ||
-		strings.Contains(strings.ToLower(message), "overloaded") || strings.Contains(strings.ToLower(message), "service unavailable")
-}
-
-// terminalQuotaLimit reports whether a 429 message names a quota that
-// retrying cannot fix (an exhausted balance or usage cap) rather than a
-// transient rate limit.
-func terminalQuotaLimit(message string) bool {
-	lower := strings.ToLower(message)
-	for _, phrase := range []string{"usage limit", "freeusagelimiterror", "gousagelimiterror", "insufficient_quota", "out of budget", "quota exceeded", "available balance"} {
-		if strings.Contains(lower, phrase) {
-			return true
-		}
-	}
-	return false
 }
 
 func retryAfterDuration(header http.Header) time.Duration {

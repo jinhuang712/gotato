@@ -27,7 +27,6 @@ const (
 // TestFileLayers until it is listed here.
 var fileLayer = map[string]int{
 	// foundation and rendering
-	"capability.go":     layerFoundation,
 	"errors.go":         layerFoundation,
 	"inspect.go":        layerFoundation,
 	"modelctx.go":       layerFoundation,

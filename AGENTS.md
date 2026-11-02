@@ -36,7 +36,7 @@ These documents are the single source of truth for Gotato's design. PROPOSAL to 
 - **Keep the package layout** (guides/packages.md shows the tree). The module root holds no Go code: it holds the documents, `specs/` and `plan/` (with `plan/decisions/`), and the module files, and `gotato/layering_test.go` fails when a `.go` file appears there. A directory's name is its package's name, so no import needs an alias. A test-helper package sits next to what it tests, like `net/http/httptest`: `session/storetest` beside `session`.
 - **Keep dependencies layered** ([decision 010](plan/decisions/010-gotato-is-a-light-library-with-a-versioned-contract.md)). The core package imports only the standard library and the shared packages of `internal/`: it lives in `gotato/`, so code reads `gotato.NewSession`. `session`, `modelctx`, `testkit` import the core. Providers and the service layer import inward. `gotato/layering_test.go` enforces this; keep it passing.
 - **`internal/` holds two kinds of package.** Shared packages (today only `internal/text`) import the standard library only, and any shipped package, the core included, may import them; `gotato/layering_test.go` lists them. Our test tools (`internal/reftasks`, `internal/workload`, `internal/fakegateway`, `internal/cmd/...`) are imported by no shipped package.
-- **Prefer the standard library.** Add a dependency only after checking that the standard library or a smaller solution falls short. The root module depends only on `gopkg.in/yaml.v3` (used by `gateway`).
+- **Prefer the standard library.** Add a dependency only after checking that the standard library or a smaller solution falls short. The root module depends only on `gopkg.in/yaml.v3` (used by `internal/cmd/gatewayconf`, the test tools' gateway file; no shipped package imports it).
 
 ## Naming
 
@@ -50,7 +50,7 @@ Exported names follow one set of rules, so a reader can guess a name before look
 | A type or method is named as the glossary names the thing | a method that returns a `session.Record` is called `Record` |
 | A constant is prefixed with the name of its type | `RunStatusRunning`, `ToolEffectRead` |
 | A struct of settings is a `Config` or a `Policy`, never `Options`; a function type that configures is an `Option`, prefixed when a package has two | `CompactPolicy`, `session.WriterOption` |
-| `Load` reads from a store or a path, `Parse` from bytes, `From…` builds from a value in memory | `gateway.LoadYAML(path)`, `session.FromDocument(doc)` |
+| `Load` reads from a store or a path, `Parse` from bytes, `From…` builds from a value in memory | `gatewayconf.Load(path)`, `session.FromDocument(doc)` |
 | A boolean method is the adjective with no `Is` (`Retryable()`, `Durable()`); a noun keeps `Is` (`IsCheckpoint()`), as the standard library does | `Durable()`, `IsCheckpoint()` |
 | An Event type is a past participle; a stream piece is a `…Delta`, and `ToolProgress` is the one other noun | `RunStarted`, `TextDelta` |
 | A package's main type is built by a bare `New` | `service.New`, `gateway.New` |
