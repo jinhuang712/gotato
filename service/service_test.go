@@ -14,8 +14,8 @@ import (
 	"github.com/jinhuang712/gotato/gateway"
 	"github.com/jinhuang712/gotato/gotato"
 	"github.com/jinhuang712/gotato/internal/fakegateway"
-	"github.com/jinhuang712/gotato/modelctx"
 	"github.com/jinhuang712/gotato/profile"
+	"github.com/jinhuang712/gotato/record"
 	"github.com/jinhuang712/gotato/service"
 	"github.com/jinhuang712/gotato/session"
 	"github.com/jinhuang712/gotato/testkit"
@@ -34,24 +34,24 @@ type refusingStore struct {
 
 func (s *refusingStore) refused(ctx context.Context) bool { return ctx.Value(callerKey{}) == "mallory" }
 
-func (s *refusingStore) Load(ctx context.Context, id string) (session.Loaded, error) {
+func (s *refusingStore) Load(ctx context.Context, id string) (record.Loaded, error) {
 	if s.refused(ctx) {
-		return session.Loaded{}, session.ErrNotFound
+		return record.Loaded{}, record.ErrNotFound
 	}
 	if s.block.CompareAndSwap(true, false) {
 		close(s.entered)
 		select {
 		case <-s.proceed:
 		case <-ctx.Done():
-			return session.Loaded{}, ctx.Err()
+			return record.Loaded{}, ctx.Err()
 		}
 	}
 	return s.parts.Load(ctx, id)
 }
 
-func (s *refusingStore) Log(ctx context.Context, id string, after uint64, limit int) ([]session.Entry, error) {
+func (s *refusingStore) Log(ctx context.Context, id string, after uint64, limit int) ([]record.Entry, error) {
 	if s.refused(ctx) {
-		return nil, session.ErrNotFound
+		return nil, record.ErrNotFound
 	}
 	return s.parts.Log(ctx, id, after, limit)
 }
@@ -83,7 +83,7 @@ func TestAbortSessionAuthorizesWhileTheRunIsLoading(t *testing.T) {
 	if runErr := <-done; runErr != nil {
 		t.Fatalf("the owner's Run was stopped by a refused caller: %v", runErr)
 	}
-	if !errors.Is(abortErr, session.ErrNotFound) {
+	if !errors.Is(abortErr, record.ErrNotFound) {
 		t.Fatalf("AbortSession by a refused caller = %v, want not_found", abortErr)
 	}
 }
@@ -185,7 +185,7 @@ var fakeGatewayWires = []struct {
 	{fakegateway.APIChat, gatewaySetup{gateway.ChatCompletions{}, "/v1/chat/completions", unknownWindow("chat-model")}},
 }
 
-func gatewayRunner(t *testing.T, setup gatewaySetup, fake *fakegateway.Gateway, policy modelctx.Compactor) *service.Runner {
+func gatewayRunner(t *testing.T, setup gatewaySetup, fake *fakegateway.Gateway, policy record.Compactor) *service.Runner {
 	t.Helper()
 	server := httptest.NewServer(fake)
 	t.Cleanup(server.Close)
@@ -236,7 +236,7 @@ func TestOverflowOnEachWireAPICompactsAndSendsAgainOnce(t *testing.T) {
 			// A window that holds three exchanges of this size and not four, and no
 			// ceiling: the refusal is the only thing that says the Context is too long.
 			fake := fakegateway.New(fakegateway.WithWindow(33_000))
-			runner := gatewayRunner(t, wire.config, fake, modelctx.Compactor{CompactPolicy: modelctx.CompactPolicy{CeilingTokens: -1}})
+			runner := gatewayRunner(t, wire.config, fake, record.Compactor{CompactPolicy: record.CompactPolicy{CeilingTokens: -1}})
 			ctx := context.Background()
 			id := ""
 			for _, word := range []string{"alpha", "bravo", "charlie"} {
@@ -272,7 +272,7 @@ func TestASecondRefusalInTheSameTurnEndsTheRunWithContextOverflowOnEachWireAPI(t
 	for _, wire := range fakeGatewayWires {
 		t.Run(wire.name, func(t *testing.T) {
 			fake := fakegateway.New()
-			runner := gatewayRunner(t, wire.config, fake, modelctx.Compactor{CompactPolicy: modelctx.CompactPolicy{CeilingTokens: -1}})
+			runner := gatewayRunner(t, wire.config, fake, record.Compactor{CompactPolicy: record.CompactPolicy{CeilingTokens: -1}})
 			ctx := context.Background()
 			// Two Runs of history: the compaction keeps the latest Run before the
 			// one that starts as its tail, and closes the Run before that.
@@ -300,7 +300,7 @@ func TestPastTheCeilingCompactsBeforeAnyRequestOnEachWireAPI(t *testing.T) {
 	for _, wire := range fakeGatewayWires {
 		t.Run(wire.name, func(t *testing.T) {
 			fake := fakegateway.New()
-			runner := gatewayRunner(t, wire.config, fake, modelctx.Compactor{CompactPolicy: modelctx.CompactPolicy{CeilingTokens: 12_000}})
+			runner := gatewayRunner(t, wire.config, fake, record.Compactor{CompactPolicy: record.CompactPolicy{CeilingTokens: 12_000}})
 			ctx := context.Background()
 			id := ""
 			for _, word := range []string{"alpha", "bravo", "charlie", "delta", "echo"} {
@@ -338,7 +338,7 @@ func TestAnOverflowInTheMiddleOfAReplyEndsTheRunAndKeepsTheCutOffTextOnEachWireA
 	for _, wire := range fakeGatewayWires {
 		t.Run(wire.name, func(t *testing.T) {
 			fake := fakegateway.New()
-			runner := gatewayRunner(t, wire.config, fake, modelctx.Compactor{CompactPolicy: modelctx.CompactPolicy{CeilingTokens: -1}})
+			runner := gatewayRunner(t, wire.config, fake, record.Compactor{CompactPolicy: record.CompactPolicy{CeilingTokens: -1}})
 			ctx := context.Background()
 			id := ""
 			for _, word := range []string{"alpha", "bravo", "charlie"} {
@@ -672,7 +672,7 @@ func (s *crashingStore) Beat(ctx context.Context, row session.InstanceRow, ttl t
 	return s.parts.Beat(ctx, row, ttl)
 }
 
-func (s *crashingStore) Append(ctx context.Context, id string, after uint64, entries []session.Entry, summary session.Header) error {
+func (s *crashingStore) Append(ctx context.Context, id string, after uint64, entries []record.Entry, summary record.Header) error {
 	s.mu.Lock()
 	crashed := s.crashed
 	for _, entry := range entries {
@@ -724,7 +724,7 @@ func TestACrashDuringAToolIsAnsweredOnTheNextRun(t *testing.T) {
 			answer = message.ToolResult
 		}
 	}
-	if answer == nil || answer.SafeError != session.StoppedToolResult {
+	if answer == nil || answer.SafeError != record.StoppedToolResult {
 		t.Fatalf("the next request answered call-1 with %+v, want the stopped answer", answer)
 	}
 	view, err := next.Record(ctx, s.ID)
@@ -755,7 +755,7 @@ func TestCompactAppendReloadKeepsTheContext(t *testing.T) {
 			t.Fatal(err)
 		}
 	}
-	if result, err := first.Compact(ctx, s.ID, modelctx.CompactConfig{KeepMessages: 2}); err != nil || !result.Replaced {
+	if result, err := first.Compact(ctx, s.ID, record.CompactConfig{KeepMessages: 2}); err != nil || !result.Replaced {
 		t.Fatalf("Compact = %+v, %v", result, err)
 	}
 	if _, err := first.Run(ctx, service.RunRequest{SessionID: s.ID, Prompt: "four"}); err != nil {

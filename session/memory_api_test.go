@@ -5,6 +5,8 @@ import (
 	"errors"
 	"testing"
 
+	"github.com/jinhuang712/gotato/record"
+
 	"github.com/jinhuang712/gotato/gotato"
 	"github.com/jinhuang712/gotato/session"
 	"github.com/jinhuang712/gotato/testkit"
@@ -27,7 +29,7 @@ func TestMemoryStore(t *testing.T) {
 	if again.Len() != 2 {
 		t.Fatalf("store aliased live session: %d", again.Len())
 	}
-	if err := store.Delete(ctx, "missing"); !errors.Is(err, session.ErrNotFound) {
+	if err := store.Delete(ctx, "missing"); !errors.Is(err, record.ErrNotFound) {
 		t.Fatalf("delete missing err = %v", err)
 	}
 }

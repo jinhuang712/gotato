@@ -14,6 +14,8 @@ import (
 	"testing"
 	"time"
 
+	"github.com/jinhuang712/gotato/record"
+
 	"github.com/jinhuang712/gotato/profile"
 	"github.com/jinhuang712/gotato/service"
 	"github.com/jinhuang712/gotato/service/httpapi"
@@ -45,22 +47,22 @@ func (s *ownerStore) note(ctx context.Context, op string) string {
 	return caller
 }
 
-func (s *ownerStore) Create(ctx context.Context, id string, entries []session.Entry, summary session.Header) error {
+func (s *ownerStore) Create(ctx context.Context, id string, entries []record.Entry, summary record.Header) error {
 	s.note(ctx, "create")
 	return s.parts.Create(ctx, id, entries, summary)
 }
 
-func (s *ownerStore) Load(ctx context.Context, id string) (session.Loaded, error) {
+func (s *ownerStore) Load(ctx context.Context, id string) (record.Loaded, error) {
 	caller := s.note(ctx, "load")
 	loaded, err := s.parts.Load(ctx, id)
 	if err == nil && loaded.Header.Info.Metadata["owner"] != caller {
-		return session.Loaded{}, session.ErrNotFound // does not reveal that the Session exists
+		return record.Loaded{}, record.ErrNotFound // does not reveal that the Session exists
 	}
 	return loaded, err
 }
 
 // Log is how a read of a Session reaches the store, so it is guarded too.
-func (s *ownerStore) Log(ctx context.Context, id string, after uint64, limit int) ([]session.Entry, error) {
+func (s *ownerStore) Log(ctx context.Context, id string, after uint64, limit int) ([]record.Entry, error) {
 	s.note(ctx, "log")
 	if _, err := s.Load(ctx, id); err != nil {
 		return nil, err
@@ -68,7 +70,7 @@ func (s *ownerStore) Log(ctx context.Context, id string, after uint64, limit int
 	return s.parts.Log(ctx, id, after, limit)
 }
 
-func (s *ownerStore) Append(ctx context.Context, id string, after uint64, entries []session.Entry, summary session.Header) error {
+func (s *ownerStore) Append(ctx context.Context, id string, after uint64, entries []record.Entry, summary record.Header) error {
 	s.note(ctx, "append")
 	return s.parts.Append(ctx, id, after, entries, summary)
 }

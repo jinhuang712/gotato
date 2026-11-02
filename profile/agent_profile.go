@@ -20,7 +20,7 @@ import (
 	"time"
 
 	"github.com/jinhuang712/gotato/gotato"
-	"github.com/jinhuang712/gotato/modelctx"
+	"github.com/jinhuang712/gotato/record"
 )
 
 // DefaultRunTimeout is how long a Run may last when neither the AgentProfile's
@@ -120,7 +120,7 @@ type AgentProfile struct {
 	Limits         *gotato.CoreLimits
 	// ReadBack replaces the Tools that read back a Segment's Messages and a
 	// spilled Tool Result, and the page size of that read (gotato.ReadBack).
-	// Nil keeps the Runner's own, modelctx.ReadBack over its store.
+	// Nil keeps the Runner's own, record.ReadBack over its store.
 	ReadBack gotato.ReadBack
 	// RunTimeout bounds one Run of this profile; the Run settles as
 	// deadline_exceeded. Zero means DefaultRunTimeout, negative means no
@@ -129,7 +129,7 @@ type AgentProfile struct {
 	// no Run deadline of its own: there a Run's deadline is its ctx.
 	RunTimeout time.Duration
 	// Compact is how the profile's Sessions compact: the frame and its parts
-	// (modelctx.Compactor). Its numbers say when they compact by themselves:
+	// (record.Compactor). Its numbers say when they compact by themselves:
 	// past the ceiling, which is the Model's window less a reserve unless
 	// CeilingTokens sets one (a negative CeilingTokens turns it off), and once
 	// when the provider refuses a request as too long. The ceiling is the
@@ -137,7 +137,7 @@ type AgentProfile struct {
 	// part the profile sets replaces that step alone, and the frame keeps the
 	// guarantees whatever it returns. A Recap writer that names no Model gets
 	// the profile's.
-	Compact modelctx.Compactor
+	Compact record.Compactor
 }
 
 // validate checks what cannot work as set, once the profile is a value: the

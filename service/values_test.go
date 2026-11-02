@@ -8,13 +8,13 @@ import (
 
 	"github.com/jinhuang712/gotato/gotato"
 	"github.com/jinhuang712/gotato/profile"
+	"github.com/jinhuang712/gotato/record"
 	"github.com/jinhuang712/gotato/service"
-	"github.com/jinhuang712/gotato/session"
 	"github.com/jinhuang712/gotato/testkit"
 )
 
 // The Runner hands out values and not handles: CreateSession and Fork answer a
-// RecordInfo, Record a Document, and the Runner gives no way to its Store.
+// Info, Record a Document, and the Runner gives no way to its Store.
 func TestTheRunnerReturnsValuesNotHandles(t *testing.T) {
 	runner := reflect.TypeFor[*service.Runner]()
 	if _, has := runner.MethodByName("Store"); has {
@@ -24,9 +24,9 @@ func TestTheRunnerReturnsValuesNotHandles(t *testing.T) {
 		t.Error("CreateSessionExclusive is still there: CreateSession takes an ID")
 	}
 	want := map[string]reflect.Type{
-		"CreateSession": reflect.TypeFor[session.RecordInfo](),
-		"Fork":          reflect.TypeFor[session.RecordInfo](),
-		"Record":        reflect.TypeFor[session.Document](),
+		"CreateSession": reflect.TypeFor[record.Info](),
+		"Fork":          reflect.TypeFor[record.Info](),
+		"Record":        reflect.TypeFor[record.Document](),
 	}
 	for name, value := range want {
 		method, ok := runner.MethodByName(name)

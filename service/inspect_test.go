@@ -7,8 +7,8 @@ import (
 	"testing"
 
 	"github.com/jinhuang712/gotato/gotato"
-	"github.com/jinhuang712/gotato/modelctx"
 	"github.com/jinhuang712/gotato/profile"
+	"github.com/jinhuang712/gotato/record"
 	"github.com/jinhuang712/gotato/service"
 	"github.com/jinhuang712/gotato/testkit"
 )
@@ -72,7 +72,7 @@ func TestInspectMatchesTheNextRun(t *testing.T) {
 }
 
 func TestInspectSaysWhenCompactionIsPending(t *testing.T) {
-	runner, _ := newRunner(t, profile.AgentProfile{Name: "echo", Model: testkit.EchoModel{}, Compact: modelctx.Compactor{CompactPolicy: modelctx.CompactPolicy{CeilingTokens: 20000}}})
+	runner, _ := newRunner(t, profile.AgentProfile{Name: "echo", Model: testkit.EchoModel{}, Compact: record.Compactor{CompactPolicy: record.CompactPolicy{CeilingTokens: 20000}}})
 	ctx := context.Background()
 	first, err := runner.Run(ctx, service.RunRequest{Prompt: "hi"})
 	if err != nil {

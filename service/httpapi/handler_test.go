@@ -18,8 +18,8 @@ import (
 	"time"
 
 	"github.com/jinhuang712/gotato/gotato"
-	"github.com/jinhuang712/gotato/modelctx"
 	"github.com/jinhuang712/gotato/profile"
+	"github.com/jinhuang712/gotato/record"
 	"github.com/jinhuang712/gotato/service"
 	"github.com/jinhuang712/gotato/service/httpapi"
 	"github.com/jinhuang712/gotato/session"
@@ -70,7 +70,7 @@ func TestSessionLifecycleOverHTTP(t *testing.T) {
 		t.Fatalf("create = %d %s", status, body)
 	}
 	var summary struct {
-		session.RecordInfo
+		record.Info
 		RecordEpoch string `json:"record_epoch"`
 	}
 	_ = json.Unmarshal(body, &summary)
@@ -92,7 +92,7 @@ func TestSessionLifecycleOverHTTP(t *testing.T) {
 	}
 
 	status, body = call(t, server, http.MethodGet, "/v1/sessions/"+summary.ID, nil)
-	var doc session.Document
+	var doc record.Document
 	_ = json.Unmarshal(body, &doc)
 	if status != http.StatusOK || len(doc.Messages) != 4 || len(doc.Runs) != 1 {
 		t.Fatalf("get = %d messages=%d runs=%d", status, len(doc.Messages), len(doc.Runs))
@@ -136,7 +136,7 @@ func TestSessionLifecycleOverHTTP(t *testing.T) {
 
 	status, body = call(t, server, http.MethodPost, "/v1/sessions/"+summary.ID+"/fork", nil)
 	var fork struct {
-		session.RecordInfo
+		record.Info
 		RecordEpoch string `json:"record_epoch"`
 	}
 	_ = json.Unmarshal(body, &fork)
@@ -332,7 +332,7 @@ type failingSaveStore struct {
 	failFinal bool
 }
 
-func (s *failingSaveStore) fail(entries []session.Entry) bool {
+func (s *failingSaveStore) fail(entries []record.Entry) bool {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	s.saves++
@@ -344,14 +344,14 @@ func (s *failingSaveStore) fail(entries []session.Entry) bool {
 	return false
 }
 
-func (s *failingSaveStore) Create(ctx context.Context, id string, entries []session.Entry, summary session.Header) error {
+func (s *failingSaveStore) Create(ctx context.Context, id string, entries []record.Entry, summary record.Header) error {
 	if s.fail(entries) {
 		return errors.New("store: disk full at /var/secret/path")
 	}
 	return s.parts.Create(ctx, id, entries, summary)
 }
 
-func (s *failingSaveStore) Append(ctx context.Context, id string, after uint64, entries []session.Entry, summary session.Header) error {
+func (s *failingSaveStore) Append(ctx context.Context, id string, after uint64, entries []record.Entry, summary record.Header) error {
 	if s.fail(entries) {
 		return errors.New("store: disk full at /var/secret/path")
 	}
@@ -646,7 +646,7 @@ func TestCompactTakesMinTokensAndKeepsTheLatestRun(t *testing.T) {
 func TestCompactAnswersWithTheMergeOfTheOldestSegments(t *testing.T) {
 	ctx := context.Background()
 	runner, err := service.New(withAgents(service.Config{Store: memStore()}, []profile.AgentProfile{{
-		Name: "echo", Model: testkit.EchoModel{}, ModelName: "echo", Compact: modelctx.Compactor{CompactPolicy: modelctx.CompactPolicy{SegmentBudgetTokens: 1}},
+		Name: "echo", Model: testkit.EchoModel{}, ModelName: "echo", Compact: record.Compactor{CompactPolicy: record.CompactPolicy{SegmentBudgetTokens: 1}},
 	}}...))
 	if err != nil {
 		t.Fatal(err)

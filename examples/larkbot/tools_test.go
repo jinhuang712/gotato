@@ -12,8 +12,8 @@ import (
 
 	"github.com/jinhuang712/gotato/adapter/mcp"
 	"github.com/jinhuang712/gotato/gotato"
-	"github.com/jinhuang712/gotato/modelctx"
 	"github.com/jinhuang712/gotato/profile"
+	"github.com/jinhuang712/gotato/record"
 	"github.com/jinhuang712/gotato/service"
 	"github.com/jinhuang712/gotato/session"
 
@@ -182,7 +182,7 @@ func TestScriptCompactionUnloadsAndSegmentIsReadOnAnotherInstance(t *testing.T) 
 	t.Cleanup(srv.Close)
 	ctx := context.Background()
 	store := session.NewMemoryStore()
-	recap := func(a *profile.AgentProfile) { a.Compact.Recap = modelctx.TruncateRecap{} }
+	recap := func(a *profile.AgentProfile) { a.Compact.Recap = record.TruncateRecap{} }
 	a := scriptedRunner(t, store, "pod-a", "mcp-search", srv.URL+"/mcp", recap)
 	b := scriptedRunner(t, store, "pod-b", "mcp-search", srv.URL+"/mcp", recap)
 	if _, err := a.CreateSession(ctx, service.CreateSessionRequest{Agent: "echo", ID: "s1"}); err != nil {
@@ -194,7 +194,7 @@ func TestScriptCompactionUnloadsAndSegmentIsReadOnAnotherInstance(t *testing.T) 
 	if got := lastReply(t, b, "s1", "T[b] [script:loaded]"); got != "loaded: true" {
 		t.Fatalf("before the compaction: %q", got)
 	}
-	res, err := b.Compact(ctx, "s1", modelctx.CompactConfig{})
+	res, err := b.Compact(ctx, "s1", record.CompactConfig{})
 	if err != nil || !res.Replaced {
 		t.Fatalf("compact = %+v, %v", res, err)
 	}

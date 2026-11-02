@@ -7,7 +7,7 @@
 // AgentProfile by name, builds a live gotato.Session from it exactly as an
 // application would (WithTranscript,
 // WithContextBuilder, WithToolSource, WithFeed,
-// modelctx.AutoCompact), runs it, closes it, and saves the Record.
+// record.AutoCompact), runs it, closes it, and saves the Record.
 // Continuity lives in the Store, so any process holding the Store can serve
 // any Session.
 //
@@ -38,6 +38,8 @@ import (
 	"fmt"
 	"strings"
 	"time"
+
+	"github.com/jinhuang712/gotato/record"
 
 	"github.com/jinhuang712/gotato/gotato"
 	"github.com/jinhuang712/gotato/profile"
@@ -372,12 +374,12 @@ func (r *Runner) Instance() string { return r.id() }
 // Record reads a Session's whole Record from the store, as a Document: its
 // facts, Runs, usage and Events. It is a copy and changes nothing: a Set on what
 // it returns would be stored nowhere, so it has none.
-func (r *Runner) Record(ctx context.Context, sessionID string) (session.Document, error) {
-	record, err := session.View(ctx, r.store.Records, sessionID)
+func (r *Runner) Record(ctx context.Context, sessionID string) (record.Document, error) {
+	rec, err := session.View(ctx, r.store.Records, sessionID)
 	if err != nil {
-		return session.Document{}, storeFailureOf(ctx, err, true)
+		return record.Document{}, storeFailureOf(ctx, err, true)
 	}
-	return record.Snapshot(), nil
+	return rec.Snapshot(), nil
 }
 
 // Events reads a Session's stored Events from the store: every Entry of its

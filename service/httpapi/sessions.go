@@ -6,7 +6,7 @@ import (
 	"strconv"
 
 	"github.com/jinhuang712/gotato/gotato"
-	"github.com/jinhuang712/gotato/modelctx"
+	"github.com/jinhuang712/gotato/record"
 	"github.com/jinhuang712/gotato/service"
 	"github.com/jinhuang712/gotato/session"
 )
@@ -49,15 +49,15 @@ func (h *Handler) createSession(w http.ResponseWriter, r *http.Request) {
 // sessionSummary is the answer to a create or a fork: the Session's listing
 // columns and its Record epoch, which a client keeps to resume a stream.
 type sessionSummary struct {
-	session.RecordInfo
+	record.Info
 	RecordEpoch string `json:"record_epoch"`
 }
 
 // summaryOf adds the Record's epoch to a Session's listing columns. The create
 // calls return the columns alone, so the epoch is read from the Record just made;
 // a read that fails leaves it empty, and the client reads it with the Session.
-func (h *Handler) summaryOf(ctx context.Context, info session.RecordInfo) sessionSummary {
-	summary := sessionSummary{RecordInfo: info}
+func (h *Handler) summaryOf(ctx context.Context, info record.Info) sessionSummary {
+	summary := sessionSummary{Info: info}
 	if doc, err := h.runner.Record(ctx, info.ID); err == nil {
 		summary.RecordEpoch = doc.RecordEpoch
 	}
@@ -84,7 +84,7 @@ func (h *Handler) listSessions(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	if page.Infos == nil {
-		page.Infos = []session.RecordInfo{}
+		page.Infos = []record.Info{}
 	}
 	writeJSON(w, http.StatusOK, page)
 }
@@ -158,7 +158,7 @@ func (h *Handler) compact(w http.ResponseWriter, r *http.Request) {
 		writeFailure(w, gotato.ErrorOf(gotato.CodeInvalidArgument, "keep_messages and min_tokens cannot be negative"))
 		return
 	}
-	result, err := h.runner.Compact(r.Context(), r.PathValue("id"), modelctx.CompactConfig{KeepMessages: in.KeepMessages, MinTokens: in.MinTokens})
+	result, err := h.runner.Compact(r.Context(), r.PathValue("id"), record.CompactConfig{KeepMessages: in.KeepMessages, MinTokens: in.MinTokens})
 	if err != nil {
 		writeFailure(w, err)
 		return

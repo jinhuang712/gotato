@@ -28,8 +28,8 @@ import (
 
 	"github.com/jinhuang712/gotato/gotato"
 	"github.com/jinhuang712/gotato/internal/reftasks"
-	"github.com/jinhuang712/gotato/modelctx"
 	"github.com/jinhuang712/gotato/profile"
+	"github.com/jinhuang712/gotato/record"
 	"github.com/jinhuang712/gotato/service"
 	"github.com/jinhuang712/gotato/session"
 )
@@ -114,7 +114,7 @@ func runTask(ctx context.Context, cfg Config, task reftasks.Task) (TaskReport, e
 		Limits:      task.Limits,
 	}
 	if task.Recap {
-		spec.Compact.Recap = modelctx.ModelRecap{}
+		spec.Compact.Recap = record.ModelRecap{}
 	}
 	runner, err := service.New(withAgents(service.Config{Store: cfg.Store}, []profile.AgentProfile{spec}...))
 	if err != nil {
@@ -196,7 +196,7 @@ type play struct {
 	builds      []build
 	failures    []failure
 	stats       *stats
-	final       *session.Record
+	final       *record.Record
 	sessionID   string
 }
 
@@ -367,7 +367,7 @@ type toolCall struct {
 // checkContext inspects, for every Turn, the Transcript that Turn was built
 // from (the Session's first Messages, since a reference task never compacts)
 // and compares its prefix hash with the Turn's context_built Event (G-G03).
-func checkContext(ctx context.Context, inspector *service.Runner, store session.Store, final *session.Record, builds []build, report *TaskReport) {
+func checkContext(ctx context.Context, inspector *service.Runner, store session.Store, final *record.Record, builds []build, report *TaskReport) {
 	messages := final.Messages()
 	mismatch := func(detail string) {
 		report.ContextMismatches++
@@ -381,7 +381,7 @@ func checkContext(ctx context.Context, inspector *service.Runner, store session.
 			mismatch(fmt.Sprintf("a Turn was built from %d messages, but the Session holds %d", b.messages, len(messages)))
 			continue
 		}
-		s := session.New(session.WithMetadata(final.Metadata()), session.WithMessages(messages[:b.messages]...), reftasks.WithLoadedToolsOf(messages[:b.messages]))
+		s := record.New(record.WithMetadata(final.Metadata()), record.WithMessages(messages[:b.messages]...), reftasks.WithLoadedToolsOf(messages[:b.messages]))
 		if _, err := session.CreateWriter(ctx, store.Records, s, inspector.Instance()); err != nil {
 			mismatch("saving the Transcript to inspect: " + err.Error())
 			continue

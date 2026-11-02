@@ -9,7 +9,7 @@ import (
 	"time"
 
 	"github.com/jinhuang712/gotato/gotato"
-	"github.com/jinhuang712/gotato/session"
+	"github.com/jinhuang712/gotato/record"
 )
 
 // checkEmptyEpoch holds a store to the first rule of its epoch: Create and
@@ -20,18 +20,18 @@ func checkEmptyEpoch(ctx context.Context, open Open) error {
 	store := open()
 	none := header("r1", 1, "")
 	none.Epoch = ""
-	if err := store.Create(ctx, "r1", []session.Entry{checkpoint(1, "a")}, none); !gotato.IsCode(err, gotato.CodeInvalidArgument) {
+	if err := store.Create(ctx, "r1", []record.Entry{checkpoint(1, "a")}, none); !gotato.IsCode(err, gotato.CodeInvalidArgument) {
 		return failf("Create with an empty Epoch returned %v, want invalid_argument: Header.Epoch is required", err)
 	}
-	if _, err := store.Load(ctx, "r1"); !errors.Is(err, session.ErrNotFound) {
+	if _, err := store.Load(ctx, "r1"); !errors.Is(err, record.ErrNotFound) {
 		return failf("Load after a refused Create returned %v, want ErrNotFound: %s", err, ruleAtomic)
 	}
-	if err := store.Create(ctx, "r1", []session.Entry{checkpoint(1, "a")}, header("r1", 1, "")); err != nil {
+	if err := store.Create(ctx, "r1", []record.Entry{checkpoint(1, "a")}, header("r1", 1, "")); err != nil {
 		return fmt.Errorf("create: %w", err)
 	}
 	none = header("r1", 2, "")
 	none.Epoch = ""
-	if err := store.Append(ctx, "r1", 1, []session.Entry{fact(2, "a")}, none); !gotato.IsCode(err, gotato.CodeInvalidArgument) {
+	if err := store.Append(ctx, "r1", 1, []record.Entry{fact(2, "a")}, none); !gotato.IsCode(err, gotato.CodeInvalidArgument) {
 		return failf("Append with an empty Epoch returned %v, want invalid_argument: Header.Epoch is required", err)
 	}
 	log, err := store.Log(ctx, "r1", 0, 0)
@@ -48,17 +48,17 @@ func checkEmptyEpoch(ctx context.Context, open Open) error {
 func checkFieldsKept(ctx context.Context, open Open) error {
 	store := open()
 	data := []byte(`{"filled":true}`)
-	entries := []session.Entry{filledEntry(1, gotato.EventKindSessionCreated, data), filledEntry(2, gotato.EventKindMessageCommitted, data)}
+	entries := []record.Entry{filledEntry(1, gotato.EventKindSessionCreated, data), filledEntry(2, gotato.EventKindMessageCommitted, data)}
 	for i := range entries {
 		entry := &entries[i]
 		seq, kind := entry.Seq, entry.Kind
 		if err := fillAll(reflect.ValueOf(entry).Elem(), "Entry", map[string]bool{"Seq": true, "Kind": true, "Layer": true, "Data": true}); err != nil {
 			return err
 		}
-		entry.Seq, entry.Kind, entry.Layer, entry.Data = seq, kind, session.LayerFact, data
+		entry.Seq, entry.Kind, entry.Layer, entry.Data = seq, kind, record.LayerFact, data
 	}
-	filledHeader := func(state string) (session.Header, error) {
-		h := session.Header{}
+	filledHeader := func(state string) (record.Header, error) {
+		h := record.Header{}
 		if err := fillAll(reflect.ValueOf(&h).Elem(), "Header", map[string]bool{"State": true}); err != nil {
 			return h, err
 		}
@@ -116,8 +116,8 @@ func checkFieldsKept(ctx context.Context, open Open) error {
 }
 
 // filledEntry is an Entry at seq of kind, a fact.
-func filledEntry(seq uint64, kind gotato.EventKind, data []byte) session.Entry {
-	return session.Entry{Seq: seq, Kind: kind, Layer: session.LayerFact, Data: data}
+func filledEntry(seq uint64, kind gotato.EventKind, data []byte) record.Entry {
+	return record.Entry{Seq: seq, Kind: kind, Layer: record.LayerFact, Data: data}
 }
 
 // fillAll sets every exported field of v, except the ones in keep, to a

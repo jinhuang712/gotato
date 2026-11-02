@@ -4,6 +4,8 @@ import (
 	"bytes"
 	"context"
 	"sync"
+
+	"github.com/jinhuang712/gotato/record"
 )
 
 // MemoryDefinitions is a Definitions store that keeps its documents in
@@ -39,7 +41,7 @@ func (m *MemoryDefinitions) LoadDefinition(_ context.Context, kind, name string)
 	defer m.mu.Unlock()
 	doc, ok := m.docs[[2]string{kind, name}]
 	if !ok {
-		return nil, ErrNotFound
+		return nil, record.ErrNotFound
 	}
 	return bytes.Clone(doc), nil
 }

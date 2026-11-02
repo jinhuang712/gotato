@@ -10,8 +10,8 @@ import (
 	"time"
 
 	"github.com/jinhuang712/gotato/gotato"
-	"github.com/jinhuang712/gotato/modelctx"
 	"github.com/jinhuang712/gotato/profile"
+	"github.com/jinhuang712/gotato/record"
 	"github.com/jinhuang712/gotato/service"
 	"github.com/jinhuang712/gotato/session"
 	"github.com/jinhuang712/gotato/testkit"
@@ -313,7 +313,7 @@ func TestDrainMustWaitForACompactionInFlight(t *testing.T) {
 	}
 	compacted := make(chan error, 1)
 	go func() {
-		_, err := runner.Compact(ctx, s.ID, modelctx.CompactConfig{KeepMessages: 1})
+		_, err := runner.Compact(ctx, s.ID, record.CompactConfig{KeepMessages: 1})
 		compacted <- err
 	}()
 	waitChan(t, "the compaction's write", hold.entered)
@@ -424,7 +424,7 @@ func TestCompactRefusesWhileDraining(t *testing.T) {
 	if err := a.Drain(ctx); err != nil {
 		t.Fatal(err)
 	}
-	_, err = a.Compact(ctx, s.ID, modelctx.CompactConfig{})
+	_, err = a.Compact(ctx, s.ID, record.CompactConfig{})
 	if !errors.Is(err, service.ErrDraining) || !gotato.NotRun(err) {
 		t.Fatalf("Compact while draining = %v, want ErrDraining, not run", err)
 	}

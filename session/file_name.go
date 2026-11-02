@@ -9,6 +9,8 @@ import (
 	"path/filepath"
 	"strconv"
 	"strings"
+
+	"github.com/jinhuang712/gotato/record"
 )
 
 // maxNameBytes is the longest file name, in bytes, the FileStore gives an ID
@@ -92,7 +94,7 @@ func (f *FileStore) epochDir(id, epoch string) string {
 func (f *FileStore) currentDir(id string) (string, error) {
 	names, err := os.ReadDir(f.recordDir(id))
 	if errors.Is(err, os.ErrNotExist) {
-		return "", ErrNotFound
+		return "", record.ErrNotFound
 	}
 	if err != nil {
 		return "", err
@@ -110,7 +112,7 @@ func (f *FileStore) currentDir(id string) (string, error) {
 		}
 	}
 	if current == "" {
-		return "", ErrNotFound
+		return "", record.ErrNotFound
 	}
 	return current, nil
 }

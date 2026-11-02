@@ -11,21 +11,22 @@ import (
 	"testing"
 	"time"
 
+	"github.com/jinhuang712/gotato/record"
+
 	"github.com/jinhuang712/gotato/gotato"
 	"github.com/jinhuang712/gotato/service"
 	"github.com/jinhuang712/gotato/service/httpapi"
-	"github.com/jinhuang712/gotato/session"
 	"github.com/jinhuang712/gotato/testkit"
 )
 
 func transcript(t *testing.T, in *instance, id string) string {
 	t.Helper()
-	record, err := in.runner.Record(context.Background(), id)
+	rec, err := in.runner.Record(context.Background(), id)
 	if err != nil {
 		t.Fatal(err)
 	}
 	var parts []string
-	for _, m := range record.Messages {
+	for _, m := range rec.Messages {
 		parts = append(parts, string(m.Role)+":"+gotato.TextOf(m))
 	}
 	return strings.Join(parts, "|")
@@ -241,7 +242,7 @@ type releaseGate struct {
 	once    sync.Once
 }
 
-func (g *releaseGate) Append(ctx context.Context, id string, after uint64, entries []session.Entry, summary session.Header) error {
+func (g *releaseGate) Append(ctx context.Context, id string, after uint64, entries []record.Entry, summary record.Header) error {
 	for _, entry := range entries {
 		if entry.Kind == "session_released" {
 			g.once.Do(func() {

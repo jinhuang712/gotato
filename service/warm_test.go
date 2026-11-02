@@ -10,8 +10,8 @@ import (
 	"time"
 
 	"github.com/jinhuang712/gotato/gotato"
-	"github.com/jinhuang712/gotato/modelctx"
 	"github.com/jinhuang712/gotato/profile"
+	"github.com/jinhuang712/gotato/record"
 	"github.com/jinhuang712/gotato/service"
 	"github.com/jinhuang712/gotato/session"
 	"github.com/jinhuang712/gotato/testkit"
@@ -320,12 +320,12 @@ func TestIdleWarmSessionIsCompactedBeforeItLeaves(t *testing.T) {
 				if count(kinds, gotato.EventKindCompactionEnded) != 1 || count(kinds, gotato.EventKindSegmentClosed) != 1 {
 					t.Fatalf("after its idle lead the Session wrote %v, want one compaction with a Segment", kinds)
 				}
-				record, err := runner.Record(context.Background(), first.SessionID)
+				rec, err := runner.Record(context.Background(), first.SessionID)
 				if err != nil {
 					t.Fatal(err)
 				}
 				var whys []gotato.CompactionWhy
-				for _, event := range record.Events {
+				for _, event := range rec.Events {
 					if started, ok := event.(gotato.CompactionStarted); ok {
 						whys = append(whys, started.Why)
 					}
@@ -420,7 +420,7 @@ func TestRunDuringAnIdleCompactionCancelsIt(t *testing.T) {
 		Store: asStore(store), Instance: "a",
 		Profiles: registry(t, profile.AgentProfile{
 			Name: "echo", Model: model,
-			Compact: modelctx.Compactor{Recap: modelctx.ModelRecap{}},
+			Compact: record.Compactor{Recap: record.ModelRecap{}},
 		}), DefaultAgent: "echo", Warm: service.WarmPolicy{IdleMinTokens: -1},
 	}, clock))
 	if err != nil {
@@ -520,7 +520,7 @@ func TestCompactUsesTheWarmCopy(t *testing.T) {
 	runner := warmInstance(t, asStore(store), "a", newFakeClock(), testkit.EchoModel{}, service.WarmPolicy{})
 	first := runOn(t, runner, "", "one")
 	runOn(t, runner, first.SessionID, "two")
-	result, err := runner.Compact(ctx, first.SessionID, modelctx.CompactConfig{})
+	result, err := runner.Compact(ctx, first.SessionID, record.CompactConfig{})
 	if err != nil || !result.Replaced {
 		t.Fatalf("Compact = %+v, %v", result, err)
 	}
@@ -608,7 +608,7 @@ func (s *cancelOnLog) arm(cancel context.CancelFunc) {
 	s.mu.Unlock()
 }
 
-func (s *cancelOnLog) Log(ctx context.Context, id string, after uint64, limit int) ([]session.Entry, error) {
+func (s *cancelOnLog) Log(ctx context.Context, id string, after uint64, limit int) ([]record.Entry, error) {
 	s.mu.Lock()
 	cancel := s.cancel
 	s.cancel = nil

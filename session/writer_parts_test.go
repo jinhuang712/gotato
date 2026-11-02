@@ -6,6 +6,8 @@ import (
 	"testing"
 	"time"
 
+	"github.com/jinhuang712/gotato/record"
+
 	"github.com/jinhuang712/gotato/gotato"
 	"github.com/jinhuang712/gotato/session"
 	"github.com/jinhuang712/gotato/testkit"
@@ -57,11 +59,11 @@ func cutOffTexts(messages []gotato.Message) []string {
 func TestTakeoverRebuildsTheCutOffReplyFromItsParts(t *testing.T) {
 	ctx := context.Background()
 	store := session.NewMemoryStore()
-	record := session.New()
-	if _, err := session.CreateWriter(ctx, store, record, "a", session.WithIdle()); err != nil {
+	rec := record.New()
+	if _, err := session.CreateWriter(ctx, store, rec, "a", session.WithIdle()); err != nil {
 		t.Fatal(err)
 	}
-	writer, err := session.OpenWriter(ctx, store, record.ID(), "a")
+	writer, err := session.OpenWriter(ctx, store, rec.ID(), "a")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -77,11 +79,11 @@ func TestTakeoverRebuildsTheCutOffReplyFromItsParts(t *testing.T) {
 		_, _ = live.Prompt(runCtx, gotato.UserMessage("hi"))
 	}()
 	<-sent
-	waitStored(t, store, record.ID(), gotato.EventKindReplyPartKept, 1)
+	waitStored(t, store, rec.ID(), gotato.EventKindReplyPartKept, 1)
 
 	// While the Run is in flight the Header asks a load for the log from the
 	// last Checkpoint (session_created, at 1), and the Run is in the State.
-	inFlight, err := store.Load(ctx, record.ID())
+	inFlight, err := store.Load(ctx, rec.ID())
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -92,7 +94,7 @@ func TestTakeoverRebuildsTheCutOffReplyFromItsParts(t *testing.T) {
 	// The Instance that held the Session stopped: another one takes it over,
 	// with one Load and no Log: the Load holds the parts.
 	counting := &countingRecords{Records: store}
-	opened, err := session.OpenWriter(ctx, counting, record.ID(), "b")
+	opened, err := session.OpenWriter(ctx, counting, rec.ID(), "b")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -109,9 +111,9 @@ func TestTakeoverRebuildsTheCutOffReplyFromItsParts(t *testing.T) {
 	if err := opened.Release(ctx); err != nil {
 		t.Fatal(err)
 	}
-	for name, load := range map[string]func() (*session.Record, error){
-		"Open": func() (*session.Record, error) { return session.Open(ctx, store, record.ID()) },
-		"View": func() (*session.Record, error) { return session.View(ctx, store, record.ID()) },
+	for name, load := range map[string]func() (*record.Record, error){
+		"Open": func() (*record.Record, error) { return session.Open(ctx, store, rec.ID()) },
+		"View": func() (*record.Record, error) { return session.View(ctx, store, rec.ID()) },
 	} {
 		loaded, err := load()
 		if err != nil {
@@ -121,7 +123,7 @@ func TestTakeoverRebuildsTheCutOffReplyFromItsParts(t *testing.T) {
 			t.Fatalf("%s holds %d Cut-off replies, want one of %d bytes", name, len(got), len(want))
 		}
 	}
-	events, err := session.StoredEvents(ctx, store, record.ID(), 0, 0)
+	events, err := session.StoredEvents(ctx, store, rec.ID(), 0, 0)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -140,9 +142,9 @@ func TestTakeoverRebuildsTheCutOffReplyFromItsParts(t *testing.T) {
 // crash loses little, and nothing is stored.
 func TestUnstoredRecordKeepsNoReplyParts(t *testing.T) {
 	ctx := context.Background()
-	record := session.New()
+	rec := record.New()
 	sent := make(chan struct{})
-	live, err := gotato.NewSession(context.Background(), gotato.WithModel(stallModel{sent: sent}), gotato.WithTranscript(record))
+	live, err := gotato.NewSession(context.Background(), gotato.WithModel(stallModel{sent: sent}), gotato.WithTranscript(rec))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -156,7 +158,7 @@ func TestUnstoredRecordKeepsNoReplyParts(t *testing.T) {
 	<-sent
 	cancel()
 	<-done
-	for _, event := range record.Events() {
+	for _, event := range rec.Events() {
 		if event.Kind() == gotato.EventKindReplyPartKept {
 			t.Fatalf("an unstored Record holds %s", event.Kind())
 		}
@@ -200,7 +202,7 @@ func waitStored(t *testing.T, store session.Records, id string, kind gotato.Even
 func TestViewRebuildsACutOffReplyFromItsParts(t *testing.T) {
 	ctx := context.Background()
 	store := session.NewMemoryStore()
-	writer, err := session.CreateWriter(ctx, store, session.New(), "instance-a")
+	writer, err := session.CreateWriter(ctx, store, record.New(), "instance-a")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -251,11 +253,11 @@ func (m blockModel) Config() gotato.ModelConfig { return gotato.ModelConfig{} }
 func TestRefusedReplyPartsDoNotReappearAfterACrash(t *testing.T) {
 	ctx := context.Background()
 	store := session.NewMemoryStore()
-	record := session.New()
-	if _, err := session.CreateWriter(ctx, store, record, "a", session.WithIdle()); err != nil {
+	rec := record.New()
+	if _, err := session.CreateWriter(ctx, store, rec, "a", session.WithIdle()); err != nil {
 		t.Fatal(err)
 	}
-	writer, err := session.OpenWriter(ctx, store, record.ID(), "a")
+	writer, err := session.OpenWriter(ctx, store, rec.ID(), "a")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -274,11 +276,11 @@ func TestRefusedReplyPartsDoNotReappearAfterACrash(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	second, err := session.OpenWriter(ctx, store, record.ID(), "a")
+	second, err := session.OpenWriter(ctx, store, rec.ID(), "a")
 	if err != nil {
 		t.Fatal(err)
 	}
-	turnsBefore := countStored(t, store, record.ID(), gotato.EventKindTurnStarted)
+	turnsBefore := countStored(t, store, rec.ID(), gotato.EventKindTurnStarted)
 	started := make(chan struct{})
 	live, err := gotato.NewSession(context.Background(), gotato.WithModel(blockModel{started}), gotato.WithTranscript(second))
 	if err != nil {
@@ -291,9 +293,9 @@ func TestRefusedReplyPartsDoNotReappearAfterACrash(t *testing.T) {
 		_, _ = live.Prompt(runCtx, gotato.UserMessage("p2"))
 	}()
 	<-started
-	waitStored(t, store, record.ID(), gotato.EventKindTurnStarted, turnsBefore+1)
+	waitStored(t, store, rec.ID(), gotato.EventKindTurnStarted, turnsBefore+1)
 
-	taken, err := session.OpenWriter(ctx, store, record.ID(), "b") // the crash: B takes over
+	taken, err := session.OpenWriter(ctx, store, rec.ID(), "b") // the crash: B takes over
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -308,11 +310,11 @@ func TestRefusedReplyPartsDoNotReappearAfterACrash(t *testing.T) {
 			t.Fatalf("%s brought back %d refused replies: %v", name, len(got), messages)
 		}
 	}
-	open, err := session.Open(ctx, store, record.ID())
+	open, err := session.Open(ctx, store, rec.ID())
 	if err != nil {
 		t.Fatal(err)
 	}
-	view, err := session.View(ctx, store, record.ID())
+	view, err := session.View(ctx, store, rec.ID())
 	if err != nil {
 		t.Fatal(err)
 	}

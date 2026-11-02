@@ -310,7 +310,7 @@ func WithToolFilter(keep func(toolID string) bool) SessionOption {
 }
 
 // WithTranscript makes the Session commit to an external Transcript, such as
-// the session.Record it is loaded from, instead of a private in-memory one.
+// the record.Record it is loaded from, instead of a private in-memory one.
 //
 // A Transcript declares what it can do in Capabilities (the ID the Session
 // takes, a Journal that stores and numbers Events, whether they are durable,

@@ -10,14 +10,16 @@ import (
 	"strconv"
 	"strings"
 
+	"github.com/jinhuang712/gotato/record"
+
 	"github.com/jinhuang712/gotato/gotato"
 )
 
 // fileBatch is one file of a Record: the Entries of one write, and the Header
 // after it.
 type fileBatch struct {
-	Entries []Entry `json:"entries"`
-	Header  Header  `json:"header"`
+	Entries []record.Entry `json:"entries"`
+	Header  record.Header  `json:"header"`
 }
 
 const batchNameDigits = 20
@@ -30,7 +32,7 @@ func batchName(first uint64) string {
 func batchFirsts(dir string) ([]uint64, error) {
 	names, err := os.ReadDir(dir)
 	if errors.Is(err, os.ErrNotExist) {
-		return nil, ErrNotFound
+		return nil, record.ErrNotFound
 	}
 	if err != nil {
 		return nil, err
@@ -67,18 +69,18 @@ func readBatch(path string) (fileBatch, error) {
 // readBatchInfo reads only the Header's RecordInfo of a batch file. The Entries are
 // scanned for syntax but not decoded, so a listing does not build a large
 // batch's Entries to drop them.
-func readBatchInfo(path string) (RecordInfo, error) {
+func readBatchInfo(path string) (record.Info, error) {
 	data, err := os.ReadFile(path)
 	if err != nil {
-		return RecordInfo{}, err
+		return record.Info{}, err
 	}
 	var batch struct {
 		Header struct {
-			Info RecordInfo `json:"info"`
+			Info record.Info `json:"info"`
 		} `json:"header"`
 	}
 	if err := json.Unmarshal(data, &batch); err != nil {
-		return RecordInfo{}, fmt.Errorf("session: %s: %w", filepath.Base(path), err)
+		return record.Info{}, fmt.Errorf("session: %s: %w", filepath.Base(path), err)
 	}
 	return batch.Header.Info, nil
 }
@@ -97,7 +99,7 @@ func (f *FileStore) writeBatch(dir string, batch fileBatch) error {
 	tmp, err := os.CreateTemp(dir, ".tmp-*")
 	if err != nil {
 		if errors.Is(err, os.ErrNotExist) {
-			return ErrNotFound
+			return record.ErrNotFound
 		}
 		return err
 	}
@@ -119,7 +121,7 @@ func (f *FileStore) writeBatch(dir string, batch fileBatch) error {
 		case errors.Is(err, os.ErrExist):
 			return ErrConflict
 		case errors.Is(err, os.ErrNotExist):
-			return ErrNotFound
+			return record.ErrNotFound
 		}
 		return err
 	}
@@ -159,7 +161,7 @@ func (f *FileStore) batchList(id string) (string, []uint64, error) {
 		return "", nil, err
 	}
 	if len(firsts) == 0 {
-		return "", nil, ErrNotFound
+		return "", nil, record.ErrNotFound
 	}
 	return dir, firsts, nil
 }
@@ -170,7 +172,7 @@ type segmentBatch struct {
 	Entries []segmentPick `json:"entries"`
 }
 
-type segmentPick struct{ entry *Entry }
+type segmentPick struct{ entry *record.Entry }
 
 func (p *segmentPick) UnmarshalJSON(data []byte) error {
 	var head struct {
@@ -179,18 +181,18 @@ func (p *segmentPick) UnmarshalJSON(data []byte) error {
 	if err := json.Unmarshal(data, &head); err != nil || head.Kind != gotato.EventKindSegmentClosed {
 		return err
 	}
-	p.entry = new(Entry)
+	p.entry = new(record.Entry)
 	return json.Unmarshal(data, p.entry)
 }
 
 // readSegments returns the segment_closed Entries of the writes that begin at
 // firsts.
-func readSegments(dir string, firsts []uint64) ([]Entry, error) {
-	var out []Entry
+func readSegments(dir string, firsts []uint64) ([]record.Entry, error) {
+	var out []record.Entry
 	for _, first := range firsts {
 		data, err := os.ReadFile(filepath.Join(dir, batchName(first)))
 		if errors.Is(err, os.ErrNotExist) {
-			return nil, ErrNotFound
+			return nil, record.ErrNotFound
 		}
 		if err != nil {
 			return nil, err

@@ -10,6 +10,8 @@ import (
 	"testing"
 	"time"
 
+	"github.com/jinhuang712/gotato/record"
+
 	"github.com/jinhuang712/gotato/gotato"
 	"github.com/jinhuang712/gotato/internal/reftasks"
 	"github.com/jinhuang712/gotato/profile"
@@ -151,11 +153,11 @@ func plantRecord(t *testing.T, store session.Store, agent, cacheKey string, mess
 	if cacheKey != "" {
 		metadata[service.ReservedPrefix+"cache_key"] = cacheKey
 	}
-	record := session.New(session.WithMetadata(metadata), session.WithMessages(messages...), reftasks.WithLoadedToolsOf(messages))
-	if _, err := session.CreateWriter(context.Background(), store.Records, record, "planter", session.WithIdle()); err != nil {
+	rec := record.New(record.WithMetadata(metadata), record.WithMessages(messages...), reftasks.WithLoadedToolsOf(messages))
+	if _, err := session.CreateWriter(context.Background(), store.Records, rec, "planter", session.WithIdle()); err != nil {
 		t.Fatal(err)
 	}
-	return record.ID()
+	return rec.ID()
 }
 
 // withAgents registers agents as the Config's AgentProfiles, the first the

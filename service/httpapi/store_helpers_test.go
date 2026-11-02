@@ -6,19 +6,21 @@ import (
 	"errors"
 	"testing"
 
+	"github.com/jinhuang712/gotato/record"
+
 	"github.com/jinhuang712/gotato/gotato"
 	"github.com/jinhuang712/gotato/session"
 )
 
 // claimOf is the Claim that the facts of a stored Session last name, read
 // through the store: the Runner's Record answers a Document, which has none.
-func claimOf(t *testing.T, store session.Store, id string) session.Claim {
+func claimOf(t *testing.T, store session.Store, id string) record.Claim {
 	t.Helper()
-	record, err := session.View(context.Background(), store.Records, id)
+	rec, err := session.View(context.Background(), store.Records, id)
 	if err != nil {
 		t.Fatal(err)
 	}
-	return record.Claim()
+	return rec.Claim()
 }
 
 // storeValue is a value that is both seams of a Store.
@@ -60,7 +62,7 @@ type recordState struct {
 }
 
 // stateOf decodes the State of a Loaded Record's Header.
-func stateOf(loaded session.Loaded) recordState {
+func stateOf(loaded record.Loaded) recordState {
 	var state recordState
 	if len(loaded.Header.State) > 0 {
 		if err := json.Unmarshal(loaded.Header.State, &state); err != nil {

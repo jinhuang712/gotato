@@ -14,7 +14,7 @@ import (
 // step, after the step's Messages are committed through Append, and the
 // goroutine of a Steer, a Notice or an Abort for an Event of its own. When a
 // step's write fails, the Run fails
-// with its error, and the Events of the step are not sent. session.Record and
+// with its error, and the Events of the step are not sent. record.Record and
 // session.Writer implement it; a Session whose Transcript declares no Journal
 // numbers its Events in memory.
 //
@@ -22,7 +22,7 @@ import (
 // Events and sends them in one order, so it must not call back into the
 // Session (Subscribe, Prompt, Abort or any other method). A panic in it fails
 // the Run.
-// [SEAM] a store other than session.Record plugs in here; no Gotato package implements it besides session.
+// [SEAM] a store other than record.Record plugs in here; no Gotato package implements it besides session.
 type Journal interface {
 	// Write keeps events as the next Entries, in order, and returns every
 	// Event it wrote with its Number: the Events it was given, and any that

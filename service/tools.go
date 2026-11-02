@@ -8,8 +8,8 @@ import (
 	"strings"
 
 	"github.com/jinhuang712/gotato/gotato"
-	"github.com/jinhuang712/gotato/modelctx"
 	"github.com/jinhuang712/gotato/profile"
+	"github.com/jinhuang712/gotato/record"
 	"github.com/jinhuang712/gotato/session"
 )
 
@@ -21,20 +21,20 @@ import (
 // kept in place of the other.
 type sessionTools struct {
 	spec    profile.AgentProfile
-	session *session.Record
+	session *record.Record
 }
 
 // readBack is the gotato.ReadBack of a live Session of the AgentProfile spec:
-// the profile's own when it sets one, else the default modelctx.ReadBack over
+// the profile's own when it sets one, else the default record.ReadBack over
 // the Runner's store, so the Messages a Segment closed and the body of a
 // spilled result are read back from the Record or from the store, in the zone
 // of the Segments' times.
-func (r *Runner) readBack(spec profile.AgentProfile, record *session.Record) gotato.ReadBack {
+func (r *Runner) readBack(spec profile.AgentProfile, rec *record.Record) gotato.ReadBack {
 	if spec.ReadBack != nil {
 		return spec.ReadBack
 	}
 	return agentReadBack{
-		ReadBack: modelctx.ReadBack{Originals: modelctx.RecordOriginals(record, r.store.Records), Location: spec.Compact.Location},
+		ReadBack: record.ReadBack{Originals: record.OriginalsOf(rec, r.store.Records), Location: spec.Compact.Location},
 		hasTools: len(spec.Tools) > 0 || len(spec.ToolSources) > 0 || len(spec.ToolSets) > 0,
 	}
 }
@@ -45,7 +45,7 @@ func (r *Runner) readBack(spec profile.AgentProfile, record *session.Record) got
 // also offers it whenever read_segment is: a Segment's refs to its messages
 // and results are read with it.
 type agentReadBack struct {
-	modelctx.ReadBack
+	record.ReadBack
 	hasTools bool
 }
 
@@ -127,7 +127,7 @@ func (t *sessionTools) active(id string) bool {
 // sessionID may be empty for the Agent's default surface. A Tool above the
 // Agent's MaxEffect is not listed.
 func (r *Runner) Tools(ctx context.Context, agent, sessionID string) ([]ToolEntry, error) {
-	var s *session.Record
+	var s *record.Record
 	if sessionID != "" {
 		var err error
 		s, err = session.Open(ctx, r.store.Records, sessionID)
@@ -302,7 +302,7 @@ func toolSetsTimeout(cause error) error {
 // a live Session resolves. It reports the tool's spec (nil when no ToolSet
 // holds it), its ToolSet and whether it is loaded. A name inside an
 // unavailable ToolSet is an error that says so.
-func (r *Runner) findSetTool(ctx context.Context, spec profile.AgentProfile, s *session.Record, toolID string) (*gotato.ToolSpec, string, bool, error) {
+func (r *Runner) findSetTool(ctx context.Context, spec profile.AgentProfile, s *record.Record, toolID string) (*gotato.ToolSpec, string, bool, error) {
 	toolCtx, cancel := r.toolSetContext(ctx)
 	defer cancel()
 	live, _, err := r.buildSession(toolCtx, spec, s, nil, InspectConfig{})

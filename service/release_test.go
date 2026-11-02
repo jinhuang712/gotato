@@ -7,8 +7,8 @@ import (
 	"time"
 
 	"github.com/jinhuang712/gotato/profile"
+	"github.com/jinhuang712/gotato/record"
 	"github.com/jinhuang712/gotato/service"
-	"github.com/jinhuang712/gotato/session"
 	"github.com/jinhuang712/gotato/testkit"
 )
 
@@ -20,7 +20,7 @@ type loadCountStore struct {
 	hook  func()
 }
 
-func (s *loadCountStore) Load(ctx context.Context, id string) (session.Loaded, error) {
+func (s *loadCountStore) Load(ctx context.Context, id string) (record.Loaded, error) {
 	s.loads.Add(1)
 	if s.hook != nil {
 		s.hook()
@@ -102,7 +102,7 @@ type lostAckStore struct {
 	armed atomic.Bool
 }
 
-func (s *lostAckStore) Append(ctx context.Context, id string, after uint64, entries []session.Entry, summary session.Header) error {
+func (s *lostAckStore) Append(ctx context.Context, id string, after uint64, entries []record.Entry, summary record.Header) error {
 	err := s.parts.Append(ctx, id, after, entries, summary)
 	if err == nil && s.armed.Load() {
 		return errConnReset

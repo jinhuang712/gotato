@@ -10,6 +10,8 @@ import (
 	"strings"
 	"sync"
 	"time"
+
+	"github.com/jinhuang712/gotato/record"
 )
 
 // FileStore keeps each Record in a directory of its own epoch, one file per
@@ -76,7 +78,7 @@ func NewFileStore(dir string, options ...StoreOption) (*FileStore, error) {
 }
 
 // Create implements Records.
-func (f *FileStore) Create(ctx context.Context, id string, entries []Entry, h Header) error {
+func (f *FileStore) Create(ctx context.Context, id string, entries []record.Entry, h record.Header) error {
 	if err := ctx.Err(); err != nil {
 		return err
 	}
@@ -86,7 +88,7 @@ func (f *FileStore) Create(ctx context.Context, id string, entries []Entry, h He
 	if err := CheckBatch(0, entries, h); err != nil {
 		return err
 	}
-	if _, err := f.currentDir(id); !errors.Is(err, ErrNotFound) {
+	if _, err := f.currentDir(id); !errors.Is(err, record.ErrNotFound) {
 		if err == nil {
 			return ErrExists
 		}
@@ -107,7 +109,7 @@ func (f *FileStore) Create(ctx context.Context, id string, entries []Entry, h He
 // step. A rename onto a directory that holds a Record fails, so of two
 // creators of one ID only one wins, and the other's epoch never gets a
 // directory beside the winner's.
-func (f *FileStore) publishRecord(id string, entries []Entry, h Header) error {
+func (f *FileStore) publishRecord(id string, entries []record.Entry, h record.Header) error {
 	building, err := os.MkdirTemp(f.dir, ".creating-")
 	if err != nil {
 		return err
@@ -135,7 +137,7 @@ func (f *FileStore) publishRecord(id string, entries []Entry, h Header) error {
 }
 
 // Append implements Records.
-func (f *FileStore) Append(ctx context.Context, id string, after uint64, entries []Entry, h Header) error {
+func (f *FileStore) Append(ctx context.Context, id string, after uint64, entries []record.Entry, h record.Header) error {
 	if err := ctx.Err(); err != nil {
 		return err
 	}
@@ -182,12 +184,12 @@ func (f *FileStore) head(id, dir string, want uint64) (fileHead, error) {
 		return fileHead{}, err
 	}
 	if len(firsts) == 0 {
-		return fileHead{}, ErrNotFound
+		return fileHead{}, record.ErrNotFound
 	}
 	path := filepath.Join(dir, batchName(firsts[len(firsts)-1]))
 	last, err := readBatch(path)
 	if errors.Is(err, os.ErrNotExist) {
-		return fileHead{}, ErrNotFound
+		return fileHead{}, record.ErrNotFound
 	}
 	if err != nil {
 		return fileHead{}, err
@@ -207,26 +209,26 @@ func (f *FileStore) setHead(id string, head fileHead) {
 // write that holds the last Checkpoint, and from the writes before that only
 // their segment_closed Entries.
 // [LIMITATION] a cold Load reads the segment_closed Entries of every batch before the last Checkpoint's, because no index file of Segments exists yet.
-func (f *FileStore) Load(ctx context.Context, id string) (Loaded, error) {
+func (f *FileStore) Load(ctx context.Context, id string) (record.Loaded, error) {
 	if err := ctx.Err(); err != nil {
-		return Loaded{}, err
+		return record.Loaded{}, err
 	}
 	dir, firsts, err := f.batchList(id)
 	if err != nil {
-		return Loaded{}, err
+		return record.Loaded{}, err
 	}
 	var tail []fileBatch
 	start := 0
 	for i, first := range slices.Backward(firsts) {
 		batch, err := readBatch(filepath.Join(dir, batchName(first)))
 		if errors.Is(err, os.ErrNotExist) {
-			return Loaded{}, ErrNotFound
+			return record.Loaded{}, record.ErrNotFound
 		}
 		if err != nil {
-			return Loaded{}, err
+			return record.Loaded{}, err
 		}
 		tail = append(tail, batch)
-		if slices.ContainsFunc(batch.Entries, Entry.IsCheckpoint) {
+		if slices.ContainsFunc(batch.Entries, record.Entry.IsCheckpoint) {
 			start = i
 			break
 		}
@@ -234,18 +236,18 @@ func (f *FileStore) Load(ctx context.Context, id string) (Loaded, error) {
 	slices.Reverse(tail)
 	entries, err := readSegments(dir, firsts[:start])
 	if err != nil {
-		return Loaded{}, err
+		return record.Loaded{}, err
 	}
 	for _, batch := range tail {
 		entries = append(entries, batch.Entries...)
 	}
 	last := tail[len(tail)-1].Header
 	entries, segments := loadedFrom(entries, last.LogFrom)
-	return Loaded{Entries: entries, Segments: segments, Seq: lastSeq(tail), Header: last}, nil
+	return record.Loaded{Entries: entries, Segments: segments, Seq: lastSeq(tail), Header: last}, nil
 }
 
 // Log implements Records.
-func (f *FileStore) Log(ctx context.Context, id string, after uint64, limit int) ([]Entry, error) {
+func (f *FileStore) Log(ctx context.Context, id string, after uint64, limit int) ([]record.Entry, error) {
 	if err := ctx.Err(); err != nil {
 		return nil, err
 	}
@@ -253,14 +255,14 @@ func (f *FileStore) Log(ctx context.Context, id string, after uint64, limit int)
 	if err != nil {
 		return nil, err
 	}
-	var out []Entry
+	var out []record.Entry
 	for i, first := range firsts {
 		if i+1 < len(firsts) && firsts[i+1] <= after+1 {
 			continue
 		}
 		batch, err := readBatch(filepath.Join(dir, batchName(first)))
 		if errors.Is(err, os.ErrNotExist) {
-			return nil, ErrNotFound
+			return nil, record.ErrNotFound
 		}
 		if err != nil {
 			return nil, err
@@ -288,7 +290,7 @@ func (f *FileStore) List(ctx context.Context, q ListQuery) (ListPage, error) {
 	if err != nil {
 		return ListPage{}, err
 	}
-	out := make([]RecordInfo, 0, len(names))
+	out := make([]record.Info, 0, len(names))
 	var unreadable []string
 	for _, name := range names {
 		if strings.HasPrefix(name.Name(), ".") || !name.IsDir() {
@@ -299,7 +301,7 @@ func (f *FileStore) List(ctx context.Context, q ListQuery) (ListPage, error) {
 			continue
 		}
 		summary, err := f.info(id)
-		if errors.Is(err, ErrNotFound) {
+		if errors.Is(err, record.ErrNotFound) {
 			continue
 		}
 		if err != nil {
@@ -315,14 +317,14 @@ func (f *FileStore) List(ctx context.Context, q ListQuery) (ListPage, error) {
 }
 
 // info reads a Record's RecordInfo from the Header of its last write alone.
-func (f *FileStore) info(id string) (RecordInfo, error) {
+func (f *FileStore) info(id string) (record.Info, error) {
 	dir, firsts, err := f.batchList(id)
 	if err != nil {
-		return RecordInfo{}, err
+		return record.Info{}, err
 	}
 	info, err := readBatchInfo(filepath.Join(dir, batchName(firsts[len(firsts)-1])))
 	if errors.Is(err, os.ErrNotExist) {
-		return RecordInfo{}, ErrNotFound
+		return record.Info{}, record.ErrNotFound
 	}
 	return info, err
 }
@@ -340,7 +342,7 @@ func (f *FileStore) Delete(ctx context.Context, id string) error {
 	found := false
 	var removeErr, syncErr error
 	dir := f.recordDir(id)
-	tomb := filepath.Join(f.dir, ".deleted-"+nameOf(id)+"-"+NewID()[:8])
+	tomb := filepath.Join(f.dir, ".deleted-"+nameOf(id)+"-"+record.NewID()[:8])
 	if err := os.Rename(dir, tomb); err == nil {
 		found = true
 		// The rename keeps the Record's old modification time; a sweep by
@@ -363,7 +365,7 @@ func (f *FileStore) Delete(ctx context.Context, id string) error {
 	delete(f.heads, id)
 	f.mu.Unlock()
 	if !found {
-		return ErrNotFound
+		return record.ErrNotFound
 	}
 	if syncErr != nil {
 		return syncErr

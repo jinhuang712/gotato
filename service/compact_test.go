@@ -8,8 +8,8 @@ import (
 	"time"
 
 	"github.com/jinhuang712/gotato/gotato"
-	"github.com/jinhuang712/gotato/modelctx"
 	"github.com/jinhuang712/gotato/profile"
+	"github.com/jinhuang712/gotato/record"
 	"github.com/jinhuang712/gotato/service"
 	"github.com/jinhuang712/gotato/session"
 	"github.com/jinhuang712/gotato/testkit"
@@ -29,7 +29,7 @@ func (m windowedEcho) Config() gotato.ModelConfig {
 // Recap writer, its time zone, and the Model's window.
 func TestRunnerCompactTakesTheAgentsCompactionSettings(t *testing.T) {
 	zone := time.FixedZone("UTC+8", 8*3600)
-	agent := profile.AgentProfile{Name: "echo", Model: windowedEcho{window: 1 << 20}, Compact: modelctx.Compactor{CompactPolicy: modelctx.CompactPolicy{Location: zone}, Recap: modelctx.TruncateRecap{}}}
+	agent := profile.AgentProfile{Name: "echo", Model: windowedEcho{window: 1 << 20}, Compact: record.Compactor{CompactPolicy: record.CompactPolicy{Location: zone}, Recap: record.TruncateRecap{}}}
 	runner, store := newRunner(t, agent)
 	ctx := context.Background()
 	var id string
@@ -40,23 +40,23 @@ func TestRunnerCompactTakesTheAgentsCompactionSettings(t *testing.T) {
 		}
 		id = result.SessionID
 	}
-	skipped, err := runner.Compact(ctx, id, modelctx.CompactConfig{MinTokens: 1 << 20})
-	if err != nil || skipped.Replaced || skipped.Reason != modelctx.CompactReasonBelowMinTokens {
+	skipped, err := runner.Compact(ctx, id, record.CompactConfig{MinTokens: 1 << 20})
+	if err != nil || skipped.Replaced || skipped.Reason != record.CompactReasonBelowMinTokens {
 		t.Fatalf("below min_tokens = %+v, %v", skipped, err)
 	}
-	result, err := runner.Compact(ctx, id, modelctx.CompactConfig{})
+	result, err := runner.Compact(ctx, id, record.CompactConfig{})
 	if err != nil || !result.Replaced || result.Compaction.Recap != "truncate" {
 		t.Fatalf("compact = %+v, %v", result, err)
 	}
-	record, err := session.View(ctx, store.Records, id)
+	rec, err := session.View(ctx, store.Records, id)
 	if err != nil {
 		t.Fatal(err)
 	}
-	segments := record.Segments()
+	segments := rec.Segments()
 	if len(segments) != 1 || !strings.Contains(gotato.TextOf(segments[0].Messages[0]), "+08:00") {
 		t.Fatalf("Segments = %+v, want times in the Agent's zone", segments)
 	}
-	if tail := record.Tail(); len(tail) != 2 || gotato.TextOf(tail[0]) != "three" {
+	if tail := rec.Tail(); len(tail) != 2 || gotato.TextOf(tail[0]) != "three" {
 		t.Fatalf("tail = %+v, want the latest Run", tail)
 	}
 }
@@ -67,7 +67,7 @@ func TestRunnerCompactTakesTheAgentsCompactionSettings(t *testing.T) {
 func TestTheModelsWindowGivesTheDefaultCeiling(t *testing.T) {
 	runner, store := newRunner(t,
 		profile.AgentProfile{Name: "echo", Model: windowedEcho{window: 200_000}},
-		profile.AgentProfile{Name: "capped", Model: windowedEcho{window: 200_000}, Compact: modelctx.Compactor{CompactPolicy: modelctx.CompactPolicy{CeilingTokens: 9000}}})
+		profile.AgentProfile{Name: "capped", Model: windowedEcho{window: 200_000}, Compact: record.Compactor{CompactPolicy: record.CompactPolicy{CeilingTokens: 9000}}})
 	ctx := context.Background()
 	first, err := runner.Run(ctx, service.RunRequest{Prompt: "hi"})
 	if err != nil {
@@ -85,7 +85,7 @@ func TestTheModelsWindowGivesTheDefaultCeiling(t *testing.T) {
 	}
 	// A Record of an earlier version may still carry a ceiling of its own; the
 	// Runner ignores it, and the window gives the ceiling.
-	old := plant(t, store, session.WithMetadata(map[string]string{metaAgentKey: "echo", metaCeilingKey: "100"}))
+	old := plant(t, store, record.WithMetadata(map[string]string{metaAgentKey: "echo", metaCeilingKey: "100"}))
 	if report, err = runner.Inspect(ctx, old, service.InspectConfig{}); err != nil || report.CompactCeilingTokens != 180_000 {
 		t.Fatalf("ceiling = %d, %v; want 180000: a stored ceiling is ignored", report.CompactCeilingTokens, err)
 	}
@@ -102,8 +102,8 @@ func TestTheModelsWindowGivesTheDefaultCeiling(t *testing.T) {
 
 // A ModelRecap written as a pointer gets the Agent's Model like the value does.
 func TestRunnerCompactFillsTheModelOfAPointerModelRecap(t *testing.T) {
-	recap := &modelctx.ModelRecap{}
-	runner, _ := newRunner(t, profile.AgentProfile{Name: "echo", Model: windowedEcho{window: 1 << 20}, Compact: modelctx.Compactor{Recap: recap}})
+	recap := &record.ModelRecap{}
+	runner, _ := newRunner(t, profile.AgentProfile{Name: "echo", Model: windowedEcho{window: 1 << 20}, Compact: record.Compactor{Recap: recap}})
 	ctx := context.Background()
 	var id string
 	for _, prompt := range []string{"one", "two", "three"} {
@@ -113,8 +113,8 @@ func TestRunnerCompactFillsTheModelOfAPointerModelRecap(t *testing.T) {
 		}
 		id = result.SessionID
 	}
-	result, err := runner.Compact(ctx, id, modelctx.CompactConfig{})
-	if errors.Is(err, modelctx.ErrNoRecapModel) {
+	result, err := runner.Compact(ctx, id, record.CompactConfig{})
+	if errors.Is(err, record.ErrNoRecapModel) {
 		t.Fatalf("compact = %+v, %v: the pointer ModelRecap got no Model", result, err)
 	}
 	if recap.Model != nil {

@@ -5,8 +5,9 @@ import (
 	"crypto/sha256"
 	"encoding/hex"
 
+	"github.com/jinhuang712/gotato/record"
+
 	"github.com/jinhuang712/gotato/gotato"
-	"github.com/jinhuang712/gotato/modelctx"
 	"github.com/jinhuang712/gotato/profile"
 	"github.com/jinhuang712/gotato/session"
 )
@@ -18,7 +19,7 @@ import (
 // step of a Run is written as it happens; without one the Record is, and keeps
 // the Session's Events in memory. extra options come after the Agent's own, and
 // NewSession refuses one that repeats a single-valued option.
-func (r *Runner) buildSession(ctx context.Context, spec profile.AgentProfile, s *session.Record, writer *session.Writer, override InspectConfig, extra ...gotato.SessionOption) (*gotato.Session, *modelctx.AutoCompactor, error) {
+func (r *Runner) buildSession(ctx context.Context, spec profile.AgentProfile, s *record.Record, writer *session.Writer, override InspectConfig, extra ...gotato.SessionOption) (*gotato.Session, *record.AutoCompactor, error) {
 	// Without a writer nothing is stored: the live Session numbers its Events
 	// on its own stream, and does not use the Record's numbers, which are
 	// positions in the log that this Run does not write.
@@ -36,7 +37,7 @@ func (r *Runner) buildSession(ctx context.Context, spec profile.AgentProfile, s 
 	}
 	// Every Run has its Session compacted when the provider refuses a request
 	// as too long, and past the ceiling when there is one.
-	auto := modelctx.AutoCompact(s, compactorFor(spec))
+	auto := record.AutoCompact(s, compactorFor(spec))
 	options := []gotato.SessionOption{
 		gotato.WithModel(spec.Model),
 		gotato.WithInstruction(instruction),
@@ -82,21 +83,21 @@ func (r *Runner) buildSession(ctx context.Context, spec profile.AgentProfile, s 
 
 // unjournaled is a Record as a Transcript that is not a Journal, so a Session
 // over it keeps no Events in the Record.
-type unjournaled struct{ record *session.Record }
+type unjournaled struct{ rec *record.Record }
 
-func (u unjournaled) Len() int { return u.record.Len() }
+func (u unjournaled) Len() int { return u.rec.Len() }
 
-func (u unjournaled) Messages() []gotato.Message { return u.record.Messages() }
+func (u unjournaled) Messages() []gotato.Message { return u.rec.Messages() }
 
-func (u unjournaled) Append(m gotato.Message) error { return u.record.Append(m) }
+func (u unjournaled) Append(m gotato.Message) error { return u.rec.Append(m) }
 
-func (u unjournaled) LoadedTools() []string { return u.record.LoadedTools() }
+func (u unjournaled) LoadedTools() []string { return u.rec.LoadedTools() }
 
 // Capabilities says what a Run that is not saved has: the Record's ID and
 // loaded Tools, and no Journal, no Events and no spill, so the live Session
 // numbers its Events in memory and stores none.
 func (u unjournaled) Capabilities() gotato.Capabilities {
-	return gotato.Capabilities{ID: u.record.ID(), Loaded: u}
+	return gotato.Capabilities{ID: u.rec.ID(), Loaded: u}
 }
 
 // CacheKey is the ModelRequest.CacheKey the Runner gives every Turn of a
@@ -112,7 +113,7 @@ func CacheKey(sessionID string) string {
 // sessionCacheKey is the cache key a Session's Turns carry: the one in its
 // metadata (metaCacheKey), which a fork inherits from its parent, or else
 // CacheKey of its ID.
-func sessionCacheKey(s *session.Record) string {
+func sessionCacheKey(s *record.Record) string {
 	if key, ok := s.Get(metaCacheKey); ok && key != "" {
 		return key
 	}

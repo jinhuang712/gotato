@@ -32,7 +32,7 @@ func oversizedResult(result ToolResult, size int, limit uint64) ToolResult {
 }
 
 // sessionHistory is the Session's committed history: its Transcript, such as a
-// session.Record, and the encoded size of what it holds. The Session goroutine
+// record.Record, and the encoded size of what it holds. The Session goroutine
 // is the Transcript's only writer during a Run, so the part has no lock. The
 // size is tracked incrementally so a commit never re-encodes the history.
 type sessionHistory struct {

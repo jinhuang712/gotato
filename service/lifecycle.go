@@ -4,6 +4,8 @@ import (
 	"context"
 	"strings"
 
+	"github.com/jinhuang712/gotato/record"
+
 	"github.com/jinhuang712/gotato/gotato"
 	"github.com/jinhuang712/gotato/profile"
 	"github.com/jinhuang712/gotato/session"
@@ -30,28 +32,28 @@ type CreateSessionRequest struct {
 // CreateSession creates and saves a Session bound to an Agent, and returns its
 // listing columns: a value, so what a caller holds is never mistaken for the
 // stored Record, which only the Runner writes. Read the Record with Record.
-func (r *Runner) CreateSession(ctx context.Context, request CreateSessionRequest) (session.RecordInfo, error) {
+func (r *Runner) CreateSession(ctx context.Context, request CreateSessionRequest) (record.Info, error) {
 	if err := refuseReserved(request.Metadata); err != nil {
-		return session.RecordInfo{}, err
+		return record.Info{}, err
 	}
-	var options []session.RecordOption
+	var options []record.Option
 	if request.ID != "" {
 		if strings.TrimSpace(request.ID) == "" {
-			return session.RecordInfo{}, gotato.ErrorOf(gotato.CodeInvalidArgument, "service: session ID is blank")
+			return record.Info{}, gotato.ErrorOf(gotato.CodeInvalidArgument, "service: session ID is blank")
 		}
-		options = append(options, session.WithID(request.ID))
+		options = append(options, record.WithID(request.ID))
 	}
 	if len(request.Messages) > 0 {
-		options = append(options, session.WithMessages(request.Messages...))
+		options = append(options, record.WithMessages(request.Messages...))
 	}
 	s, spec, err := r.newSession(ctx, request.Agent, nil, request.Metadata, options...)
 	if err != nil {
-		return session.RecordInfo{}, err
+		return record.Info{}, err
 	}
 	// Nothing runs against a Session that is only created: it is released in
 	// the write that creates it.
 	if _, err := r.create(ctx, s, spec.Name, session.WithIdle()); err != nil {
-		return session.RecordInfo{}, err
+		return record.Info{}, err
 	}
 	return s.Info(), nil
 }
@@ -61,7 +63,7 @@ func (r *Runner) CreateSession(ctx context.Context, request CreateSessionRequest
 // own AgentProfile as the TaskSpec narrows it, with the TaskSpec kept in the
 // Session's metadata. A profile that is not there fails before the Session
 // exists.
-func (r *Runner) newSession(ctx context.Context, agent string, task *taskRun, metadata map[string]string, options ...session.RecordOption) (*session.Record, profile.AgentProfile, error) {
+func (r *Runner) newSession(ctx context.Context, agent string, task *taskRun, metadata map[string]string, options ...record.Option) (*record.Record, profile.AgentProfile, error) {
 	var spec profile.AgentProfile
 	var err error
 	if task != nil {
@@ -72,7 +74,7 @@ func (r *Runner) newSession(ctx context.Context, agent string, task *taskRun, me
 	if err != nil {
 		return nil, profile.AgentProfile{}, err
 	}
-	s := session.New(options...)
+	s := record.New(options...)
 	for key, value := range metadata {
 		s.Set(key, value)
 	}
@@ -120,7 +122,7 @@ func (r *Runner) DeleteSession(ctx context.Context, sessionID string) error {
 			r.unloaded(sessionID, warm.Agent, "deleted")
 		}
 		r.notice(SessionDeleted{Header: gotato.NewHeader(gotato.SessionID(sessionID), "", 0)}, "")
-		r.endSessionStreams(sessionID, session.ErrNotFound)
+		r.endSessionStreams(sessionID, record.ErrNotFound)
 		return nil
 	})
 }
@@ -128,16 +130,16 @@ func (r *Runner) DeleteSession(ctx context.Context, sessionID string) error {
 // Fork creates a new Session from an existing one, and returns its listing
 // columns. An explicit newID must be free: a fork never overwrites an existing
 // Session, and a taken ID is ErrSessionExists, as CreateSession reports it.
-func (r *Runner) Fork(ctx context.Context, sessionID, newID string) (session.RecordInfo, error) {
+func (r *Runner) Fork(ctx context.Context, sessionID, newID string) (record.Info, error) {
 	parent, err := session.View(ctx, r.store.Records, sessionID)
 	if err != nil {
-		return session.RecordInfo{}, storeFailureOf(ctx, err, true)
+		return record.Info{}, storeFailureOf(ctx, err, true)
 	}
-	var options []session.RecordOption
+	var options []record.Option
 	if newID != "" {
-		options = append(options, session.WithID(newID))
+		options = append(options, record.WithID(newID))
 	}
-	child := session.Fork(parent, options...)
+	child := record.Fork(parent, options...)
 	// The child starts with its parent's history, so it keeps its parent's
 	// cache key and its first Turn reads the parent's cached prefix.
 	child.Set(metaCacheKey, sessionCacheKey(parent))
@@ -145,7 +147,7 @@ func (r *Runner) Fork(ctx context.Context, sessionID, newID string) (session.Rec
 	// the same explicit newID cannot both succeed.
 	childAgent, _ := child.Get(metaAgent)
 	if _, err := r.create(ctx, child, childAgent, session.WithIdle()); err != nil {
-		return session.RecordInfo{}, err
+		return record.Info{}, err
 	}
 	return child.Info(), nil
 }

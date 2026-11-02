@@ -8,6 +8,8 @@ import (
 	"strings"
 	"sync"
 
+	"github.com/jinhuang712/gotato/record"
+
 	"github.com/jinhuang712/gotato/gotato"
 	"github.com/jinhuang712/gotato/session"
 )
@@ -28,13 +30,13 @@ func checkDefinitionRoundTrip(ctx context.Context, open OpenDefinitions) error {
 
 func checkDefinitionNotFound(ctx context.Context, open OpenDefinitions) error {
 	store := open()
-	if _, err := store.LoadDefinition(ctx, "kind", "unknown"); !errors.Is(err, session.ErrNotFound) {
+	if _, err := store.LoadDefinition(ctx, "kind", "unknown"); !errors.Is(err, record.ErrNotFound) {
 		return failf("LoadDefinition of an unknown key returned %v, want ErrNotFound", err)
 	}
 	if err := store.SaveDefinition(ctx, "kind", "known", []byte("x")); err != nil {
 		return fmt.Errorf("save: %w", err)
 	}
-	if _, err := store.LoadDefinition(ctx, "other", "known"); !errors.Is(err, session.ErrNotFound) {
+	if _, err := store.LoadDefinition(ctx, "other", "known"); !errors.Is(err, record.ErrNotFound) {
 		return failf("LoadDefinition of a known name under another kind returned %v, want ErrNotFound", err)
 	}
 	return nil

@@ -9,6 +9,8 @@ import (
 	"sync"
 	"time"
 
+	"github.com/jinhuang712/gotato/record"
+
 	"github.com/jinhuang712/gotato/gotato"
 	"github.com/jinhuang712/gotato/session"
 )
@@ -47,10 +49,10 @@ func checkHeaderKept(ctx context.Context, open Open) error {
 	store := open()
 	first := header("r1", 3, "2026-10-17T00:00:03.000Z")
 	first.State = json.RawMessage(`{"running":"run-1","busy":true,"notices":[{"number":3,"text":"one"}],"last_run_end":"2026-10-17T00:00:02.500Z"}`)
-	if err := store.Create(ctx, "r1", []session.Entry{checkpoint(1, "a"), fact(2, "a"), logEntry(3, "a")}, first); err != nil {
+	if err := store.Create(ctx, "r1", []record.Entry{checkpoint(1, "a"), fact(2, "a"), logEntry(3, "a")}, first); err != nil {
 		return fmt.Errorf("create: %w", err)
 	}
-	same := func(got, want session.Header, step string) error {
+	same := func(got, want record.Header, step string) error {
 		if got.Epoch != want.Epoch {
 			return fmt.Errorf("%s returned Epoch %q, want %q: a store must keep the Header unchanged", step, got.Epoch, want.Epoch)
 		}
@@ -75,7 +77,7 @@ func checkHeaderKept(ctx context.Context, open Open) error {
 	second := header("r1", 4, "2026-10-17T00:00:04.000Z")
 	second.State = json.RawMessage(`{"busy":true,"notices":[{"number":3,"text":"one"},{"number":5,"text":"two"}],"runs":2}`)
 	second.LogFrom = 1
-	if err := store.Append(ctx, "r1", 3, []session.Entry{logEntry(4, "a")}, second); err != nil {
+	if err := store.Append(ctx, "r1", 3, []record.Entry{logEntry(4, "a")}, second); err != nil {
 		return fmt.Errorf("append: %w", err)
 	}
 	loaded, err = open().Load(ctx, "r1")
@@ -101,7 +103,7 @@ func checkAppend(ctx context.Context, open Open) error {
 	if err != nil {
 		return fmt.Errorf("create: %w", err)
 	}
-	more := []session.Entry{fact(4, "a"), logEntry(5, "a")}
+	more := []record.Entry{fact(4, "a"), logEntry(5, "a")}
 	if err := store.Append(ctx, "r1", 3, more, header("r1", 5, "2026-10-17T00:00:05.000Z")); err != nil {
 		return fmt.Errorf("append: %w", err)
 	}
@@ -127,7 +129,7 @@ func checkAppend(ctx context.Context, open Open) error {
 	if loaded.Seq != 5 || loaded.Header.Info.Messages != 5 {
 		return failf("Load after Append returned Seq %d and Info.Messages %d, want 5 and 5: Append must move the position to its last Entry and replace the Header", loaded.Seq, loaded.Header.Info.Messages)
 	}
-	return sameEntries("Load after Append", loaded.Entries, []session.Entry{all[0], all[1], all[3]}, ruleLoadFacts)
+	return sameEntries("Load after Append", loaded.Entries, []record.Entry{all[0], all[1], all[3]}, ruleLoadFacts)
 }
 
 func checkLastCheckpoint(ctx context.Context, open Open) error {
@@ -135,7 +137,7 @@ func checkLastCheckpoint(ctx context.Context, open Open) error {
 	if _, err := create(ctx, store, "r1"); err != nil {
 		return fmt.Errorf("create: %w", err)
 	}
-	more := []session.Entry{compaction(4, "a"), logEntry(5, "a"), fact(6, "a")}
+	more := []record.Entry{compaction(4, "a"), logEntry(5, "a"), fact(6, "a")}
 	if err := store.Append(ctx, "r1", 3, more, header("r1", 6, "2026-10-17T00:00:06.000Z")); err != nil {
 		return fmt.Errorf("append: %w", err)
 	}
@@ -146,7 +148,7 @@ func checkLastCheckpoint(ctx context.Context, open Open) error {
 	if loaded.Seq != 6 {
 		return failf("Load returned Seq %d, want 6: Seq is the last Entry's Seq", loaded.Seq)
 	}
-	return sameEntries("Load after a compaction_ended Entry", loaded.Entries, []session.Entry{more[0], more[2]}, "Load must start at the last Checkpoint (session_created or compaction_ended) and return its Layer fact Entries only, when the Header has no LogFrom")
+	return sameEntries("Load after a compaction_ended Entry", loaded.Entries, []record.Entry{more[0], more[2]}, "Load must start at the last Checkpoint (session_created or compaction_ended) and return its Layer fact Entries only, when the Header has no LogFrom")
 }
 
 // checkLogFrom holds a store to the Header's LogFrom: a Load returns, besides
@@ -161,7 +163,7 @@ func checkLogFrom(ctx context.Context, open Open) error {
 	}
 	const rule = ruleLoadFacts + "; Header.LogFrom asks for every Entry from that position, log Entries too, each once"
 	// write appends more with the given LogFrom, then loads and compares.
-	write := func(more []session.Entry, logFrom uint64, what string, want ...int) error {
+	write := func(more []record.Entry, logFrom uint64, what string, want ...int) error {
 		h := header("r1", more[len(more)-1].Seq, "2026-10-17T00:00:09.000Z")
 		h.LogFrom = logFrom
 		if err := store.Append(ctx, "r1", all[len(all)-1].Seq, more, h); err != nil {
@@ -175,7 +177,7 @@ func checkLogFrom(ctx context.Context, open Open) error {
 		if loaded.Header.LogFrom != logFrom || loaded.Seq != all[len(all)-1].Seq {
 			return failf("Load %s returned Header.LogFrom %d and Seq %d, want %d and %d", what, loaded.Header.LogFrom, loaded.Seq, logFrom, all[len(all)-1].Seq)
 		}
-		wanted := make([]session.Entry, len(want))
+		wanted := make([]record.Entry, len(want))
 		for i, seq := range want {
 			wanted[i] = all[seq-1]
 		}
@@ -188,15 +190,15 @@ func checkLogFrom(ctx context.Context, open Open) error {
 	if err := sameEntries("Load of a Header with no LogFrom", loaded.Entries, all[:2], ruleLoadFacts); err != nil {
 		return err
 	}
-	if err := write([]session.Entry{logEntry(4, "a"), fact(5, "a"), logEntry(6, "a")}, 3, "with a LogFrom at 3", 1, 2, 3, 4, 5, 6); err != nil {
+	if err := write([]record.Entry{logEntry(4, "a"), fact(5, "a"), logEntry(6, "a")}, 3, "with a LogFrom at 3", 1, 2, 3, 4, 5, 6); err != nil {
 		return err
 	}
 	// A Checkpoint after it: the facts start there, and LogFrom follows it.
-	if err := write([]session.Entry{compaction(7, "a"), logEntry(8, "a"), fact(9, "a")}, 7, "with a LogFrom at a Checkpoint", 7, 8, 9); err != nil {
+	if err := write([]record.Entry{compaction(7, "a"), logEntry(8, "a"), fact(9, "a")}, 7, "with a LogFrom at a Checkpoint", 7, 8, 9); err != nil {
 		return err
 	}
 	// A write with no LogFrom turns it off.
-	return write([]session.Entry{logEntry(10, "a")}, 0, "after a write with no LogFrom", 7, 9)
+	return write([]record.Entry{logEntry(10, "a")}, 0, "after a write with no LogFrom", 7, 9)
 }
 
 // checkSpilledEntry checks the Entry of a spilled Tool Result (G-F35): a log
@@ -209,9 +211,9 @@ func checkSpilledEntry(ctx context.Context, open Open) error {
 		return fmt.Errorf("create: %w", err)
 	}
 	body, _ := json.Marshal(map[string]any{"seq": 4, "writer": "a", "body": strings.Repeat("row,paid,41.20\n", 70000)})
-	spilled := session.Entry{Seq: 4, Kind: gotato.EventKindToolResultSpilled, Layer: session.LayerLog, At: time.Date(2026, 10, 17, 0, 0, 4, 0, time.UTC), Data: body}
+	spilled := record.Entry{Seq: 4, Kind: gotato.EventKindToolResultSpilled, Layer: record.LayerLog, At: time.Date(2026, 10, 17, 0, 0, 4, 0, time.UTC), Data: body}
 	after := fact(5, "a")
-	more := []session.Entry{spilled, after}
+	more := []record.Entry{spilled, after}
 	if err := store.Append(ctx, "r1", 3, more, header("r1", 5, "2026-10-17T00:00:05.000Z")); err != nil {
 		return fmt.Errorf("append: %w", err)
 	}
@@ -226,7 +228,7 @@ func checkSpilledEntry(ctx context.Context, open Open) error {
 	if err != nil {
 		return fmt.Errorf("load: %w", err)
 	}
-	if err := sameEntries("Load over a megabyte log Entry", loaded.Entries, []session.Entry{entries[0], entries[1], after}, ruleLoadFacts+", so a load never reads a spilled body"); err != nil {
+	if err := sameEntries("Load over a megabyte log Entry", loaded.Entries, []record.Entry{entries[0], entries[1], after}, ruleLoadFacts+", so a load never reads a spilled body"); err != nil {
 		return err
 	}
 	return nil
@@ -238,7 +240,7 @@ func checkSpilledEntry(ctx context.Context, open Open) error {
 // segment_closed Entry after the Checkpoint is an ordinary fact.
 func checkSegments(ctx context.Context, open Open) error {
 	store := open()
-	first := []session.Entry{checkpoint(1, "a"), segment(2, "a"), fact(3, "a"), logEntry(4, "a")}
+	first := []record.Entry{checkpoint(1, "a"), segment(2, "a"), fact(3, "a"), logEntry(4, "a")}
 	if err := store.Create(ctx, "r1", first, header("r1", 4, "2026-10-17T00:00:04.000Z")); err != nil {
 		return fmt.Errorf("create: %w", err)
 	}
@@ -249,10 +251,10 @@ func checkSegments(ctx context.Context, open Open) error {
 	if len(loaded.Segments) != 0 {
 		return failf("Load from the first Checkpoint returned Loaded.Segments %v, want none: %s", seqs(loaded.Segments), ruleSegments)
 	}
-	if err := sameEntries("Load from the first Checkpoint", loaded.Entries, []session.Entry{first[0], first[1], first[2]}, ruleSegments); err != nil {
+	if err := sameEntries("Load from the first Checkpoint", loaded.Entries, []record.Entry{first[0], first[1], first[2]}, ruleSegments); err != nil {
 		return err
 	}
-	more := []session.Entry{segment(5, "a"), compaction(6, "a"), segment(7, "a"), fact(8, "a")}
+	more := []record.Entry{segment(5, "a"), compaction(6, "a"), segment(7, "a"), fact(8, "a")}
 	if err := store.Append(ctx, "r1", 4, more, header("r1", 8, "2026-10-17T00:00:08.000Z")); err != nil {
 		return fmt.Errorf("append: %w", err)
 	}
@@ -260,10 +262,10 @@ func checkSegments(ctx context.Context, open Open) error {
 	if err != nil {
 		return fmt.Errorf("load after a compaction: %w", err)
 	}
-	if err := sameEntries("Loaded.Segments after a compaction", loaded.Segments, []session.Entry{first[1], more[0]}, ruleSegments); err != nil {
+	if err := sameEntries("Loaded.Segments after a compaction", loaded.Segments, []record.Entry{first[1], more[0]}, ruleSegments); err != nil {
 		return err
 	}
-	return sameEntries("Loaded.Entries after a compaction", loaded.Entries, []session.Entry{more[1], more[2], more[3]}, ruleSegments)
+	return sameEntries("Loaded.Entries after a compaction", loaded.Entries, []record.Entry{more[1], more[2], more[3]}, ruleSegments)
 }
 
 // checkLoadRacingAppends holds a store to the one read of a Load. A writer
@@ -273,12 +275,12 @@ func checkSegments(ctx context.Context, open Open) error {
 // position, comes from another, as one that reads in two steps does, fails.
 func checkLoadRacingAppends(ctx context.Context, open Open) error {
 	const writes = 120
-	stateOf := func(seq uint64) session.Header {
+	stateOf := func(seq uint64) record.Header {
 		h := header("r1", seq, "2026-10-17T00:00:00.000Z")
 		h.State = json.RawMessage(fmt.Sprintf(`{"seq":%d}`, seq))
 		return h
 	}
-	if err := open().Create(ctx, "r1", []session.Entry{checkpoint(1, "w")}, stateOf(1)); err != nil {
+	if err := open().Create(ctx, "r1", []record.Entry{checkpoint(1, "w")}, stateOf(1)); err != nil {
 		return fmt.Errorf("create: %w", err)
 	}
 	var (
@@ -328,7 +330,7 @@ func checkLoadRacingAppends(ctx context.Context, open Open) error {
 	writer := open()
 	var writeErr error
 	for seq := uint64(2); seq <= writes && writeErr == nil; seq++ {
-		writeErr = writer.Append(ctx, "r1", seq-1, []session.Entry{fact(seq, "w")}, stateOf(seq))
+		writeErr = writer.Append(ctx, "r1", seq-1, []record.Entry{fact(seq, "w")}, stateOf(seq))
 		time.Sleep(50 * time.Microsecond)
 	}
 	close(done)
@@ -347,7 +349,7 @@ func checkLogLimit(ctx context.Context, open Open) error {
 	if err != nil {
 		return fmt.Errorf("create: %w", err)
 	}
-	more := []session.Entry{fact(4, "a"), logEntry(5, "a")}
+	more := []record.Entry{fact(4, "a"), logEntry(5, "a")}
 	if err := store.Append(ctx, "r1", 3, more, header("r1", 5, "2026-10-17T00:00:05.000Z")); err != nil {
 		return fmt.Errorf("append: %w", err)
 	}
@@ -355,7 +357,7 @@ func checkLogLimit(ctx context.Context, open Open) error {
 	for _, c := range []struct {
 		after uint64
 		limit int
-		want  []session.Entry
+		want  []record.Entry
 	}{
 		{0, 1, all[:1]},
 		{0, 4, all[:4]},

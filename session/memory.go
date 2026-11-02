@@ -4,6 +4,8 @@ import (
 	"context"
 	"sync"
 	"time"
+
+	"github.com/jinhuang712/gotato/record"
 )
 
 // MemoryStore keeps Records and Liveness rows in memory. It is the store for
@@ -18,8 +20,8 @@ type MemoryStore struct {
 }
 
 type memoryRecord struct {
-	entries []Entry
-	header  Header
+	entries []record.Entry
+	header  record.Header
 }
 
 type memoryInstance struct {
@@ -61,7 +63,7 @@ func NewMemoryStore(options ...StoreOption) *MemoryStore {
 }
 
 // Create implements Records.
-func (m *MemoryStore) Create(ctx context.Context, id string, entries []Entry, h Header) error {
+func (m *MemoryStore) Create(ctx context.Context, id string, entries []record.Entry, h record.Header) error {
 	if err := ctx.Err(); err != nil {
 		return err
 	}
@@ -81,7 +83,7 @@ func (m *MemoryStore) Create(ctx context.Context, id string, entries []Entry, h 
 }
 
 // Append implements Records.
-func (m *MemoryStore) Append(ctx context.Context, id string, after uint64, entries []Entry, h Header) error {
+func (m *MemoryStore) Append(ctx context.Context, id string, after uint64, entries []record.Entry, h record.Header) error {
 	if err := ctx.Err(); err != nil {
 		return err
 	}
@@ -93,41 +95,41 @@ func (m *MemoryStore) Append(ctx context.Context, id string, after uint64, entri
 	}
 	m.mu.Lock()
 	defer m.mu.Unlock()
-	record, ok := m.records[id]
+	rec, ok := m.records[id]
 	if !ok {
-		return ErrNotFound
+		return record.ErrNotFound
 	}
-	if record.header.Epoch != h.Epoch {
-		return ErrNotFound
+	if rec.header.Epoch != h.Epoch {
+		return record.ErrNotFound
 	}
-	if uint64(len(record.entries)) != after {
+	if uint64(len(rec.entries)) != after {
 		return ErrConflict
 	}
-	record.entries = append(record.entries, cloneEntries(entries)...)
-	record.header = cloneHeader(h)
+	rec.entries = append(rec.entries, cloneEntries(entries)...)
+	rec.header = cloneHeader(h)
 	return nil
 }
 
 // Load implements Records.
-func (m *MemoryStore) Load(ctx context.Context, id string) (Loaded, error) {
+func (m *MemoryStore) Load(ctx context.Context, id string) (record.Loaded, error) {
 	if err := ctx.Err(); err != nil {
-		return Loaded{}, err
+		return record.Loaded{}, err
 	}
 	if err := CheckID(id); err != nil {
-		return Loaded{}, err
+		return record.Loaded{}, err
 	}
 	m.mu.Lock()
 	defer m.mu.Unlock()
-	record, ok := m.records[id]
+	rec, ok := m.records[id]
 	if !ok {
-		return Loaded{}, ErrNotFound
+		return record.Loaded{}, record.ErrNotFound
 	}
-	entries, segments := loadedFrom(record.entries, record.header.LogFrom)
-	return Loaded{Entries: cloneEntries(entries), Segments: cloneEntries(segments), Seq: uint64(len(record.entries)), Header: cloneHeader(record.header)}, nil
+	entries, segments := loadedFrom(rec.entries, rec.header.LogFrom)
+	return record.Loaded{Entries: cloneEntries(entries), Segments: cloneEntries(segments), Seq: uint64(len(rec.entries)), Header: cloneHeader(rec.header)}, nil
 }
 
 // Log implements Records.
-func (m *MemoryStore) Log(ctx context.Context, id string, after uint64, limit int) ([]Entry, error) {
+func (m *MemoryStore) Log(ctx context.Context, id string, after uint64, limit int) ([]record.Entry, error) {
 	if err := ctx.Err(); err != nil {
 		return nil, err
 	}
@@ -136,14 +138,14 @@ func (m *MemoryStore) Log(ctx context.Context, id string, after uint64, limit in
 	}
 	m.mu.Lock()
 	defer m.mu.Unlock()
-	record, ok := m.records[id]
+	rec, ok := m.records[id]
 	if !ok {
-		return nil, ErrNotFound
+		return nil, record.ErrNotFound
 	}
-	if after >= uint64(len(record.entries)) {
+	if after >= uint64(len(rec.entries)) {
 		return nil, nil
 	}
-	rest := record.entries[after:]
+	rest := rec.entries[after:]
 	if limit > 0 && len(rest) > limit {
 		rest = rest[:limit]
 	}
@@ -157,9 +159,9 @@ func (m *MemoryStore) List(ctx context.Context, q ListQuery) (ListPage, error) {
 		return ListPage{}, err
 	}
 	m.mu.Lock()
-	infos := make([]RecordInfo, 0, len(m.records))
-	for _, record := range m.records {
-		infos = append(infos, cloneInfo(record.header.Info))
+	infos := make([]record.Info, 0, len(m.records))
+	for _, rec := range m.records {
+		infos = append(infos, cloneInfo(rec.header.Info))
 	}
 	m.mu.Unlock()
 	return pageOf(infos, q)
@@ -176,7 +178,7 @@ func (m *MemoryStore) Delete(ctx context.Context, id string) error {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 	if _, ok := m.records[id]; !ok {
-		return ErrNotFound
+		return record.ErrNotFound
 	}
 	delete(m.records, id)
 	return nil

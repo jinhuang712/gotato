@@ -9,6 +9,8 @@ import (
 	"strings"
 	"sync"
 
+	"github.com/jinhuang712/gotato/record"
+
 	"github.com/jinhuang712/gotato/session"
 )
 
@@ -191,7 +193,7 @@ func (r *Registry) TaskSpecs() []string {
 
 // loadFailed says a registered name has no document, or the store failed.
 func loadFailed(kind, name string, err error) error {
-	if errors.Is(err, session.ErrNotFound) {
+	if errors.Is(err, record.ErrNotFound) {
 		return fmt.Errorf("%w: %s %q has no document in its store", ErrNotRegistered, kind, name)
 	}
 	return fmt.Errorf("profile: load %s %q: %w", kind, name, err)

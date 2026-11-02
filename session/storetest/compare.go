@@ -3,7 +3,7 @@ package storetest
 import (
 	"fmt"
 
-	"github.com/jinhuang712/gotato/session"
+	"github.com/jinhuang712/gotato/record"
 )
 
 // The rules a failure names, so that an adapter author reads what to fix and
@@ -23,7 +23,7 @@ func failf(format string, args ...any) error { return fmt.Errorf(format, args...
 
 // sameEntries compares what a call returned (named by what) with the Entries
 // wanted, and names the rule when they differ.
-func sameEntries(what string, got, want []session.Entry, rule string) error {
+func sameEntries(what string, got, want []record.Entry, rule string) error {
 	if len(got) != len(want) {
 		return fmt.Errorf("%s returned %v, want %v: %s", what, seqs(got), seqs(want), rule)
 	}

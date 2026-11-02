@@ -8,6 +8,8 @@ import (
 	"slices"
 	"strings"
 
+	"github.com/jinhuang712/gotato/record"
+
 	"github.com/jinhuang712/gotato/profile"
 	"github.com/jinhuang712/gotato/service"
 	"github.com/jinhuang712/gotato/session"
@@ -40,7 +42,7 @@ func (rt *cliRuntime) registerStoredVariants(ctx context.Context) error {
 		if name == "" || slices.Contains(have, name) {
 			continue
 		}
-		if _, err := rt.defs.LoadDefinition(ctx, profile.KindAgentProfile, name); errors.Is(err, session.ErrNotFound) {
+		if _, err := rt.defs.LoadDefinition(ctx, profile.KindAgentProfile, name); errors.Is(err, record.ErrNotFound) {
 			continue
 		} else if err != nil {
 			return err

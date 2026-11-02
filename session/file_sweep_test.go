@@ -7,6 +7,8 @@ import (
 	"testing"
 	"time"
 
+	"github.com/jinhuang712/gotato/record"
+
 	"github.com/jinhuang712/gotato/gotato"
 	"github.com/jinhuang712/gotato/session"
 )
@@ -41,7 +43,7 @@ func TestFileStoreSweepsOldLeftoversAtOpen(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if err := first.Create(ctx, "r", []session.Entry{fileEntry(1, gotato.EventKindSessionCreated)}, fileSummary(1)); err != nil {
+	if err := first.Create(ctx, "r", []record.Entry{fileEntry(1, gotato.EventKindSessionCreated)}, fileSummary(1)); err != nil {
 		t.Fatal(err)
 	}
 	old := 48 * time.Hour
@@ -82,7 +84,7 @@ func TestFileStoreSweepsOldLeftoversAtOpen(t *testing.T) {
 			t.Fatalf("Load after the sweep: %v", err)
 		}
 	}
-	if err := second.Append(ctx, "r", 1, []session.Entry{fileEntry(2, gotato.EventKindMessageCommitted)}, fileSummary(2)); err != nil {
+	if err := second.Append(ctx, "r", 1, []record.Entry{fileEntry(2, gotato.EventKindMessageCommitted)}, fileSummary(2)); err != nil {
 		t.Fatal(err)
 	}
 	if err := first.Delete(ctx, "r"); err != nil {
@@ -99,7 +101,7 @@ func TestFileStoreSweepsOldTempFilesOfARecord(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if err := store.Create(ctx, "r", []session.Entry{fileEntry(1, gotato.EventKindSessionCreated)}, fileSummary(1)); err != nil {
+	if err := store.Create(ctx, "r", []record.Entry{fileEntry(1, gotato.EventKindSessionCreated)}, fileSummary(1)); err != nil {
 		t.Fatal(err)
 	}
 	epochs, err := os.ReadDir(filepath.Join(dir, "r"))
@@ -138,7 +140,7 @@ func TestFileStoreIgnoresUnlinkedTempFiles(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	writer, err := session.CreateWriter(ctx, store, session.New(session.WithID("r1")), "instance-a")
+	writer, err := session.CreateWriter(ctx, store, record.New(record.WithID("r1")), "instance-a")
 	if err != nil {
 		t.Fatal(err)
 	}

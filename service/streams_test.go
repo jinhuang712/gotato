@@ -8,6 +8,8 @@ import (
 	"testing"
 	"time"
 
+	"github.com/jinhuang712/gotato/record"
+
 	"github.com/jinhuang712/gotato/gotato"
 	"github.com/jinhuang712/gotato/profile"
 	"github.com/jinhuang712/gotato/service"
@@ -87,7 +89,7 @@ func TestStreamSessionRefusesAPositionItCannotResume(t *testing.T) {
 		t.Fatalf("a position past the head: %v, want ErrCannotResume", err)
 	}
 	// A Session that does not exist.
-	if _, err := runner.StreamSession(ctx, "missing", service.StreamFrom{}); !errors.Is(err, session.ErrNotFound) {
+	if _, err := runner.StreamSession(ctx, "missing", service.StreamFrom{}); !errors.Is(err, record.ErrNotFound) {
 		t.Fatalf("a missing Session: %v, want not found", err)
 	}
 
@@ -257,11 +259,11 @@ func TestSessionStreamSnippetReadsTheFinalReply(t *testing.T) {
 		t.Fatal(err)
 	}
 	// As in the snippet: follow the Session from its head now.
-	record, err := runner.Record(ctx, s.ID)
+	rec, err := runner.Record(ctx, s.ID)
 	if err != nil {
 		t.Fatal(err)
 	}
-	sub, err := runner.StreamSession(ctx, s.ID, service.StreamFrom{After: record.Seq})
+	sub, err := runner.StreamSession(ctx, s.ID, service.StreamFrom{After: rec.Seq})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -284,7 +286,7 @@ type loadCounter struct {
 	loads atomic.Int64
 }
 
-func (c *loadCounter) Load(ctx context.Context, id string) (session.Loaded, error) {
+func (c *loadCounter) Load(ctx context.Context, id string) (record.Loaded, error) {
 	c.loads.Add(1)
 	return c.parts.Load(ctx, id)
 }
@@ -421,7 +423,7 @@ func TestOpenStreamEndsWhenItsSessionIsCreatedAgain(t *testing.T) {
 			for {
 				event, err := stream.Next(read)
 				if err != nil {
-					if !errors.Is(err, service.ErrCannotResume) && !errors.Is(err, session.ErrNotFound) {
+					if !errors.Is(err, service.ErrCannotResume) && !errors.Is(err, record.ErrNotFound) {
 						t.Fatalf("the stream ended with %v, want cannot_resume or not found", err)
 					}
 					return
@@ -447,7 +449,7 @@ func newGatedLog(store session.Store) *gatedLog {
 	return &gatedLog{parts: partsOf(store), entered: make(chan struct{}, 4), release: make(chan struct{})}
 }
 
-func (g *gatedLog) Log(ctx context.Context, id string, after uint64, limit int) ([]session.Entry, error) {
+func (g *gatedLog) Log(ctx context.Context, id string, after uint64, limit int) ([]record.Entry, error) {
 	if g.armed.CompareAndSwap(true, false) {
 		g.entered <- struct{}{}
 		select {
@@ -579,11 +581,11 @@ func TestStreamSessionEndsWhenTheSessionIsCreatedAgain(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	record, err := a.Record(ctx, first.SessionID)
+	rec, err := a.Record(ctx, first.SessionID)
 	if err != nil {
 		t.Fatal(err)
 	}
-	sub, err := a.StreamSession(ctx, first.SessionID, service.StreamFrom{After: record.Seq})
+	sub, err := a.StreamSession(ctx, first.SessionID, service.StreamFrom{After: rec.Seq})
 	if err != nil {
 		t.Fatal(err)
 	}

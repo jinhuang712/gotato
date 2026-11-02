@@ -7,47 +7,49 @@ import (
 	"fmt"
 	"time"
 
+	"github.com/jinhuang712/gotato/record"
+
 	"github.com/jinhuang712/gotato/gotato"
 	"github.com/jinhuang712/gotato/session"
 )
 
 // entry builds an Entry whose Data names its position, so a check can tell
 // which writer's Entry a store kept.
-func entry(seq uint64, kind gotato.EventKind, layer session.Layer, writer string) session.Entry {
+func entry(seq uint64, kind gotato.EventKind, layer record.Layer, writer string) record.Entry {
 	data, _ := json.Marshal(map[string]any{"seq": seq, "writer": writer})
-	return session.Entry{Seq: seq, Kind: kind, Layer: layer, At: time.Date(2026, 10, 17, 0, 0, int(seq), 0, time.UTC), Data: data}
+	return record.Entry{Seq: seq, Kind: kind, Layer: layer, At: time.Date(2026, 10, 17, 0, 0, int(seq), 0, time.UTC), Data: data}
 }
 
 // checkpoint is the first Entry of a Record: a session_created Event.
-func checkpoint(seq uint64, writer string) session.Entry {
-	return entry(seq, gotato.EventKindSessionCreated, session.LayerFact, writer)
+func checkpoint(seq uint64, writer string) record.Entry {
+	return entry(seq, gotato.EventKindSessionCreated, record.LayerFact, writer)
 }
 
 // compaction is a later Checkpoint: a compaction_ended Event.
-func compaction(seq uint64, writer string) session.Entry {
-	return entry(seq, gotato.EventKindCompactionEnded, session.LayerFact, writer)
+func compaction(seq uint64, writer string) record.Entry {
+	return entry(seq, gotato.EventKindCompactionEnded, record.LayerFact, writer)
 }
 
-func fact(seq uint64, writer string) session.Entry {
-	return entry(seq, gotato.EventKindMessageCommitted, session.LayerFact, writer)
+func fact(seq uint64, writer string) record.Entry {
+	return entry(seq, gotato.EventKindMessageCommitted, record.LayerFact, writer)
 }
 
-func logEntry(seq uint64, writer string) session.Entry {
-	return entry(seq, gotato.EventKindTurnStarted, session.LayerLog, writer)
+func logEntry(seq uint64, writer string) record.Entry {
+	return entry(seq, gotato.EventKindTurnStarted, record.LayerLog, writer)
 }
 
-func segment(seq uint64, writer string) session.Entry {
-	return entry(seq, gotato.EventKindSegmentClosed, session.LayerFact, writer)
+func segment(seq uint64, writer string) record.Entry {
+	return entry(seq, gotato.EventKindSegmentClosed, record.LayerFact, writer)
 }
 
 // header is the Header of a write of Record id that leaves it at seq: its
 // Epoch is "epoch-"+id, its Info the listing columns, and its State bytes of
 // Gotato's own that no store reads and every store must give back as they were.
-func header(id string, seq uint64, updated string) session.Header {
+func header(id string, seq uint64, updated string) record.Header {
 	state, _ := json.Marshal(map[string]any{"seq": seq, "running": "run-1", "notices": []string{"one", "two"}})
-	return session.Header{
+	return record.Header{
 		Epoch: "epoch-" + id,
-		Info: session.RecordInfo{
+		Info: record.Info{
 			ID: id, CreatedAt: infoTime("2026-10-17T00:00:00.000Z"), UpdatedAt: infoTime(updated),
 			Messages: int(seq), Metadata: map[string]string{"k": "v"},
 		},
@@ -67,7 +69,7 @@ func infoTime(s string) time.Time {
 	return at
 }
 
-func seqs(entries []session.Entry) []uint64 {
+func seqs(entries []record.Entry) []uint64 {
 	out := make([]uint64, len(entries))
 	for i, e := range entries {
 		out[i] = e.Seq
@@ -76,8 +78,8 @@ func seqs(entries []session.Entry) []uint64 {
 }
 
 // create writes a Record with a checkpoint, a fact and a log Entry.
-func create(ctx context.Context, store session.Records, id string) ([]session.Entry, error) {
-	entries := []session.Entry{checkpoint(1, "a"), fact(2, "a"), logEntry(3, "a")}
+func create(ctx context.Context, store session.Records, id string) ([]record.Entry, error) {
+	entries := []record.Entry{checkpoint(1, "a"), fact(2, "a"), logEntry(3, "a")}
 	entries[1].Instance = "instance-a"
 	return entries, store.Create(ctx, id, entries, header(id, 3, "2026-10-17T00:00:03.000Z"))
 }
@@ -95,8 +97,8 @@ func listerOf(open Open) (session.Records, session.Lister, error) {
 // listAll follows the Next of every page, at limit a page, and returns the
 // RecordInfos in the order they came. A page with no Infos and a Next, or a
 // walk that does not end, is an error.
-func listAll(ctx context.Context, lister session.Lister, limit int) ([]session.RecordInfo, error) {
-	var all []session.RecordInfo
+func listAll(ctx context.Context, lister session.Lister, limit int) ([]record.Info, error) {
+	var all []record.Info
 	cursor := ""
 	for range 1000 {
 		page, err := lister.List(ctx, session.ListQuery{Limit: limit, Cursor: cursor})
@@ -118,7 +120,7 @@ func listAll(ctx context.Context, lister session.Lister, limit int) ([]session.R
 	return nil, failf("List with limit %d did not reach the last page in 1000 pages: Next must be empty after the last page", limit)
 }
 
-func idsOf(infos []session.RecordInfo) []string {
+func idsOf(infos []record.Info) []string {
 	out := make([]string, len(infos))
 	for i, info := range infos {
 		out[i] = info.ID

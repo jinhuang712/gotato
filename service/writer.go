@@ -53,11 +53,11 @@ func (r *Runner) checkWriter(ctx context.Context, sessionID string) error {
 			return nil
 		}
 	}
-	record, err := session.Open(ctx, r.store.Records, sessionID)
+	rec, err := session.Open(ctx, r.store.Records, sessionID)
 	if err != nil {
 		return storeFailureOf(ctx, err, true)
 	}
-	claim, busy := record.Holder()
+	claim, busy := rec.Holder()
 	if !busy || claim.Instance == "" || claim.Instance == r.id() {
 		return nil
 	}

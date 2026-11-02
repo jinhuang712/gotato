@@ -28,7 +28,7 @@ func ReservedNoticeKind(kind string) bool {
 
 // PendingNotice is a notice that was queued and not yet committed or dropped:
 // what a Record keeps of it, so the next Run on any instance can queue it
-// again (session.Record.PendingNotices).
+// again (record.Record.PendingNotices).
 type PendingNotice struct {
 	MessageID MessageID    `json:"message_id"`
 	Kind      string       `json:"kind"`

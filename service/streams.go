@@ -51,7 +51,7 @@ type StreamFrom struct {
 // reads that Record's Feed, and every read of the store that returns Events is
 // checked against the epoch before they are delivered. So it never delivers an
 // Event of a Record created again under the same ID; it ends with
-// ErrCannotResume or session.ErrNotFound instead (see StreamSession for when).
+// ErrCannotResume or record.ErrNotFound instead (see StreamSession for when).
 type SessionStream struct {
 	*feedSubscription
 	// RecordEpoch is the Record's epoch, for the client to keep and send back.
@@ -131,13 +131,13 @@ func (s *SessionStream) endWith(hint *Reconnect) {
 // StreamSession opens a Session's stream for a client that reconnects, on any
 // Instance. It starts after from.After, like a Subscription's SubscribeAfter, and first
 // checks that the position still means what the client thinks: the Session
-// must exist (session.ErrNotFound), and the client's epoch and number must be
+// must exist (record.ErrNotFound), and the client's epoch and number must be
 // the Record's (ErrCannotResume). An idle stream looks in the store for Events
 // that another Instance writes, every Config.StreamPoll.
 //
 // The stream follows the Record it opened, and no other. When the Session is
 // deleted, or deleted and created again, the stream delivers none of the new
-// Record's Events, and ends with session.ErrNotFound or ErrCannotResume:
+// Record's Events, and ends with record.ErrNotFound or ErrCannotResume:
 //   - at once, when this Instance deletes the Session, opens or creates a
 //     Record of it with another epoch, or opens a stream on one; a stream
 //     still opening at that moment reads the epoch again before it starts;

@@ -12,8 +12,8 @@ import (
 
 	"github.com/jinhuang712/gotato/gotato"
 	itext "github.com/jinhuang712/gotato/internal/text"
-	"github.com/jinhuang712/gotato/modelctx"
 	"github.com/jinhuang712/gotato/profile"
+	"github.com/jinhuang712/gotato/record"
 	"github.com/jinhuang712/gotato/service"
 	"github.com/jinhuang712/gotato/session"
 	"github.com/jinhuang712/gotato/testkit"
@@ -71,7 +71,7 @@ func TestAnAgentOwnsItsInstructionAndAStoredSettingIsIgnored(t *testing.T) {
 	ctx := context.Background()
 	// A Session of an earlier version may still carry an instruction, a
 	// ceiling and a panel of its own; the Runner ignores them all.
-	id := plant(t, store, session.WithMetadata(map[string]string{
+	id := plant(t, store, record.WithMetadata(map[string]string{
 		metaAgentKey:       "tools",
 		metaInstructionKey: "session instruction",
 		metaCeilingKey:     "1",
@@ -142,7 +142,7 @@ func TestStreamRunInspectCompactFork(t *testing.T) {
 	if report.SelectedMessages != 8 || report.PrefixHash == "" {
 		t.Fatalf("report = %+v", report)
 	}
-	compact, err := runner.Compact(ctx, result.SessionID, modelctx.CompactConfig{KeepMessages: 2})
+	compact, err := runner.Compact(ctx, result.SessionID, record.CompactConfig{KeepMessages: 2})
 	if err != nil || !compact.Replaced || compact.MessagesAfter != 8 || compact.Compaction.Segment != 1 {
 		t.Fatalf("compact = %+v err=%v", compact, err)
 	}
@@ -156,13 +156,13 @@ func TestStreamRunInspectCompactFork(t *testing.T) {
 	if _, err := session.View(ctx, store.Records, child.ID); err != nil {
 		t.Fatal("fork not saved")
 	}
-	if _, err := runner.Inspect(ctx, "missing", service.InspectConfig{}); !errors.Is(err, session.ErrNotFound) {
+	if _, err := runner.Inspect(ctx, "missing", service.InspectConfig{}); !errors.Is(err, record.ErrNotFound) {
 		t.Fatalf("inspect missing err = %v", err)
 	}
 }
 
 func TestAutoCompactFromSpecAndSession(t *testing.T) {
-	runner, store := newRunner(t, profile.AgentProfile{Name: "echo", Model: testkit.EchoModel{}, Compact: modelctx.Compactor{CompactPolicy: modelctx.CompactPolicy{CeilingTokens: 20000}}})
+	runner, store := newRunner(t, profile.AgentProfile{Name: "echo", Model: testkit.EchoModel{}, Compact: record.Compactor{CompactPolicy: record.CompactPolicy{CeilingTokens: 20000}}})
 	ctx := context.Background()
 	var last service.RunResponse
 	for i := 0; i < 8 && !last.Compacted; i++ {
@@ -218,7 +218,7 @@ type countingStore struct {
 	gets int
 }
 
-func (s *countingStore) Load(ctx context.Context, id string) (session.Loaded, error) {
+func (s *countingStore) Load(ctx context.Context, id string) (record.Loaded, error) {
 	s.mu.Lock()
 	s.gets++
 	s.mu.Unlock()
@@ -451,7 +451,7 @@ func TestCompactionLeavesOutReasoningForAModelSentOnlyTheCurrentRound(t *testing
 		if _, err := runner.Run(ctx, service.RunRequest{SessionID: first.SessionID, Prompt: "u2"}); err != nil {
 			t.Fatal(err)
 		}
-		result, err := runner.Compact(ctx, first.SessionID, modelctx.CompactConfig{KeepMessages: 2})
+		result, err := runner.Compact(ctx, first.SessionID, record.CompactConfig{KeepMessages: 2})
 		if err != nil || !result.Replaced {
 			t.Fatalf("round=%v: compact = %+v, %v", round, result, err)
 		}
@@ -464,7 +464,7 @@ func TestCompactionLeavesOutReasoningForAModelSentOnlyTheCurrentRound(t *testing
 		}
 
 		// "b" is "a" with a ceiling of one token, which can never be met.
-		policy := modelctx.Compactor{CompactPolicy: modelctx.CompactPolicy{WindowTokens: 4000}, Cut: modelctx.TailBudget{TailTokens: 70}}
+		policy := record.Compactor{CompactPolicy: record.CompactPolicy{WindowTokens: 4000}, Cut: record.TailBudget{TailTokens: 70}}
 		tight := policy
 		tight.CeilingTokens = 1
 		sharedModel := model()
@@ -521,7 +521,7 @@ func TestTheModelsRecapIsOffUnlessTheAgentTurnsItOn(t *testing.T) {
 	model := recapModel()
 	runner, _ := newRunner(t, profile.AgentProfile{Name: "ops", Model: model, Instruction: "be brief"})
 	id := runThree(t, runner)
-	result, err := runner.Compact(context.Background(), id, modelctx.CompactConfig{})
+	result, err := runner.Compact(context.Background(), id, record.CompactConfig{})
 	if err != nil || !result.Replaced || result.Compaction.Recap != "none" {
 		t.Fatalf("compact = %+v, %v", result, err)
 	}
@@ -532,7 +532,7 @@ func TestTheModelsRecapIsOffUnlessTheAgentTurnsItOn(t *testing.T) {
 
 func TestAnAgentTurnsTheModelsRecapOnAndItAsksOnTheNextCallsContext(t *testing.T) {
 	model := recapModel()
-	agent := profile.AgentProfile{Name: "ops", Model: model, Instruction: "be brief", Compact: modelctx.Compactor{Recap: modelctx.ModelRecap{}}}
+	agent := profile.AgentProfile{Name: "ops", Model: model, Instruction: "be brief", Compact: record.Compactor{Recap: record.ModelRecap{}}}
 	runner, store := newRunner(t, agent)
 	ctx := context.Background()
 	id := runThree(t, runner)
@@ -540,7 +540,7 @@ func TestAnAgentTurnsTheModelsRecapOnAndItAsksOnTheNextCallsContext(t *testing.T
 	if err != nil {
 		t.Fatal(err)
 	}
-	result, err := runner.Compact(ctx, id, modelctx.CompactConfig{})
+	result, err := runner.Compact(ctx, id, record.CompactConfig{})
 	if err != nil || !result.Replaced || result.Compaction.Recap != "model" {
 		t.Fatalf("compact = %+v, %v", result, err)
 	}
@@ -560,14 +560,14 @@ func TestAnAgentTurnsTheModelsRecapOnAndItAsksOnTheNextCallsContext(t *testing.T
 	if sent[0].CacheKey == "" || sent[0].CacheKey != before.Request.CacheKey {
 		t.Errorf("cache key = %q, want %q", sent[0].CacheKey, before.Request.CacheKey)
 	}
-	record, err := session.View(ctx, store.Records, id)
+	rec, err := session.View(ctx, store.Records, id)
 	if err != nil {
 		t.Fatal(err)
 	}
-	if got := record.Segments()[0].Recap; got != strings.TrimSpace(agentRecap) {
+	if got := rec.Segments()[0].Recap; got != strings.TrimSpace(agentRecap) {
 		t.Errorf("Segment Recap = %q", got)
 	}
-	for _, m := range record.Messages() {
+	for _, m := range rec.Messages() {
 		if strings.Contains(gotato.TextOf(m), itext.RecapAskPrefix) {
 			t.Errorf("the ask was stored: %q", gotato.TextOf(m))
 		}
@@ -578,9 +578,9 @@ func TestAFailedModelRecapKeepsTheSegmentWithoutOne(t *testing.T) {
 	model := testkit.NewFuncModel(func(context.Context, gotato.ModelRequest) (testkit.Script, error) {
 		return testkit.Text("Sure, here you go: nothing."), nil
 	})
-	runner, _ := newRunner(t, profile.AgentProfile{Name: "ops", Model: model, Compact: modelctx.Compactor{Recap: modelctx.ModelRecap{}}})
+	runner, _ := newRunner(t, profile.AgentProfile{Name: "ops", Model: model, Compact: record.Compactor{Recap: record.ModelRecap{}}})
 	id := runThree(t, runner)
-	result, err := runner.Compact(context.Background(), id, modelctx.CompactConfig{})
+	result, err := runner.Compact(context.Background(), id, record.CompactConfig{})
 	if err != nil || !result.Replaced || result.Compaction.Recap != "none" {
 		t.Fatalf("compact = %+v, %v", result, err)
 	}
@@ -588,7 +588,7 @@ func TestAFailedModelRecapKeepsTheSegmentWithoutOne(t *testing.T) {
 
 func TestACompactionPastTheCeilingWritesTheRecapWithTheModelWhenTheAgentAsks(t *testing.T) {
 	model := recapModel()
-	agent := profile.AgentProfile{Name: "ops", Model: model, Compact: modelctx.Compactor{CompactPolicy: modelctx.CompactPolicy{CeilingTokens: 20000}, Recap: modelctx.ModelRecap{}}}
+	agent := profile.AgentProfile{Name: "ops", Model: model, Compact: record.Compactor{CompactPolicy: record.CompactPolicy{CeilingTokens: 20000}, Recap: record.ModelRecap{}}}
 	runner, store := newRunner(t, agent)
 	ctx := context.Background()
 	var last service.RunResponse
@@ -599,11 +599,11 @@ func TestACompactionPastTheCeilingWritesTheRecapWithTheModelWhenTheAgentAsks(t *
 			t.Fatal(err)
 		}
 	}
-	record, err := session.View(ctx, store.Records, last.SessionID)
-	if err != nil || len(record.Compactions()) == 0 {
+	rec, err := session.View(ctx, store.Records, last.SessionID)
+	if err != nil || len(rec.Compactions()) == 0 {
 		t.Fatalf("no compaction: %v", err)
 	}
-	if got := record.Compactions()[0].Recap; got != "model" || len(asks(model)) == 0 {
+	if got := rec.Compactions()[0].Recap; got != "model" || len(asks(model)) == 0 {
 		t.Fatalf("recap = %q, asks = %d", got, len(asks(model)))
 	}
 }

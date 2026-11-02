@@ -12,39 +12,25 @@ import (
 	"testing"
 )
 
-// Layers of the files of this package, in four groups. A file may use a
+// Layers of the files of this package, in three groups. A file may use a
 // declaration of its own group or of a lower one, never of a higher one: a
-// Store knows entries, not Records; a Record knows no Store; only the Writer
-// joins the two. Inside a group files may use each other freely: Record and
-// FileStore are each one type spread over several files, so the rule is
-// between groups.
+// Store keeps Entries and knows nothing of a Record's state; only the Writer
+// joins the two. Inside a group files may use each other freely: FileStore is
+// one type spread over several files, so the rule is between groups.
 const (
-	layerContract = 1 // contract and values: entries, errors, the Store interface and what it returns
-	layerRecord   = 2 // the Record: in-memory session state
-	layerStores   = 3 // the Stores that persist entries: MemoryStore and FileStore
-	layerWriter   = 4 // the Writer, which binds a Record to a Store
+	layerContract = 1 // the contract: the Store interfaces, what they return, and the errors
+	layerStores   = 2 // the Stores that persist entries: MemoryStore and FileStore
+	layerWriter   = 3 // the Writer, which binds a Record to a Store
 )
 
 // fileLayer gives the group of every non-test file. A new file fails
 // TestFileLayers until it is listed here.
 var fileLayer = map[string]int{
-	// contract and values
-	"committed.go":   layerContract,
+	// the contract
 	"definitions.go": layerContract,
-	"entry.go":       layerContract,
+	"doc.go":         layerContract,
 	"errors.go":      layerContract,
-	"recordepoch.go": layerContract,
 	"store.go":       layerContract,
-	// the Record
-	"document.go":    layerRecord,
-	"events.go":      layerRecord,
-	"holder.go":      layerRecord,
-	"record.go":      layerRecord,
-	"record_info.go": layerRecord,
-	"record_log.go":  layerRecord,
-	"run.go":         layerRecord,
-	"segments.go":    layerRecord,
-	"spilled.go":     layerRecord,
 	// the Stores
 	"definitions_file.go":   layerStores,
 	"definitions_memory.go": layerStores,

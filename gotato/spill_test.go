@@ -63,7 +63,7 @@ func TestCanceledRunStillCommitsALargeToolResult(t *testing.T) {
 	t.Fatal("no tool result")
 }
 
-// queueingJournal is a spill-keeping Journal like session.Record: a write
+// queueingJournal is a spill-keeping Journal like record.Record: a write
 // that holds a spilled result also returns an Event the Record had queued
 // before it (a metadata change), first.
 type queueingJournal struct{ journalTranscript }

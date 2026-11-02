@@ -2,12 +2,11 @@ package session
 
 import (
 	"context"
-	"encoding/json"
 	"errors"
-	"fmt"
-	"slices"
 	"sync"
 	"time"
+
+	"github.com/jinhuang712/gotato/record"
 
 	"github.com/jinhuang712/gotato/gotato"
 )
@@ -29,7 +28,7 @@ import (
 // from the store, which shows whether the write landed.
 type Writer struct {
 	store   Records
-	record  *Record
+	rec     *record.Record
 	guard   func() error
 	publish func(gotato.Event)
 
@@ -43,7 +42,7 @@ type WriterOption func(*writerConfig)
 
 type writerConfig struct {
 	guard   func() error
-	holder  func(ctx context.Context, holder Claim, busy bool) error
+	holder  func(ctx context.Context, holder record.Claim, busy bool) error
 	publish func(gotato.Event)
 	waited  bool
 	idle    bool
@@ -96,7 +95,7 @@ func WithGuard(guard func() error) WriterOption {
 // error and writes nothing.
 //
 // It is for hosts that run Sessions on many Instances.
-func WithHolderCheck(check func(ctx context.Context, holder Claim, busy bool) error) WriterOption {
+func WithHolderCheck(check func(ctx context.Context, holder record.Claim, busy bool) error) WriterOption {
 	return func(c *writerConfig) { c.holder = check }
 }
 
@@ -133,29 +132,17 @@ type WriteStats struct {
 // with ErrExists when the ID is taken. Any other failure of the store is a
 // store_failure whose outcome is unknown (it is not NotRun): the Record may
 // exist, so a caller that retries with the same ID must tolerate ErrExists.
-func CreateWriter(ctx context.Context, store Records, r *Record, instance string, options ...WriterOption) (*Writer, error) {
+func CreateWriter(ctx context.Context, store Records, r *record.Record, instance string, options ...WriterOption) (*Writer, error) {
 	config := newWriterConfig(options)
 	if r.Head() > 0 {
 		return nil, gotato.ErrorOf(gotato.CodeInvalidState, "session: the Record is stored already")
 	}
-	r.mu.Lock()
-	r.instance = instance
-	r.claim = Claim{}
-	r.mu.Unlock()
-	r.startLog()
-	r.claimFor(instance, gotato.ClaimWhyNewSession)
-	r.mu.Lock()
-	r.busy = true
-	if config.idle {
-		r.busy = false
-		r.emit(gotato.SessionReleased{Header: r.header(), Instance: r.claim.Instance, Epoch: r.claim.Epoch})
-	}
-	r.mu.Unlock()
-	entries, events, header, err := r.takePending()
+	r.StartWriting(instance, config.idle)
+	entries, events, header, err := r.TakePending()
 	if err != nil {
 		return nil, storeFailure(err)
 	}
-	w := &Writer{store: store, record: r, guard: config.guard, publish: config.publish}
+	w := &Writer{store: store, rec: r, guard: config.guard, publish: config.publish}
 	if w.guard != nil {
 		if err := w.guard(); err != nil {
 			return nil, err
@@ -167,7 +154,7 @@ func CreateWriter(ctx context.Context, store Records, r *Record, instance string
 	if err != nil {
 		return nil, classifyStore(err, false)
 	}
-	r.stored(entries[len(entries)-1].Seq)
+	r.Stored(entries[len(entries)-1].Seq)
 	w.send(events)
 	return w, nil
 }
@@ -189,11 +176,11 @@ func OpenWriter(ctx context.Context, store Records, id, instance string, options
 	if err != nil {
 		return nil, classifyStore(err, true)
 	}
-	r, err := fromLoaded(loaded)
+	r, err := record.FromLoaded(loaded)
 	if err != nil {
 		return nil, err
 	}
-	holder, busy, running := r.attach(instance)
+	holder, busy, running := r.Attach(instance)
 	if holder.Instance != instance && config.holder != nil {
 		if err := config.holder(ctx, holder, busy); err != nil {
 			return nil, err
@@ -206,55 +193,13 @@ func OpenWriter(ctx context.Context, store Records, id, instance string, options
 	case busy:
 		why = gotato.ClaimWhyWriterGone
 	}
-	r.takeOver(instance, why, running)
-	w := &Writer{store: store, record: r, guard: config.guard, publish: config.publish}
+	r.TakeOver(instance, why, running)
+	w := &Writer{store: store, rec: r, guard: config.guard, publish: config.publish}
 	w.stats.Load = loadTime
 	if err := w.Flush(ctx); err != nil {
 		return nil, err
 	}
 	return w, nil
-}
-
-// attach makes the Record instance's, and returns who held the Claim, whether
-// that holder was using the Session (busy, or a Run not ended), and the Run
-// that started and never ended, if any.
-func (r *Record) attach(instance string) (holder Claim, busy bool, running gotato.RunID) {
-	r.mu.Lock()
-	defer r.mu.Unlock()
-	r.instance = instance
-	r.logging = true
-	return r.claim, r.busy || r.running != "", r.running
-}
-
-// takeOver claims the Record for instance, and settles what the last Writer
-// left: the Cut-off replies and the Run that never ended.
-//
-// The Session is busy from this write on, so another Instance waits instead of
-// claiming it before this writer's Run has started. A writer that holds the
-// Claim already writes it again: it takes the next position too, so when
-// another Instance claims the Record at the same moment, exactly one of the
-// two writes lands, and the other sees a conflict before it calls the model.
-func (r *Record) takeOver(instance string, why gotato.ClaimWhy, running gotato.RunID) {
-	r.mu.Lock()
-	r.busy = true
-	r.mu.Unlock()
-	r.claimFor(instance, why)
-	// A reply that was streaming when the last Writer stopped is kept as the
-	// Cut-off reply it had reached, as a fact, so every later load has it.
-	r.mu.Lock()
-	for _, message := range r.cutOff {
-		r.emit(gotato.ReplyCutOff{Header: r.header(), Message: message.Clone(), Cause: "interrupted"})
-	}
-	r.cutOff = nil
-	r.mu.Unlock()
-	if running != "" {
-		// A message the dead Writer accepted as queued, and did not commit,
-		// is gone with it: say so before the Run ends.
-		r.mu.Lock()
-		r.dropQueued("writer_gone")
-		r.mu.Unlock()
-		r.interruptRun(running)
-	}
 }
 
 // Resume claims the Record again for another Run, on a Writer that released
@@ -269,12 +214,7 @@ func (w *Writer) Resume(ctx context.Context) error {
 	if err := w.Failed(); err != nil {
 		return err
 	}
-	r := w.record
-	r.mu.Lock()
-	r.busy = true
-	instance := r.instance
-	r.mu.Unlock()
-	r.claimFor(instance, gotato.ClaimWhyIdle)
+	w.rec.Reclaim()
 	return w.Flush(ctx)
 }
 
@@ -286,7 +226,7 @@ func (w *Writer) Resume(ctx context.Context) error {
 // with a log shorter than the head reports a copy as current, and the next
 // write fails with ErrNotFound (see Resume).
 func (w *Writer) Stale(ctx context.Context) (bool, error) {
-	entries, err := w.store.Log(ctx, w.record.ID(), w.record.Head(), 1)
+	entries, err := w.store.Log(ctx, w.rec.ID(), w.rec.Head(), 1)
 	if err != nil {
 		return false, err
 	}
@@ -295,80 +235,22 @@ func (w *Writer) Stale(ctx context.Context) (bool, error) {
 
 // Open loads a Record from its facts, for reading only: everything a Run
 // needs, without its Run records and Events.
-func Open(ctx context.Context, store Records, id string) (*Record, error) {
+func Open(ctx context.Context, store Records, id string) (*record.Record, error) {
 	loaded, err := store.Load(ctx, id)
 	if err != nil {
 		return nil, err
 	}
-	return fromLoaded(loaded)
+	return record.FromLoaded(loaded)
 }
 
 // View loads a Record from its whole log, for reading only: its facts, and
 // its Run records, usage and Events.
-func View(ctx context.Context, store Records, id string) (*Record, error) {
+func View(ctx context.Context, store Records, id string) (*record.Record, error) {
 	entries, err := store.Log(ctx, id, 0, 0)
 	if err != nil {
 		return nil, err
 	}
-	r, err := fromEntries(entries)
-	if err != nil {
-		return nil, err
-	}
-	r.mu.Lock()
-	r.logging = false
-	r.mu.Unlock()
-	return r, nil
-}
-
-// fromLoaded rebuilds a Record from one Load: its facts, and its Run count,
-// usage and what was in flight from the Header's State, since the Run records
-// are in the log. When the Header's LogFrom is set, a Run started and never
-// ended, and the Load held the log from the last Checkpoint on too: it holds
-// the parts of a reply that was streaming, which become a Cut-off reply, so a
-// crash loses at most the last part. It all comes from the one read, so there
-// is nothing for it to disagree with.
-func fromLoaded(loaded Loaded) (*Record, error) {
-	var state recordState
-	if len(loaded.Header.State) > 0 {
-		if err := json.Unmarshal(loaded.Header.State, &state); err != nil {
-			return nil, fmt.Errorf("session: the state of the Record: %w", err)
-		}
-	}
-	r, err := rebuildRecord(loaded.Entries, false, loaded.Segments)
-	if err != nil {
-		return nil, err
-	}
-	r.mu.Lock()
-	defer r.mu.Unlock()
-	if loaded.Header.LogFrom != 0 {
-		// The log was read for its parts only: its Runs are in the state.
-		r.runs, r.eventHead = nil, 0
-	}
-	r.head = loaded.Seq
-	r.last = loaded.Seq
-	r.checkpointSeq = loaded.Entries[0].Seq
-	// A load that starts at a compaction_ended Checkpoint has not read
-	// session_created: what it held comes from the Header.
-	if r.createdAt.IsZero() {
-		r.createdAt = loaded.Header.Info.CreatedAt
-	}
-	if r.parentID == "" {
-		r.parentID = loaded.Header.Info.ParentID
-	}
-	if r.epoch == "" {
-		r.epoch = loaded.Header.Epoch
-	}
-	r.baseRuns = state.Runs
-	r.usage = state.Usage
-	r.running = state.Running
-	r.busy = state.Busy
-	r.notices = slices.Clone(state.Notices)
-	if !state.LastRunEnd.IsZero() {
-		r.lastRunEnd = state.LastRunEnd.UTC()
-	}
-	r.logging = false
-	r.retainRead = true
-	return r, nil
+	return record.View(entries)
 }
 
 // SetPublisher sets the publisher, once the host knows where the Session's
@@ -384,27 +266,27 @@ func (w *Writer) SetPublisher(publish func(gotato.Event)) {
 // its Record, stores every Entry (so the body of a spilled result can be read
 // back), catches a subscriber up from the store and restores the loaded Tools.
 func (w *Writer) Capabilities() gotato.Capabilities {
-	return gotato.Capabilities{ID: w.record.ID(), Journal: w, Durable: true, Spill: true, Events: w, Loaded: w}
+	return gotato.Capabilities{ID: w.rec.ID(), Journal: w, Durable: true, Spill: true, Events: w, Loaded: w}
 }
 
 // Record returns the Record the Writer writes.
-func (w *Writer) Record() *Record { return w.record }
+func (w *Writer) Record() *record.Record { return w.rec }
 
 // ID returns the Record's ID, so a live Session takes it as its own.
-func (w *Writer) ID() string { return w.record.ID() }
+func (w *Writer) ID() string { return w.rec.ID() }
 
 // Len implements gotato.Transcript.
-func (w *Writer) Len() int { return w.record.Len() }
+func (w *Writer) Len() int { return w.rec.Len() }
 
 // LoadedTools implements gotato.LoadedToolSource over the Record.
-func (w *Writer) LoadedTools() []string { return w.record.LoadedTools() }
+func (w *Writer) LoadedTools() []string { return w.rec.LoadedTools() }
 
 // Messages implements gotato.Transcript.
-func (w *Writer) Messages() []gotato.Message { return w.record.Messages() }
+func (w *Writer) Messages() []gotato.Message { return w.rec.Messages() }
 
 // Append implements gotato.Transcript. The Message is stored by the Event that
 // carries it, which the Session writes next.
-func (w *Writer) Append(message gotato.Message) error { return w.record.Append(message) }
+func (w *Writer) Append(message gotato.Message) error { return w.rec.Append(message) }
 
 // Write implements gotato.Journal: it numbers events as the next Events of the
 // Record, writes them with everything the Record had queued, and returns every
@@ -413,7 +295,7 @@ func (w *Writer) Write(ctx context.Context, events []gotato.Event) ([]gotato.Eve
 	// [CONCURRENCY] numbering and writing are one step under w.mu, so a Flush from another goroutine cannot take these events in between; the lock order is w.mu, then record.mu.
 	w.mu.Lock()
 	defer w.mu.Unlock()
-	if _, err := w.record.Write(ctx, events); err != nil {
+	if _, err := w.rec.Write(ctx, events); err != nil {
 		return nil, err
 	}
 	return w.flushLocked(ctx, false)
@@ -423,38 +305,27 @@ func (w *Writer) Write(ctx context.Context, events []gotato.Event) ([]gotato.Eve
 // after, read again from the store, at most limit of them. A subscriber that
 // fell behind catches up from it.
 func (w *Writer) EventsAfter(ctx context.Context, after uint64, limit int) ([]gotato.Event, error) {
-	return StoredEvents(ctx, w.store, w.record.ID(), after, limit)
+	return StoredEvents(ctx, w.store, w.rec.ID(), after, limit)
 }
 
 // StoredEvents reads a Record's stored Events after number after from store,
-// in order, as typed Events: at most limit Entries are read at a time, and all
-// the Events are returned when limit is 0 or less. A tool_result_spilled Event
-// comes without its body, as a subscriber sees it: read_result reads the body.
-// With a limit it returns at least one Event when the Record has one after
-// after, so an empty answer always means there are no more.
+// in order, as typed Events: at most limit of them, or all when limit is 0 or
+// less. A tool_result_spilled Event comes without its body, as a subscriber
+// sees it: read_result reads the body.
 func StoredEvents(ctx context.Context, store Records, id string, after uint64, limit int) ([]gotato.Event, error) {
-	var events []gotato.Event
-	for {
-		entries, err := store.Log(ctx, id, after, limit)
+	entries, err := store.Log(ctx, id, after, limit)
+	if err != nil {
+		return nil, err
+	}
+	events := make([]gotato.Event, 0, len(entries))
+	for _, entry := range entries {
+		event, err := entry.Event(gotato.SessionID(id))
 		if err != nil {
 			return nil, err
 		}
-		for _, entry := range entries {
-			event, ok, err := eventOf(entry, gotato.SessionID(id))
-			if err != nil {
-				return nil, err
-			}
-			if ok {
-				events = append(events, gotato.WithoutBody(event))
-			}
-		}
-		// An Entry that holds no Event is skipped; read on, so that a page of
-		// them is not taken for the end of the log.
-		if limit <= 0 || len(events) > 0 || len(entries) == 0 {
-			return events, nil
-		}
-		after = entries[len(entries)-1].Seq
+		events = append(events, gotato.WithoutBody(event))
 	}
+	return events, nil
 }
 
 // WriteTimeout bounds one write of a Writer. A write does not end with the
@@ -498,7 +369,7 @@ func (w *Writer) flushLocked(ctx context.Context, publish bool) ([]gotato.Event,
 	if w.failed != nil {
 		return nil, w.failed
 	}
-	entries, events, header, err := w.record.takePending()
+	entries, events, header, err := w.rec.TakePending()
 	if err != nil {
 		w.failed = storeFailure(err)
 		return nil, w.failed
@@ -513,16 +384,16 @@ func (w *Writer) flushLocked(ctx context.Context, publish bool) ([]gotato.Event,
 		}
 	}
 	began := time.Now()
-	err = w.store.Append(ctx, w.record.ID(), entries[0].Seq-1, entries, header)
+	err = w.store.Append(ctx, w.rec.ID(), entries[0].Seq-1, entries, header)
 	w.count(entries, time.Since(began), err)
 	if err != nil {
-		if !errors.Is(err, ErrConflict) && !errors.Is(err, ErrNotFound) {
+		if !errors.Is(err, ErrConflict) && !errors.Is(err, record.ErrNotFound) {
 			err = storeFailure(err)
 		}
 		w.failed = err
 		return nil, err
 	}
-	w.record.stored(entries[len(entries)-1].Seq)
+	w.rec.Stored(entries[len(entries)-1].Seq)
 	if publish && w.publish != nil {
 		for _, event := range events {
 			w.publish(gotato.WithoutBody(event))
@@ -535,12 +406,7 @@ func (w *Writer) flushLocked(ctx context.Context, publish bool) ([]gotato.Event,
 // Session is no longer busy: another Instance may then claim it without
 // waiting.
 func (w *Writer) Release(ctx context.Context) error {
-	w.record.mu.Lock()
-	if w.record.busy {
-		w.record.busy = false
-		w.record.emit(gotato.SessionReleased{Header: w.record.header(), Instance: w.record.claim.Instance, Epoch: w.record.claim.Epoch})
-	}
-	w.record.mu.Unlock()
+	w.rec.Release()
 	return w.Flush(ctx)
 }
 
@@ -571,7 +437,7 @@ func (w *Writer) Stats() WriteStats {
 	return w.stats
 }
 
-func (w *Writer) count(entries []Entry, elapsed time.Duration, err error) {
+func (w *Writer) count(entries []record.Entry, elapsed time.Duration, err error) {
 	w.stats.Writes++
 	w.stats.Entries += len(entries)
 	w.stats.Elapsed += elapsed

@@ -6,6 +6,8 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+
+	"github.com/jinhuang712/gotato/record"
 )
 
 // FileDefinitions is a Definitions store that keeps each document as the file
@@ -74,7 +76,7 @@ func (f *FileDefinitions) LoadDefinition(_ context.Context, kind, name string) (
 	}
 	doc, err := os.ReadFile(path)
 	if errors.Is(err, os.ErrNotExist) {
-		return nil, ErrNotFound
+		return nil, record.ErrNotFound
 	}
 	return doc, err
 }

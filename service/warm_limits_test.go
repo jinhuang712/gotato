@@ -10,8 +10,8 @@ import (
 	"time"
 
 	"github.com/jinhuang712/gotato/gotato"
-	"github.com/jinhuang712/gotato/modelctx"
 	"github.com/jinhuang712/gotato/profile"
+	"github.com/jinhuang712/gotato/record"
 	"github.com/jinhuang712/gotato/service"
 	"github.com/jinhuang712/gotato/session"
 	"github.com/jinhuang712/gotato/testkit"
@@ -139,16 +139,16 @@ func TestWarmSessionsHaveADefaultBound(t *testing.T) {
 // wrapper of an embedding application answers a caller it does not authorize.
 type guarded struct{ parts }
 
-func (g guarded) Load(ctx context.Context, id string) (session.Loaded, error) {
+func (g guarded) Load(ctx context.Context, id string) (record.Loaded, error) {
 	if refused(ctx) {
-		return session.Loaded{}, session.ErrNotFound
+		return record.Loaded{}, record.ErrNotFound
 	}
 	return g.parts.Load(ctx, id)
 }
 
-func (g guarded) Log(ctx context.Context, id string, after uint64, limit int) ([]session.Entry, error) {
+func (g guarded) Log(ctx context.Context, id string, after uint64, limit int) ([]record.Entry, error) {
 	if refused(ctx) {
-		return nil, session.ErrNotFound
+		return nil, record.ErrNotFound
 	}
 	return g.parts.Log(ctx, id, after, limit)
 }
@@ -160,7 +160,7 @@ func (g guarded) Log(ctx context.Context, id string, after uint64, limit int) ([
 func TestRefusedCallerDoesNotEvictTheWarmSession(t *testing.T) {
 	calls := map[string]func(ctx context.Context, r *service.Runner, id string) error{
 		"compact": func(ctx context.Context, r *service.Runner, id string) error {
-			_, err := r.Compact(ctx, id, modelctx.CompactConfig{})
+			_, err := r.Compact(ctx, id, record.CompactConfig{})
 			return err
 		},
 		"notice": func(ctx context.Context, r *service.Runner, id string) error {
@@ -407,7 +407,7 @@ func TestEvictionCancelsAnIdleCompactionInProgress(t *testing.T) {
 		Bounds: service.Bounds{MaxActiveSessions: 1},
 		Profiles: registry(t, profile.AgentProfile{
 			Name: "echo", Model: model,
-			Compact: modelctx.Compactor{Recap: modelctx.ModelRecap{}},
+			Compact: record.Compactor{Recap: record.ModelRecap{}},
 		}), DefaultAgent: "echo", Warm: service.WarmPolicy{IdleMinTokens: -1},
 	}, clock))
 	if err != nil {

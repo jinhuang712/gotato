@@ -7,6 +7,8 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/jinhuang712/gotato/record"
+
 	"github.com/jinhuang712/gotato/gotato"
 	"github.com/jinhuang712/gotato/profile"
 	"github.com/jinhuang712/gotato/service"
@@ -17,11 +19,11 @@ import (
 // storedMetadata is the metadata of a stored Session.
 func storedMetadata(t *testing.T, store session.Store, id string) map[string]string {
 	t.Helper()
-	record, err := session.View(context.Background(), store.Records, id)
+	rec, err := session.View(context.Background(), store.Records, id)
 	if err != nil {
 		t.Fatal(err)
 	}
-	return record.Metadata()
+	return rec.Metadata()
 }
 
 func equalMetadata(a, b map[string]string) bool { return maps.Equal(a, b) }
@@ -77,7 +79,7 @@ func TestAReservedKeyIsRefusedByRunMetadataAndUpdate(t *testing.T) {
 	model := testkit.NewFakeModel(testkit.Text("ok"))
 	runner, store := newRunner(t, profile.AgentProfile{Name: "echo", Model: model})
 	ctx := context.Background()
-	id := plant(t, store, session.WithMetadata(map[string]string{metaAgentKey: "echo", "tenant": "a"}))
+	id := plant(t, store, record.WithMetadata(map[string]string{metaAgentKey: "echo", "tenant": "a"}))
 	before := storedMetadata(t, store, id)
 	for _, key := range reservedKeys {
 		for _, skip := range []bool{false, true} {
@@ -118,7 +120,7 @@ func TestTheAgentChangesOnlyByTheRequestsAgent(t *testing.T) {
 		profile.AgentProfile{Name: "other", Model: testkit.EchoModel{}},
 	)
 	ctx := context.Background()
-	id := plant(t, store, session.WithMetadata(map[string]string{metaAgentKey: "echo"}))
+	id := plant(t, store, record.WithMetadata(map[string]string{metaAgentKey: "echo"}))
 	_, err := runner.Run(ctx, service.RunRequest{SessionID: id, Prompt: "hi", Update: map[string]string{metaAgentKey: "other"}})
 	requireRefused(t, "Run.Update", metaAgentKey, err)
 	if got := storedMetadata(t, store, id)[metaAgentKey]; got != "echo" {

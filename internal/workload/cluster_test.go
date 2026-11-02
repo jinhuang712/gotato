@@ -22,6 +22,8 @@ import (
 	"testing"
 	"time"
 
+	"github.com/jinhuang712/gotato/record"
+
 	"github.com/jinhuang712/gotato/internal/reftasks"
 	"github.com/jinhuang712/gotato/profile"
 	"github.com/jinhuang712/gotato/service"
@@ -48,28 +50,28 @@ func (s *killStore) alive() error {
 	return nil
 }
 
-func (s *killStore) Create(ctx context.Context, id string, entries []session.Entry, h session.Header) error {
+func (s *killStore) Create(ctx context.Context, id string, entries []record.Entry, h record.Header) error {
 	if err := s.alive(); err != nil {
 		return err
 	}
 	return s.Records.Create(ctx, id, entries, h)
 }
 
-func (s *killStore) Append(ctx context.Context, id string, after uint64, entries []session.Entry, h session.Header) error {
+func (s *killStore) Append(ctx context.Context, id string, after uint64, entries []record.Entry, h record.Header) error {
 	if err := s.alive(); err != nil {
 		return err
 	}
 	return s.Records.Append(ctx, id, after, entries, h)
 }
 
-func (s *killStore) Load(ctx context.Context, id string) (session.Loaded, error) {
+func (s *killStore) Load(ctx context.Context, id string) (record.Loaded, error) {
 	if err := s.alive(); err != nil {
-		return session.Loaded{}, err
+		return record.Loaded{}, err
 	}
 	return s.Records.Load(ctx, id)
 }
 
-func (s *killStore) Log(ctx context.Context, id string, after uint64, limit int) ([]session.Entry, error) {
+func (s *killStore) Log(ctx context.Context, id string, after uint64, limit int) ([]record.Entry, error) {
 	if err := s.alive(); err != nil {
 		return nil, err
 	}

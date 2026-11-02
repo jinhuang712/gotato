@@ -3,7 +3,8 @@ package service
 import (
 	"context"
 
-	"github.com/jinhuang712/gotato/modelctx"
+	"github.com/jinhuang712/gotato/record"
+
 	"github.com/jinhuang712/gotato/session"
 )
 
@@ -19,25 +20,25 @@ type InspectConfig struct {
 // Agent's Extensions, Tools and model options, and says whether the next Run
 // compacts the Session first. config overrides the Agent's instruction for this
 // inspection alone. The Session is not changed.
-func (r *Runner) Inspect(ctx context.Context, sessionID string, config InspectConfig) (modelctx.Report, error) {
+func (r *Runner) Inspect(ctx context.Context, sessionID string, config InspectConfig) (record.Report, error) {
 	s, err := session.Open(ctx, r.store.Records, sessionID)
 	if err != nil {
-		return modelctx.Report{}, storeFailureOf(ctx, err, true)
+		return record.Report{}, storeFailureOf(ctx, err, true)
 	}
 	spec, err := r.agentOf(ctx, s)
 	if err != nil {
-		return modelctx.Report{}, err
+		return record.Report{}, err
 	}
 	live, auto, err := r.buildSession(ctx, spec, s, nil, config)
 	if err != nil {
-		return modelctx.Report{}, err
+		return record.Report{}, err
 	}
 	defer func() { _ = live.Close(context.Background()) }()
 	inspection, err := live.InspectContext(ctx)
 	if err != nil {
-		return modelctx.Report{}, err
+		return record.Report{}, err
 	}
-	report := modelctx.ReportOf(inspection)
+	report := record.ReportOf(inspection)
 	report.SessionID = s.ID()
 	report.Compactions = s.Compactions()
 	if auto != nil {

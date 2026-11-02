@@ -54,7 +54,7 @@ const (
 	CodeStoreFailure ErrorCode = "store_failure"
 	// CodeNotFound means the Session (or the Record it names) does not exist.
 	// The request did not run, and sending it again changes nothing.
-	// session.ErrNotFound carries it.
+	// record.ErrNotFound carries it.
 	CodeNotFound ErrorCode = "not_found"
 )
 

@@ -4,8 +4,9 @@ import (
 	"context"
 	"time"
 
+	"github.com/jinhuang712/gotato/record"
+
 	"github.com/jinhuang712/gotato/gotato"
-	"github.com/jinhuang712/gotato/modelctx"
 	"github.com/jinhuang712/gotato/profile"
 	"github.com/jinhuang712/gotato/service/internal/warm"
 	"github.com/jinhuang712/gotato/session"
@@ -222,14 +223,14 @@ func (r *Runner) compactIdleLocked(ctx context.Context, entry *warm.Entry, why g
 		}
 		return
 	}
-	record := writer.Record()
+	rec := writer.Record()
 	// The profile may have been replaced since the Session went idle.
 	spec := kept.spec
-	if current, err := r.agentOf(ctx, record); err == nil {
+	if current, err := r.agentOf(ctx, rec); err == nil {
 		spec = current
 	}
 	minTokens := r.warmPolicy.minTokens()
-	if minTokens > 0 && modelctx.EstimateTokens(record.Tail()) < minTokens {
+	if minTokens > 0 && record.EstimateTokens(rec.Tail()) < minTokens {
 		return
 	}
 	if err := writer.Resume(ctx); err != nil {
@@ -246,9 +247,9 @@ func (r *Runner) compactIdleLocked(ctx context.Context, entry *warm.Entry, why g
 		}
 		return
 	}
-	compactOpts := []modelctx.CompactOption{modelctx.WithCompactionWhy(why), modelctx.WithRecapContext(r.recapContext(spec, record))}
+	compactOpts := []record.CompactOption{record.WithCompactionWhy(why), record.WithRecapContext(r.recapContext(spec, rec))}
 	// The result needs no report: the compaction's Events say what it did.
-	_, _ = modelctx.Compact(ctx, record, compactorFor(spec), modelctx.CompactConfig{MinTokens: minTokens}, compactOpts...)
+	_, _ = record.Compact(ctx, rec, compactorFor(spec), record.CompactConfig{MinTokens: minTokens}, compactOpts...)
 	saveCtx, cancelSave := persistContext(ctx)
 	releaseErr := r.releaseWriter(saveCtx, writer)
 	cancelSave()

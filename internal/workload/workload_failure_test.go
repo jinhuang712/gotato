@@ -9,6 +9,8 @@ import (
 	"testing"
 	"time"
 
+	"github.com/jinhuang712/gotato/record"
+
 	"github.com/jinhuang712/gotato/gotato"
 	"github.com/jinhuang712/gotato/internal/reftasks"
 	"github.com/jinhuang712/gotato/profile"
@@ -189,11 +191,11 @@ func (s *flakyStore) write(ctx context.Context, id string, do func() error) erro
 	return nil
 }
 
-func (s *flakyStore) Create(ctx context.Context, id string, entries []session.Entry, h session.Header) error {
+func (s *flakyStore) Create(ctx context.Context, id string, entries []record.Entry, h record.Header) error {
 	return s.write(ctx, id, func() error { return s.Records.Create(ctx, id, entries, h) })
 }
 
-func (s *flakyStore) Append(ctx context.Context, id string, after uint64, entries []session.Entry, h session.Header) error {
+func (s *flakyStore) Append(ctx context.Context, id string, after uint64, entries []record.Entry, h record.Header) error {
 	return s.write(ctx, id, func() error { return s.Records.Append(ctx, id, after, entries, h) })
 }
 
@@ -543,7 +545,7 @@ type faultStore struct {
 	session.Records
 	session.Liveness
 	crashAfter int
-	record     bool
+	rec        bool
 
 	mu       sync.Mutex
 	writes   int
@@ -579,7 +581,7 @@ func (s *faultStore) write(ctx context.Context, id string, do func() error) erro
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	s.writes++
-	if s.record {
+	if s.rec {
 		stored, err := session.Open(ctx, s.Records, id)
 		if err != nil {
 			return err
@@ -601,11 +603,11 @@ func (s *faultStore) Beat(ctx context.Context, row session.InstanceRow, ttl time
 	return s.Liveness.Beat(ctx, row, ttl)
 }
 
-func (s *faultStore) Create(ctx context.Context, id string, entries []session.Entry, h session.Header) error {
+func (s *faultStore) Create(ctx context.Context, id string, entries []record.Entry, h record.Header) error {
 	return s.write(ctx, id, func() error { return s.Records.Create(ctx, id, entries, h) })
 }
 
-func (s *faultStore) Append(ctx context.Context, id string, after uint64, entries []session.Entry, h session.Header) error {
+func (s *faultStore) Append(ctx context.Context, id string, after uint64, entries []record.Entry, h record.Header) error {
 	return s.write(ctx, id, func() error { return s.Records.Append(ctx, id, after, entries, h) })
 }
 
@@ -618,7 +620,7 @@ func TestCrashAtEveryWriteRebuildsTheLastStep(t *testing.T) {
 	for _, task := range reftasks.ReferenceTasks() {
 		t.Run(task.Name, func(t *testing.T) {
 			cleanMem := session.NewMemoryStore()
-			clean := &faultStore{Records: cleanMem, Liveness: cleanMem, record: true}
+			clean := &faultStore{Records: cleanMem, Liveness: cleanMem, rec: true}
 			if _, err := play(ctx, taskRunner(t, clean.store(), task, "clean"), task); err != nil {
 				t.Fatalf("a clean play failed: %v", err)
 			}
@@ -710,7 +712,7 @@ func TestEmbeddedCallerSeesARefusalAsNotRun(t *testing.T) {
 	t.Run("a Session that does not exist", func(t *testing.T) {
 		r, _ := newRig(t)
 		res, err := r.runner.Run(ctx, service.RunRequest{SessionID: "missing", Prompt: "hello"})
-		if !gotato.IsCode(err, gotato.CodeNotFound) || !errors.Is(err, session.ErrNotFound) {
+		if !gotato.IsCode(err, gotato.CodeNotFound) || !errors.Is(err, record.ErrNotFound) {
 			t.Fatalf("Run on a missing Session = %v, want not_found", err)
 		}
 		if !gotato.NotRun(err) || gotato.Retryable(err) || res.Result.Status != "" {

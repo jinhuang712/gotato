@@ -13,6 +13,8 @@ import (
 	"unicode"
 	"unicode/utf8"
 
+	"github.com/jinhuang712/gotato/record"
+
 	"github.com/jinhuang712/gotato/gotato"
 )
 
@@ -55,7 +57,7 @@ func CheckID(id string) error {
 // epoch: with none, the fence against a writer of a deleted Record is off. It
 // returns invalid_argument for a batch that does not hold. A Store calls it
 // before any write, so that all of them refuse the same batches the same way.
-func CheckBatch(after uint64, entries []Entry, h Header) error {
+func CheckBatch(after uint64, entries []record.Entry, h record.Header) error {
 	if h.Epoch == "" {
 		return gotato.ErrorOf(gotato.CodeInvalidArgument, "session: a write names the Record's epoch (Header.Epoch)")
 	}
@@ -67,7 +69,7 @@ func CheckBatch(after uint64, entries []Entry, h Header) error {
 			return gotato.ErrorOf(gotato.CodeInvalidArgument, fmt.Sprintf("session: entry %d of a write after %d has Seq %d", i, after, entry.Seq))
 		}
 	}
-	if after == 0 && (!entries[0].IsCheckpoint() || entries[0].Layer != LayerFact) {
+	if after == 0 && (!entries[0].IsCheckpoint() || entries[0].Layer != record.LayerFact) {
 		return gotato.ErrorOf(gotato.CodeInvalidArgument, "session: a Record must start with a checkpoint")
 	}
 	return nil
@@ -75,8 +77,8 @@ func CheckBatch(after uint64, entries []Entry, h Header) error {
 
 // cloneEntries copies entries, Data included, so a store and its caller never
 // share bytes.
-func cloneEntries(entries []Entry) []Entry {
-	out := make([]Entry, len(entries))
+func cloneEntries(entries []record.Entry) []record.Entry {
+	out := make([]record.Entry, len(entries))
 	for i, entry := range entries {
 		out[i] = entry
 		out[i].Data = append([]byte(nil), entry.Data...)
@@ -88,7 +90,7 @@ func cloneEntries(entries []Entry) []Entry {
 // Checkpoint on and every Entry from logFrom (0 for none), each once and in
 // order, and the segment_closed Entries before that Checkpoint, which the
 // Checkpoint may list. It is the whole of what a Store reads of an Entry.
-func loadedFrom(entries []Entry, logFrom uint64) (out, segments []Entry) {
+func loadedFrom(entries []record.Entry, logFrom uint64) (out, segments []record.Entry) {
 	start := 0
 	for i, entry := range slices.Backward(entries) {
 		if entry.IsCheckpoint() {
@@ -102,7 +104,7 @@ func loadedFrom(entries []Entry, logFrom uint64) (out, segments []Entry) {
 		}
 	}
 	for _, entry := range entries[start:] {
-		if entry.Layer == LayerFact || (logFrom != 0 && entry.Seq >= logFrom) {
+		if entry.Layer == record.LayerFact || (logFrom != 0 && entry.Seq >= logFrom) {
 			out = append(out, entry)
 		}
 	}
@@ -110,18 +112,18 @@ func loadedFrom(entries []Entry, logFrom uint64) (out, segments []Entry) {
 }
 
 // cloneHeader copies h, so a store and its caller never share bytes.
-func cloneHeader(h Header) Header {
+func cloneHeader(h record.Header) record.Header {
 	h.Info = cloneInfo(h.Info)
 	h.State = bytes.Clone(h.State)
 	return h
 }
 
-func cloneInfo(info RecordInfo) RecordInfo {
+func cloneInfo(info record.Info) record.Info {
 	info.Metadata = maps.Clone(info.Metadata)
 	return info
 }
 
-func sortInfos(out []RecordInfo) {
+func sortInfos(out []record.Info) {
 	sort.Slice(out, func(i, j int) bool {
 		if out[i].UpdatedAt.Equal(out[j].UpdatedAt) {
 			return out[i].ID < out[j].ID
@@ -143,7 +145,7 @@ type listCursor struct {
 
 // pageOf sorts infos, the most recently updated first, and returns the page
 // q asks for. A Cursor that was not made by pageOf is invalid_argument.
-func pageOf(infos []RecordInfo, q ListQuery) (ListPage, error) {
+func pageOf(infos []record.Info, q ListQuery) (ListPage, error) {
 	sortInfos(infos)
 	if q.Cursor != "" {
 		raw, err := base64.RawURLEncoding.DecodeString(q.Cursor)

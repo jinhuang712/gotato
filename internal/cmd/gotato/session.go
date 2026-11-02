@@ -7,6 +7,8 @@ import (
 	"strings"
 	"time"
 
+	"github.com/jinhuang712/gotato/record"
+
 	"github.com/jinhuang712/gotato/gotato"
 	"github.com/jinhuang712/gotato/service"
 	"github.com/jinhuang712/gotato/session"
@@ -233,7 +235,7 @@ func (c *cli) sessionList(args []string) int {
 	return ExitOK
 }
 
-func (c *cli) loadSession(args []string, name string) (*session.Record, context.Context, context.CancelFunc, int) {
+func (c *cli) loadSession(args []string, name string) (*record.Record, context.Context, context.CancelFunc, int) {
 	fs := c.newFlagSet(name)
 	positionals, err := parseInterspersed(fs, args)
 	if err != nil {

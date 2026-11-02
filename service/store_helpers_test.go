@@ -5,6 +5,8 @@ import (
 	"encoding/json"
 	"errors"
 
+	"github.com/jinhuang712/gotato/record"
+
 	"github.com/jinhuang712/gotato/gotato"
 	"github.com/jinhuang712/gotato/session"
 )
@@ -41,12 +43,12 @@ func (p parts) List(ctx context.Context, q session.ListQuery) (session.ListPage,
 }
 
 // listAll returns every Record of a Store's listing, paging through it.
-func listAll(ctx context.Context, store session.Store) ([]session.RecordInfo, error) {
+func listAll(ctx context.Context, store session.Store) ([]record.Info, error) {
 	lister, ok := store.Records.(session.Lister)
 	if !ok {
 		return nil, errors.New("the Records do not list")
 	}
-	var all []session.RecordInfo
+	var all []record.Info
 	var q session.ListQuery
 	for {
 		page, err := lister.List(ctx, q)
@@ -69,7 +71,7 @@ type recordState struct {
 }
 
 // stateOf decodes the State of a Loaded Record's Header.
-func stateOf(loaded session.Loaded) recordState {
+func stateOf(loaded record.Loaded) recordState {
 	var state recordState
 	if len(loaded.Header.State) > 0 {
 		if err := json.Unmarshal(loaded.Header.State, &state); err != nil {

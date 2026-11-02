@@ -6,6 +6,8 @@ import (
 	"strconv"
 	"time"
 
+	"github.com/jinhuang712/gotato/record"
+
 	"github.com/jinhuang712/gotato/gotato"
 	"github.com/jinhuang712/gotato/service/internal/clock"
 	"github.com/jinhuang712/gotato/session"
@@ -15,7 +17,7 @@ import (
 // holds. A draining Runner takes no Session over. Otherwise it takes the
 // Session over unless the holder is alive and using it; a holder that is
 // draining is waited for too, since its Run is about to be saved and released.
-func (r *Runner) holderCheck(ctx context.Context, holder session.Claim, busy bool) error {
+func (r *Runner) holderCheck(ctx context.Context, holder record.Claim, busy bool) error {
 	if r.Draining() {
 		return ErrDraining
 	}
@@ -36,7 +38,7 @@ func (r *Runner) holderCheck(ctx context.Context, holder session.Claim, busy boo
 // Runner creates one too: creating writes the store and activates nothing. The
 // Events it writes go to the new Record's Feed, if this Instance has one, and
 // to the Instance's otherwise, with agent's name.
-func (r *Runner) create(ctx context.Context, s *session.Record, agent string, options ...session.WriterOption) (*session.Writer, error) {
+func (r *Runner) create(ctx context.Context, s *record.Record, agent string, options ...session.WriterOption) (*session.Writer, error) {
 	if err := r.live(ctx); err != nil {
 		return nil, err
 	}
@@ -137,7 +139,7 @@ func (r *Runner) acquire(ctx context.Context, sessionID string) (writer *session
 			// untouched and still good, so it stays warm for the next Run.
 			r.keepWarm(w, kept.spec)
 			return nil, nil, nil, ctx.Err()
-		case errors.Is(staleErr, session.ErrNotFound):
+		case errors.Is(staleErr, record.ErrNotFound):
 			// The store does not show the Session to this caller: it is
 			// deleted, or the caller is refused. A refused caller must not
 			// drop the owner's copy; the copy ages out by its TTL.
@@ -179,5 +181,5 @@ func (r *Runner) acquire(ctx context.Context, sessionID string) (writer *session
 // or deleted it, first. A write this Instance's own Liveness row refused is
 // not one.
 func lostRace(err error) bool {
-	return !lapsed(err) && (errors.Is(err, session.ErrConflict) || errors.Is(err, session.ErrNotFound))
+	return !lapsed(err) && (errors.Is(err, session.ErrConflict) || errors.Is(err, record.ErrNotFound))
 }

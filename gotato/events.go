@@ -224,7 +224,7 @@ type ContextBuilt struct {
 	PrefixMessages   int    `json:"prefix_messages"`
 	SystemBytes      int    `json:"system_bytes"`
 	Tools            int    `json:"tools"`
-	// The estimates are in tokens, by the rule of modelctx.EstimateTokens
+	// The estimates are in tokens, by the rule of record.EstimateTokens
 	// (bytes of the JSON encoding over 4): the instruction, the tool
 	// definitions, the Segment and Recap Messages, the user and assistant
 	// Messages, and the Tool Results. A Record written before they existed

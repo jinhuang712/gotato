@@ -4,8 +4,9 @@ import (
 	"context"
 	"errors"
 
+	"github.com/jinhuang712/gotato/record"
+
 	"github.com/jinhuang712/gotato/gotato"
-	"github.com/jinhuang712/gotato/modelctx"
 	"github.com/jinhuang712/gotato/profile"
 	"github.com/jinhuang712/gotato/session"
 )
@@ -112,7 +113,7 @@ func (st *runState) persist(runCtx context.Context, spec profile.AgentProfile, r
 }
 
 // respond builds the Run's response from its settled result.
-func (st *runState) respond(spec profile.AgentProfile, auto *modelctx.AutoCompactor, result gotato.RunResult) {
+func (st *runState) respond(spec profile.AgentProfile, auto *record.AutoCompactor, result gotato.RunResult) {
 	s, runErr := st.s, st.runErr
 	st.r.noteFailure(runErr, s.ID(), spec.Name)
 	out := RunResponse{
@@ -205,7 +206,7 @@ func runStatusForError(err error) gotato.RunStatus {
 	}
 }
 
-func compacted(auto *modelctx.AutoCompactor) bool {
+func compacted(auto *record.AutoCompactor) bool {
 	_, runs := auto.Last()
 	return runs > 0
 }

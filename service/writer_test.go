@@ -11,6 +11,8 @@ import (
 	"testing"
 	"time"
 
+	"github.com/jinhuang712/gotato/record"
+
 	"github.com/jinhuang712/gotato/gotato"
 	"github.com/jinhuang712/gotato/service"
 	"github.com/jinhuang712/gotato/session"
@@ -391,7 +393,7 @@ func TestRunOfADeletedSessionNeverWritesToTheSessionCreatedAgain(t *testing.T) {
 	if err := store.Records.Delete(ctx, s.ID); err != nil {
 		t.Fatal(err)
 	}
-	fresh, err := session.CreateWriter(ctx, store.Records, session.New(session.WithID(s.ID)), "other", session.WithIdle())
+	fresh, err := session.CreateWriter(ctx, store.Records, record.New(record.WithID(s.ID)), "other", session.WithIdle())
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -463,11 +465,11 @@ func TestRunWritesClaimAndRelease(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	record, err := a.Record(ctx, result.SessionID)
+	rec, err := a.Record(ctx, result.SessionID)
 	if err != nil {
 		t.Fatal(err)
 	}
-	events := record.Events
+	events := rec.Events
 	claimed, started, ended, released := -1, -1, -1, -1
 	for i, event := range events {
 		switch event.Kind() {
@@ -575,13 +577,13 @@ func TestFencedWritePublishesSessionFenced(t *testing.T) {
 	}
 	// The fenced Instance wrote nothing after the takeover: its reply is not
 	// in the Record.
-	record, err := b.Record(ctx, s.ID)
+	rec, err := b.Record(ctx, s.ID)
 	if err != nil {
 		t.Fatal(err)
 	}
-	for _, message := range record.Messages {
+	for _, message := range rec.Messages {
 		if gotato.TextOf(message) == "released" {
-			t.Fatalf("the fenced Instance's reply is in the Record: %v", record.Messages)
+			t.Fatalf("the fenced Instance's reply is in the Record: %v", rec.Messages)
 		}
 	}
 }

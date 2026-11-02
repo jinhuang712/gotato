@@ -15,7 +15,7 @@ import (
 	"time"
 
 	"github.com/jinhuang712/gotato/gotato"
-	"github.com/jinhuang712/gotato/modelctx"
+	"github.com/jinhuang712/gotato/record"
 	"github.com/jinhuang712/gotato/testkit"
 )
 
@@ -655,7 +655,7 @@ func TestARecapOverACutStreamFailsWithoutARestart(t *testing.T) {
 		t.Run(wire.name, func(t *testing.T) {
 			fake, client := newFake(t, wire)
 			segment := gotato.Segment{Number: 1, Messages: []gotato.Message{gotato.UserMessage("a question [quirk:cut-after-text]")}}
-			message, err := modelctx.ModelRecap{Model: client}.WriteMergeRecap(context.Background(), modelctx.MergeRequest{Segments: []gotato.Segment{segment, segment}})
+			message, err := record.ModelRecap{Model: client}.WriteMergeRecap(context.Background(), record.MergeRequest{Segments: []gotato.Segment{segment, segment}})
 			if err == nil || gotato.TextOf(message) != "" || len(fake.Requests()) != 1 {
 				t.Fatalf("text = %q, err = %v, %d requests", gotato.TextOf(message), err, len(fake.Requests()))
 			}

@@ -9,8 +9,8 @@ import (
 	"time"
 
 	"github.com/jinhuang712/gotato/gotato"
-	"github.com/jinhuang712/gotato/modelctx"
 	"github.com/jinhuang712/gotato/profile"
+	"github.com/jinhuang712/gotato/record"
 	"github.com/jinhuang712/gotato/service"
 	"github.com/jinhuang712/gotato/session"
 	"github.com/jinhuang712/gotato/testkit"
@@ -24,7 +24,7 @@ type createErrorStore struct {
 	err    error
 }
 
-func (s *createErrorStore) Create(ctx context.Context, id string, entries []session.Entry, summary session.Header) error {
+func (s *createErrorStore) Create(ctx context.Context, id string, entries []record.Entry, summary record.Header) error {
 	if id == s.failID {
 		return s.err
 	}
@@ -49,7 +49,7 @@ func TestForkTreatsStoreErrorAsFailure(t *testing.T) {
 	if _, err := runner.Fork(ctx, parent.ID, "child"); !errors.Is(err, getErr) {
 		t.Fatalf("fork err = %v, want the store error", err)
 	}
-	if _, err := session.View(ctx, backing.Records, "child"); !errors.Is(err, session.ErrNotFound) {
+	if _, err := session.View(ctx, backing.Records, "child"); !errors.Is(err, record.ErrNotFound) {
 		t.Fatalf("fork saved a session despite a store error: %v", err)
 	}
 }
@@ -224,7 +224,7 @@ func (s *pausingStore) pause() {
 	})
 }
 
-func (s *pausingStore) Load(ctx context.Context, id string) (session.Loaded, error) {
+func (s *pausingStore) Load(ctx context.Context, id string) (record.Loaded, error) {
 	loaded, err := s.parts.Load(ctx, id)
 	if s.loads.Add(1) == 2 {
 		s.pause()
@@ -376,7 +376,7 @@ func TestRunOfASessionDeletedUnderItIsNotAStoreFailure(t *testing.T) {
 	if err == nil {
 		t.Fatal("a Run whose Session was deleted under it returned no error")
 	}
-	if gotato.IsCode(err, gotato.CodeStoreFailure) && !errors.Is(err, session.ErrNotFound) {
+	if gotato.IsCode(err, gotato.CodeStoreFailure) && !errors.Is(err, record.ErrNotFound) {
 		t.Fatalf("Run error = %v: a deleted Session is not a store failure", err)
 	}
 	if !gotato.IsCode(err, gotato.CodeNotFound) {
@@ -402,7 +402,7 @@ func TestCompactOfASessionRunningElsewhereAnswersBusy(t *testing.T) {
 	}
 	release, result := heldRun(t, a, model, s.ID)
 	defer release()
-	_, err = b.Compact(ctx, s.ID, modelctx.CompactConfig{})
+	_, err = b.Compact(ctx, s.ID, record.CompactConfig{})
 	if !gotato.IsCode(err, gotato.CodeBusy) || !gotato.NotRun(err) {
 		t.Fatalf("Compact of a Session with a Run on another Instance = %v, want busy, not run", err)
 	}

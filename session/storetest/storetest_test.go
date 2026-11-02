@@ -9,6 +9,8 @@ import (
 	"testing"
 	"time"
 
+	"github.com/jinhuang712/gotato/record"
+
 	"github.com/jinhuang712/gotato/session"
 	"github.com/jinhuang712/gotato/session/storetest"
 )
@@ -57,12 +59,12 @@ func TestTheReferenceStoresPass(t *testing.T) {
 // writer that lost its Claim still writes.
 type rebasing struct{ *session.MemoryStore }
 
-func (s rebasing) Append(ctx context.Context, id string, _ uint64, entries []session.Entry, h session.Header) error {
+func (s rebasing) Append(ctx context.Context, id string, _ uint64, entries []record.Entry, h record.Header) error {
 	loaded, err := s.Load(ctx, id)
 	if err != nil {
 		return err
 	}
-	moved := make([]session.Entry, len(entries))
+	moved := make([]record.Entry, len(entries))
 	for i, entry := range entries {
 		entry.Seq = loaded.Seq + uint64(i) + 1
 		moved[i] = entry
@@ -82,54 +84,54 @@ func TestTheSuiteCatchesAStoreThatRebasesStaleWrites(t *testing.T) {
 type overwriting struct {
 	*session.MemoryStore
 	mu      sync.Mutex
-	records map[string][]session.Entry
+	records map[string][]record.Entry
 }
 
-func (s *overwriting) Create(ctx context.Context, id string, entries []session.Entry, h session.Header) error {
+func (s *overwriting) Create(ctx context.Context, id string, entries []record.Entry, h record.Header) error {
 	if err := s.MemoryStore.Create(ctx, id, entries, h); err != nil {
 		return err
 	}
 	s.mu.Lock()
 	defer s.mu.Unlock()
-	s.records[id] = append([]session.Entry(nil), entries...)
+	s.records[id] = append([]record.Entry(nil), entries...)
 	return nil
 }
 
-func (s *overwriting) Append(ctx context.Context, id string, after uint64, entries []session.Entry, _ session.Header) error {
+func (s *overwriting) Append(ctx context.Context, id string, after uint64, entries []record.Entry, _ record.Header) error {
 	if err := ctx.Err(); err != nil {
 		return err
 	}
 	s.mu.Lock()
 	defer s.mu.Unlock()
-	record, ok := s.records[id]
+	rec, ok := s.records[id]
 	if !ok {
-		return session.ErrNotFound
+		return record.ErrNotFound
 	}
-	record = record[:min(after, uint64(len(record)))]
-	s.records[id] = append(record, entries...)
+	rec = rec[:min(after, uint64(len(rec)))]
+	s.records[id] = append(rec, entries...)
 	return nil
 }
 
-func (s *overwriting) Log(ctx context.Context, id string, after uint64, limit int) ([]session.Entry, error) {
+func (s *overwriting) Log(ctx context.Context, id string, after uint64, limit int) ([]record.Entry, error) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
-	record, ok := s.records[id]
+	rec, ok := s.records[id]
 	if !ok {
-		return nil, session.ErrNotFound
+		return nil, record.ErrNotFound
 	}
-	if after >= uint64(len(record)) {
+	if after >= uint64(len(rec)) {
 		return nil, nil
 	}
-	rest := record[after:]
+	rest := rec[after:]
 	if limit > 0 && len(rest) > limit {
 		rest = rest[:limit]
 	}
-	return append([]session.Entry(nil), rest...), nil
+	return append([]record.Entry(nil), rest...), nil
 }
 
 func TestTheSuiteCatchesAStoreThatOverwritesAPosition(t *testing.T) {
 	problems := storetest.CheckRecords(context.Background(), func() (storetest.Open, func(), error) {
-		store := &overwriting{MemoryStore: session.NewMemoryStore(), records: map[string][]session.Entry{}}
+		store := &overwriting{MemoryStore: session.NewMemoryStore(), records: map[string][]record.Entry{}}
 		return func() session.Records { return store }, nil, nil
 	})
 	if !mentions(problems, "a stale writer is refused with ErrConflict and writes nothing") || !mentions(problems, "of writers racing for one position, exactly one wins") {
@@ -206,7 +208,7 @@ func TestTheSuiteCatchesAStoreThatReadsARemovedRowAsAlive(t *testing.T) {
 // forgettingEpoch loses the epoch of the Header on its way out of Load.
 type forgettingEpoch struct{ *session.MemoryStore }
 
-func (s forgettingEpoch) Load(ctx context.Context, id string) (session.Loaded, error) {
+func (s forgettingEpoch) Load(ctx context.Context, id string) (record.Loaded, error) {
 	loaded, err := s.MemoryStore.Load(ctx, id)
 	loaded.Header.Epoch = ""
 	return loaded, err
@@ -223,22 +225,22 @@ func TestTheSuiteCatchesAStoreThatDropsTheEpoch(t *testing.T) {
 // stands for a field added later, and State for bytes it does not understand.
 type columns struct {
 	*session.MemoryStore
-	drop func(*session.Header)
+	drop func(*record.Header)
 }
 
-func (s columns) Create(ctx context.Context, id string, entries []session.Entry, h session.Header) error {
+func (s columns) Create(ctx context.Context, id string, entries []record.Entry, h record.Header) error {
 	s.drop(&h)
 	return s.MemoryStore.Create(ctx, id, entries, h)
 }
 
-func (s columns) Append(ctx context.Context, id string, after uint64, entries []session.Entry, h session.Header) error {
+func (s columns) Append(ctx context.Context, id string, after uint64, entries []record.Entry, h record.Header) error {
 	s.drop(&h)
 	return s.MemoryStore.Append(ctx, id, after, entries, h)
 }
 
 func TestTheSuiteCatchesAStoreThatDropsAField(t *testing.T) {
 	problems := storetest.CheckRecords(context.Background(), recordsOf(func(m *session.MemoryStore) session.Records {
-		return columns{m, func(h *session.Header) { h.LogFrom = 0 }}
+		return columns{m, func(h *record.Header) { h.LogFrom = 0 }}
 	}))
 	if !mentions(problems, "every field of Header, RecordInfo and Entry is kept") {
 		t.Fatalf("problems = %v, want the field check to fail", problems)
@@ -247,7 +249,7 @@ func TestTheSuiteCatchesAStoreThatDropsAField(t *testing.T) {
 
 func TestTheSuiteCatchesAStoreThatDropsTheState(t *testing.T) {
 	problems := storetest.CheckRecords(context.Background(), recordsOf(func(m *session.MemoryStore) session.Records {
-		return columns{m, func(h *session.Header) { h.State = nil }}
+		return columns{m, func(h *record.Header) { h.State = nil }}
 	}))
 	if !mentions(problems, "the Header's Epoch, Info and State are kept as written through Create, Append and Load") {
 		t.Fatalf("problems = %v, want the header check to fail", problems)
@@ -257,7 +259,7 @@ func TestTheSuiteCatchesAStoreThatDropsTheState(t *testing.T) {
 // lenientEpoch accepts a write that names no epoch, by naming one itself.
 type lenientEpoch struct{ *session.MemoryStore }
 
-func (s lenientEpoch) Create(ctx context.Context, id string, entries []session.Entry, h session.Header) error {
+func (s lenientEpoch) Create(ctx context.Context, id string, entries []record.Entry, h record.Header) error {
 	if h.Epoch == "" {
 		h.Epoch = "none"
 	}
@@ -276,7 +278,7 @@ func TestTheSuiteCatchesAStoreThatAcceptsAnEmptyEpoch(t *testing.T) {
 // created again at the same length.
 type lengthOnly struct{ *session.MemoryStore }
 
-func (s lengthOnly) Append(ctx context.Context, id string, after uint64, entries []session.Entry, h session.Header) error {
+func (s lengthOnly) Append(ctx context.Context, id string, after uint64, entries []record.Entry, h record.Header) error {
 	loaded, err := s.Load(ctx, id)
 	if err != nil {
 		return err
@@ -298,10 +300,10 @@ func TestTheSuiteCatchesAStoreThatComparesOnlyTheLength(t *testing.T) {
 type staleHeader struct {
 	*session.MemoryStore
 	mu   sync.Mutex
-	seen map[string]session.Header
+	seen map[string]record.Header
 }
 
-func (s *staleHeader) Load(ctx context.Context, id string) (session.Loaded, error) {
+func (s *staleHeader) Load(ctx context.Context, id string) (record.Loaded, error) {
 	loaded, err := s.MemoryStore.Load(ctx, id)
 	if err != nil {
 		return loaded, err
@@ -319,7 +321,7 @@ func (s *staleHeader) Load(ctx context.Context, id string) (session.Loaded, erro
 
 func TestTheSuiteCatchesALoadThatDoesNotReadInOneRead(t *testing.T) {
 	problems := storetest.CheckRecords(context.Background(), func() (storetest.Open, func(), error) {
-		store := &staleHeader{MemoryStore: session.NewMemoryStore(), seen: map[string]session.Header{}}
+		store := &staleHeader{MemoryStore: session.NewMemoryStore(), seen: map[string]record.Header{}}
 		return func() session.Records { return store }, nil, nil
 	})
 	if !mentions(problems, "a Load racing Appends reads the Record in one read") {
@@ -330,11 +332,11 @@ func TestTheSuiteCatchesALoadThatDoesNotReadInOneRead(t *testing.T) {
 // ignoringLogFrom returns the facts only, whatever the Header asks for.
 type ignoringLogFrom struct{ *session.MemoryStore }
 
-func (s ignoringLogFrom) Load(ctx context.Context, id string) (session.Loaded, error) {
+func (s ignoringLogFrom) Load(ctx context.Context, id string) (record.Loaded, error) {
 	loaded, err := s.MemoryStore.Load(ctx, id)
 	facts := loaded.Entries[:0]
 	for _, entry := range loaded.Entries {
-		if entry.Layer == session.LayerFact {
+		if entry.Layer == record.LayerFact {
 			facts = append(facts, entry)
 		}
 	}
@@ -457,34 +459,34 @@ func TestTheLivenessSuiteAdvancesAFakeClockInsteadOfSleeping(t *testing.T) {
 type mem struct {
 	*session.MemoryStore
 	// hooks; nil means the real behavior
-	append   func(m *mem, ctx context.Context, id string, after uint64, e []session.Entry, h session.Header) error
-	create   func(m *mem, ctx context.Context, id string, e []session.Entry, h session.Header) error
-	load     func(m *mem, ctx context.Context, id string) (session.Loaded, error)
-	log      func(m *mem, ctx context.Context, id string, after uint64, limit int) ([]session.Entry, error)
+	append   func(m *mem, ctx context.Context, id string, after uint64, e []record.Entry, h record.Header) error
+	create   func(m *mem, ctx context.Context, id string, e []record.Entry, h record.Header) error
+	load     func(m *mem, ctx context.Context, id string) (record.Loaded, error)
+	log      func(m *mem, ctx context.Context, id string, after uint64, limit int) ([]record.Entry, error)
 	del      func(m *mem, ctx context.Context, id string) error
 	beat     func(m *mem, ctx context.Context, row session.InstanceRow, ttl time.Duration) error
 	instance func(m *mem, ctx context.Context, id string) (session.InstanceState, error)
 }
 
-func (m *mem) Append(ctx context.Context, id string, after uint64, e []session.Entry, h session.Header) error {
+func (m *mem) Append(ctx context.Context, id string, after uint64, e []record.Entry, h record.Header) error {
 	if m.append != nil {
 		return m.append(m, ctx, id, after, e, h)
 	}
 	return m.MemoryStore.Append(ctx, id, after, e, h)
 }
-func (m *mem) Create(ctx context.Context, id string, e []session.Entry, h session.Header) error {
+func (m *mem) Create(ctx context.Context, id string, e []record.Entry, h record.Header) error {
 	if m.create != nil {
 		return m.create(m, ctx, id, e, h)
 	}
 	return m.MemoryStore.Create(ctx, id, e, h)
 }
-func (m *mem) Load(ctx context.Context, id string) (session.Loaded, error) {
+func (m *mem) Load(ctx context.Context, id string) (record.Loaded, error) {
 	if m.load != nil {
 		return m.load(m, ctx, id)
 	}
 	return m.MemoryStore.Load(ctx, id)
 }
-func (m *mem) Log(ctx context.Context, id string, after uint64, limit int) ([]session.Entry, error) {
+func (m *mem) Log(ctx context.Context, id string, after uint64, limit int) ([]record.Entry, error) {
 	if m.log != nil {
 		return m.log(m, ctx, id, after, limit)
 	}
@@ -547,7 +549,7 @@ func TestTheSuiteCatchesEachBrokenStoreRule(t *testing.T) {
 	mutants := map[string]mutant{
 		// Rule 3: an epoch that is not the stored Record's is ErrNotFound, "checked before the position".
 		"position-checked-before-epoch": {records, func(m *mem) {
-			m.append = func(m *mem, ctx context.Context, id string, after uint64, e []session.Entry, h session.Header) error {
+			m.append = func(m *mem, ctx context.Context, id string, after uint64, e []record.Entry, h record.Header) error {
 				if loaded, err := m.MemoryStore.Load(ctx, id); err == nil && loaded.Seq != after {
 					return session.ErrConflict
 				}
@@ -585,7 +587,7 @@ func TestTheSuiteCatchesEachBrokenStoreRule(t *testing.T) {
 		}},
 		// Create of one ID by two Instances at once: exactly one wins.
 		"create-race-overwrites": {records, func(m *mem) {
-			m.create = func(m *mem, ctx context.Context, id string, e []session.Entry, h session.Header) error {
+			m.create = func(m *mem, ctx context.Context, id string, e []record.Entry, h record.Header) error {
 				if _, err := m.MemoryStore.Load(ctx, id); err == nil {
 					return session.ErrExists
 				}
@@ -596,9 +598,9 @@ func TestTheSuiteCatchesEachBrokenStoreRule(t *testing.T) {
 		}},
 		// Log after the head is an empty answer.
 		"log-past-head-is-an-error": {records, func(m *mem) {
-			m.log = func(m *mem, ctx context.Context, id string, after uint64, limit int) ([]session.Entry, error) {
+			m.log = func(m *mem, ctx context.Context, id string, after uint64, limit int) ([]record.Entry, error) {
 				if loaded, err := m.MemoryStore.Load(ctx, id); err == nil && after > loaded.Seq {
-					return nil, session.ErrNotFound
+					return nil, record.ErrNotFound
 				}
 				return m.MemoryStore.Log(ctx, id, after, limit)
 			}
@@ -618,7 +620,7 @@ func TestTheSuiteCatchesEachBrokenStoreRule(t *testing.T) {
 		}},
 		// Load must return the Header of the write its Entries are of.
 		"load-returns-the-header-of-the-first-write": {records, func(m *mem) {
-			m.load = func(m *mem, ctx context.Context, id string) (session.Loaded, error) {
+			m.load = func(m *mem, ctx context.Context, id string) (record.Loaded, error) {
 				loaded, err := m.MemoryStore.Load(ctx, id)
 				if err == nil && loaded.Seq > 1 {
 					loaded.Header.Info.Messages = 1

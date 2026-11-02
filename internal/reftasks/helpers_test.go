@@ -4,17 +4,18 @@ import (
 	"context"
 	"testing"
 
+	"github.com/jinhuang712/gotato/record"
+
 	"github.com/jinhuang712/gotato/gotato"
 	"github.com/jinhuang712/gotato/internal/reftasks"
 	"github.com/jinhuang712/gotato/profile"
-	"github.com/jinhuang712/gotato/session"
 )
 
 // play runs a task on a plain live Session and returns its Record and each Run's
 // final text.
-func play(t *testing.T, task reftasks.Task) (*session.Record, []string) {
+func play(t *testing.T, task reftasks.Task) (*record.Record, []string) {
 	t.Helper()
-	s := session.New()
+	s := record.New()
 	for _, message := range task.History {
 		if err := s.Append(message); err != nil {
 			t.Fatal(err)

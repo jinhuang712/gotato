@@ -25,6 +25,8 @@ import (
 	"strings"
 	"time"
 
+	"github.com/jinhuang712/gotato/record"
+
 	"github.com/jinhuang712/gotato/service"
 	"github.com/jinhuang712/gotato/session"
 )
@@ -241,12 +243,12 @@ func (c *cli) store() (session.Store, string, error) {
 }
 
 // listAll reads every page of the store's listing.
-func listAll(ctx context.Context, store session.Store) ([]session.RecordInfo, error) {
+func listAll(ctx context.Context, store session.Store) ([]record.Info, error) {
 	lister, ok := store.Records.(session.Lister)
 	if !ok {
 		return nil, errors.New("the store does not list Sessions")
 	}
-	var all []session.RecordInfo
+	var all []record.Info
 	var q session.ListQuery
 	for {
 		page, err := lister.List(ctx, q)

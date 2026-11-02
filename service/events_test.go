@@ -9,6 +9,8 @@ import (
 	"testing"
 	"time"
 
+	"github.com/jinhuang712/gotato/record"
+
 	"github.com/jinhuang712/gotato/gotato"
 	"github.com/jinhuang712/gotato/profile"
 	"github.com/jinhuang712/gotato/service"
@@ -168,10 +170,10 @@ func TestRunStreamNumbersAreRecordNumbers(t *testing.T) {
 		t.Fatal(err)
 	}
 	var firstEnd uint64
-	if record, err := runner.Record(ctx, first.SessionID); err != nil {
+	if rcd, err := runner.Record(ctx, first.SessionID); err != nil {
 		t.Fatal(err)
 	} else {
-		for _, event := range record.Events {
+		for _, event := range rcd.Events {
 			if event.Kind() == gotato.EventKindRunEnded {
 				firstEnd = event.Head().Number
 			}
@@ -214,11 +216,11 @@ func TestStreamSessionCatchesUpThenGoesLive(t *testing.T) {
 		t.Fatal(err)
 	}
 	var after uint64
-	record, err := runner.Record(ctx, first.SessionID)
+	rcd, err := runner.Record(ctx, first.SessionID)
 	if err != nil {
 		t.Fatal(err)
 	}
-	for _, event := range record.Events {
+	for _, event := range rcd.Events {
 		if event.Kind() == gotato.EventKindRunEnded {
 			after = event.Head().Number
 		}
@@ -435,7 +437,7 @@ func TestStoreEventsFlagFailuresWithoutTheirText(t *testing.T) {
 	if _, err := runner.StreamRun(ctx, service.RunRequest{Prompt: "hi"}, sink); !errors.Is(err, service.ErrNotPersisted) {
 		t.Fatalf("err = %v, want ErrNotPersisted", err)
 	}
-	if _, err := runner.StreamRun(ctx, service.RunRequest{SessionID: "missing", Prompt: "hi"}, sink); !errors.Is(err, session.ErrNotFound) {
+	if _, err := runner.StreamRun(ctx, service.RunRequest{SessionID: "missing", Prompt: "hi"}, sink); !errors.Is(err, record.ErrNotFound) {
 		t.Fatalf("err = %v, want ErrNotFound", err)
 	}
 	instance.Wait(5*time.Second, func(event gotato.Event) bool {

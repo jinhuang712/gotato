@@ -3,10 +3,6 @@ package session
 import "github.com/jinhuang712/gotato/gotato"
 
 var (
-	// ErrNotFound is returned by stores for an unknown or deleted Session ID, and
-	// by Store.Append for a Record that was deleted and created again.
-	ErrNotFound = gotato.ErrorOf(gotato.CodeNotFound, "session: not found")
-
 	// ErrInvalidID is returned by a Store for a Session ID or an Instance ID it
 	// cannot keep: see CheckID. It carries gotato.CodeInvalidArgument. Every
 	// store refuses the IDs CheckID does, and may refuse more.

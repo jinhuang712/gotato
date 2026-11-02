@@ -11,6 +11,8 @@ import (
 	"testing"
 	"time"
 
+	"github.com/jinhuang712/gotato/record"
+
 	"github.com/jinhuang712/gotato/gotato"
 	itext "github.com/jinhuang712/gotato/internal/text"
 	"github.com/jinhuang712/gotato/profile"
@@ -31,35 +33,35 @@ const (
 // claimOf is the Claim that the facts of a stored Session last name. It reads
 // the Record through the store: the Runner's Record answers a Document, which
 // carries no Claim.
-func claimOf(t *testing.T, store session.Store, id string) session.Claim {
+func claimOf(t *testing.T, store session.Store, id string) record.Claim {
 	t.Helper()
-	record, err := session.View(context.Background(), store.Records, id)
+	rcd, err := session.View(context.Background(), store.Records, id)
 	if err != nil {
 		t.Fatal(err)
 	}
-	return record.Claim()
+	return rcd.Claim()
 }
 
 // viewOf reads a stored Session's whole Record, for the methods a Document does
 // not have (Segments, SpilledResults, Claim, Len).
-func viewOf(t *testing.T, store session.Store, id string) *session.Record {
+func viewOf(t *testing.T, store session.Store, id string) *record.Record {
 	t.Helper()
-	record, err := session.View(context.Background(), store.Records, id)
+	rcd, err := session.View(context.Background(), store.Records, id)
 	if err != nil {
 		t.Fatal(err)
 	}
-	return record
+	return rcd
 }
 
 // plant stores a Record as an earlier version, a migration or another process
 // would, bypassing the Runner, and returns its ID.
-func plant(t *testing.T, store session.Store, options ...session.RecordOption) string {
+func plant(t *testing.T, store session.Store, options ...record.Option) string {
 	t.Helper()
-	record := session.New(options...)
-	if _, err := session.CreateWriter(context.Background(), store.Records, record, "planter", session.WithIdle()); err != nil {
+	rcd := record.New(options...)
+	if _, err := session.CreateWriter(context.Background(), store.Records, rcd, "planter", session.WithIdle()); err != nil {
 		t.Fatal(err)
 	}
-	return record.ID()
+	return rcd.ID()
 }
 
 // registry registers each AgentProfile inline.
@@ -160,21 +162,21 @@ func (s *faultStore) failing(op string) bool {
 	return s.down[op]
 }
 
-func (s *faultStore) Load(ctx context.Context, id string) (session.Loaded, error) {
+func (s *faultStore) Load(ctx context.Context, id string) (record.Loaded, error) {
 	if s.failing("Load") {
-		return session.Loaded{}, errConnReset
+		return record.Loaded{}, errConnReset
 	}
 	return s.parts.Load(ctx, id)
 }
 
-func (s *faultStore) Create(ctx context.Context, id string, entries []session.Entry, summary session.Header) error {
+func (s *faultStore) Create(ctx context.Context, id string, entries []record.Entry, summary record.Header) error {
 	if s.failing("Create") {
 		return errConnReset
 	}
 	return s.parts.Create(ctx, id, entries, summary)
 }
 
-func (s *faultStore) Append(ctx context.Context, id string, after uint64, entries []session.Entry, summary session.Header) error {
+func (s *faultStore) Append(ctx context.Context, id string, after uint64, entries []record.Entry, summary record.Header) error {
 	if s.failing("Append") {
 		return errConnReset
 	}
@@ -195,7 +197,7 @@ func (s *faultStore) Delete(ctx context.Context, id string) error {
 	return s.parts.Delete(ctx, id)
 }
 
-func (s *faultStore) Log(ctx context.Context, id string, after uint64, limit int) ([]session.Entry, error) {
+func (s *faultStore) Log(ctx context.Context, id string, after uint64, limit int) ([]record.Entry, error) {
 	if s.failing("Log") {
 		return nil, errConnReset
 	}
@@ -221,7 +223,7 @@ type watchedStore struct {
 	verifies   atomic.Int64 // Loads since the last batch
 }
 
-func (w *watchedStore) Log(ctx context.Context, id string, after uint64, limit int) ([]session.Entry, error) {
+func (w *watchedStore) Log(ctx context.Context, id string, after uint64, limit int) ([]record.Entry, error) {
 	entries, err := w.parts.Log(ctx, id, after, limit)
 	if err == nil {
 		if len(entries) == 0 {
@@ -234,7 +236,7 @@ func (w *watchedStore) Log(ctx context.Context, id string, after uint64, limit i
 	return entries, err
 }
 
-func (w *watchedStore) Load(ctx context.Context, id string) (session.Loaded, error) {
+func (w *watchedStore) Load(ctx context.Context, id string) (record.Loaded, error) {
 	loaded, err := w.parts.Load(ctx, id)
 	w.verifies.Add(1)
 	return loaded, err
@@ -311,7 +313,7 @@ func newKindGate(store session.Store, kinds ...gotato.EventKind) *kindGate {
 	return g
 }
 
-func (s *kindGate) Append(ctx context.Context, id string, after uint64, entries []session.Entry, info session.Header) error {
+func (s *kindGate) Append(ctx context.Context, id string, after uint64, entries []record.Entry, info record.Header) error {
 	var hit *hold
 	s.mu.Lock()
 	for _, e := range entries {
@@ -452,14 +454,14 @@ type tallyStore struct {
 	conflicts int
 }
 
-func (s *tallyStore) Load(ctx context.Context, id string) (session.Loaded, error) {
+func (s *tallyStore) Load(ctx context.Context, id string) (record.Loaded, error) {
 	s.mu.Lock()
 	s.loads++
 	s.mu.Unlock()
 	return s.parts.Load(ctx, id)
 }
 
-func (s *tallyStore) Append(ctx context.Context, id string, after uint64, entries []session.Entry, summary session.Header) error {
+func (s *tallyStore) Append(ctx context.Context, id string, after uint64, entries []record.Entry, summary record.Header) error {
 	s.mu.Lock()
 	s.appends++
 	fail := false
@@ -617,7 +619,7 @@ func checkReleased(t *testing.T, store session.Store, id, instance string) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	var runEnd, release session.Entry
+	var runEnd, release record.Entry
 	for _, entry := range entries {
 		switch entry.Kind {
 		case gotato.EventKindRunEnded:
@@ -689,14 +691,14 @@ type killableStore struct {
 	dead atomic.Bool
 }
 
-func (s *killableStore) Create(ctx context.Context, id string, entries []session.Entry, summary session.Header) error {
+func (s *killableStore) Create(ctx context.Context, id string, entries []record.Entry, summary record.Header) error {
 	if s.dead.Load() {
 		return errKilled
 	}
 	return s.parts.Create(ctx, id, entries, summary)
 }
 
-func (s *killableStore) Append(ctx context.Context, id string, after uint64, entries []session.Entry, summary session.Header) error {
+func (s *killableStore) Append(ctx context.Context, id string, after uint64, entries []record.Entry, summary record.Header) error {
 	if s.dead.Load() {
 		return errKilled
 	}
@@ -744,12 +746,12 @@ func (m ownerModel) Config() gotato.ModelConfig { return gotato.ModelConfig{} }
 // claimsOf returns the session_claimed Events of the Record.
 func claimsOf(t *testing.T, runner *service.Runner, sessionID string) []gotato.SessionClaimed {
 	t.Helper()
-	record, err := runner.Record(context.Background(), sessionID)
+	rcd, err := runner.Record(context.Background(), sessionID)
 	if err != nil {
 		t.Fatal(err)
 	}
 	var claims []gotato.SessionClaimed
-	for _, event := range record.Events {
+	for _, event := range rcd.Events {
 		if claimed, ok := event.(gotato.SessionClaimed); ok {
 			claims = append(claims, claimed)
 		}
@@ -917,11 +919,11 @@ func settled(t *testing.T, done chan service.RunResponse) service.RunResponse {
 
 func transcriptOf(t *testing.T, runner *service.Runner, id string) []string {
 	t.Helper()
-	record, err := runner.Record(context.Background(), id)
+	rcd, err := runner.Record(context.Background(), id)
 	if err != nil {
 		t.Fatal(err)
 	}
-	return texts(record.Messages)
+	return texts(rcd.Messages)
 }
 
 func messageRunner(t *testing.T, store session.Store, instance, address string, model gotato.Model) *service.Runner {
@@ -986,7 +988,7 @@ func endsWithoutNewEvents(t *testing.T, sub gotato.Subscription) {
 	for {
 		event, err := sub.Next(read)
 		if err != nil {
-			if !errors.Is(err, service.ErrCannotResume) && !errors.Is(err, session.ErrNotFound) {
+			if !errors.Is(err, service.ErrCannotResume) && !errors.Is(err, record.ErrNotFound) {
 				t.Fatalf("the stream ended with %v, want cannot_resume or not found", err)
 			}
 			return
@@ -1028,7 +1030,7 @@ type failingSaveStore struct {
 	failRelease bool
 }
 
-func (s *failingSaveStore) fail(entries []session.Entry) bool {
+func (s *failingSaveStore) fail(entries []record.Entry) bool {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	s.saves++
@@ -1043,14 +1045,14 @@ func (s *failingSaveStore) fail(entries []session.Entry) bool {
 	return false
 }
 
-func (s *failingSaveStore) Create(ctx context.Context, id string, entries []session.Entry, summary session.Header) error {
+func (s *failingSaveStore) Create(ctx context.Context, id string, entries []record.Entry, summary record.Header) error {
 	if s.fail(entries) {
 		return errors.New("store: disk full")
 	}
 	return s.parts.Create(ctx, id, entries, summary)
 }
 
-func (s *failingSaveStore) Append(ctx context.Context, id string, after uint64, entries []session.Entry, summary session.Header) error {
+func (s *failingSaveStore) Append(ctx context.Context, id string, after uint64, entries []record.Entry, summary record.Header) error {
 	if s.fail(entries) {
 		return errors.New("store: disk full")
 	}

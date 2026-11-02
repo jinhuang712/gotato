@@ -5,8 +5,9 @@ import (
 	"errors"
 	"fmt"
 
+	"github.com/jinhuang712/gotato/record"
+
 	"github.com/jinhuang712/gotato/gotato"
-	"github.com/jinhuang712/gotato/modelctx"
 	"github.com/jinhuang712/gotato/profile"
 	"github.com/jinhuang712/gotato/session"
 )
@@ -20,7 +21,7 @@ type runState struct {
 	handle  *runHandle
 	follow  *followOn
 
-	s         *session.Record
+	s         *record.Record
 	writer    *session.Writer
 	saved     session.WriteStats
 	feed      *gotato.Feed
@@ -64,7 +65,7 @@ func (r *Runner) serve(ctx, runCtx context.Context, request RunRequest, stream *
 	if st.sessionID == "" {
 		if request.SkipSave {
 			// No persistence: build an in-memory Session for this Run only.
-			st.s = session.New()
+			st.s = record.New()
 			for key, value := range request.Metadata {
 				st.s.Set(key, value)
 			}
@@ -166,7 +167,7 @@ func (st *runState) abandon(runCtx context.Context, err error) error {
 // resolution of the Agent's ToolSources and ToolSets, runs under runCtx, so a
 // Stop or Drain that arrives before the handle reaches the live Session
 // cancels it.
-func (st *runState) startRun(ctx, runCtx context.Context, spec profile.AgentProfile) (*gotato.Session, *modelctx.AutoCompactor, error) {
+func (st *runState) startRun(ctx, runCtx context.Context, spec profile.AgentProfile) (*gotato.Session, *record.AutoCompactor, error) {
 	r, s, handle, follow := st.r, st.s, st.handle, st.follow
 	onRunStart := withRunStart(func(runID gotato.RunID) {
 		st.track.set(runID)

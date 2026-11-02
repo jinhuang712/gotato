@@ -9,6 +9,8 @@ import (
 	"testing"
 	"time"
 
+	"github.com/jinhuang712/gotato/record"
+
 	"github.com/jinhuang712/gotato/gotato"
 	"github.com/jinhuang712/gotato/session"
 )
@@ -19,7 +21,7 @@ import (
 func TestFromDocumentGivesTheRecordANewEpoch(t *testing.T) {
 	ctx := context.Background()
 	store := session.NewMemoryStore()
-	old, err := session.CreateWriter(ctx, store, session.New(session.WithID("x")), "a", session.WithIdle())
+	old, err := session.CreateWriter(ctx, store, record.New(record.WithID("x")), "a", session.WithIdle())
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -27,7 +29,7 @@ func TestFromDocumentGivesTheRecordANewEpoch(t *testing.T) {
 	if err := store.Delete(ctx, "x"); err != nil {
 		t.Fatal(err)
 	}
-	r, err := session.FromDocument(doc)
+	r, err := record.FromDocument(doc)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -38,7 +40,7 @@ func TestFromDocumentGivesTheRecordANewEpoch(t *testing.T) {
 		t.Fatal(err)
 	}
 	old.Record().Set("k", "v")
-	if err := old.Flush(ctx); !errors.Is(err, session.ErrNotFound) {
+	if err := old.Flush(ctx); !errors.Is(err, record.ErrNotFound) {
 		t.Fatalf("stale writer flush = %v, want ErrNotFound", err)
 	}
 	loaded, err := store.Load(ctx, "x")
@@ -55,16 +57,16 @@ type failingStore struct {
 
 var errDisk = errors.New("disk on fire")
 
-func (s failingStore) Create(ctx context.Context, id string, entries []session.Entry, h session.Header) error {
+func (s failingStore) Create(ctx context.Context, id string, entries []record.Entry, h record.Header) error {
 	if s.create {
 		return errDisk
 	}
 	return s.MemoryStore.Create(ctx, id, entries, h)
 }
 
-func (s failingStore) Load(ctx context.Context, id string) (session.Loaded, error) {
+func (s failingStore) Load(ctx context.Context, id string) (record.Loaded, error) {
 	if s.load {
-		return session.Loaded{}, errDisk
+		return record.Loaded{}, errDisk
 	}
 	return s.MemoryStore.Load(ctx, id)
 }
@@ -72,11 +74,11 @@ func (s failingStore) Load(ctx context.Context, id string) (session.Loaded, erro
 func TestCreateWriterAndOpenWriterClassifyStoreErrors(t *testing.T) {
 	ctx := context.Background()
 	mem := session.NewMemoryStore()
-	_, err := session.CreateWriter(ctx, failingStore{MemoryStore: mem, create: true}, session.New(session.WithID("x")), "a")
+	_, err := session.CreateWriter(ctx, failingStore{MemoryStore: mem, create: true}, record.New(record.WithID("x")), "a")
 	if !gotato.IsCode(err, gotato.CodeStoreFailure) || !errors.Is(err, errDisk) {
 		t.Fatalf("CreateWriter error = %v, want store_failure that keeps its cause", err)
 	}
-	if _, err := session.CreateWriter(ctx, mem, session.New(session.WithID("y")), "a", session.WithIdle()); err != nil {
+	if _, err := session.CreateWriter(ctx, mem, record.New(record.WithID("y")), "a", session.WithIdle()); err != nil {
 		t.Fatal(err)
 	}
 	_, err = session.OpenWriter(ctx, failingStore{MemoryStore: mem, load: true}, "y", "a")
@@ -84,10 +86,10 @@ func TestCreateWriterAndOpenWriterClassifyStoreErrors(t *testing.T) {
 		t.Fatalf("OpenWriter error = %v, want store_failure", err)
 	}
 	// The sentinels and the caller's own context pass through.
-	if _, err := session.OpenWriter(ctx, mem, "missing", "a"); !errors.Is(err, session.ErrNotFound) {
+	if _, err := session.OpenWriter(ctx, mem, "missing", "a"); !errors.Is(err, record.ErrNotFound) {
 		t.Fatalf("OpenWriter of a missing Record = %v, want ErrNotFound", err)
 	}
-	if _, err := session.CreateWriter(ctx, mem, session.New(session.WithID("y")), "a"); !errors.Is(err, session.ErrExists) {
+	if _, err := session.CreateWriter(ctx, mem, record.New(record.WithID("y")), "a"); !errors.Is(err, session.ErrExists) {
 		t.Fatalf("CreateWriter of a taken ID = %v, want ErrExists", err)
 	}
 	canceled, cancel := context.WithCancel(ctx)
@@ -105,17 +107,17 @@ type movingStore struct {
 	moved  bool
 }
 
-func (s *movingStore) Load(ctx context.Context, id string) (session.Loaded, error) {
+func (s *movingStore) Load(ctx context.Context, id string) (record.Loaded, error) {
 	loaded, err := s.MemoryStore.Load(ctx, id)
 	if err != nil || s.moved {
 		return loaded, err
 	}
 	s.moved = true
 	if _, err := s.holder.Write(ctx, []gotato.Event{gotato.RunEnded{Header: gotato.NewHeader("", "run-1", 0), Status: gotato.RunStatusCompleted}}); err != nil {
-		return session.Loaded{}, err
+		return record.Loaded{}, err
 	}
 	if err := s.holder.Release(ctx); err != nil {
-		return session.Loaded{}, err
+		return record.Loaded{}, err
 	}
 	return loaded, nil
 }
@@ -123,7 +125,7 @@ func (s *movingStore) Load(ctx context.Context, id string) (session.Loaded, erro
 func TestOpenWriterOfARecordThatMovedUnderItDoesNotEndARunTwice(t *testing.T) {
 	ctx := context.Background()
 	mem := session.NewMemoryStore()
-	holder, err := session.CreateWriter(ctx, mem, session.New(session.WithID("x")), "a")
+	holder, err := session.CreateWriter(ctx, mem, record.New(record.WithID("x")), "a")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -190,7 +192,7 @@ func TestOnlyTheFileStoreRefusesAnIDWhoseFileNameIsTooLong(t *testing.T) {
 		t.Fatalf("CheckID(%d bytes of CJK) = %v, want nil", len(id), err)
 	}
 	create := func(store session.Records) error {
-		return store.Create(ctx, id, []session.Entry{{Seq: 1, Kind: gotato.EventKindSessionCreated, Layer: session.LayerFact, Data: []byte(`{}`)}}, session.Header{Epoch: "e", Info: session.RecordInfo{ID: id}})
+		return store.Create(ctx, id, []record.Entry{{Seq: 1, Kind: gotato.EventKindSessionCreated, Layer: record.LayerFact, Data: []byte(`{}`)}}, record.Header{Epoch: "e", Info: record.Info{ID: id}})
 	}
 	if err := create(session.NewMemoryStore()); err != nil {
 		t.Fatalf("MemoryStore Create(%d bytes of CJK) = %v, want nil", len(id), err)
@@ -208,7 +210,7 @@ func TestOnlyTheFileStoreRefusesAnIDWhoseFileNameIsTooLong(t *testing.T) {
 func TestStoredEventsHonorsItsLimit(t *testing.T) {
 	ctx := context.Background()
 	store := session.NewMemoryStore()
-	created, err := session.CreateWriter(ctx, store, session.New(), "instance-a", session.WithIdle())
+	created, err := session.CreateWriter(ctx, store, record.New(), "instance-a", session.WithIdle())
 	if err != nil {
 		t.Fatal(err)
 	}

@@ -9,8 +9,8 @@ import (
 
 	"github.com/jinhuang712/gotato/gotato"
 	"github.com/jinhuang712/gotato/profile"
+	"github.com/jinhuang712/gotato/record"
 	"github.com/jinhuang712/gotato/service"
-	"github.com/jinhuang712/gotato/session"
 	"github.com/jinhuang712/gotato/testkit"
 )
 
@@ -171,10 +171,10 @@ type blockingGetStore struct {
 	started chan struct{}
 }
 
-func (s *blockingGetStore) Load(ctx context.Context, id string) (session.Loaded, error) {
+func (s *blockingGetStore) Load(ctx context.Context, id string) (record.Loaded, error) {
 	s.once.Do(func() { close(s.started) })
 	<-ctx.Done()
-	return session.Loaded{}, ctx.Err()
+	return record.Loaded{}, ctx.Err()
 }
 
 // A Run that is admitted but still loading its Session must be reachable by

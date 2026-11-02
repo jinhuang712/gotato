@@ -6,8 +6,9 @@ import (
 	"fmt"
 	"time"
 
+	"github.com/jinhuang712/gotato/record"
+
 	"github.com/jinhuang712/gotato/gotato"
-	"github.com/jinhuang712/gotato/modelctx"
 )
 
 // KindAgentProfile is the kind under which a store keeps AgentProfile
@@ -51,7 +52,7 @@ type ToolSetRef struct {
 	Mode ToolSetMode `json:"mode,omitempty"`
 }
 
-// CompactDoc is the numbers of modelctx.CompactPolicy a stored profile sets.
+// CompactDoc is the numbers of record.CompactPolicy a stored profile sets.
 type CompactDoc struct {
 	CeilingTokens       int  `json:"ceiling_tokens,omitempty"`
 	SegmentBudgetTokens int  `json:"segment_budget_tokens,omitempty"`
@@ -98,7 +99,7 @@ func DecodeAgentProfile(name string, doc []byte, catalog *Catalog) (AgentProfile
 		}
 	}
 	if c := d.Compact; c != nil {
-		p.Compact.CompactPolicy = modelctx.CompactPolicy{CeilingTokens: c.CeilingTokens, SegmentBudgetTokens: c.SegmentBudgetTokens, DropReasoning: c.DropReasoning}
+		p.Compact.CompactPolicy = record.CompactPolicy{CeilingTokens: c.CeilingTokens, SegmentBudgetTokens: c.SegmentBudgetTokens, DropReasoning: c.DropReasoning}
 		if c.Location != "" {
 			if p.Compact.Location, err = time.LoadLocation(c.Location); err != nil {
 				return AgentProfile{}, invalid(fmt.Sprintf("AgentProfile %q: compact.location: %v", name, err))

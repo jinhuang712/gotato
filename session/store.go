@@ -2,67 +2,10 @@ package session
 
 import (
 	"context"
-	"encoding/json"
 	"time"
 
-	"github.com/jinhuang712/gotato/gotato"
+	"github.com/jinhuang712/gotato/record"
 )
-
-// RecordInfo is the listing view of a stored Session: the columns a store may
-// index and a service lists. It carries nothing a rebuild needs; that is in the
-// Header's State. A writer passes it with every write (Header.Info), so a store
-// can list Sessions without reading their logs.
-type RecordInfo struct {
-	ID        string            `json:"id"`
-	ParentID  string            `json:"parent_id,omitempty"`
-	CreatedAt time.Time         `json:"created_at"`
-	UpdatedAt time.Time         `json:"updated_at"`
-	Messages  int               `json:"messages"`
-	Runs      int               `json:"runs"`
-	Usage     gotato.Usage      `json:"usage"`
-	Metadata  map[string]string `json:"metadata,omitempty"`
-}
-
-// Header is what a writer passes with every write, and what Load returns from
-// the last one: the Record's identity, its listing columns and Gotato's own
-// bytes. A store keeps all of it as it is, and reads none of it but Epoch (and
-// LogFrom, in Load).
-type Header struct {
-	// Epoch is the Record's identity as a log (Record.RecordEpoch). It is
-	// required: a write that names none is refused. Append compares it with
-	// the stored Record's before it checks the position.
-	Epoch string `json:"epoch"`
-	// Info is the listing columns, and only those.
-	Info RecordInfo `json:"info"`
-	// State is Gotato's bytes: the Run in flight, whether the writer holds the
-	// Session, the notices queued, when the last Run ended, and the counts a
-	// load starts from. No store reads it. A store keeps it with the write, as
-	// it keeps an Entry's Data, and Load returns it.
-	State json.RawMessage `json:"state,omitempty"`
-	// LogFrom is the position from which Load returns every Entry, log
-	// Entries too, or 0 for none. The Writer sets it, to the position of the
-	// last Checkpoint, while a Run is in flight: the parts of the reply that
-	// was streaming are log Entries, and a crash leaves them for the next
-	// writer to read.
-	LogFrom uint64 `json:"log_from,omitempty"`
-}
-
-// Loaded is what Records.Load returns, from one read of the Record: the
-// Entries a rebuild needs, the segment_closed Entries before them, the
-// position of the last Entry, and the Header of the last write.
-type Loaded struct {
-	// Entries are the Entries of Layer fact from the last Checkpoint on, and,
-	// when Header.LogFrom is not 0, every Entry at or after it, fact or log,
-	// each once, in order.
-	Entries []Entry
-	// Segments are the segment_closed Entries from before the Checkpoint
-	// Entries start at, in order. The Checkpoint lists the Segments it uses by
-	// number, and these Entries hold their Messages.
-	Segments []Entry
-	// Seq is the position of the last Entry the store holds.
-	Seq    uint64
-	Header Header
-}
 
 // InstanceRow is one Instance's Liveness row.
 type InstanceRow struct {
@@ -147,7 +90,7 @@ type Records interface {
 	// Record may exist, as when a write was made but not confirmed. Create is
 	// not idempotent, so a caller that retries after such an error must
 	// tolerate ErrExists, which then may be its own Record.
-	Create(ctx context.Context, id string, entries []Entry, h Header) error
+	Create(ctx context.Context, id string, entries []record.Entry, h record.Header) error
 	// Append writes entries at after+1 onward and replaces the Header. The
 	// Header names the epoch of the Record the writer loaded (Header.Epoch).
 	// It fails with ErrNotFound for an unknown or deleted Record, and for a
@@ -155,19 +98,19 @@ type Records interface {
 	// created again under the ID, and its writer is of the old one. That is
 	// checked before the position. It fails with ErrConflict unless after is
 	// the Record's last position.
-	Append(ctx context.Context, id string, after uint64, entries []Entry, h Header) error
+	Append(ctx context.Context, id string, after uint64, entries []record.Entry, h record.Header) error
 	// Load returns, from one read of the Record, the Entries of Layer fact
 	// from the last Checkpoint on, and every Entry from the Header's LogFrom
 	// (Loaded.Entries); the segment_closed Entries before that Checkpoint
 	// (Loaded.Segments), which it may list by number; the last position; and
 	// the Header of the last write. An adapter reads the Entry's Kind for the
 	// Segments, as it reads it for the Checkpoint.
-	Load(ctx context.Context, id string) (Loaded, error)
+	Load(ctx context.Context, id string) (record.Loaded, error)
 	// Log returns the Entries, facts and log, after position after, in order:
 	// at most limit of them, or all when limit is 0 or less. A caller that
 	// needs one Entry, or one page, passes a limit so that the Record is not
 	// read to its end.
-	Log(ctx context.Context, id string, after uint64, limit int) ([]Entry, error)
+	Log(ctx context.Context, id string, after uint64, limit int) ([]record.Entry, error)
 	// Delete removes a Record, and fails with ErrNotFound when there is none.
 	// A writer that appends to it afterwards gets ErrNotFound.
 	Delete(ctx context.Context, id string) error
@@ -184,7 +127,7 @@ type ListQuery struct {
 
 // ListPage is one page of Records, the most recently updated first.
 type ListPage struct {
-	Infos []RecordInfo `json:"sessions"`
+	Infos []record.Info `json:"sessions"`
 	// Next is the Cursor of the page that follows, or empty after the last
 	// page. A Record updated while a caller pages may repeat or be skipped.
 	Next string `json:"next,omitempty"`

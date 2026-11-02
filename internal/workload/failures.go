@@ -6,8 +6,8 @@ import (
 	"strings"
 
 	"github.com/jinhuang712/gotato/gotato"
+	"github.com/jinhuang712/gotato/record"
 	"github.com/jinhuang712/gotato/service"
-	"github.com/jinhuang712/gotato/session"
 )
 
 // Kind is what failed.
@@ -67,7 +67,7 @@ func runFailure(result service.RunResponse, err error) (failure, bool) {
 	switch {
 	case errors.Is(err, service.ErrNotPersisted):
 		return failure{kind: KindRun, cause: CauseStore, code: "not_persisted", message: err.Error()}, true
-	case errors.Is(err, session.ErrNotFound):
+	case errors.Is(err, record.ErrNotFound):
 		return failure{kind: KindRun, cause: CauseStore, code: "not_found", message: err.Error()}, true
 	case err == nil && result.Result.Status == gotato.RunStatusCompleted:
 		return failure{}, false

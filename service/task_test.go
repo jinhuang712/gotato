@@ -89,9 +89,9 @@ func TestATaskRunOpensANewSessionWithTheBackgroundOnce(t *testing.T) {
 	if err != nil || second.SessionID == first.SessionID {
 		t.Fatalf("%+v, %v", second, err)
 	}
-	record, err := runner.Record(ctx, first.SessionID)
-	if err != nil || record.Metadata[metaAgentKey] != "writer" || !strings.Contains(record.Metadata[service.ReservedPrefix+"task_spec"], `"name":"morning"`) {
-		t.Fatalf("metadata %v, %v", record.Metadata, err)
+	rec, err := runner.Record(ctx, first.SessionID)
+	if err != nil || rec.Metadata[metaAgentKey] != "writer" || !strings.Contains(rec.Metadata[service.ReservedPrefix+"task_spec"], `"name":"morning"`) {
+		t.Fatalf("metadata %v, %v", rec.Metadata, err)
 	}
 }
 

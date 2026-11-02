@@ -16,12 +16,13 @@ import (
 	"testing"
 	"time"
 
+	"github.com/jinhuang712/gotato/record"
+
 	"github.com/jinhuang712/gotato/gotato"
 	"github.com/jinhuang712/gotato/internal/reftasks"
 	"github.com/jinhuang712/gotato/profile"
 	"github.com/jinhuang712/gotato/service"
 	"github.com/jinhuang712/gotato/service/httpapi"
-	"github.com/jinhuang712/gotato/session"
 	"github.com/jinhuang712/gotato/testkit"
 )
 
@@ -169,11 +170,11 @@ func TestSessionStreamResumesAfterLastEventID(t *testing.T) {
 	server, runner := newServer(t)
 	first := runOnce(t, runner)
 	id := first.SessionID
-	record, err := runner.Record(context.Background(), id)
+	rec, err := runner.Record(context.Background(), id)
 	if err != nil {
 		t.Fatal(err)
 	}
-	head := int(record.Seq)
+	head := int(rec.Seq)
 
 	resp, f, _ := openSession(t, server, id, "", map[string]string{"Last-Event-ID": "3"})
 	if resp.StatusCode != http.StatusOK || !strings.HasPrefix(resp.Header.Get("Content-Type"), "text/event-stream") {
@@ -215,7 +216,7 @@ func TestSessionStreamRefusesWhatItCannotResume(t *testing.T) {
 	server, runner := newServer(t)
 	first := runOnce(t, runner)
 	id := first.SessionID
-	record, _ := runner.Record(context.Background(), id)
+	rec, _ := runner.Record(context.Background(), id)
 
 	cases := []struct {
 		name, id, query string
@@ -225,7 +226,7 @@ func TestSessionStreamRefusesWhatItCannotResume(t *testing.T) {
 	}{
 		{"another epoch", id, "?after=2&record_epoch=other", nil, http.StatusConflict, "cannot_resume"},
 		{"another epoch in a header", id, "?after=2", map[string]string{"Record-Epoch": "other"}, http.StatusConflict, "cannot_resume"},
-		{"past the head", id, "?after=" + strconv.FormatUint(record.Seq+1, 10), nil, http.StatusConflict, "cannot_resume"},
+		{"past the head", id, "?after=" + strconv.FormatUint(rec.Seq+1, 10), nil, http.StatusConflict, "cannot_resume"},
 		{"unknown Session", "missing", "", nil, http.StatusNotFound, "not_found"},
 		{"not a number", id, "?after=x", nil, http.StatusBadRequest, "invalid_argument"},
 		{"not a number in the header", id, "", map[string]string{"Last-Event-ID": "-1"}, http.StatusBadRequest, "invalid_argument"},
@@ -494,12 +495,12 @@ func playTask(t *testing.T, server *httptest.Server, runner *service.Runner, tas
 			return 0
 		}
 	}
-	record, err := runner.Record(context.Background(), id)
+	rec, err := runner.Record(context.Background(), id)
 	if err != nil {
 		t.Error(err)
 		return 0
 	}
-	return record.Seq
+	return rec.Seq
 }
 
 func taskRunner(t *testing.T, task reftasks.Task) (*httptest.Server, *service.Runner) {
@@ -625,7 +626,7 @@ type timeoutLogStore struct {
 	armed atomic.Bool
 }
 
-func (s *timeoutLogStore) Log(ctx context.Context, id string, after uint64, limit int) ([]session.Entry, error) {
+func (s *timeoutLogStore) Log(ctx context.Context, id string, after uint64, limit int) ([]record.Entry, error) {
 	if s.armed.Load() {
 		return nil, fmt.Errorf("store: log: %w", context.DeadlineExceeded)
 	}

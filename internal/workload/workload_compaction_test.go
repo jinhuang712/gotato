@@ -18,8 +18,8 @@ import (
 	"github.com/jinhuang712/gotato/internal/fakegateway"
 	"github.com/jinhuang712/gotato/internal/reftasks"
 	itext "github.com/jinhuang712/gotato/internal/text"
-	"github.com/jinhuang712/gotato/modelctx"
 	"github.com/jinhuang712/gotato/profile"
+	"github.com/jinhuang712/gotato/record"
 	"github.com/jinhuang712/gotato/ref"
 	"github.com/jinhuang712/gotato/service"
 	"github.com/jinhuang712/gotato/session"
@@ -60,7 +60,7 @@ func longRunner(t *testing.T, store session.Store, task reftasks.Task, model got
 	t.Helper()
 	agent := profile.AgentProfile{Name: task.Name, Model: model, Instruction: task.Instruction, Tools: task.Tools, ToolSets: task.ToolSets, Limits: task.Limits}
 	if task.Recap {
-		agent.Compact.Recap = modelctx.ModelRecap{}
+		agent.Compact.Recap = record.ModelRecap{}
 	}
 	runner, err := service.New(withAgents(service.Config{Store: store, Instance: instance}, []profile.AgentProfile{agent}...))
 	if err != nil {

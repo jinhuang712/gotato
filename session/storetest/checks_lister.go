@@ -6,6 +6,8 @@ import (
 	"reflect"
 	"slices"
 
+	"github.com/jinhuang712/gotato/record"
+
 	"github.com/jinhuang712/gotato/session"
 )
 
@@ -25,11 +27,11 @@ func checkList(ctx context.Context, open Open) error {
 		{"tie-b", "2026-10-17T00:00:01.500Z"},
 		{"tie-a", "2026-10-17T00:00:01.500Z"},
 	} {
-		if err := store.Create(ctx, c.id, []session.Entry{checkpoint(1, "a")}, header(c.id, 1, c.updated)); err != nil {
+		if err := store.Create(ctx, c.id, []record.Entry{checkpoint(1, "a")}, header(c.id, 1, c.updated)); err != nil {
 			return fmt.Errorf("create: %w", err)
 		}
 	}
-	if err := store.Append(ctx, "older", 1, []session.Entry{fact(2, "a")}, header("older", 2, "2026-10-17T00:00:03.000Z")); err != nil {
+	if err := store.Append(ctx, "older", 1, []record.Entry{fact(2, "a")}, header("older", 2, "2026-10-17T00:00:03.000Z")); err != nil {
 		return fmt.Errorf("append: %w", err)
 	}
 	list, err := listAll(ctx, lister, 0)
@@ -63,7 +65,7 @@ func checkListPaging(ctx context.Context, open Open) error {
 			second = 9 - 2
 		}
 		updated := fmt.Sprintf("2026-10-17T00:00:%02d.000Z", second)
-		if err := store.Create(ctx, id, []session.Entry{checkpoint(1, "a")}, header(id, 1, updated)); err != nil {
+		if err := store.Create(ctx, id, []record.Entry{checkpoint(1, "a")}, header(id, 1, updated)); err != nil {
 			return fmt.Errorf("create: %w", err)
 		}
 	}
@@ -117,8 +119,8 @@ func checkListInfoKept(ctx context.Context, open Open) error {
 	if err != nil {
 		return err
 	}
-	filled := func() (session.Header, error) {
-		h := session.Header{Epoch: "epoch-shape"}
+	filled := func() (record.Header, error) {
+		h := record.Header{Epoch: "epoch-shape"}
 		if err := fillAll(reflect.ValueOf(&h.Info).Elem(), "RecordInfo", nil); err != nil {
 			return h, err
 		}
@@ -129,7 +131,7 @@ func checkListInfoKept(ctx context.Context, open Open) error {
 	if err != nil {
 		return err
 	}
-	if err := store.Create(ctx, "shape", []session.Entry{checkpoint(1, "a")}, first); err != nil {
+	if err := store.Create(ctx, "shape", []record.Entry{checkpoint(1, "a")}, first); err != nil {
 		return fmt.Errorf("create: %w", err)
 	}
 	next, err := filled()
@@ -138,7 +140,7 @@ func checkListInfoKept(ctx context.Context, open Open) error {
 	}
 	// A second value, so that Append is told from Create.
 	next.Info.Messages, next.Info.Runs = first.Info.Messages+1, first.Info.Runs+1
-	if err := store.Append(ctx, "shape", 1, []session.Entry{fact(2, "a")}, next); err != nil {
+	if err := store.Append(ctx, "shape", 1, []record.Entry{fact(2, "a")}, next); err != nil {
 		return fmt.Errorf("append: %w", err)
 	}
 	list, err := listAll(ctx, lister, 0)
@@ -163,7 +165,7 @@ func checkListAfterDelete(ctx context.Context, open Open) error {
 	}
 	ids := []string{"Case", "case", "!case", "caf\u00e9", "cafe\u0301"}
 	for _, id := range ids {
-		if err := store.Create(ctx, id, []session.Entry{checkpoint(1, id)}, header(id, 1, "")); err != nil {
+		if err := store.Create(ctx, id, []record.Entry{checkpoint(1, id)}, header(id, 1, "")); err != nil {
 			return fmt.Errorf("create %q: %w", id, err)
 		}
 	}

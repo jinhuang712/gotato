@@ -9,6 +9,8 @@ import (
 	"testing"
 	"time"
 
+	"github.com/jinhuang712/gotato/record"
+
 	"github.com/jinhuang712/gotato/gotato"
 	"github.com/jinhuang712/gotato/session"
 )
@@ -47,23 +49,23 @@ func TestCheckID(t *testing.T) {
 func TestCheckBatch(t *testing.T) {
 	checkpoint := fileEntry(1, gotato.EventKindSessionCreated)
 	fact := fileEntry(2, gotato.EventKindMessageCommitted)
-	logged := session.Entry{Seq: 1, Kind: gotato.EventKindTurnStarted, Layer: session.LayerLog, Data: []byte(`{}`)}
-	h := session.Header{Epoch: "e"}
+	logged := record.Entry{Seq: 1, Kind: gotato.EventKindTurnStarted, Layer: record.LayerLog, Data: []byte(`{}`)}
+	h := record.Header{Epoch: "e"}
 	for _, c := range []struct {
 		name    string
 		after   uint64
-		entries []session.Entry
-		h       session.Header
+		entries []record.Entry
+		h       record.Header
 		ok      bool
 	}{
-		{"a new Record", 0, []session.Entry{checkpoint, fact}, h, true},
-		{"a continuation", 1, []session.Entry{fact}, h, true},
-		{"no epoch", 0, []session.Entry{checkpoint}, session.Header{}, false},
+		{"a new Record", 0, []record.Entry{checkpoint, fact}, h, true},
+		{"a continuation", 1, []record.Entry{fact}, h, true},
+		{"no epoch", 0, []record.Entry{checkpoint}, record.Header{}, false},
 		{"no Entries", 1, nil, h, false},
-		{"a gap", 1, []session.Entry{fileEntry(3, gotato.EventKindMessageCommitted)}, h, false},
-		{"a Seq that repeats", 1, []session.Entry{fileEntry(1, gotato.EventKindMessageCommitted)}, h, false},
-		{"a Record that starts with a fact", 0, []session.Entry{fileEntry(1, gotato.EventKindMessageCommitted)}, h, false},
-		{"a Record that starts with a log Entry", 0, []session.Entry{logged}, h, false},
+		{"a gap", 1, []record.Entry{fileEntry(3, gotato.EventKindMessageCommitted)}, h, false},
+		{"a Seq that repeats", 1, []record.Entry{fileEntry(1, gotato.EventKindMessageCommitted)}, h, false},
+		{"a Record that starts with a fact", 0, []record.Entry{fileEntry(1, gotato.EventKindMessageCommitted)}, h, false},
+		{"a Record that starts with a log Entry", 0, []record.Entry{logged}, h, false},
 	} {
 		err := session.CheckBatch(c.after, c.entries, c.h)
 		if c.ok && err != nil {
@@ -81,11 +83,11 @@ func TestCheckBatch(t *testing.T) {
 func TestWriterSetsLogFromWhileARunIsInFlight(t *testing.T) {
 	ctx := context.Background()
 	store := session.NewMemoryStore()
-	writer, err := session.CreateWriter(ctx, store, session.New(session.WithID("lf")), "a")
+	writer, err := session.CreateWriter(ctx, store, record.New(record.WithID("lf")), "a")
 	if err != nil {
 		t.Fatal(err)
 	}
-	load := func() session.Loaded {
+	load := func() record.Loaded {
 		t.Helper()
 		loaded, err := store.Load(ctx, "lf")
 		if err != nil {
@@ -112,7 +114,9 @@ func TestWriterSetsLogFromWhileARunIsInFlight(t *testing.T) {
 	if !slices.Contains(kinds, gotato.EventKindRunStarted) {
 		t.Fatalf("Load of a Run in flight returned %v, want the log Entries from the Checkpoint on, run_started among them", kinds)
 	}
-	writer.Record().Checkpoint(gotato.CompactionWhyOnDemand, []gotato.Message{gotato.UserMessage("hi")}, nil)
+	if _, err := writer.Record().CloseSegment(gotato.CompactionWhyOnDemand, gotato.Segment{Messages: []gotato.Message{gotato.UserMessage("hi")}}, nil, nil); err != nil {
+		t.Fatal(err)
+	}
 	if err := writer.Flush(ctx); err != nil {
 		t.Fatal(err)
 	}
@@ -138,13 +142,13 @@ func TestReferenceStoresLoadHonorsLogFrom(t *testing.T) {
 	}
 	for name, store := range map[string]session.Records{"memory": session.NewMemoryStore(), "file": files} {
 		h := fileSummary(1)
-		if err := store.Create(ctx, "r", []session.Entry{fileEntry(1, gotato.EventKindSessionCreated)}, h); err != nil {
+		if err := store.Create(ctx, "r", []record.Entry{fileEntry(1, gotato.EventKindSessionCreated)}, h); err != nil {
 			t.Fatal(err)
 		}
-		more := []session.Entry{
-			{Seq: 2, Kind: gotato.EventKindRunStarted, Layer: session.LayerLog, Data: []byte(`{}`)},
+		more := []record.Entry{
+			{Seq: 2, Kind: gotato.EventKindRunStarted, Layer: record.LayerLog, Data: []byte(`{}`)},
 			fileEntry(3, gotato.EventKindMessageCommitted),
-			{Seq: 4, Kind: gotato.EventKindReplyPartKept, Layer: session.LayerLog, Data: []byte(`{}`)},
+			{Seq: 4, Kind: gotato.EventKindReplyPartKept, Layer: record.LayerLog, Data: []byte(`{}`)},
 		}
 		h = fileSummary(4)
 		h.LogFrom = 1
@@ -156,7 +160,7 @@ func TestReferenceStoresLoadHonorsLogFrom(t *testing.T) {
 			t.Fatalf("%s: Load with LogFrom 1 = Seq %d, Entries %v, LogFrom %d (%v), want [1 2 3 4]", name, loaded.Seq, seqsOf(loaded.Entries), loaded.Header.LogFrom, err)
 		}
 		h = fileSummary(5)
-		if err := store.Append(ctx, "r", 4, []session.Entry{fileEntry(5, gotato.EventKindMessageCommitted)}, h); err != nil {
+		if err := store.Append(ctx, "r", 4, []record.Entry{fileEntry(5, gotato.EventKindMessageCommitted)}, h); err != nil {
 			t.Fatal(err)
 		}
 		loaded, err = store.Load(ctx, "r")
@@ -166,7 +170,7 @@ func TestReferenceStoresLoadHonorsLogFrom(t *testing.T) {
 	}
 }
 
-func seqsOf(entries []session.Entry) []uint64 {
+func seqsOf(entries []record.Entry) []uint64 {
 	out := make([]uint64, len(entries))
 	for i, e := range entries {
 		out[i] = e.Seq
@@ -185,8 +189,8 @@ func TestFileStoreListPages(t *testing.T) {
 	base := time.Date(2026, 10, 28, 0, 0, 0, 0, time.UTC)
 	for i := range 5 {
 		id := fmt.Sprintf("r%d", i)
-		h := session.Header{Epoch: "e", Info: session.RecordInfo{ID: id, UpdatedAt: base.Add(time.Duration(i) * time.Minute)}}
-		if err := store.Create(ctx, id, []session.Entry{fileEntry(1, gotato.EventKindSessionCreated)}, h); err != nil {
+		h := record.Header{Epoch: "e", Info: record.Info{ID: id, UpdatedAt: base.Add(time.Duration(i) * time.Minute)}}
+		if err := store.Create(ctx, id, []record.Entry{fileEntry(1, gotato.EventKindSessionCreated)}, h); err != nil {
 			t.Fatal(err)
 		}
 	}

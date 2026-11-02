@@ -10,11 +10,12 @@ import (
 	"strconv"
 	"strings"
 
+	"github.com/jinhuang712/gotato/record"
+
 	"github.com/jinhuang712/gotato/testkit"
 
 	"github.com/jinhuang712/gotato/gotato"
 	"github.com/jinhuang712/gotato/profile"
-	"github.com/jinhuang712/gotato/session"
 )
 
 // The tool_search task (GOALS.md G-G07 and G-G09 on a Session whose Tools load
@@ -342,9 +343,9 @@ func summarize(text string) string {
 // WithLoadedToolsOf is a session.Option for a Record made from messages alone:
 // it sets as loaded the catalog Tools the Tool Results among them list, in
 // order, which is what a Session that played them holds as long as it did not
-// compact. A Record built with session.WithMessages starts with no loaded
+// compact. A Record built with record.WithMessages starts with no loaded
 // Tools, so a check that copies a Session's history to a new Record adds this.
-func WithLoadedToolsOf(messages []gotato.Message) session.RecordOption {
+func WithLoadedToolsOf(messages []gotato.Message) record.Option {
 	var ids []string
 	for _, message := range messages {
 		if message.ToolResult == nil {
@@ -356,5 +357,5 @@ func WithLoadedToolsOf(messages []gotato.Message) session.RecordOption {
 			}
 		}
 	}
-	return func(r *session.Record) { r.SetLoadedTools(ids) }
+	return func(r *record.Record) { r.SetLoadedTools(ids) }
 }

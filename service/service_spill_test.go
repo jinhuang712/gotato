@@ -8,8 +8,8 @@ import (
 	"testing"
 
 	"github.com/jinhuang712/gotato/gotato"
-	"github.com/jinhuang712/gotato/modelctx"
 	"github.com/jinhuang712/gotato/profile"
+	"github.com/jinhuang712/gotato/record"
 	"github.com/jinhuang712/gotato/service"
 	"github.com/jinhuang712/gotato/session"
 	"github.com/jinhuang712/gotato/testkit"
@@ -45,15 +45,15 @@ func TestForkKeepsSpilledResultsReadable(t *testing.T) {
 		t.Fatal(err)
 	}
 	childRecord := viewOf(t, store, child.ID)
-	for name, record := range map[string]*session.Record{"child": childRecord, "grandchild": viewOf(t, store, grandchild.ID)} {
-		calls, refs := record.SpilledResults()
+	for name, rec := range map[string]*record.Record{"child": childRecord, "grandchild": viewOf(t, store, grandchild.ID)} {
+		calls, refs := rec.SpilledResults()
 		if len(calls) != 1 {
 			t.Fatalf("%s: spilled refs=%v", name, calls)
 		}
 		if got := refs[calls[0]].SessionID; got != gotato.SessionID(out.SessionID) {
 			t.Fatalf("%s: ref names %q, want the Session that wrote the body", name, got)
 		}
-		body, pruned, err := record.SpilledBody(ctx, store.Records, refs[calls[0]])
+		body, pruned, err := rec.SpilledBody(ctx, store.Records, refs[calls[0]])
 		if err != nil || pruned || len(body) != 80000 {
 			t.Fatalf("%s: body bytes=%d pruned=%v err=%v", name, len(body), pruned, err)
 		}
@@ -101,7 +101,7 @@ func TestForkReadsASpilledResultInAnInheritedSegment(t *testing.T) {
 	if _, err := runner.Run(ctx, service.RunRequest{SessionID: first.SessionID, Prompt: "again"}); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := runner.Compact(ctx, first.SessionID, modelctx.CompactConfig{KeepMessages: 2}); err != nil {
+	if _, err := runner.Compact(ctx, first.SessionID, record.CompactConfig{KeepMessages: 2}); err != nil {
 		t.Fatal(err)
 	}
 	child, err := runner.Fork(ctx, first.SessionID, "")
@@ -303,7 +303,7 @@ func TestReadSegmentIsOfferedAndEveryInstanceOffersTheSameTools(t *testing.T) {
 	if _, err := runner.Run(ctx, service.RunRequest{SessionID: id, Prompt: "again"}); err != nil {
 		t.Fatal(err)
 	}
-	closed, err := runner.Compact(ctx, id, modelctx.CompactConfig{})
+	closed, err := runner.Compact(ctx, id, record.CompactConfig{})
 	if err != nil || !closed.Replaced {
 		t.Fatalf("compact = %+v, %v", closed, err)
 	}
@@ -322,12 +322,12 @@ func TestReadSegmentIsOfferedAndEveryInstanceOffersTheSameTools(t *testing.T) {
 	if _, err := runner.Run(ctx, service.RunRequest{SessionID: id, Prompt: "what did I open first?"}); err != nil {
 		t.Fatal(err)
 	}
-	record, err := session.View(ctx, store.Records, id)
+	rec, err := session.View(ctx, store.Records, id)
 	if err != nil {
 		t.Fatal(err)
 	}
 	var read string
-	for _, message := range record.Messages() {
+	for _, message := range rec.Messages() {
 		if message.ToolResult != nil && message.ToolResult.CallID == "read-1" {
 			read = gotato.TextOf(gotato.Message{Parts: message.ToolResult.Content})
 		}
@@ -342,13 +342,13 @@ func TestReadSegmentIsOfferedAndEveryInstanceOffersTheSameTools(t *testing.T) {
 	if _, err := runner.Run(ctx, service.RunRequest{SessionID: id, Prompt: "once more"}); err != nil {
 		t.Fatal(err)
 	}
-	if closed, err = runner.Compact(ctx, id, modelctx.CompactConfig{CompactPolicy: modelctx.CompactPolicy{SegmentBudgetTokens: 1}}); err != nil || !closed.Replaced || closed.Merge == nil || !closed.Merge.Merged {
+	if closed, err = runner.Compact(ctx, id, record.CompactConfig{CompactPolicy: record.CompactPolicy{SegmentBudgetTokens: 1}}); err != nil || !closed.Replaced || closed.Merge == nil || !closed.Merge.Merged {
 		t.Fatalf("compact = %+v, %v", closed, err)
 	}
-	if record, err = session.View(ctx, store.Records, id); err != nil {
+	if rec, err = session.View(ctx, store.Records, id); err != nil {
 		t.Fatal(err)
 	}
-	if segments := record.Segments(); len(segments) != 1 || len(segments[0].Merged) < 2 {
+	if segments := rec.Segments(); len(segments) != 1 || len(segments[0].Merged) < 2 {
 		t.Fatalf("Segments after the merge = %+v", segments)
 	}
 

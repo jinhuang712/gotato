@@ -4,13 +4,13 @@ import (
 	"strconv"
 
 	"github.com/jinhuang712/gotato/gotato"
-	"github.com/jinhuang712/gotato/session"
+	"github.com/jinhuang712/gotato/record"
 )
 
 // NewRecord creates a Session Record pre-populated with alternating user and
 // assistant text Messages, e.g. NewRecord("hi", "hello", "how are you?").
-func NewRecord(turns ...string) *session.Record {
-	s := session.New()
+func NewRecord(turns ...string) *record.Record {
+	s := record.New()
 	for i, text := range turns {
 		var message gotato.Message
 		if i%2 == 0 {

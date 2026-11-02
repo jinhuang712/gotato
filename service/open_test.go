@@ -7,6 +7,8 @@ import (
 	"testing"
 	"time"
 
+	"github.com/jinhuang712/gotato/record"
+
 	"github.com/jinhuang712/gotato/gotato"
 	"github.com/jinhuang712/gotato/profile"
 	"github.com/jinhuang712/gotato/service"
@@ -205,7 +207,7 @@ type gatedCreate struct {
 	gate chan struct{}
 }
 
-func (s *gatedCreate) Create(ctx context.Context, id string, entries []session.Entry, summary session.Header) error {
+func (s *gatedCreate) Create(ctx context.Context, id string, entries []record.Entry, summary record.Header) error {
 	select {
 	case <-s.gate:
 	case <-ctx.Done():

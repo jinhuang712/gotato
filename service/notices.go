@@ -9,7 +9,7 @@ import (
 
 	"github.com/jinhuang712/gotato/gotato"
 	"github.com/jinhuang712/gotato/profile"
-	"github.com/jinhuang712/gotato/session"
+	"github.com/jinhuang712/gotato/record"
 )
 
 // defaultTimeAway is how long a Session must have been idle before a message
@@ -185,7 +185,7 @@ func splitNotices(left []gotato.Queued) (notices, rest []gotato.Queued) {
 // idle time is read from the Record: from the end of its last Run to now, so a
 // Session that was evicted, or loaded by another Instance, gets the notice the
 // same. A Session that has never finished a Run has none.
-func (r *Runner) queueTimeAway(ctx context.Context, spec profile.AgentProfile, record *session.Record, live *gotato.Session) {
+func (r *Runner) queueTimeAway(ctx context.Context, spec profile.AgentProfile, rec *record.Record, live *gotato.Session) {
 	threshold := r.timeAway
 	switch {
 	case threshold < 0:
@@ -193,7 +193,7 @@ func (r *Runner) queueTimeAway(ctx context.Context, spec profile.AgentProfile, r
 	case threshold == 0:
 		threshold = defaultTimeAway
 	}
-	last := record.LastRunEnd()
+	last := rec.LastRunEnd()
 	now := r.clock.Now()
 	if last.IsZero() || now.Sub(last) <= threshold {
 		return

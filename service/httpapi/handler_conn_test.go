@@ -16,6 +16,8 @@ import (
 	"testing"
 	"time"
 
+	"github.com/jinhuang712/gotato/record"
+
 	"github.com/jinhuang712/gotato/gotato"
 	"github.com/jinhuang712/gotato/profile"
 	"github.com/jinhuang712/gotato/service"
@@ -615,14 +617,14 @@ func TestRequestsThatCreateASessionSetTheSessionIDHeader(t *testing.T) {
 	server, _ := newServer(t)
 
 	resp, data := send(t, server, http.MethodPost, "/v1/sessions", map[string]any{}, nil)
-	var created session.RecordInfo
+	var created record.Info
 	_ = json.Unmarshal(data, &created)
 	if resp.StatusCode != http.StatusCreated || created.ID == "" || resp.Header.Get("session-id") != created.ID {
 		t.Fatalf("create: %d header %q body %s", resp.StatusCode, resp.Header.Get("session-id"), data)
 	}
 
 	resp, data = send(t, server, http.MethodPost, "/v1/sessions/"+created.ID+"/fork", nil, nil)
-	var fork session.RecordInfo
+	var fork record.Info
 	_ = json.Unmarshal(data, &fork)
 	if resp.StatusCode != http.StatusCreated || fork.ID == "" || resp.Header.Get("session-id") != fork.ID {
 		t.Fatalf("fork: %d header %q body %s", resp.StatusCode, resp.Header.Get("session-id"), data)

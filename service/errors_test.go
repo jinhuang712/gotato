@@ -8,8 +8,8 @@ import (
 	"time"
 
 	"github.com/jinhuang712/gotato/gotato"
-	"github.com/jinhuang712/gotato/modelctx"
 	"github.com/jinhuang712/gotato/profile"
+	"github.com/jinhuang712/gotato/record"
 	"github.com/jinhuang712/gotato/service"
 	"github.com/jinhuang712/gotato/session"
 	"github.com/jinhuang712/gotato/testkit"
@@ -22,14 +22,14 @@ func TestEverySentinelCarriesACode(t *testing.T) {
 		err  error
 		code gotato.ErrorCode
 	}{
-		{session.ErrNotFound, gotato.CodeNotFound},
+		{record.ErrNotFound, gotato.CodeNotFound},
 		{session.ErrExists, gotato.CodeInvalidState},
 		{session.ErrConflict, gotato.CodeConflict},
 		{session.ErrExpired, gotato.CodeInvalidState},
 		{service.ErrNotPersisted, gotato.CodeStoreFailure},
 		{service.ErrBusy, gotato.CodeBusy},
-		{modelctx.ErrBadRecap, gotato.CodeModelProtocolFailure},
-		{modelctx.ErrNoRecapContext, gotato.CodeInvalidArgument},
+		{record.ErrBadRecap, gotato.CodeModelProtocolFailure},
+		{record.ErrNoRecapContext, gotato.CodeInvalidArgument},
 		{testkit.ErrScriptExhausted, gotato.CodeModelFailure},
 		{gotato.ErrEventsLost, service.CodeCannotResume},
 	}

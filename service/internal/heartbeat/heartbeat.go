@@ -16,6 +16,8 @@ import (
 	"sync"
 	"time"
 
+	"github.com/jinhuang712/gotato/record"
+
 	"github.com/jinhuang712/gotato/gotato"
 	"github.com/jinhuang712/gotato/service/internal/clock"
 	"github.com/jinhuang712/gotato/session"
@@ -125,9 +127,9 @@ func (r *Row) Name() string {
 // whole generated name when there is no label.
 func (r *Row) newName() string {
 	if r.cfg.Label == "" {
-		return session.NewID()
+		return record.NewID()
 	}
-	return r.cfg.Label + "-" + session.NewID()[:8]
+	return r.cfg.Label + "-" + record.NewID()[:8]
 }
 
 // stale reports whether the last renewal is older than the TTL less a margin.

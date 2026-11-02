@@ -388,7 +388,7 @@ func TestAToolSwitchedOffForTheSessionIsNeverIndexedOrLoaded(t *testing.T) {
 	}
 }
 
-// loadedNames is a Transcript that remembers loaded tools, as a session.Record does.
+// loadedNames is a Transcript that remembers loaded tools, as a record.Record does.
 type loadedNames struct {
 	memoryTranscript
 	names []string

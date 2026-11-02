@@ -4,6 +4,8 @@ import (
 	"context"
 	"testing"
 
+	"github.com/jinhuang712/gotato/record"
+
 	"github.com/jinhuang712/gotato/gotato"
 )
 
@@ -12,8 +14,8 @@ import (
 func TestMemoryStoreKeepsItsHeaderApart(t *testing.T) {
 	ctx := context.Background()
 	store := NewMemoryStore()
-	h := Header{Epoch: "e", State: []byte(`{"notices":["first"]}`), Info: RecordInfo{ID: "n", Metadata: map[string]string{"k": "first"}}}
-	entries := []Entry{{Seq: 1, Layer: LayerFact, Kind: gotato.EventKindSessionCreated, Data: []byte(`{}`)}}
+	h := record.Header{Epoch: "e", State: []byte(`{"notices":["first"]}`), Info: record.Info{ID: "n", Metadata: map[string]string{"k": "first"}}}
+	entries := []record.Entry{{Seq: 1, Layer: record.LayerFact, Kind: gotato.EventKindSessionCreated, Data: []byte(`{}`)}}
 	if err := store.Create(ctx, "n", entries, h); err != nil {
 		t.Fatal(err)
 	}

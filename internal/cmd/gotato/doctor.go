@@ -6,6 +6,8 @@ import (
 	"runtime"
 	"strings"
 
+	"github.com/jinhuang712/gotato/record"
+
 	"github.com/jinhuang712/gotato/session"
 )
 
@@ -44,7 +46,7 @@ func (c *cli) cmdDoctor(args []string) int {
 	if err != nil {
 		add(doctorCheck{Name: "store", OK: false, Detail: err.Error()})
 	} else {
-		probe := session.New()
+		probe := record.New()
 		if _, err := session.CreateWriter(ctx, rt.store.Records, probe, rt.runner.Instance()); err != nil {
 			add(doctorCheck{Name: "store", OK: false, Detail: rt.storeDir + ": not writable: " + err.Error()})
 		} else if err := rt.store.Records.Delete(ctx, probe.ID()); err != nil {

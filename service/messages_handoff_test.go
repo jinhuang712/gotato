@@ -8,6 +8,8 @@ import (
 	"testing"
 	"time"
 
+	"github.com/jinhuang712/gotato/record"
+
 	"github.com/jinhuang712/gotato/gotato"
 	"github.com/jinhuang712/gotato/profile"
 	"github.com/jinhuang712/gotato/service"
@@ -253,9 +255,9 @@ type loadFails struct {
 	armed atomic.Bool
 }
 
-func (s *loadFails) Load(ctx context.Context, id string) (session.Loaded, error) {
+func (s *loadFails) Load(ctx context.Context, id string) (record.Loaded, error) {
 	if s.armed.Load() {
-		return session.Loaded{}, errors.New("store down")
+		return record.Loaded{}, errors.New("store down")
 	}
 	return s.parts.Load(ctx, id)
 }
@@ -327,7 +329,7 @@ func (d *vanishingDefinitions) vanish() { d.gone.Store(true) }
 
 func (d *vanishingDefinitions) LoadDefinition(ctx context.Context, kind, name string) ([]byte, error) {
 	if d.gone.Load() {
-		return nil, session.ErrNotFound
+		return nil, record.ErrNotFound
 	}
 	return d.Definitions.LoadDefinition(ctx, kind, name)
 }

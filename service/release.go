@@ -5,6 +5,8 @@ import (
 	"errors"
 	"sync"
 
+	"github.com/jinhuang712/gotato/record"
+
 	"github.com/jinhuang712/gotato/session"
 )
 
@@ -84,13 +86,13 @@ func (r *Runner) repairReleases() {
 // a Session with a Run on it is not waited for and stays marked. It reports
 // whether the Session needs no more attempts.
 func (r *Runner) repairRelease(ctx context.Context, sessionID string) bool {
-	record, err := session.Open(ctx, r.store.Records, sessionID)
+	rec, err := session.Open(ctx, r.store.Records, sessionID)
 	if err != nil {
 		// A Session that is gone has nothing to release.
-		return errors.Is(err, session.ErrNotFound)
+		return errors.Is(err, record.ErrNotFound)
 	}
 	// [OWNERSHIP] only a Claim held by this Instance is released here.
-	if claim, busy := record.Holder(); !busy || claim.Instance != r.id() {
+	if claim, busy := rec.Holder(); !busy || claim.Instance != r.id() {
 		return true
 	}
 	// [OWNERSHIP] a Run holding the Session lock owns its release; the mark stays for the next tick.
@@ -102,7 +104,7 @@ func (r *Runner) repairRelease(ctx context.Context, sessionID string) bool {
 	defer r.locks.release(sessionID)
 	writer, early, _, err := r.acquire(ctx, sessionID)
 	if err != nil {
-		return errors.Is(err, session.ErrNotFound)
+		return errors.Is(err, record.ErrNotFound)
 	}
 	agent, _ := writer.Record().Get(metaAgent)
 	r.publishOpened(writer, early, agent)

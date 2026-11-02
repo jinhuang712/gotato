@@ -5,10 +5,11 @@ import (
 	"net/http"
 	"testing"
 
+	"github.com/jinhuang712/gotato/record"
+
 	"github.com/jinhuang712/gotato/gotato"
 	"github.com/jinhuang712/gotato/service"
 	"github.com/jinhuang712/gotato/service/httpapi"
-	"github.com/jinhuang712/gotato/session"
 )
 
 // A new ErrorCode must be given a status on purpose: this fails until the
@@ -40,8 +41,8 @@ func TestStatusForTranslatesTheCode(t *testing.T) {
 		{service.ErrOverloaded, http.StatusServiceUnavailable},
 		{service.ErrBusy, http.StatusConflict},
 		{service.ErrSessionExists, http.StatusConflict},
-		{session.ErrNotFound, http.StatusNotFound},
-		{fmt.Errorf("opening: %w", session.ErrNotFound), http.StatusNotFound},
+		{record.ErrNotFound, http.StatusNotFound},
+		{fmt.Errorf("opening: %w", record.ErrNotFound), http.StatusNotFound},
 		{gotato.ErrorOf(gotato.CodeStoreFailure, "x"), http.StatusServiceUnavailable},
 		{gotato.ErrorOf(gotato.CodeInvalidState, "x"), http.StatusConflict},
 	} {

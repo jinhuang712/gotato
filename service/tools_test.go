@@ -11,8 +11,8 @@ import (
 	"time"
 
 	"github.com/jinhuang712/gotato/gotato"
-	"github.com/jinhuang712/gotato/modelctx"
 	"github.com/jinhuang712/gotato/profile"
+	"github.com/jinhuang712/gotato/record"
 	"github.com/jinhuang712/gotato/service"
 	"github.com/jinhuang712/gotato/session"
 	"github.com/jinhuang712/gotato/testkit"
@@ -55,11 +55,11 @@ func TestAGoneToolIsUnloadedInTheRecordForEveryInstance(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	record, err := session.Open(ctx, store.Records, first.SessionID)
+	rec, err := session.Open(ctx, store.Records, first.SessionID)
 	if err != nil {
 		t.Fatal(err)
 	}
-	if got := record.LoadedTools(); !slices.Equal(got, []string{"files.read"}) {
+	if got := rec.LoadedTools(); !slices.Equal(got, []string{"files.read"}) {
 		t.Fatalf("loaded after Run 1 = %v", got)
 	}
 
@@ -72,11 +72,11 @@ func TestAGoneToolIsUnloadedInTheRecordForEveryInstance(t *testing.T) {
 	if ids := toolIDsOf(model.Requests()[2]); slices.Contains(ids, "files.read") {
 		t.Fatalf("a gone tool is still offered: %v", ids)
 	}
-	record, err = session.Open(ctx, store.Records, first.SessionID)
+	rec, err = session.Open(ctx, store.Records, first.SessionID)
 	if err != nil {
 		t.Fatal(err)
 	}
-	if got := record.LoadedTools(); len(got) != 0 {
+	if got := rec.LoadedTools(); len(got) != 0 {
 		t.Fatalf("the Record still holds %v as loaded", got)
 	}
 }
@@ -213,7 +213,7 @@ func TestLoadedToolStaysLoadedInLaterRuns(t *testing.T) {
 
 	// A compaction writes a Checkpoint that keeps the load of a tool
 	// the closed Segment called (Run 3 called files.read).
-	if _, err := other.Compact(ctx, first.SessionID, modelctx.CompactConfig{KeepMessages: 2}); err != nil {
+	if _, err := other.Compact(ctx, first.SessionID, record.CompactConfig{KeepMessages: 2}); err != nil {
 		t.Fatal(err)
 	}
 	// A fork starts with it too.
@@ -266,11 +266,11 @@ func TestAToolSwitchedOffForASessionIsNeverInTheCatalogOrLoaded(t *testing.T) {
 	if got := toolIDsOf(requests[0]); slices.Contains(got, "files.read") || !slices.Contains(got, gotato.SearchToolName) {
 		t.Fatalf("tools = %v, want search_tools and no files.read", got)
 	}
-	record, err := session.View(ctx, store.Records, result.SessionID)
+	rec, err := session.View(ctx, store.Records, result.SessionID)
 	if err != nil {
 		t.Fatal(err)
 	}
-	if got := record.LoadedTools(); len(got) != 0 {
+	if got := rec.LoadedTools(); len(got) != 0 {
 		t.Fatalf("LoadedTools = %v", got)
 	}
 }
@@ -352,11 +352,11 @@ func TestAToolOfAToolSetIsListedAndSwitchedByID(t *testing.T) {
 	if err != nil || entry.Active || entry.ToolSet != "files" {
 		t.Fatalf("SetToolActive off = %+v, %v", entry, err)
 	}
-	record, err := session.View(ctx, store.Records, id)
+	rec, err := session.View(ctx, store.Records, id)
 	if err != nil {
 		t.Fatal(err)
 	}
-	if v, _ := record.Get(metaToolKeyPrefix + "files.read"); v != "inactive" {
+	if v, _ := rec.Get(metaToolKeyPrefix + "files.read"); v != "inactive" {
 		t.Fatalf("metadata = %q, want inactive", v)
 	}
 	// Unknown names and names in a ToolSet that is down are refused.

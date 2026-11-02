@@ -9,6 +9,8 @@ import (
 	"testing"
 	"time"
 
+	"github.com/jinhuang712/gotato/record"
+
 	"github.com/jinhuang712/gotato/gotato"
 	"github.com/jinhuang712/gotato/session"
 	"github.com/jinhuang712/gotato/session/storetest"
@@ -24,13 +26,13 @@ func TestFileStoreListReadsOnlyTheLastWrite(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if err := store.Create(ctx, "r", []session.Entry{fileEntry(1, gotato.EventKindSessionCreated)}, fileSummary(1)); err != nil {
+	if err := store.Create(ctx, "r", []record.Entry{fileEntry(1, gotato.EventKindSessionCreated)}, fileSummary(1)); err != nil {
 		t.Fatal(err)
 	}
 	kinds := []gotato.EventKind{gotato.EventKindMessageCommitted, gotato.EventKindCompactionEnded, gotato.EventKindMessageCommitted}
 	for i, kind := range kinds {
 		seq := uint64(i + 2)
-		if err := store.Append(ctx, "r", seq-1, []session.Entry{fileEntry(seq, kind)}, fileSummary(seq)); err != nil {
+		if err := store.Append(ctx, "r", seq-1, []record.Entry{fileEntry(seq, kind)}, fileSummary(seq)); err != nil {
 			t.Fatal(err)
 		}
 	}
@@ -64,7 +66,7 @@ func TestFileStoreDeleteForgetsARecordWhoseFilesStay(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if err := store.Create(ctx, "r", []session.Entry{fileEntry(1, gotato.EventKindSessionCreated)}, fileSummary(1)); err != nil {
+	if err := store.Create(ctx, "r", []record.Entry{fileEntry(1, gotato.EventKindSessionCreated)}, fileSummary(1)); err != nil {
 		t.Fatal(err)
 	}
 	epochs, _ := filepath.Glob(filepath.Join(dir, "r", "*"))
@@ -88,7 +90,7 @@ func TestFileStoreDeleteForgetsARecordWhoseFilesStay(t *testing.T) {
 	if err == nil {
 		t.Fatal("Delete removed files from a read-only directory")
 	}
-	if _, err := store.Load(ctx, "r"); !errors.Is(err, session.ErrNotFound) {
+	if _, err := store.Load(ctx, "r"); !errors.Is(err, record.ErrNotFound) {
 		t.Fatalf("Load after Delete = %v, want ErrNotFound", err)
 	}
 	if n := session.CachedHeads(store); n != 0 {
@@ -103,7 +105,7 @@ func TestFileStoreBeatDoesNotBlockAppend(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if err := store.Create(ctx, "r", []session.Entry{fileEntry(1, gotato.EventKindSessionCreated)}, fileSummary(1)); err != nil {
+	if err := store.Create(ctx, "r", []record.Entry{fileEntry(1, gotato.EventKindSessionCreated)}, fileSummary(1)); err != nil {
 		t.Fatal(err)
 	}
 	inBeat, release := make(chan struct{}), make(chan struct{})
@@ -116,7 +118,7 @@ func TestFileStoreBeatDoesNotBlockAppend(t *testing.T) {
 	<-inBeat
 	appended := make(chan error, 1)
 	go func() {
-		appended <- store.Append(ctx, "r", 1, []session.Entry{fileEntry(2, gotato.EventKindMessageCommitted)}, fileSummary(2))
+		appended <- store.Append(ctx, "r", 1, []record.Entry{fileEntry(2, gotato.EventKindMessageCommitted)}, fileSummary(2))
 	}()
 	select {
 	case err := <-appended:
@@ -139,7 +141,7 @@ func TestFileStoreRoundTripContinuesHistory(t *testing.T) {
 		t.Fatal(err)
 	}
 	ctx := context.Background()
-	s := session.New(session.WithMetadata(map[string]string{"app": "test"}))
+	s := record.New(record.WithMetadata(map[string]string{"app": "test"}))
 	writer, err := session.CreateWriter(ctx, store, s, "instance-a")
 	if err != nil {
 		t.Fatal(err)
@@ -176,7 +178,7 @@ func TestFileStoreRoundTripContinuesHistory(t *testing.T) {
 	if err := store.Delete(ctx, s.ID()); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := session.Open(ctx, store, s.ID()); !errors.Is(err, session.ErrNotFound) {
+	if _, err := session.Open(ctx, store, s.ID()); !errors.Is(err, record.ErrNotFound) {
 		t.Fatalf("after delete err = %v", err)
 	}
 	if _, err := session.Open(ctx, store, "../escape"); !errors.Is(err, session.ErrInvalidID) {
@@ -217,7 +219,7 @@ func TestFileStoreStrayFileInRecordDirIsAnError(t *testing.T) {
 		t.Fatal(err)
 	}
 	_, err = store.Load(context.Background(), "r")
-	if err == nil || errors.Is(err, session.ErrNotFound) || !strings.Contains(err.Error(), stray) {
+	if err == nil || errors.Is(err, record.ErrNotFound) || !strings.Contains(err.Error(), stray) {
 		t.Fatalf("want an error naming %s, got %v", stray, err)
 	}
 }
@@ -231,7 +233,7 @@ func TestFileStoreListDoesNotDecodeTheEntriesOfTheLastWrite(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if err := store.Create(ctx, "r", []session.Entry{fileEntry(1, gotato.EventKindSessionCreated)}, fileSummary(1)); err != nil {
+	if err := store.Create(ctx, "r", []record.Entry{fileEntry(1, gotato.EventKindSessionCreated)}, fileSummary(1)); err != nil {
 		t.Fatal(err)
 	}
 	matches, _ := filepath.Glob(filepath.Join(dir, "r", "*", "00000000000000000001.json"))

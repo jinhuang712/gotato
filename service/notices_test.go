@@ -9,8 +9,8 @@ import (
 	"time"
 
 	"github.com/jinhuang712/gotato/gotato"
-	"github.com/jinhuang712/gotato/modelctx"
 	"github.com/jinhuang712/gotato/profile"
+	"github.com/jinhuang712/gotato/record"
 	"github.com/jinhuang712/gotato/service"
 	"github.com/jinhuang712/gotato/session"
 	"github.com/jinhuang712/gotato/testkit"
@@ -235,8 +235,8 @@ func TestATimeAwayNoticeFollowsAMessageAfterALongAbsence(t *testing.T) {
 	}
 
 	// The notice is kept in the Record, as Gotato's own, with its Events.
-	record, _ := runner.Record(ctx, s.ID)
-	messages := record.Messages
+	rcd, _ := runner.Record(ctx, s.ID)
+	messages := rcd.Messages
 	last := messages[len(messages)-2]
 	if last.Role != gotato.RoleNotice || last.Notice.Kind != gotato.NoticeTimeAway || last.Notice.Source != gotato.NoticeSourceGotato {
 		t.Fatalf("the Record keeps %+v", last)
@@ -408,9 +408,9 @@ func TestATimeAwayOfACrashedRunIsNotKept(t *testing.T) {
 	second, _ := timeAwayRunner2(t, store, "second", clock)
 	_ = model
 	runOn(t, second, s.ID, "back")
-	record, _ := second.Record(ctx, s.ID)
+	rcd, _ := second.Record(ctx, s.ID)
 	count := 0
-	for _, m := range record.Messages {
+	for _, m := range rcd.Messages {
 		if m.Role == gotato.RoleNotice && m.Notice.Kind == gotato.NoticeTimeAway {
 			count++
 			if !strings.Contains(gotato.TextOf(m), "3 days") || strings.Contains(gotato.TextOf(m), "stale") {
@@ -459,7 +459,7 @@ func (s *failOnceStore) Beat(ctx context.Context, row session.InstanceRow, ttl t
 	return err
 }
 
-func (s *failOnceStore) Append(ctx context.Context, id string, after uint64, entries []session.Entry, info session.Header) error {
+func (s *failOnceStore) Append(ctx context.Context, id string, after uint64, entries []record.Entry, info record.Header) error {
 	if s.armed.Load() {
 		for _, e := range entries {
 			if e.Kind == s.failKind && s.hit.CompareAndSwap(false, true) {
@@ -493,7 +493,7 @@ func TestFailedWriteOfAnyExitIsRepairedByTheHeartbeat(t *testing.T) {
 			}
 		}},
 		{"a compaction", gotato.EventKindCompactionStarted, func(ctx context.Context, t *testing.T, r *service.Runner, id string) {
-			if _, err := r.Compact(ctx, id, modelctx.CompactConfig{KeepMessages: 1}); err == nil {
+			if _, err := r.Compact(ctx, id, record.CompactConfig{KeepMessages: 1}); err == nil {
 				t.Fatal("Compact did not see the fault")
 			}
 		}},

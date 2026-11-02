@@ -9,8 +9,8 @@ import (
 	"time"
 
 	"github.com/jinhuang712/gotato/gotato"
-	"github.com/jinhuang712/gotato/modelctx"
 	"github.com/jinhuang712/gotato/profile"
+	"github.com/jinhuang712/gotato/record"
 	"github.com/jinhuang712/gotato/service"
 	"github.com/jinhuang712/gotato/session"
 	"github.com/jinhuang712/gotato/testkit"
@@ -58,7 +58,7 @@ func TestOpeningARecordCreatedAgainSendsNoClaimToAnOldStream(t *testing.T) {
 			_, _ = runner.SetToolActive(ctx, id, "probe", false)
 		}},
 		{"a compaction", func(runner *service.Runner, id string) {
-			_, _ = runner.Compact(ctx, id, modelctx.CompactConfig{KeepMessages: 2})
+			_, _ = runner.Compact(ctx, id, record.CompactConfig{KeepMessages: 2})
 		}},
 	}
 	for _, c := range changes {
@@ -121,7 +121,7 @@ func waitEnd(t *testing.T, ended <-chan streamEnd) {
 		if len(end.numbers) > 0 {
 			t.Fatalf("the old stream delivered Events %v of the Record created again", end.numbers)
 		}
-		if !errors.Is(end.err, service.ErrCannotResume) && !errors.Is(end.err, session.ErrNotFound) {
+		if !errors.Is(end.err, service.ErrCannotResume) && !errors.Is(end.err, record.ErrNotFound) {
 			t.Fatalf("the old stream ended with %v, want cannot_resume or not found", end.err)
 		}
 	case <-time.After(10 * time.Second):
@@ -193,12 +193,12 @@ func TestNewStreamIsNotHeldBackByAStreamOfTheOldRecord(t *testing.T) {
 	if _, err := a.Run(ctx, service.RunRequest{SessionID: id, Prompt: "new"}); err != nil {
 		t.Fatal(err)
 	}
-	record, err := a.Record(ctx, id)
+	rec, err := a.Record(ctx, id)
 	if err != nil {
 		t.Fatal(err)
 	}
-	got := readNumbers(t, fresh, int(record.Seq-fresh.Head))
-	if want := consecutive(fresh.Head+1, int(record.Seq-fresh.Head)); fmt.Sprint(got) != fmt.Sprint(want) {
+	got := readNumbers(t, fresh, int(rec.Seq-fresh.Head))
+	if want := consecutive(fresh.Head+1, int(rec.Seq-fresh.Head)); fmt.Sprint(got) != fmt.Sprint(want) {
 		t.Fatalf("the new stream delivered %v, want %v", got, want)
 	}
 	waitEnd(t, oldEnded)
@@ -213,14 +213,14 @@ type loadGate struct {
 	release chan struct{}
 }
 
-func (g *loadGate) Load(ctx context.Context, id string) (session.Loaded, error) {
+func (g *loadGate) Load(ctx context.Context, id string) (record.Loaded, error) {
 	loaded, err := g.parts.Load(ctx, id)
 	if g.armed.CompareAndSwap(true, false) {
 		g.loaded <- struct{}{}
 		select {
 		case <-g.release:
 		case <-ctx.Done():
-			return session.Loaded{}, ctx.Err()
+			return record.Loaded{}, ctx.Err()
 		}
 	}
 	return loaded, err
@@ -367,7 +367,7 @@ func TestACutStreamEndsAtOnce(t *testing.T) {
 	read, cancel := context.WithTimeout(ctx, 5*time.Second)
 	defer cancel()
 	event, err := stream.Next(read)
-	if !errors.Is(err, session.ErrNotFound) {
+	if !errors.Is(err, record.ErrNotFound) {
 		t.Fatalf("the cut stream gave %v, %v; want not found at once", event, err)
 	}
 }
@@ -440,7 +440,7 @@ func (h *holdStore) hold(release <-chan struct{}) {
 	<-release
 }
 
-func (h *holdStore) Append(ctx context.Context, id string, after uint64, entries []session.Entry, summary session.Header) error {
+func (h *holdStore) Append(ctx context.Context, id string, after uint64, entries []record.Entry, summary record.Header) error {
 	err := h.parts.Append(ctx, id, after, entries, summary)
 	if err == nil && h.armAppend.CompareAndSwap(true, false) {
 		h.hold(h.releaseAppend)
@@ -448,7 +448,7 @@ func (h *holdStore) Append(ctx context.Context, id string, after uint64, entries
 	return err
 }
 
-func (h *holdStore) Load(ctx context.Context, id string) (session.Loaded, error) {
+func (h *holdStore) Load(ctx context.Context, id string) (record.Loaded, error) {
 	loaded, err := h.parts.Load(ctx, id)
 	if err == nil && h.armLoad.CompareAndSwap(true, false) {
 		h.hold(h.releaseLoad)
@@ -477,7 +477,7 @@ func notCut(t *testing.T, stream *service.SessionStream) {
 	t.Helper()
 	gone, cancel := context.WithCancel(context.Background())
 	cancel()
-	if _, err := stream.Next(gone); errors.Is(err, service.ErrCannotResume) || errors.Is(err, session.ErrNotFound) {
+	if _, err := stream.Next(gone); errors.Is(err, service.ErrCannotResume) || errors.Is(err, record.ErrNotFound) {
 		t.Fatalf("the stream of the Record created again was cut with %v", err)
 	}
 }

@@ -14,7 +14,7 @@ import (
 	"github.com/jinhuang712/gotato/gateway"
 	"github.com/jinhuang712/gotato/gotato"
 	"github.com/jinhuang712/gotato/internal/reftasks"
-	"github.com/jinhuang712/gotato/modelctx"
+	"github.com/jinhuang712/gotato/record"
 	"github.com/jinhuang712/gotato/ref"
 	"github.com/jinhuang712/gotato/service"
 	"github.com/jinhuang712/gotato/session"
@@ -82,7 +82,7 @@ type playOptions struct {
 	// reasoning makes every reply carry reasoning.
 	reasoning bool
 	// compactAfter, when above 0, compacts the Session explicitly after that
-	// many Runs, keeping the last two Messages (modelctx.Compact).
+	// many Runs, keeping the last two Messages (record.Compact).
 	compactAfter int
 }
 
@@ -134,7 +134,7 @@ func playAcross(t *testing.T, store session.Store, task reftasks.Task, options p
 			t.Fatalf("%s: Run %d ended %s (compacted %t)", task.Name, i+1, result.Result.Status, result.Compacted)
 		}
 		if options.compactAfter == i+1 {
-			if _, err := runner.Compact(ctx, s.ID, modelctx.CompactConfig{KeepMessages: 2}); err != nil {
+			if _, err := runner.Compact(ctx, s.ID, record.CompactConfig{KeepMessages: 2}); err != nil {
 				t.Fatal(err)
 			}
 		}
@@ -617,7 +617,7 @@ func TestSameRecordSameRequestAcrossLoadsAndUnloads(t *testing.T) {
 			t.Fatalf("Run %d: %v (%s)", i+1, err, result.Result.Status)
 		}
 		if i+1 == 5 {
-			if _, err := runner.Compact(ctx, s.ID, modelctx.CompactConfig{KeepMessages: 2}); err != nil {
+			if _, err := runner.Compact(ctx, s.ID, record.CompactConfig{KeepMessages: 2}); err != nil {
 				t.Fatal(err)
 			}
 		}

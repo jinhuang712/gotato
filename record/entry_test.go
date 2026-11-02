@@ -1,0 +1,376 @@
+package record_test
+
+import (
+	"context"
+	"encoding/json"
+	"errors"
+	"go/ast"
+	"go/parser"
+	"go/token"
+	"reflect"
+	"strconv"
+	"strings"
+	"testing"
+	"time"
+
+	"github.com/jinhuang712/gotato/record"
+
+	"github.com/jinhuang712/gotato/gotato"
+)
+
+func fixedClock() func() time.Time {
+	at := time.Date(2026, 10, 17, 12, 0, 0, 0, time.UTC)
+	return func() time.Time { return at }
+}
+
+// sameState compares what two Records hold: Messages, metadata, Runs, usage,
+// compaction history and the numbers and kinds of the Events they keep.
+func sameState(t *testing.T, got, want *record.Record) {
+	t.Helper()
+	view := func(r *record.Record) string {
+		type eventView struct {
+			Kind   gotato.EventKind
+			Number uint64
+		}
+		var events []eventView
+		for _, event := range r.Events() {
+			events = append(events, eventView{event.Kind(), event.Head().Number})
+		}
+		data, _ := json.Marshal(map[string]any{
+			"id": r.ID(), "messages": r.Messages(), "metadata": r.Metadata(), "runs": r.Runs(),
+			"usage": r.Usage(), "compactions": r.Compactions(), "events": events,
+		})
+		return string(data)
+	}
+	if g, w := view(got), view(want); g != w {
+		t.Fatalf("rebuilt Record differs\n got: %s\nwant: %s", g, w)
+	}
+}
+
+func layers(entries []record.Entry) map[gotato.EventKind]record.Layer {
+	out := map[gotato.EventKind]record.Layer{}
+	for _, entry := range entries {
+		out[entry.Kind] = entry.Layer
+	}
+	return out
+}
+
+func runEvent(kind string, runID gotato.RunID, at time.Time) gotato.Event {
+	hd := gotato.Header{Time: at, RunID: runID}
+	if kind == "start" {
+		return gotato.RunStarted{Header: hd}
+	}
+	return gotato.RunEnded{Header: hd, Status: gotato.RunStatusCompleted, Turns: 1, Usage: gotato.Usage{InputTokens: 10, OutputTokens: 2, TotalTokens: 12}}
+}
+
+func TestEntriesRebuildEveryChange(t *testing.T) {
+	ctx := context.Background()
+	r := record.New(record.WithRecordClock(fixedClock()), record.WithMessages(gotato.UserMessage("history")))
+	record.StartLog(r)
+	var entries []record.Entry
+	entries = append(entries, record.TakePending(r)...)
+
+	commit(t, r, gotato.UserMessage("hi"))
+	r.Set("agent", "support")
+	if _, err := r.Write(ctx, []gotato.Event{runEvent("start", "run-1", time.Date(2026, 10, 17, 12, 0, 1, 0, time.UTC))}); err != nil {
+		t.Fatal(err)
+	}
+	commit(t, r, gotato.AssistantMessage("hello"))
+	if _, err := r.Write(ctx, []gotato.Event{runEvent("end", "run-1", time.Date(2026, 10, 17, 12, 0, 2, 0, time.UTC))}); err != nil {
+		t.Fatal(err)
+	}
+	r.Set("agent", "")
+	entries = append(entries, record.TakePending(r)...)
+
+	for i, entry := range entries {
+		if entry.Seq != uint64(i+1) {
+			t.Fatalf("entry %d has Seq %d", i, entry.Seq)
+		}
+	}
+	got := layers(entries)
+	want := map[gotato.EventKind]record.Layer{
+		gotato.EventKindSessionCreated: record.LayerFact, gotato.EventKindMessageCommitted: record.LayerFact,
+		gotato.EventKindMetadataChanged: record.LayerFact, gotato.EventKindReplyEnded: record.LayerFact,
+		gotato.EventKindRunStarted: record.LayerLog, gotato.EventKindRunEnded: record.LayerLog,
+	}
+	if !reflect.DeepEqual(got, want) {
+		t.Fatalf("entry layers = %v, want %v", got, want)
+	}
+	rebuilt, err := record.FromEntries(entries)
+	if err != nil {
+		t.Fatal(err)
+	}
+	sameState(t, rebuilt, r)
+	if rebuilt.Head() != uint64(len(entries)) {
+		t.Fatalf("Head = %d, want %d", rebuilt.Head(), len(entries))
+	}
+	if runs := rebuilt.Runs(); len(runs) != 1 || runs[0].Status != gotato.RunStatusCompleted || rebuilt.Usage().TotalTokens != 12 {
+		t.Fatalf("rebuilt Runs = %+v usage = %+v", runs, rebuilt.Usage())
+	}
+	// The window of Events a rebuilt Record keeps is typed and numbered by position.
+	for i, event := range rebuilt.Events() {
+		if event.Head().Number != uint64(i+1) || event.Head().SessionID != gotato.SessionID(r.ID()) {
+			t.Fatalf("event %d = %s numbered %d for session %q", i, event.Kind(), event.Head().Number, event.Head().SessionID)
+		}
+	}
+}
+
+func TestFactsAloneRebuildTheTranscript(t *testing.T) {
+	r := record.New(record.WithRecordClock(fixedClock()))
+	record.StartLog(r)
+	commit(t, r, gotato.UserMessage("hi"))
+	if _, err := r.Write(context.Background(), []gotato.Event{runEvent("start", "run-1", time.Now())}); err != nil {
+		t.Fatal(err)
+	}
+	r.Set("k", "v")
+	commit(t, r, gotato.AssistantMessage("hello"))
+	entries := record.TakePending(r)
+	var facts []record.Entry
+	for _, entry := range entries {
+		if entry.Layer == record.LayerFact {
+			facts = append(facts, entry)
+		}
+	}
+	rebuilt, err := record.FromEntries(facts)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !reflect.DeepEqual(rebuilt.Messages(), r.Messages()) || !reflect.DeepEqual(rebuilt.Metadata(), r.Metadata()) {
+		t.Fatalf("facts rebuilt %+v / %v", rebuilt.Messages(), rebuilt.Metadata())
+	}
+	if len(rebuilt.Runs()) != 0 {
+		t.Fatalf("facts alone rebuilt Runs: %+v", rebuilt.Runs())
+	}
+}
+
+func TestCheckpointStandsInForEverythingBefore(t *testing.T) {
+	r := record.New(record.WithRecordClock(fixedClock()))
+	record.StartLog(r)
+	for _, text := range []string{"one", "two", "three"} {
+		commit(t, r, gotato.UserMessage(text))
+	}
+	summary := gotato.AssistantMessage("summary of one and two")
+	r.Checkpoint(gotato.CompactionWhyOnDemand, []gotato.Message{summary, gotato.UserMessage("three")}, &gotato.Compaction{ReplacedMessages: 2, Recap: "test"})
+	commit(t, r, gotato.UserMessage("four"))
+	entries := record.TakePending(r)
+
+	last := -1
+	for i, entry := range entries {
+		if entry.Kind == gotato.EventKindCompactionEnded {
+			last = i
+		}
+		if entry.IsCheckpoint() != (entry.Kind == gotato.EventKindSessionCreated || entry.Kind == gotato.EventKindCompactionEnded) {
+			t.Fatalf("%s: IsCheckpoint = %v", entry.Kind, entry.IsCheckpoint())
+		}
+	}
+	if last <= 0 {
+		t.Fatalf("no compaction_ended in %+v", entries)
+	}
+	fromCheckpoint, err := record.FromEntries(entries[last:])
+	if err != nil {
+		t.Fatal(err)
+	}
+	whole, err := record.FromEntries(entries)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, rebuilt := range []*record.Record{fromCheckpoint, whole} {
+		messages := rebuilt.Messages()
+		if len(messages) != 3 || gotato.TextOf(messages[0]) != "summary of one and two" || gotato.TextOf(messages[2]) != "four" {
+			t.Fatalf("rebuilt Messages = %+v", messages)
+		}
+		if len(rebuilt.Compactions()) != 1 {
+			t.Fatalf("rebuilt Compactions = %+v", rebuilt.Compactions())
+		}
+		if rebuilt.ID() != r.ID() {
+			t.Fatalf("rebuilt ID = %q, want %q", rebuilt.ID(), r.ID())
+		}
+	}
+}
+
+func TestCompactionAppendsStartedThenOneCheckpoint(t *testing.T) {
+	r := record.New()
+	for _, text := range []string{"one", "two", "three", "four"} {
+		_ = r.Append(gotato.UserMessage(text))
+		_ = r.Append(gotato.AssistantMessage("ok " + text))
+	}
+	record.StartLog(r)
+	record.TakePending(r)
+	result, err := record.Compact(context.Background(), r, record.Compactor{}, record.CompactConfig{KeepMessages: 2})
+	if err != nil || !result.Replaced {
+		t.Fatalf("Compact = %+v, %v", result, err)
+	}
+	var kinds []gotato.EventKind
+	for _, entry := range record.TakePending(r) {
+		kinds = append(kinds, entry.Kind)
+		if entry.Kind == gotato.EventKindMessageCommitted || entry.Kind == gotato.EventKindReplyEnded {
+			t.Fatalf("compaction rewrote Messages one by one: %+v", entry)
+		}
+	}
+	if want := []gotato.EventKind{gotato.EventKindCompactionStarted, gotato.EventKindSegmentClosed, gotato.EventKindCompactionEnded}; !reflect.DeepEqual(kinds, want) {
+		t.Fatalf("kinds = %v, want %v", kinds, want)
+	}
+}
+
+func TestUnknownKindIsRefused(t *testing.T) {
+	r := record.New()
+	record.StartLog(r)
+	entries := record.TakePending(r)
+	entries = append(entries, record.Entry{Seq: uint64(len(entries) + 1), Kind: "from_the_future", Layer: record.LayerFact, Data: json.RawMessage(`{"kind":"from_the_future"}`)})
+	_, err := record.FromEntries(entries)
+	var runtimeErr *gotato.RuntimeError
+	if !errors.As(err, &runtimeErr) || runtimeErr.Code != gotato.CodeNotSupported {
+		t.Fatalf("FromEntries = %v, want not_supported", err)
+	}
+}
+
+func TestALogMustStartAtACheckpointInOrder(t *testing.T) {
+	r := record.New()
+	record.StartLog(r)
+	commit(t, r, gotato.UserMessage("hi"))
+	commit(t, r, gotato.UserMessage("again"))
+	entries := record.TakePending(r)
+	if _, err := record.FromEntries(entries[1:]); err == nil {
+		t.Fatal("FromEntries accepted a log that does not start at a checkpoint")
+	}
+	swapped := append([]record.Entry{entries[0]}, entries[2], entries[1])
+	if _, err := record.FromEntries(swapped); err == nil {
+		t.Fatal("FromEntries accepted a log out of order")
+	}
+}
+
+func TestUnstoredRecordKeepsNoPending(t *testing.T) {
+	r := record.New()
+	for range 100 {
+		commit(t, r, gotato.UserMessage("hi"))
+		if _, err := r.Write(context.Background(), []gotato.Event{runEvent("start", "run", time.Now())}); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if entries := record.TakePending(r); len(entries) != 0 {
+		t.Fatalf("a Record never stored queued %d Entries", len(entries))
+	}
+}
+
+func TestSetSameValueAppendsNothing(t *testing.T) {
+	r := record.New(record.WithMetadata(map[string]string{"agent": "support"}))
+	record.StartLog(r)
+	record.TakePending(r)
+	r.Set("agent", "support")
+	r.Set("absent", "")
+	if entries := record.TakePending(r); len(entries) != 0 {
+		t.Fatalf("Set without a change queued %+v", entries)
+	}
+	r.Set("agent", "sales")
+	if entries := record.TakePending(r); len(entries) != 1 || entries[0].Kind != gotato.EventKindMetadataChanged {
+		t.Fatalf("Set with a change queued %+v", entries)
+	}
+}
+
+// An Entry is a stored Event: its Seq is the Event's number, its Kind the
+// Event's kind, and Entry.Event decodes it back into the typed Event.
+func TestEntryIsTheStoredEvent(t *testing.T) {
+	r := record.New()
+	record.StartLog(r)
+	commit(t, r, gotato.UserMessage("hi"))
+	for _, entry := range record.TakePending(r) {
+		event, err := entry.Event(gotato.SessionID(r.ID()))
+		if err != nil {
+			t.Fatalf("Entry.Event(%s) = %v", entry.Kind, err)
+		}
+		if event.Kind() != entry.Kind || event.Head().Number != entry.Seq || event.Head().SessionID != gotato.SessionID(r.ID()) {
+			t.Fatalf("Entry.Event(%+v) = %s numbered %d", entry, event.Kind(), event.Head().Number)
+		}
+		if layer, err := record.LayerOf(entry.Kind); err != nil || layer != entry.Layer {
+			t.Fatalf("%s: layer %s, LayerOf says %s (%v)", entry.Kind, entry.Layer, layer, err)
+		}
+	}
+}
+
+func TestForkRecordsWhereItBranched(t *testing.T) {
+	parent := record.New()
+	record.StartLog(parent)
+	commit(t, parent, gotato.UserMessage("hi"))
+	head := record.TakePending(parent)
+	child := record.Fork(parent)
+	record.StartLog(child)
+	entries := record.TakePending(child)
+	event, err := entries[0].Event(gotato.SessionID(child.ID()))
+	created, isCreated := event.(gotato.SessionCreated)
+	if err != nil || !isCreated {
+		t.Fatalf("first entry = %v %v", event, err)
+	}
+	if created.ForkedFrom == nil || created.ForkedFrom.SessionID != gotato.SessionID(parent.ID()) || created.ForkedFrom.Number != head[len(head)-1].Seq || len(created.Messages) != 1 {
+		t.Fatalf("fork session_created = %+v", created)
+	}
+	rebuilt, err := record.FromEntries(entries)
+	if err != nil || rebuilt.ParentID() != parent.ID() {
+		t.Fatalf("rebuilt fork = %v, %v", rebuilt, err)
+	}
+}
+
+// An Entry of a kind the Event design replaced is refused as an unknown kind,
+// never misread.
+func TestEntryOfAnOldKindIsRefused(t *testing.T) {
+	old := record.Entry{Seq: 1, Kind: "checkpoint", Layer: record.LayerFact, At: time.Unix(1, 0).UTC(), Data: []byte(`{"id":"x","messages":[]}`)}
+	if _, err := record.FromEntries([]record.Entry{old}); err == nil {
+		t.Fatal("FromEntries accepted an Entry of the kind checkpoint")
+	}
+	if got, err := record.LayerOf("checkpoint"); err == nil {
+		t.Fatalf("LayerOf(checkpoint) = %s, want an error: a kind that is not stored has no Layer", got)
+	}
+	if old.IsCheckpoint() {
+		t.Fatal("an Entry of the kind checkpoint starts a load")
+	}
+}
+
+// Every Event kind that is stored has a Layer: layerOf never guesses, so a new
+// stored kind that is not listed fails here instead of being a log Entry that a
+// load would leave out. The kinds are read from the core's list of constants.
+func TestEveryStoredKindHasALayer(t *testing.T) {
+	fset := token.NewFileSet()
+	file, err := parser.ParseFile(fset, "../gotato/eventkinds.go", nil, 0)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var kinds []gotato.EventKind
+	ast.Inspect(file, func(n ast.Node) bool {
+		spec, ok := n.(*ast.ValueSpec)
+		if !ok || len(spec.Names) != 1 || !strings.HasPrefix(spec.Names[0].Name, "EventKind") || len(spec.Values) != 1 {
+			return true
+		}
+		if lit, ok := spec.Values[0].(*ast.BasicLit); ok && lit.Kind == token.STRING {
+			value, err := strconv.Unquote(lit.Value)
+			if err != nil {
+				t.Fatal(err)
+			}
+			kinds = append(kinds, gotato.EventKind(value))
+		}
+		return true
+	})
+	if len(kinds) < 35 {
+		t.Fatalf("read %d Event kinds from eventkinds.go, want the whole list", len(kinds))
+	}
+	stored := 0
+	for _, kind := range kinds {
+		layer, err := record.LayerOf(kind)
+		// The type that decodes the kind states its class.
+		decoded, decodeErr := gotato.UnmarshalEvent([]byte(`{"kind":"` + string(kind) + `"}`))
+		if decodeErr != nil {
+			t.Fatal(decodeErr)
+		}
+		class := decoded.Class()
+		switch {
+		case class == gotato.EventClassStored:
+			stored++
+			if err != nil || (layer != record.LayerFact && layer != record.LayerLog) {
+				t.Errorf("the stored kind %s has no Layer (%q, %v): list it in storedLayers", kind, layer, err)
+			}
+		case err == nil:
+			t.Errorf("%s is %s, not stored, yet storedLayers gives it the Layer %s", kind, class, layer)
+		}
+	}
+	if stored < 20 {
+		t.Fatalf("found %d stored kinds, want the whole list", stored)
+	}
+}

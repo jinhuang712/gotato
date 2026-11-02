@@ -35,7 +35,7 @@ type view struct {
 func viewOf(t *testing.T, store session.Store, id string) view {
 	t.Helper()
 	ctx := context.Background()
-	record, err := session.View(ctx, store.Records, id)
+	rec, err := session.View(ctx, store.Records, id)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -43,7 +43,7 @@ func viewOf(t *testing.T, store session.Store, id string) view {
 	if err != nil {
 		t.Fatal(err)
 	}
-	out := view{transcript: shape(record.Messages()), runs: len(record.Snapshot().Runs)}
+	out := view{transcript: shape(rec.Messages()), runs: len(rec.Snapshot().Runs)}
 	for _, event := range events {
 		line := fmt.Sprintf("%d %s", event.Head().Number, event.Kind())
 		switch e := event.(type) {
@@ -331,7 +331,7 @@ func TestProxyKeepsASessionOnItsWriter(t *testing.T) {
 			t.Fatalf("prompt = %d %s", r.status, r.body)
 		}
 	}
-	record, err := session.View(context.Background(), c.backing.Records, id)
+	rec, err := session.View(context.Background(), c.backing.Records, id)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -347,8 +347,8 @@ func TestProxyKeepsASessionOnItsWriter(t *testing.T) {
 	if len(writers) != 1 || !writers[c.proxy.owner(id)] {
 		t.Fatalf("Runs after the first were claimed by %v; the hash says %s", writers, c.proxy.owner(id))
 	}
-	if len(record.Messages()) < 8 {
-		t.Fatalf("Transcript has %d Messages", len(record.Messages()))
+	if len(rec.Messages()) < 8 {
+		t.Fatalf("Transcript has %d Messages", len(rec.Messages()))
 	}
 }
 
@@ -391,11 +391,11 @@ func TestConcurrentMessagesToOneSessionAreNeverInterleaved(t *testing.T) {
 	if len(answered) == 0 {
 		t.Fatal("no message was answered")
 	}
-	record, err := session.View(context.Background(), c.backing.Records, id)
+	rec, err := session.View(context.Background(), c.backing.Records, id)
 	if err != nil {
 		t.Fatal(err)
 	}
-	messages := record.Messages()
+	messages := rec.Messages()
 	landed := map[string]int{}
 	for i := 0; i+1 < len(messages); i += 2 {
 		prompt, replyText := gotato.TextOf(messages[i]), gotato.TextOf(messages[i+1])
@@ -662,11 +662,11 @@ func TestProxyRetriesAFullInstancesRefusalElsewhere(t *testing.T) {
 			continue // created while looking for ids, never run
 		}
 		checked++
-		record, err := session.Open(context.Background(), c.backing.Records, summary.ID)
+		rec, err := session.Open(context.Background(), c.backing.Records, summary.ID)
 		if err != nil {
 			t.Fatal(err)
 		}
-		holder := record.Claim().Instance
+		holder := rec.Claim().Instance
 		if busy && holder != c.instances[0].name || !busy && holder != c.instances[1].name {
 			t.Fatalf("Session %s is held by %s (busy %v): the full instance activated a Session it refused", summary.ID, holder, busy)
 		}

@@ -31,24 +31,24 @@ const modulePath = "github.com/jinhuang712/gotato"
 // held to the same table: it may import the core and nothing else.
 var allowedImports = map[string][]string{
 	"gotato":            {"internal/hostlink", "internal/text", "ref"},
-	"session":           {"gotato"},
+	"record":            {"gotato", "internal/text", "ref"},
+	"session":           {"gotato", "record"},
 	"gateway":           {"gotato", "internal/text"}, // text.Cut: an error body is cut on a rune boundary
-	"modelctx":          {"gotato", "internal/text", "ref", "session"},
 	"ref":               {},
-	"testkit":           {"gotato", "internal/hostlink", "internal/text", "session"}, // text.IsRecapAsk: the fake models recognize the Recap ask by the one definition
-	"session/storetest": {"gotato", "session"},
+	"testkit":           {"gotato", "internal/hostlink", "internal/text", "record"}, // text.IsRecapAsk: the fake models recognize the Recap ask by the one definition
+	"session/storetest": {"gotato", "record", "session"},
 	// profile is optional: the definitions a host runs, and where they come from
 	// (decision 044). It sits between the service and the layers below it, and
 	// imports no service.
-	"profile": {"gotato", "modelctx", "session"},
-	"service": {"gotato", "internal/hostlink", "modelctx", "profile", "service/internal/clock", "service/internal/heartbeat", "service/internal/runs", "service/internal/warm", "session"},
+	"profile": {"gotato", "record", "session"},
+	"service": {"gotato", "internal/hostlink", "profile", "record", "service/internal/clock", "service/internal/heartbeat", "service/internal/runs", "service/internal/warm", "session"},
 	// service/internal holds the parts of the Runner (decision 048): each is
 	// standard library only, or the core, and none imports another.
 	"service/internal/clock":     {},
-	"service/internal/heartbeat": {"gotato", "service/internal/clock", "session"},
+	"service/internal/heartbeat": {"gotato", "record", "service/internal/clock", "session"},
 	"service/internal/runs":      {"service/internal/warm"},
 	"service/internal/warm":      {"service/internal/clock"},
-	"service/httpapi":            {"gotato", "modelctx", "service", "session"},
+	"service/httpapi":            {"gotato", "record", "service", "session"},
 	"adapter/mcp":                {"gotato"},
 }
 
