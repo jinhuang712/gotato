@@ -42,11 +42,11 @@ func startHeldAgent(t *testing.T, agent service.Agent) *handoffRig {
 	t.Cleanup(func() { _ = runner.Close(context.Background()) })
 	rig := &handoffRig{runner: runner, hold: newHold(), done: make(chan service.RunResponse, 1)}
 	runner.SetBeforeDetach(rig.hold.hook)
-	s, err := runner.CreateSession(context.Background(), "echo", nil)
+	s, err := runner.CreateSession(context.Background(), service.CreateSessionRequest{Agent: "echo"})
 	if err != nil {
 		t.Fatal(err)
 	}
-	rig.id = s.ID()
+	rig.id = s.ID
 	sub, err := runner.SubscribeInstance(context.Background())
 	if err != nil {
 		t.Fatal(err)
@@ -270,7 +270,7 @@ func TestAFollowingRunThatFailsDropsItsMessages(t *testing.T) {
 	t.Cleanup(func() { _ = runner.Close(context.Background()) })
 	hold := newHold()
 	runner.SetBeforeDetach(hold.hook)
-	s, err := runner.CreateSession(context.Background(), "echo", nil)
+	s, err := runner.CreateSession(context.Background(), service.CreateSessionRequest{Agent: "echo"})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -281,13 +281,13 @@ func TestAFollowingRunThatFailsDropsItsMessages(t *testing.T) {
 	recorded := testkit.RecordSubscription(sub)
 	done := make(chan struct{})
 	go func() {
-		_, _ = runner.Run(context.Background(), service.RunRequest{SessionID: s.ID(), Prompt: "hello"})
+		_, _ = runner.Run(context.Background(), service.RunRequest{SessionID: s.ID, Prompt: "hello"})
 		close(done)
 	}()
 	<-hold.reached
 	var ids []gotato.MessageID
 	for _, text := range []string{"one", "two"} {
-		result, err := runner.Send(context.Background(), service.MessageRequest{SessionID: s.ID(), Kind: service.MessageKindFollowUp, Text: text})
+		result, err := runner.Send(context.Background(), service.MessageRequest{SessionID: s.ID, Kind: service.MessageKindFollowUp, Text: text})
 		if err != nil || !result.Queued {
 			t.Fatalf("Send(%s) = %+v, %v; want queued", text, result, err)
 		}
@@ -482,7 +482,7 @@ func TestAbortOfSettledRunMustNotStopTheFollowOnRun(t *testing.T) {
 	runner := newRunnerOn(t, asStore(store), service.Agent{Name: "a", Model: model, Warm: service.WarmPolicy{TTL: -1}})
 	ctx, cancel := context.WithTimeout(context.Background(), 20*time.Second)
 	defer cancel()
-	s, err := runner.CreateSession(ctx, "a", nil)
+	s, err := runner.CreateSession(ctx, service.CreateSessionRequest{Agent: "a"})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -491,11 +491,11 @@ func TestAbortOfSettledRunMustNotStopTheFollowOnRun(t *testing.T) {
 		t.Fatal(err)
 	}
 	rec := testkit.RecordSubscription(sub)
-	go func() { _, _ = runner.Run(ctx, service.RunRequest{SessionID: s.ID(), Prompt: "one"}) }()
+	go func() { _, _ = runner.Run(ctx, service.RunRequest{SessionID: s.ID, Prompt: "one"}) }()
 	waitChan(t, "the first model call", inFirst)
 	// A message the first Run will not take before it fails: it is left for
 	// the Run that follows.
-	if r, err := runner.Send(ctx, service.MessageRequest{SessionID: s.ID(), Kind: service.MessageKindSteer, Text: "late"}); err != nil || !r.Queued {
+	if r, err := runner.Send(ctx, service.MessageRequest{SessionID: s.ID, Kind: service.MessageKindSteer, Text: "late"}); err != nil || !r.Queued {
 		t.Fatalf("Send = %+v, %v", r, err)
 	}
 	var first gotato.RunID
@@ -508,7 +508,7 @@ func TestAbortOfSettledRunMustNotStopTheFollowOnRun(t *testing.T) {
 	close(failFirst)
 	waitChan(t, "the first Run's release write", releaseHold.entered)
 	// The first Run is settled and its end is stored; only its save is held.
-	abortErr := runner.AbortSession(ctx, s.ID(), service.AbortRun(first))
+	abortErr := runner.AbortSession(ctx, s.ID, service.AbortRun(first))
 	close(releaseHold.proceed)
 	if !errors.Is(abortErr, service.ErrNoRun) {
 		t.Errorf("AbortRun(settled run) = %v, want ErrNoRun", abortErr)

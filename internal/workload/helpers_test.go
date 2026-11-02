@@ -41,16 +41,16 @@ func taskRunner(t *testing.T, store session.Store, task reftasks.Task, instance 
 // play runs a task's prompts on a new Session until one fails, and returns
 // the Session's ID.
 func play(ctx context.Context, runner *service.Runner, task reftasks.Task) (string, error) {
-	s, err := runner.CreateSession(ctx, task.Name, nil, session.WithMessages(task.History...))
+	s, err := runner.CreateSession(ctx, service.CreateSessionRequest{Agent: task.Name, Messages: task.History})
 	if err != nil {
 		return "", err
 	}
 	for _, prompt := range task.Prompts {
-		if _, err := runner.Run(ctx, service.RunRequest{SessionID: s.ID(), Prompt: prompt}); err != nil {
-			return s.ID(), err
+		if _, err := runner.Run(ctx, service.RunRequest{SessionID: s.ID, Prompt: prompt}); err != nil {
+			return s.ID, err
 		}
 	}
-	return s.ID(), nil
+	return s.ID, nil
 }
 
 // stored counts the Messages a store holds, leaving out the answers repair

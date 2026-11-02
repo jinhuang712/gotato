@@ -218,14 +218,14 @@ func newRig(t *testing.T) (*rig, *flakyStore) {
 func (r *rig) seed() (string, []gotato.Message) {
 	r.t.Helper()
 	ctx := context.Background()
-	s, err := r.runner.CreateSession(ctx, "probe", nil)
+	s, err := r.runner.CreateSession(ctx, service.CreateSessionRequest{Agent: "probe"})
 	if err != nil {
 		r.t.Fatal(err)
 	}
-	if res, err := r.runner.Run(ctx, service.RunRequest{SessionID: s.ID(), Prompt: "use-tool one"}); err != nil || res.Result.Status != gotato.RunStatusCompleted {
+	if res, err := r.runner.Run(ctx, service.RunRequest{SessionID: s.ID, Prompt: "use-tool one"}); err != nil || res.Result.Status != gotato.RunStatusCompleted {
 		r.t.Fatalf("the first Run = %+v, %v", res.Result, err)
 	}
-	return s.ID(), r.load(s.ID())
+	return s.ID, r.load(s.ID)
 }
 
 func (r *rig) load(id string) []gotato.Message {
@@ -503,7 +503,7 @@ func TestFailureLeavesTheSessionUsable(t *testing.T) {
 			if err != nil {
 				t.Fatal(err)
 			}
-			if runs := view.Runs(); len(runs) == 2 && runs[1].Status == gotato.RunStatusCompleted {
+			if runs := view.Runs; len(runs) == 2 && runs[1].Status == gotato.RunStatusCompleted {
 				break
 			}
 			if time.Now().After(deadline) {

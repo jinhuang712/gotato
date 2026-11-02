@@ -466,11 +466,11 @@ func TestForwardDoesNotFollowARedirectOutOfTheAllowList(t *testing.T) {
 
 	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 	defer cancel()
-	s, err := a.CreateSession(ctx, "a", nil)
+	s, err := a.CreateSession(ctx, service.CreateSessionRequest{Agent: "a"})
 	if err != nil {
 		t.Fatal(err)
 	}
-	go func() { _, _ = a.Run(ctx, service.RunRequest{SessionID: s.ID(), Prompt: "go"}) }()
+	go func() { _, _ = a.Run(ctx, service.RunRequest{SessionID: s.ID, Prompt: "go"}) }()
 	select {
 	case <-entered:
 	case <-time.After(5 * time.Second):
@@ -478,7 +478,7 @@ func TestForwardDoesNotFollowARedirectOutOfTheAllowList(t *testing.T) {
 	}
 	defer close(release)
 
-	req := httptest.NewRequest(http.MethodPost, "/v1/sessions/"+s.ID()+"/messages", bytes.NewBufferString(`{"text":"hi"}`))
+	req := httptest.NewRequest(http.MethodPost, "/v1/sessions/"+s.ID+"/messages", bytes.NewBufferString(`{"text":"hi"}`))
 	req.Header.Set("X-Api-Key", "secret-of-the-caller")
 	rec := httptest.NewRecorder()
 	handlerB.ServeHTTP(rec, req)
@@ -548,12 +548,12 @@ func TestExtensionPanicTextDoesNotReachTheClient(t *testing.T) {
 		t.Fatal(err)
 	}
 	defer func() { _ = r.Close(context.Background()) }()
-	s, err := r.CreateSession(context.Background(), "echo", nil)
+	s, err := r.CreateSession(context.Background(), service.CreateSessionRequest{Agent: "echo"})
 	if err != nil {
 		t.Fatal(err)
 	}
 	w := httptest.NewRecorder()
-	httpapi.New(r).ServeHTTP(w, httptest.NewRequest("POST", "/v1/sessions/"+s.ID()+"/runs", strings.NewReader(`{"prompt":"hello"}`)))
+	httpapi.New(r).ServeHTTP(w, httptest.NewRequest("POST", "/v1/sessions/"+s.ID+"/runs", strings.NewReader(`{"prompt":"hello"}`)))
 	if !strings.Contains(w.Body.String(), "extension_failure") {
 		t.Fatalf("status=%d body=%s", w.Code, w.Body.String())
 	}
@@ -570,7 +570,7 @@ func TestABodyWithTrailingDataIsRefused(t *testing.T) {
 		t.Fatal(err)
 	}
 	defer func() { _ = runner.Close(context.Background()) }()
-	rec, err := runner.CreateSession(context.Background(), "echo", nil)
+	rec, err := runner.CreateSession(context.Background(), service.CreateSessionRequest{Agent: "echo"})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -591,7 +591,7 @@ func TestABodyWithTrailingDataIsRefused(t *testing.T) {
 			if tc.chunks {
 				body = io.MultiReader(strings.NewReader(tc.body)) // hides the length: ContentLength is -1
 			}
-			request := httptest.NewRequest("POST", "/v1/sessions/"+rec.ID()+"/runs", body)
+			request := httptest.NewRequest("POST", "/v1/sessions/"+rec.ID+"/runs", body)
 			request.Header.Set("Content-Type", "application/json")
 			w := httptest.NewRecorder()
 			handler.ServeHTTP(w, request)

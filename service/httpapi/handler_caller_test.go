@@ -124,11 +124,11 @@ func TestRequestContextReachesTheStoreAndARefusalAnswers404(t *testing.T) {
 	// The application's own endpoint creates the Session and records the
 	// owner in its metadata, which Gotato keeps with the Session.
 	alice := context.WithValue(context.Background(), callerKey{}, "alice")
-	created, err := firstRunner.CreateSession(alice, "echo", map[string]string{"owner": "alice"})
+	created, err := firstRunner.CreateSession(alice, service.CreateSessionRequest{Agent: "echo", Metadata: map[string]string{"owner": "alice"}})
 	if err != nil {
 		t.Fatal(err)
 	}
-	id := created.ID()
+	id := created.ID
 
 	var status int
 	var body []byte
@@ -196,11 +196,11 @@ func TestARefusalAlsoGuardsALiveRun(t *testing.T) {
 	defer server.Close()
 
 	alice := context.WithValue(context.Background(), callerKey{}, "alice")
-	created, err := runner.CreateSession(alice, "slow", map[string]string{"owner": "alice"})
+	created, err := runner.CreateSession(alice, service.CreateSessionRequest{Agent: "slow", Metadata: map[string]string{"owner": "alice"}})
 	if err != nil {
 		t.Fatal(err)
 	}
-	id := created.ID()
+	id := created.ID
 	done := make(chan struct{})
 	go func() {
 		defer close(done)
@@ -265,7 +265,7 @@ func TestReadyzReportsALapsedRow(t *testing.T) {
 	t.Cleanup(func() { _ = runner.Close(context.Background()) })
 	server := httptest.NewServer(httpapi.New(runner))
 	t.Cleanup(server.Close)
-	if _, err := runner.CreateSession(context.Background(), "echo", nil); err != nil {
+	if _, err := runner.CreateSession(context.Background(), service.CreateSessionRequest{Agent: "echo"}); err != nil {
 		t.Fatal(err)
 	}
 	if status, body := call(t, server, http.MethodGet, "/readyz", nil); status != http.StatusOK {
@@ -374,7 +374,7 @@ func TestWithMaxBodyRaisesAndLowersTheCap(t *testing.T) {
 func TestRunBodyAgentRepairsASessionWhoseAgentIsGone(t *testing.T) {
 	store := memStore()
 	a := newInstance(t, store, "a", testkit.EchoModel{}, false)
-	s, err := a.runner.CreateSession(t.Context(), "echo", nil)
+	s, err := a.runner.CreateSession(t.Context(), service.CreateSessionRequest{Agent: "echo"})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -385,15 +385,15 @@ func TestRunBodyAgentRepairsASessionWhoseAgentIsGone(t *testing.T) {
 	server := httptest.NewServer(httpapi.New(other))
 	t.Cleanup(func() { server.Close(); _ = other.Close(t.Context()) })
 	b := &instance{server: server, runner: other}
-	resp, data := b.post(t, "/v1/sessions/"+s.ID()+"/runs", map[string]any{"prompt": "hi"})
+	resp, data := b.post(t, "/v1/sessions/"+s.ID+"/runs", map[string]any{"prompt": "hi"})
 	if resp.StatusCode != http.StatusBadRequest {
 		t.Fatalf("gone agent = %d %s, want 400", resp.StatusCode, data)
 	}
-	resp, data = b.post(t, "/v1/sessions/"+s.ID()+"/runs", map[string]any{"prompt": "hi", "agent": "else"})
+	resp, data = b.post(t, "/v1/sessions/"+s.ID+"/runs", map[string]any{"prompt": "hi", "agent": "else"})
 	if resp.StatusCode != http.StatusOK || !strings.Contains(string(data), "completed") {
 		t.Fatalf("rebound run = %d %s, want 200", resp.StatusCode, data)
 	}
-	resp, data = b.post(t, "/v1/sessions/"+s.ID()+"/runs", map[string]any{"prompt": "hi", "agent": "missing"})
+	resp, data = b.post(t, "/v1/sessions/"+s.ID+"/runs", map[string]any{"prompt": "hi", "agent": "missing"})
 	if resp.StatusCode != http.StatusBadRequest {
 		t.Fatalf("bad agent = %d %s, want 400", resp.StatusCode, data)
 	}
@@ -428,13 +428,13 @@ func TestForwardingOnlyToAnAllowedAddress(t *testing.T) {
 // An oversized body is refused with 413 on the routes that read the raw body.
 func TestOversizedBodyIsRefusedOnMessageAndNoticeRoutes(t *testing.T) {
 	server, runner := newServer(t)
-	s, err := runner.CreateSession(t.Context(), "echo", nil)
+	s, err := runner.CreateSession(t.Context(), service.CreateSessionRequest{Agent: "echo"})
 	if err != nil {
 		t.Fatal(err)
 	}
 	big := `{"text":"` + strings.Repeat("x", 2<<20) + `"}`
 	for _, route := range []string{"messages", "notices"} {
-		resp, err := http.Post(server.URL+"/v1/sessions/"+s.ID()+"/"+route, "application/json", strings.NewReader(big))
+		resp, err := http.Post(server.URL+"/v1/sessions/"+s.ID+"/"+route, "application/json", strings.NewReader(big))
 		if err != nil {
 			t.Fatal(err)
 		}

@@ -102,11 +102,11 @@ func slowRunner(t *testing.T) (*service.Runner, string) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	s, err := runner.CreateSession(context.Background(), "a", nil)
+	s, err := runner.CreateSession(context.Background(), service.CreateSessionRequest{Agent: "a"})
 	if err != nil {
 		t.Fatal(err)
 	}
-	return runner, s.ID()
+	return runner, s.ID
 }
 
 // A ToolSet that does not answer cannot hold up the listing: Tools gives up
@@ -220,10 +220,10 @@ func TestLoadedToolStaysLoadedInLaterRuns(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if got := fork.LoadedTools(); !slices.Equal(got, []string{"files.read"}) {
+	if got := viewOf(t, store, fork.ID).LoadedTools(); !slices.Equal(got, []string{"files.read"}) {
 		t.Fatalf("fork LoadedTools = %v", got)
 	}
-	if _, err := other.Run(ctx, service.RunRequest{SessionID: fork.ID(), Prompt: "in the fork"}); err != nil {
+	if _, err := other.Run(ctx, service.RunRequest{SessionID: fork.ID, Prompt: "in the fork"}); err != nil {
 		t.Fatal(err)
 	}
 	requests = model.Requests()
@@ -246,15 +246,16 @@ func TestLoadedToolStaysLoadedInLaterRuns(t *testing.T) {
 func TestAToolSwitchedOffForASessionIsNeverInTheCatalogOrLoaded(t *testing.T) {
 	ctx := context.Background()
 	model := testkit.NewFakeModel(loadFiles(), testkit.Text("done"))
-	runner := toolSetRunner(t, memStore(), model)
-	created, err := runner.CreateSession(ctx, "", nil)
+	store := memStore()
+	runner := toolSetRunner(t, store, model)
+	created, err := runner.CreateSession(ctx, service.CreateSessionRequest{})
 	if err != nil {
 		t.Fatal(err)
 	}
-	if _, err := runner.SetToolActive(ctx, created.ID(), "files.read", false); err != nil {
+	if _, err := runner.SetToolActive(ctx, created.ID, "files.read", false); err != nil {
 		t.Fatal(err)
 	}
-	result, err := runner.Run(ctx, service.RunRequest{SessionID: created.ID(), Prompt: "open the files"})
+	result, err := runner.Run(ctx, service.RunRequest{SessionID: created.ID, Prompt: "open the files"})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -264,7 +265,7 @@ func TestAToolSwitchedOffForASessionIsNeverInTheCatalogOrLoaded(t *testing.T) {
 	if got := toolIDsOf(requests[0]); slices.Contains(got, "files.read") || !slices.Contains(got, gotato.SearchToolName) {
 		t.Fatalf("tools = %v, want search_tools and no files.read", got)
 	}
-	record, err := session.View(ctx, runner.Store().Records, result.SessionID)
+	record, err := session.View(ctx, store.Records, result.SessionID)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -318,11 +319,11 @@ func TestAToolOfAToolSetIsListedAndSwitchedByID(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	s, err := runner.CreateSession(ctx, "a", nil)
+	s, err := runner.CreateSession(ctx, service.CreateSessionRequest{Agent: "a"})
 	if err != nil {
 		t.Fatal(err)
 	}
-	id := s.ID()
+	id := s.ID
 
 	// Before anything: both tools are listed, unloaded and on; crm is unavailable.
 	entries, err := runner.Tools(ctx, "", id)
@@ -432,17 +433,17 @@ func TestAgentMaxEffectHidesToolsAboveIt(t *testing.T) {
 	if len(entries) != 1 || entries[0].Spec.ID != "lookup" {
 		t.Fatalf("Runner.Tools = %+v, want only lookup", entries)
 	}
-	s, err := runner.CreateSession(ctx, "capped", nil)
+	s, err := runner.CreateSession(ctx, service.CreateSessionRequest{Agent: "capped"})
 	if err != nil {
 		t.Fatal(err)
 	}
 	// A Session cannot switch on a tool its Agent hides.
 	for _, id := range []string{"refund", "purge"} {
-		if _, err := runner.SetToolActive(ctx, s.ID(), id, true); !gotato.IsCode(err, gotato.CodeInvalidArgument) {
+		if _, err := runner.SetToolActive(ctx, s.ID, id, true); !gotato.IsCode(err, gotato.CodeInvalidArgument) {
 			t.Fatalf("SetToolActive(%s) = %v, want an unknown tool", id, err)
 		}
 	}
-	result, err := runner.Run(ctx, service.RunRequest{SessionID: s.ID(), Prompt: "go"})
+	result, err := runner.Run(ctx, service.RunRequest{SessionID: s.ID, Prompt: "go"})
 	if err != nil || result.Result.Status != gotato.RunStatusCompleted {
 		t.Fatalf("Run = %+v, %v", result, err)
 	}
@@ -492,18 +493,18 @@ func TestSetToolActiveOnAnUnknownToolWritesNothing(t *testing.T) {
 	ctx := context.Background()
 	store := memStore()
 	runner := recreatedRunner(t, "a", store, -1)
-	s, err := runner.CreateSession(ctx, "echo", nil)
+	s, err := runner.CreateSession(ctx, service.CreateSessionRequest{Agent: "echo"})
 	if err != nil {
 		t.Fatal(err)
 	}
-	before, err := store.Records.Log(ctx, s.ID(), 0, 0)
+	before, err := store.Records.Log(ctx, s.ID, 0, 0)
 	if err != nil {
 		t.Fatal(err)
 	}
-	if _, err := runner.SetToolActive(ctx, s.ID(), "no.such.tool", false); !gotato.IsCode(err, gotato.CodeInvalidArgument) {
+	if _, err := runner.SetToolActive(ctx, s.ID, "no.such.tool", false); !gotato.IsCode(err, gotato.CodeInvalidArgument) {
 		t.Fatalf("SetToolActive = %v, want an unknown tool", err)
 	}
-	after, err := store.Records.Log(ctx, s.ID(), 0, 0)
+	after, err := store.Records.Log(ctx, s.ID, 0, 0)
 	if err != nil {
 		t.Fatal(err)
 	}

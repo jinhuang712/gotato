@@ -44,15 +44,15 @@ func TestANoticeReachesARunAtItsNextModelCall(t *testing.T) {
 	ctx := context.Background()
 	model := newStagedModel(false, "first", "second")
 	runner := messageRunner(t, memStore(), "instance-a", "", model)
-	s, _ := runner.CreateSession(ctx, "echo", nil)
+	s, _ := runner.CreateSession(ctx, service.CreateSessionRequest{Agent: "echo"})
 
-	done := startRun(t, runner, s.ID(), "hello")
+	done := startRun(t, runner, s.ID, "hello")
 	waitCall(t, model, 0)
-	notice, err := runner.Notice(ctx, service.NoticeRequest{SessionID: s.ID(), Kind: "order_update", Text: "Order 42 was delivered."})
+	notice, err := runner.Notice(ctx, service.NoticeRequest{SessionID: s.ID, Kind: "order_update", Text: "Order 42 was delivered."})
 	if err != nil || notice.Number == 0 || notice.MessageID == "" {
 		t.Fatalf("Notice = %+v, %v", notice, err)
 	}
-	if _, err := runner.Send(ctx, service.MessageRequest{SessionID: s.ID(), Text: "prefer metric"}); err != nil {
+	if _, err := runner.Send(ctx, service.MessageRequest{SessionID: s.ID, Text: "prefer metric"}); err != nil {
 		t.Fatal(err)
 	}
 	close(model.release[0])
@@ -64,7 +64,7 @@ func TestANoticeReachesARunAtItsNextModelCall(t *testing.T) {
 	close(model.release[1])
 	settled(t, done)
 
-	queued, committed := noticeEvents(t, runner, s.ID())
+	queued, committed := noticeEvents(t, runner, s.ID)
 	if len(queued) != 1 || len(committed) != 1 || queued[0].Number != notice.Number || committed[0].Queued != notice.Number {
 		t.Fatalf("notice_queued %+v, notice_committed %+v; the commit must name queue entry %d", queued, committed, notice.Number)
 	}
@@ -82,20 +82,20 @@ func TestANoticeBetweenRunsWaitsForTheNextRun(t *testing.T) {
 	close(model.release[1])
 	close(model.release[2])
 	runner := messageRunner(t, memStore(), "instance-a", "", model)
-	s, _ := runner.CreateSession(ctx, "echo", nil)
+	s, _ := runner.CreateSession(ctx, service.CreateSessionRequest{Agent: "echo"})
 
 	// No Run going: the notice is stored and starts nothing.
-	notice, err := runner.Notice(ctx, service.NoticeRequest{SessionID: s.ID(), Kind: "k", Text: "idle one"})
+	notice, err := runner.Notice(ctx, service.NoticeRequest{SessionID: s.ID, Kind: "k", Text: "idle one"})
 	if err != nil || notice.Number == 0 {
 		t.Fatalf("Notice = %+v, %v", notice, err)
 	}
-	if runner.ActiveRuns() != 0 || len(transcriptOf(t, runner, s.ID())) != 0 {
+	if runner.ActiveRuns() != 0 || len(transcriptOf(t, runner, s.ID)) != 0 {
 		t.Fatal("a notice started a Run or entered the Transcript")
 	}
 	// A Run going: the notice arrives while its only model call is in flight.
-	done := startRun(t, runner, s.ID(), "hello")
+	done := startRun(t, runner, s.ID, "hello")
 	waitCall(t, model, 0)
-	if _, err := runner.Notice(ctx, service.NoticeRequest{SessionID: s.ID(), Kind: "k", Text: "late one"}); err != nil {
+	if _, err := runner.Notice(ctx, service.NoticeRequest{SessionID: s.ID, Kind: "k", Text: "late one"}); err != nil {
 		t.Fatal(err)
 	}
 	close(model.release[0])
@@ -107,7 +107,7 @@ func TestANoticeBetweenRunsWaitsForTheNextRun(t *testing.T) {
 	if model.calls != 1 {
 		t.Fatalf("model calls = %d: a notice kept the Run going", model.calls)
 	}
-	result, err := runner.Run(ctx, service.RunRequest{SessionID: s.ID(), Prompt: "again"})
+	result, err := runner.Run(ctx, service.RunRequest{SessionID: s.ID, Prompt: "again"})
 	if err != nil || result.Result.Status != gotato.RunStatusCompleted {
 		t.Fatalf("Run = %+v, %v", result, err)
 	}
@@ -115,7 +115,7 @@ func TestANoticeBetweenRunsWaitsForTheNextRun(t *testing.T) {
 	if got := texts(model.request(1)); !equal(got, want) {
 		t.Fatalf("second request = %v, want %v", got, want)
 	}
-	queued, committed := noticeEvents(t, runner, s.ID())
+	queued, committed := noticeEvents(t, runner, s.ID)
 	if len(queued) != 2 || len(committed) != 2 {
 		t.Fatalf("notice_queued %d, notice_committed %d, want 2 and 2", len(queued), len(committed))
 	}
@@ -129,12 +129,12 @@ func TestANoticeBetweenRunsWaitsForTheNextRun(t *testing.T) {
 func TestNoticeRefusals(t *testing.T) {
 	ctx := context.Background()
 	runner := messageRunner(t, memStore(), "instance-a", "", testkit.EchoModel{})
-	s, _ := runner.CreateSession(ctx, "echo", nil)
+	s, _ := runner.CreateSession(ctx, service.CreateSessionRequest{Agent: "echo"})
 	for name, request := range map[string]service.NoticeRequest{
 		"no session": {Kind: "k", Text: "t"},
-		"no kind":    {SessionID: s.ID(), Text: "t"},
-		"reserved":   {SessionID: s.ID(), Kind: gotato.NoticeTimeAway, Text: "t"},
-		"no text":    {SessionID: s.ID(), Kind: "k", Text: " "},
+		"no kind":    {SessionID: s.ID, Text: "t"},
+		"reserved":   {SessionID: s.ID, Kind: gotato.NoticeTimeAway, Text: "t"},
+		"no text":    {SessionID: s.ID, Kind: "k", Text: " "},
 	} {
 		if _, err := runner.Notice(ctx, request); !gotato.IsCode(err, gotato.CodeInvalidArgument) || !gotato.NotRun(err) {
 			t.Errorf("%s: Notice = %v, want invalid_argument, not run", name, err)
@@ -153,18 +153,18 @@ func TestANoticeForARunOnAnotherInstanceIsNotWriter(t *testing.T) {
 	model := newStagedModel(false, "first")
 	a := messageRunner(t, store, "instance-a", "http://instance-a.example:8080", model)
 	b := messageRunner(t, store, "instance-b", "http://instance-b.example:8080", testkit.EchoModel{})
-	s, _ := a.CreateSession(ctx, "echo", nil)
+	s, _ := a.CreateSession(ctx, service.CreateSessionRequest{Agent: "echo"})
 
-	done := startRun(t, a, s.ID(), "hello")
+	done := startRun(t, a, s.ID, "hello")
 	waitCall(t, model, 0)
-	_, err := b.Notice(ctx, service.NoticeRequest{SessionID: s.ID(), Kind: "k", Text: "from b"})
+	_, err := b.Notice(ctx, service.NoticeRequest{SessionID: s.ID, Kind: "k", Text: "from b"})
 	if !gotato.IsCode(err, gotato.CodeNotWriter) || !gotato.NotRun(err) || !gotato.Retryable(err) {
 		t.Fatalf("Notice = %v; want not_writer, not run, retryable", err)
 	}
 	if address, ok := service.WriterOf(err); !ok || address != "http://instance-a.example:8080" {
 		t.Fatalf("writer = %q, %v", address, ok)
 	}
-	if _, err := a.Notice(ctx, service.NoticeRequest{SessionID: s.ID(), Kind: "k", Text: "from a"}); err != nil {
+	if _, err := a.Notice(ctx, service.NoticeRequest{SessionID: s.ID, Kind: "k", Text: "from a"}); err != nil {
 		t.Fatal(err)
 	}
 	close(model.release[0])
@@ -207,15 +207,15 @@ func TestATimeAwayNoticeFollowsAMessageAfterALongAbsence(t *testing.T) {
 	// The Record's times are the system's; the Runner's clock starts there.
 	clock := &fakeClock{now: time.Now().UTC().Truncate(time.Second)}
 	runner, model := timeAwayRunner(t, clock, service.Agent{})
-	s, _ := runner.CreateSession(ctx, "echo", nil)
-	runOn(t, runner, s.ID(), "first")
+	s, _ := runner.CreateSession(ctx, service.CreateSessionRequest{Agent: "echo"})
+	runOn(t, runner, s.ID, "first")
 	if got := lastRequestTexts(model); !equal(got, []string{"user:first"}) {
 		t.Fatalf("the first Run got %v", got)
 	}
 
 	// Inside the threshold: none. The Session is still warm.
 	clock.Advance(29 * time.Minute)
-	runOn(t, runner, s.ID(), "soon")
+	runOn(t, runner, s.ID, "soon")
 	if got := lastRequestTexts(model); got[len(got)-1] != "user:soon" {
 		t.Fatalf("a message inside the threshold got %v", got)
 	}
@@ -225,7 +225,7 @@ func TestATimeAwayNoticeFollowsAMessageAfterALongAbsence(t *testing.T) {
 	if runner.WarmSessions() != 0 {
 		t.Fatalf("%d warm Sessions after 3 days", runner.WarmSessions())
 	}
-	runOn(t, runner, s.ID(), "back")
+	runOn(t, runner, s.ID, "back")
 	got := lastRequestTexts(model)
 	now := clock.Now().UTC().Format(time.RFC3339)
 	want := noticeText(gotato.NoticeTimeAway, "It has been 3 days since the last message. It is now "+now+".")
@@ -234,8 +234,8 @@ func TestATimeAwayNoticeFollowsAMessageAfterALongAbsence(t *testing.T) {
 	}
 
 	// The notice is kept in the Record, as Gotato's own, with its Events.
-	record, _ := runner.Record(ctx, s.ID())
-	messages := record.Messages()
+	record, _ := runner.Record(ctx, s.ID)
+	messages := record.Messages
 	last := messages[len(messages)-2]
 	if last.Role != gotato.RoleNotice || last.Notice.Kind != gotato.NoticeTimeAway || last.Notice.Source != gotato.NoticeSourceGotato {
 		t.Fatalf("the Record keeps %+v", last)
@@ -258,10 +258,10 @@ func TestTimeAwayThresholdIsPerAgentAndCanBeTurnedOff(t *testing.T) {
 		t.Run(tc.name, func(t *testing.T) {
 			clock := &fakeClock{now: time.Now().UTC().Truncate(time.Second)}
 			runner, model := timeAwayRunner(t, clock, service.Agent{TimeAwayAfter: tc.threshold})
-			s, _ := runner.CreateSession(ctx, "echo", nil)
-			runOn(t, runner, s.ID(), "first")
+			s, _ := runner.CreateSession(ctx, service.CreateSessionRequest{Agent: "echo"})
+			runOn(t, runner, s.ID, "first")
 			clock.Advance(tc.gap)
-			runOn(t, runner, s.ID(), "second")
+			runOn(t, runner, s.ID, "second")
 			got := lastRequestTexts(model)
 			last := got[len(got)-1]
 			if tc.want == "" {
@@ -285,10 +285,10 @@ func TestTimeAwayShowsTheTimeInTheAgentsZone(t *testing.T) {
 	agent := service.Agent{}
 	agent.Compact.Location = zone
 	runner, model := timeAwayRunner(t, clock, agent)
-	s, _ := runner.CreateSession(ctx, "echo", nil)
-	runOn(t, runner, s.ID(), "first")
+	s, _ := runner.CreateSession(ctx, service.CreateSessionRequest{Agent: "echo"})
+	runOn(t, runner, s.ID, "first")
 	clock.Advance(2 * time.Hour)
-	runOn(t, runner, s.ID(), "second")
+	runOn(t, runner, s.ID, "second")
 	got := lastRequestTexts(model)
 	if want := "It is now " + clock.Now().In(zone).Format(time.RFC3339) + "."; !strings.Contains(got[len(got)-1], want) || !strings.Contains(got[len(got)-1], "+08:00") {
 		t.Fatalf("got %v, want %q", got, want)
@@ -317,8 +317,8 @@ func TestANoticeBetweenRunsOutlivesItsInstance(t *testing.T) {
 			if err != nil {
 				t.Fatal(err)
 			}
-			s, _ := first.CreateSession(ctx, "echo", nil)
-			notice, err := first.Notice(ctx, service.NoticeRequest{SessionID: s.ID(), Kind: "order_update", Text: "Order 42 was delivered."})
+			s, _ := first.CreateSession(ctx, service.CreateSessionRequest{Agent: "echo"})
+			notice, err := first.Notice(ctx, service.NoticeRequest{SessionID: s.ID, Kind: "order_update", Text: "Order 42 was delivered."})
 			if err != nil || notice.Number == 0 {
 				t.Fatalf("Notice = %+v, %v", notice, err)
 			}
@@ -332,13 +332,13 @@ func TestANoticeBetweenRunsOutlivesItsInstance(t *testing.T) {
 				t.Fatal(err)
 			}
 			t.Cleanup(func() { _ = second.Close(ctx) })
-			runOn(t, second, s.ID(), "hello")
+			runOn(t, second, s.ID, "hello")
 			request, _ := model.LastRequest()
 			if got := texts(request.Messages); !equal(got, []string{"user:hello", noticeText("order_update", "Order 42 was delivered.")}) {
 				t.Fatalf("request = %v", got)
 			}
 			// It was committed, so the Run after it does not carry it twice.
-			runOn(t, second, s.ID(), "again")
+			runOn(t, second, s.ID, "again")
 			request, _ = model.LastRequest()
 			if got := texts(request.Messages); len(got) != 4 || got[3] != "user:again" {
 				t.Fatalf("second request = %v", got)
@@ -354,24 +354,24 @@ func TestANoticeLeftByAStoppedRunWaitsForTheNextRun(t *testing.T) {
 	model := newStagedModel(true, "", "after the stop")
 	close(model.release[1])
 	runner := messageRunner(t, memStore(), "instance-a", "", model)
-	s, _ := runner.CreateSession(ctx, "echo", nil)
+	s, _ := runner.CreateSession(ctx, service.CreateSessionRequest{Agent: "echo"})
 
 	done := make(chan service.RunResponse, 1)
 	go func() {
-		result, _ := runner.Run(ctx, service.RunRequest{SessionID: s.ID(), Prompt: "hello"})
+		result, _ := runner.Run(ctx, service.RunRequest{SessionID: s.ID, Prompt: "hello"})
 		done <- result
 	}()
 	waitCall(t, model, 0)
-	if _, err := runner.Notice(ctx, service.NoticeRequest{SessionID: s.ID(), Kind: "k", Text: "kept"}); err != nil {
+	if _, err := runner.Notice(ctx, service.NoticeRequest{SessionID: s.ID, Kind: "k", Text: "kept"}); err != nil {
 		t.Fatal(err)
 	}
-	if err := runner.AbortSession(ctx, s.ID()); err != nil {
+	if err := runner.AbortSession(ctx, s.ID); err != nil {
 		t.Fatal(err)
 	}
 	if result := settled(t, done); result.Result.Status != gotato.RunStatusCanceled {
 		t.Fatalf("the Run = %+v, want canceled", result.Result)
 	}
-	runOn(t, runner, s.ID(), "next")
+	runOn(t, runner, s.ID, "next")
 	if got := texts(model.request(1)); got[len(got)-2] != "user:next" || got[len(got)-1] != noticeText("k", "kept") {
 		t.Fatalf("request = %v, want the notice after the prompt", got)
 	}
@@ -385,19 +385,19 @@ func TestATimeAwayOfACrashedRunIsNotKept(t *testing.T) {
 	store := memStore()
 	clock := &fakeClock{now: time.Now().UTC().Truncate(time.Second)}
 	first, model := timeAwayRunner2(t, store, "first", clock)
-	s, _ := first.CreateSession(ctx, "echo", nil)
-	runOn(t, first, s.ID(), "hello")
+	s, _ := first.CreateSession(ctx, service.CreateSessionRequest{Agent: "echo"})
+	runOn(t, first, s.ID, "hello")
 	if err := first.Close(ctx); err != nil {
 		t.Fatal(err)
 	}
 
 	// A writer that queued a time_away and died: no run_ended, no release.
-	dead, err := session.OpenWriter(ctx, store.Records, s.ID(), "dead")
+	dead, err := session.OpenWriter(ctx, store.Records, s.ID, "dead")
 	if err != nil {
 		t.Fatal(err)
 	}
 	if _, err := dead.Write(ctx, []gotato.Event{gotato.NoticeQueued{
-		Header: gotato.NewHeader(gotato.SessionID(s.ID()), "", 0), MessageID: "stale", NoticeKind: gotato.NoticeTimeAway,
+		Header: gotato.NewHeader(gotato.SessionID(s.ID), "", 0), MessageID: "stale", NoticeKind: gotato.NoticeTimeAway,
 		Source: gotato.NoticeSourceGotato, Text: "It has been 40 minutes since the last message. It is now stale.",
 	}}); err != nil {
 		t.Fatal(err)
@@ -406,10 +406,10 @@ func TestATimeAwayOfACrashedRunIsNotKept(t *testing.T) {
 	clock.Advance(73 * time.Hour)
 	second, _ := timeAwayRunner2(t, store, "second", clock)
 	_ = model
-	runOn(t, second, s.ID(), "back")
-	record, _ := second.Record(ctx, s.ID())
+	runOn(t, second, s.ID, "back")
+	record, _ := second.Record(ctx, s.ID)
 	count := 0
-	for _, m := range record.Messages() {
+	for _, m := range record.Messages {
 		if m.Role == gotato.RoleNotice && m.Notice.Kind == gotato.NoticeTimeAway {
 			count++
 			if !strings.Contains(gotato.TextOf(m), "3 days") || strings.Contains(gotato.TextOf(m), "stale") {
@@ -527,18 +527,18 @@ func TestFailedWriteOfAnyExitIsRepairedByTheHeartbeat(t *testing.T) {
 			}
 			t.Cleanup(func() { _ = b.Close(context.Background()) })
 
-			rec, err := a.CreateSession(ctx, "echo", nil)
+			rec, err := a.CreateSession(ctx, service.CreateSessionRequest{Agent: "echo"})
 			if err != nil {
 				t.Fatal(err)
 			}
 			// Some history to compact.
 			for _, prompt := range []string{"one", "two"} {
-				if _, err := a.Run(ctx, service.RunRequest{SessionID: rec.ID(), Prompt: prompt}); err != nil {
+				if _, err := a.Run(ctx, service.RunRequest{SessionID: rec.ID, Prompt: prompt}); err != nil {
 					t.Fatal(err)
 				}
 			}
 			faulty.armed.Store(true)
-			tc.act(ctx, t, a, rec.ID())
+			tc.act(ctx, t, a, rec.ID)
 			if !faulty.hit.Load() {
 				t.Fatal("the fault was not exercised")
 			}
@@ -549,14 +549,14 @@ func TestFailedWriteOfAnyExitIsRepairedByTheHeartbeat(t *testing.T) {
 			case <-ctx.Done():
 				t.Fatal("the holder's heartbeat did not renew")
 			}
-			loaded, err := base.Records.Load(ctx, rec.ID())
+			loaded, err := base.Records.Load(ctx, rec.ID)
 			if err != nil {
 				t.Fatal(err)
 			}
 			if stateOf(loaded).Busy || stateOf(loaded).Running != "" {
 				t.Fatalf("the Session is still held after the store recovered: busy=%v running=%q", stateOf(loaded).Busy, stateOf(loaded).Running)
 			}
-			if _, err := b.Run(ctx, service.RunRequest{SessionID: rec.ID(), Prompt: "on the other instance"}); err != nil {
+			if _, err := b.Run(ctx, service.RunRequest{SessionID: rec.ID, Prompt: "on the other instance"}); err != nil {
 				t.Fatalf("the other Instance cannot run the Session: %v", err)
 			}
 		})

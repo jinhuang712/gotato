@@ -465,20 +465,21 @@ func New(cfg Config) (*Runner, error) {
 	return r, nil
 }
 
-// Store returns the Session store.
-func (r *Runner) Store() session.Store { return r.store }
-
 // Instance returns the name this Runner writes its Claims with: Config.Instance
 // and a random suffix, or a generated name when none was set. It is new for
 // each start, and new again when the Runner took a new name after its Liveness
 // row expired (see Lapsed).
 func (r *Runner) Instance() string { return r.id() }
 
-// Record reads a Record's whole Record from the store: its facts, Runs,
-// usage and Events. It changes nothing.
-func (r *Runner) Record(ctx context.Context, sessionID string) (*session.Record, error) {
+// Record reads a Session's whole Record from the store, as a Document: its
+// facts, Runs, usage and Events. It is a copy and changes nothing: a Set on what
+// it returns would be stored nowhere, so it has none.
+func (r *Runner) Record(ctx context.Context, sessionID string) (session.Document, error) {
 	record, err := session.View(ctx, r.store.Records, sessionID)
-	return record, storeFailureOf(ctx, err, true)
+	if err != nil {
+		return session.Document{}, storeFailureOf(ctx, err, true)
+	}
+	return record.Snapshot(), nil
 }
 
 // Events reads a Session's stored Events from the store: every Entry of its

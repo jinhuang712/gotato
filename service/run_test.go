@@ -144,10 +144,13 @@ func TestStreamRunInspectCompactFork(t *testing.T) {
 		t.Fatalf("compact = %+v err=%v", compact, err)
 	}
 	child, err := runner.Fork(ctx, result.SessionID, "")
-	if err != nil || child.ParentID() != result.SessionID || child.Len() != 8 || len(child.Segments()) != 1 {
+	if err != nil || child.ParentID != result.SessionID {
 		t.Fatalf("fork = %v err=%v", child, err)
 	}
-	if _, err := session.View(ctx, store.Records, child.ID()); err != nil {
+	if forked := viewOf(t, store, child.ID); forked.Len() != 8 || len(forked.Segments()) != 1 {
+		t.Fatalf("the fork holds %d Messages and %d Segments, want 8 and 1", forked.Len(), len(forked.Segments()))
+	}
+	if _, err := session.View(ctx, store.Records, child.ID); err != nil {
 		t.Fatal("fork not saved")
 	}
 	if _, err := runner.Inspect(ctx, "missing", service.InspectConfig{}); !errors.Is(err, session.ErrNotFound) {
@@ -226,11 +229,11 @@ func TestRunLoadsTheSessionOnce(t *testing.T) {
 		t.Fatal(err)
 	}
 	ctx := context.Background()
-	s, err := runner.CreateSession(ctx, "", nil)
+	s, err := runner.CreateSession(ctx, service.CreateSessionRequest{})
 	if err != nil {
 		t.Fatal(err)
 	}
-	if _, err := runner.Run(ctx, service.RunRequest{SessionID: s.ID(), Prompt: "hi"}); err != nil {
+	if _, err := runner.Run(ctx, service.RunRequest{SessionID: s.ID, Prompt: "hi"}); err != nil {
 		t.Fatal(err)
 	}
 	if store.gets != 1 {
@@ -249,14 +252,14 @@ func TestCanceledRunKeepsItsRunID(t *testing.T) {
 	model.Block = block
 	runner, store := newRunner(t, service.Agent{Name: "slow", Model: model})
 	ctx := context.Background()
-	s, err := runner.CreateSession(ctx, "slow", nil)
+	s, err := runner.CreateSession(ctx, service.CreateSessionRequest{Agent: "slow"})
 	if err != nil {
 		t.Fatal(err)
 	}
 	started := make(chan gotato.RunID, 1)
 	done := make(chan service.RunResponse, 1)
 	go func() {
-		result, _ := runner.StreamRun(ctx, service.RunRequest{SessionID: s.ID(), Prompt: "first"}, func(event gotato.Event) error {
+		result, _ := runner.StreamRun(ctx, service.RunRequest{SessionID: s.ID, Prompt: "first"}, func(event gotato.Event) error {
 			if event.Kind() == gotato.EventKindRunStarted {
 				started <- event.Head().RunID
 			}
@@ -266,14 +269,14 @@ func TestCanceledRunKeepsItsRunID(t *testing.T) {
 	}()
 	runID := <-started
 	waitFor(t, func() bool { return model.Calls() == 1 })
-	if err := runner.AbortSession(ctx, s.ID()); err != nil {
+	if err := runner.AbortSession(ctx, s.ID); err != nil {
 		t.Fatal(err)
 	}
 	result := <-done
 	if result.Result.Status != gotato.RunStatusCanceled || result.Result.RunID != runID || result.Result.Metrics.Turns != 1 {
 		t.Fatalf("canceled result = %+v, want status canceled, RunID %s, one Turn", result.Result, runID)
 	}
-	saved, err := session.View(ctx, store.Records, s.ID())
+	saved, err := session.View(ctx, store.Records, s.ID)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -286,17 +289,17 @@ func TestCanceledRunKeepsItsRunID(t *testing.T) {
 func TestRunUpdateSetsMetadataUnlessSkipSave(t *testing.T) {
 	runner, store := newRunner(t)
 	ctx := context.Background()
-	s, err := runner.CreateSession(ctx, "echo", nil)
+	s, err := runner.CreateSession(ctx, service.CreateSessionRequest{Agent: "echo"})
 	if err != nil {
 		t.Fatal(err)
 	}
-	if _, err := runner.Run(ctx, service.RunRequest{SessionID: s.ID(), Prompt: "hi", Update: map[string]string{"team": "orders"}}); err != nil {
+	if _, err := runner.Run(ctx, service.RunRequest{SessionID: s.ID, Prompt: "hi", Update: map[string]string{"team": "orders"}}); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := runner.Run(ctx, service.RunRequest{SessionID: s.ID(), Prompt: "hi", Update: map[string]string{"team": "billing"}, SkipSave: true}); err != nil {
+	if _, err := runner.Run(ctx, service.RunRequest{SessionID: s.ID, Prompt: "hi", Update: map[string]string{"team": "billing"}, SkipSave: true}); err != nil {
 		t.Fatal(err)
 	}
-	stored, err := session.View(ctx, store.Records, s.ID())
+	stored, err := session.View(ctx, store.Records, s.ID)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -309,15 +312,15 @@ func TestRunUpdateSetsMetadataUnlessSkipSave(t *testing.T) {
 func TestRunRefusedForItsAgentDoesNotApplyTheUpdate(t *testing.T) {
 	runner, store := newRunner(t)
 	ctx := context.Background()
-	s, err := runner.CreateSession(ctx, "echo", nil)
+	s, err := runner.CreateSession(ctx, service.CreateSessionRequest{Agent: "echo"})
 	if err != nil {
 		t.Fatal(err)
 	}
-	_, err = runner.Run(ctx, service.RunRequest{SessionID: s.ID(), Agent: "nope", Prompt: "hi", Update: map[string]string{"team": "orders"}})
+	_, err = runner.Run(ctx, service.RunRequest{SessionID: s.ID, Agent: "nope", Prompt: "hi", Update: map[string]string{"team": "orders"}})
 	if !errors.Is(err, service.ErrUnknownAgent) {
 		t.Fatalf("err = %v, want ErrUnknownAgent", err)
 	}
-	stored, err := session.View(ctx, store.Records, s.ID())
+	stored, err := session.View(ctx, store.Records, s.ID)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -331,11 +334,11 @@ func TestRunRefusedForItsAgentDoesNotApplyTheUpdate(t *testing.T) {
 func TestRunContinueWithAPromptIsRefused(t *testing.T) {
 	runner, _ := newRunner(t)
 	ctx := context.Background()
-	s, err := runner.CreateSession(ctx, "echo", nil)
+	s, err := runner.CreateSession(ctx, service.CreateSessionRequest{Agent: "echo"})
 	if err != nil {
 		t.Fatal(err)
 	}
-	_, err = runner.Run(ctx, service.RunRequest{SessionID: s.ID(), Prompt: "hi", Continue: true})
+	_, err = runner.Run(ctx, service.RunRequest{SessionID: s.ID, Prompt: "hi", Continue: true})
 	if !gotato.IsCode(err, gotato.CodeInvalidArgument) || !gotato.NotRun(err) {
 		t.Fatalf("err = %v, want invalid_argument that did not run", err)
 	}

@@ -4,10 +4,22 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"testing"
 
 	"github.com/jinhuang712/gotato/gotato"
 	"github.com/jinhuang712/gotato/session"
 )
+
+// claimOf is the Claim that the facts of a stored Session last name, read
+// through the store: the Runner's Record answers a Document, which has none.
+func claimOf(t *testing.T, store session.Store, id string) session.Claim {
+	t.Helper()
+	record, err := session.View(context.Background(), store.Records, id)
+	if err != nil {
+		t.Fatal(err)
+	}
+	return record.Claim()
+}
 
 // storeValue is a value that is both seams of a Store.
 type storeValue interface {

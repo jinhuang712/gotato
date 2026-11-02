@@ -32,7 +32,7 @@ func bulkAgent(name string, calls int) service.Agent {
 // recordRange returns the Record's Events numbered from first to last.
 func recordRange(t *testing.T, runner *service.Runner, sessionID string, first, last uint64) []gotato.Event {
 	t.Helper()
-	stored, err := session.StoredEvents(context.Background(), runner.Store().Records, sessionID, 0, 0)
+	stored, err := runner.Events(context.Background(), sessionID)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -77,7 +77,7 @@ func settledInRecord(t *testing.T, runner *service.Runner, sessionID string, tim
 	t.Helper()
 	deadline := time.Now().Add(timeout)
 	for time.Now().Before(deadline) {
-		if stored, err := session.StoredEvents(context.Background(), runner.Store().Records, sessionID, 0, 0); err == nil {
+		if stored, err := runner.Events(context.Background(), sessionID); err == nil {
 			for _, event := range stored {
 				if event.Kind() == gotato.EventKindRunEnded {
 					return
@@ -96,7 +96,7 @@ func settledInRecord(t *testing.T, runner *service.Runner, sessionID string, tim
 func TestSinkThatNeverReadsDoesNotSlowTheSession(t *testing.T) {
 	runner, _ := newRunner(t, bulkAgent("bulk", 400))
 	ctx := context.Background()
-	s, err := runner.CreateSession(ctx, "bulk", nil)
+	s, err := runner.CreateSession(ctx, service.CreateSessionRequest{Agent: "bulk"})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -109,7 +109,7 @@ func TestSinkThatNeverReadsDoesNotSlowTheSession(t *testing.T) {
 	var seen []gotato.Event
 	blocked := true
 	go func() {
-		result, err := runner.StreamRun(ctx, service.RunRequest{SessionID: s.ID(), Prompt: "go"}, func(event gotato.Event) error {
+		result, err := runner.StreamRun(ctx, service.RunRequest{SessionID: s.ID, Prompt: "go"}, func(event gotato.Event) error {
 			if blocked {
 				blocked = false
 				<-gate
@@ -122,13 +122,13 @@ func TestSinkThatNeverReadsDoesNotSlowTheSession(t *testing.T) {
 
 	// The Run settles, and everything it did is in the Record, while the sink
 	// has not taken its first Event.
-	settledInRecord(t, runner, s.ID(), 10*time.Second)
+	settledInRecord(t, runner, s.ID, 10*time.Second)
 	select {
 	case <-done:
 		t.Fatal("StreamRun returned while its sink was still blocked on the first Event")
 	default:
 	}
-	stored, err := session.StoredEvents(ctx, runner.Store().Records, s.ID(), 0, 0)
+	stored, err := runner.Events(ctx, s.ID)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -153,7 +153,7 @@ func TestSinkThatNeverReadsDoesNotSlowTheSession(t *testing.T) {
 	if got := len(storedOnly(seen)); got < 1200 {
 		t.Fatalf("the sink received %d stored Events, want all of them", got)
 	}
-	checkStreamIsRecord(t, runner, s.ID(), seen)
+	checkStreamIsRecord(t, runner, s.ID, seen)
 }
 
 // A Run's stream numbers its Events as the Record does: for a Run streamed with
@@ -170,7 +170,7 @@ func TestRunStreamNumbersAreRecordNumbers(t *testing.T) {
 	if record, err := runner.Record(ctx, first.SessionID); err != nil {
 		t.Fatal(err)
 	} else {
-		for _, event := range record.Events() {
+		for _, event := range record.Events {
 			if event.Kind() == gotato.EventKindRunEnded {
 				firstEnd = event.Head().Number
 			}
@@ -189,10 +189,12 @@ func TestRunStreamNumbersAreRecordNumbers(t *testing.T) {
 		t.Fatalf("the second Run's first Event is numbered %d, but the first Run ended at %d", n, firstEnd)
 	}
 	// And the numbers are those the store holds.
-	stored, err := session.StoredEvents(ctx, runner.Store().Records, first.SessionID, storedOnly(streamed)[0].Head().Number-1, 0)
+	all, err := runner.Events(ctx, first.SessionID)
 	if err != nil {
 		t.Fatal(err)
 	}
+	after := storedOnly(streamed)[0].Head().Number - 1
+	stored := all[slices.IndexFunc(all, func(e gotato.Event) bool { return e.Head().Number > after }):]
 	want := numbered(storedOnly(streamed))
 	got := numbered(stored[:len(want)])
 	if !slices.Equal(got, want) {
@@ -215,7 +217,7 @@ func TestStreamSessionCatchesUpThenGoesLive(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	for _, event := range record.Events() {
+	for _, event := range record.Events {
 		if event.Kind() == gotato.EventKindRunEnded {
 			after = event.Head().Number
 		}

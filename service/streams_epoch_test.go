@@ -68,7 +68,7 @@ func TestOpeningARecordCreatedAgainSendsNoClaimToAnOldStream(t *testing.T) {
 				a, b := recreatedRunner(t, "a", asStore(store), -1), recreatedRunner(t, "b", asStore(store), -1)
 				id := fmt.Sprintf("session-%d", try)
 				shape := func(runner *service.Runner) {
-					if _, err := runner.CreateSessionExclusive(ctx, "echo", id, nil); err != nil {
+					if _, err := runner.CreateSession(ctx, service.CreateSessionRequest{Agent: "echo", ID: id}); err != nil {
 						t.Fatal(err)
 					}
 					if _, err := runner.Run(ctx, service.RunRequest{SessionID: id, Prompt: "one"}); err != nil {
@@ -169,7 +169,7 @@ func TestNewStreamIsNotHeldBackByAStreamOfTheOldRecord(t *testing.T) {
 	if err := b.DeleteSession(ctx, id); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := b.CreateSessionExclusive(ctx, "echo", id, nil); err != nil {
+	if _, err := b.CreateSession(ctx, service.CreateSessionRequest{Agent: "echo", ID: id}); err != nil {
 		t.Fatal(err)
 	}
 	fresh, err := a.StreamSession(ctx, id, service.StreamFrom{})
@@ -196,8 +196,8 @@ func TestNewStreamIsNotHeldBackByAStreamOfTheOldRecord(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	got := readNumbers(t, fresh, int(record.Head()-fresh.Head))
-	if want := consecutive(fresh.Head+1, int(record.Head()-fresh.Head)); fmt.Sprint(got) != fmt.Sprint(want) {
+	got := readNumbers(t, fresh, int(record.Seq-fresh.Head))
+	if want := consecutive(fresh.Head+1, int(record.Seq-fresh.Head)); fmt.Sprint(got) != fmt.Sprint(want) {
 		t.Fatalf("the new stream delivered %v, want %v", got, want)
 	}
 	waitEnd(t, oldEnded)
@@ -298,7 +298,7 @@ func TestStreamThatReadTheOldRecordDoesNotFollowTheNewOne(t *testing.T) {
 	if err := b.DeleteSession(ctx, id); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := b.CreateSessionExclusive(ctx, "echo", id, nil); err != nil {
+	if _, err := b.CreateSession(ctx, service.CreateSessionRequest{Agent: "echo", ID: id}); err != nil {
 		t.Fatal(err)
 	}
 	model.armed.Store(true)
@@ -400,7 +400,7 @@ func TestOpeningAStreamOfARecordCreatedAgainEndsTheOldStreams(t *testing.T) {
 	if err := b.DeleteSession(ctx, id); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := b.CreateSessionExclusive(ctx, "echo", id, nil); err != nil {
+	if _, err := b.CreateSession(ctx, service.CreateSessionRequest{Agent: "echo", ID: id}); err != nil {
 		t.Fatal(err)
 	}
 	fresh, err := a.StreamSession(ctx, id, service.StreamFrom{})
@@ -510,7 +510,7 @@ func TestOpenDoesNotCutAStreamOfANewerRecord(t *testing.T) {
 	if err := held.Delete(ctx, id); err != nil { // as an Instance that did not check would
 		t.Fatal(err)
 	}
-	if _, err := b.CreateSessionExclusive(ctx, "echo", id, nil); err != nil {
+	if _, err := b.CreateSession(ctx, service.CreateSessionRequest{Agent: "echo", ID: id}); err != nil {
 		t.Fatal(err)
 	}
 	stream, err := a.StreamSession(ctx, id, service.StreamFrom{})
@@ -547,7 +547,7 @@ func TestOpenCutsAStreamOfAnOlderRecordThatStartsLate(t *testing.T) {
 	if err := held.Delete(ctx, id); err != nil { // as an Instance that did not check would
 		t.Fatal(err)
 	}
-	if _, err := b.CreateSessionExclusive(ctx, "echo", id, nil); err != nil {
+	if _, err := b.CreateSession(ctx, service.CreateSessionRequest{Agent: "echo", ID: id}); err != nil {
 		t.Fatal(err)
 	}
 

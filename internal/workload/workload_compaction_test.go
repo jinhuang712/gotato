@@ -78,7 +78,7 @@ func playLongAcross(t *testing.T, store session.Store, task reftasks.Task, after
 	model := windowedLogging{inner: task.Model, window: task.Window, log: log}
 	stages := []string{"a", "a", "b", "a"}
 	runner := longRunner(t, store, task, model, "a")
-	s, err := runner.CreateSession(ctx, task.Name, nil)
+	s, err := runner.CreateSession(ctx, service.CreateSessionRequest{Agent: task.Name})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -89,15 +89,15 @@ func playLongAcross(t *testing.T, store session.Store, task reftasks.Task, after
 			}
 			runner = longRunner(t, store, task, model, stages[i%len(stages)])
 		}
-		result, err := runner.Run(ctx, service.RunRequest{SessionID: s.ID(), Prompt: prompt})
+		result, err := runner.Run(ctx, service.RunRequest{SessionID: s.ID, Prompt: prompt})
 		if err != nil || result.Result.Status != gotato.RunStatusCompleted {
 			t.Fatalf("Run %d on %s: %v (%s)", i+1, runner.Instance(), err, result.Result.Status)
 		}
 		if afterRun != nil {
-			afterRun(runner, s.ID())
+			afterRun(runner, s.ID)
 		}
 	}
-	return s.ID(), log.all()
+	return s.ID, log.all()
 }
 
 // segmentTexts collects, as JSON, the Messages of every Segment the log holds,

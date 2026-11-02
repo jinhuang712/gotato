@@ -54,17 +54,17 @@ func TestAReservedKeyIsRefusedByCreateSession(t *testing.T) {
 	runner, store := newRunner(t)
 	ctx := context.Background()
 	for _, key := range reservedKeys {
-		_, err := runner.CreateSession(ctx, "", map[string]string{"tenant": "a", key: "x"})
+		_, err := runner.CreateSession(ctx, service.CreateSessionRequest{Metadata: map[string]string{"tenant": "a", key: "x"}})
 		requireRefused(t, "CreateSession", key, err)
-		_, err = runner.CreateSessionExclusive(ctx, "", "chosen-id", map[string]string{key: "x"})
-		requireRefused(t, "CreateSessionExclusive", key, err)
+		_, err = runner.CreateSession(ctx, service.CreateSessionRequest{ID: "chosen-id", Metadata: map[string]string{key: "x"}})
+		requireRefused(t, "CreateSession with an ID", key, err)
 	}
 	if list, err := listAll(ctx, store); err != nil || len(list) != 0 {
 		t.Fatalf("a refused create left %d Sessions (err=%v)", len(list), err)
 	}
 	// An ordinary key is still the caller's.
-	created, err := runner.CreateSession(ctx, "", map[string]string{"tenant": "a"})
-	if err != nil || created.Metadata()["tenant"] != "a" {
+	created, err := runner.CreateSession(ctx, service.CreateSessionRequest{Metadata: map[string]string{"tenant": "a"}})
+	if err != nil || created.Metadata["tenant"] != "a" {
 		t.Fatalf("CreateSession with an ordinary key = %v, %v", created, err)
 	}
 }
@@ -136,21 +136,21 @@ func TestTheAgentChangesOnlyByTheRequestsAgent(t *testing.T) {
 func TestAToolSwitchAndTheCacheKeyHaveOneWayEach(t *testing.T) {
 	runner, store := newRunner(t, service.Agent{Name: "tools", Model: testkit.EchoModel{}, Tools: []gotato.Tool{testkit.NewFakeTool("own", "x")}})
 	ctx := context.Background()
-	created, err := runner.CreateSession(ctx, "", nil)
+	created, err := runner.CreateSession(ctx, service.CreateSessionRequest{})
 	if err != nil {
 		t.Fatal(err)
 	}
-	if _, err := runner.SetToolActive(ctx, created.ID(), "own", false); err != nil {
+	if _, err := runner.SetToolActive(ctx, created.ID, "own", false); err != nil {
 		t.Fatal(err)
 	}
-	if got := storedMetadata(t, store, created.ID())[metaToolKeyPrefix+"own"]; got != "inactive" {
+	if got := storedMetadata(t, store, created.ID)[metaToolKeyPrefix+"own"]; got != "inactive" {
 		t.Fatalf("SetToolActive wrote %q", got)
 	}
-	child, err := runner.Fork(ctx, created.ID(), "")
+	child, err := runner.Fork(ctx, created.ID, "")
 	if err != nil {
 		t.Fatal(err)
 	}
-	if got := storedMetadata(t, store, child.ID())[metaCacheKeyKey]; got != service.CacheKey(created.ID()) {
+	if got := storedMetadata(t, store, child.ID)[metaCacheKeyKey]; got != service.CacheKey(created.ID) {
 		t.Fatalf("Fork wrote cache key %q, want the parent's", got)
 	}
 }

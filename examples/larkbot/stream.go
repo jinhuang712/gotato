@@ -7,6 +7,7 @@ import (
 
 	"github.com/jinhuang712/gotato/gotato"
 	"github.com/jinhuang712/gotato/service"
+	"github.com/jinhuang712/gotato/session"
 )
 
 // A streaming card: for a Run this process starts, the bot posts a card at
@@ -109,7 +110,7 @@ func (b *bot) setCard(sessionID string, lc *liveCard) {
 
 // idle says whether no Instance holds the Session: no Run is going on it, here or elsewhere.
 func (b *bot) idle(ctx context.Context, sessionID string) bool {
-	rec, err := b.runner.Record(ctx, sessionID)
+	rec, err := session.View(ctx, b.records, sessionID)
 	if err != nil {
 		return false // Send finds out what is wrong
 	}

@@ -172,7 +172,7 @@ func TestSessionStreamResumesAfterLastEventID(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	head := int(record.Head())
+	head := int(record.Seq)
 
 	resp, f, _ := openSession(t, server, id, "", map[string]string{"Last-Event-ID": "3"})
 	if resp.StatusCode != http.StatusOK || !strings.HasPrefix(resp.Header.Get("Content-Type"), "text/event-stream") {
@@ -224,7 +224,7 @@ func TestSessionStreamRefusesWhatItCannotResume(t *testing.T) {
 	}{
 		{"another epoch", id, "?after=2&record_epoch=other", nil, http.StatusConflict, "cannot_resume"},
 		{"another epoch in a header", id, "?after=2", map[string]string{"Record-Epoch": "other"}, http.StatusConflict, "cannot_resume"},
-		{"past the head", id, "?after=" + strconv.FormatUint(record.Head()+1, 10), nil, http.StatusConflict, "cannot_resume"},
+		{"past the head", id, "?after=" + strconv.FormatUint(record.Seq+1, 10), nil, http.StatusConflict, "cannot_resume"},
 		{"unknown Session", "missing", "", nil, http.StatusNotFound, "not_found"},
 		{"not a number", id, "?after=x", nil, http.StatusBadRequest, "invalid_argument"},
 		{"not a number in the header", id, "", map[string]string{"Last-Event-ID": "-1"}, http.StatusBadRequest, "invalid_argument"},
@@ -262,7 +262,7 @@ func TestSessionStreamRefusesWhatItCannotResume(t *testing.T) {
 	if err := runner.DeleteSession(context.Background(), id); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := runner.CreateSessionExclusive(context.Background(), "echo", id, nil); err != nil {
+	if _, err := runner.CreateSession(context.Background(), service.CreateSessionRequest{Agent: "echo", ID: id}); err != nil {
 		t.Fatal(err)
 	}
 	resp, _, _ := openSessionStatus(t, server, id, "?after=1&record_epoch="+first.RecordEpoch)
@@ -498,7 +498,7 @@ func playTask(t *testing.T, server *httptest.Server, runner *service.Runner, tas
 		t.Error(err)
 		return 0
 	}
-	return record.Head()
+	return record.Seq
 }
 
 func taskRunner(t *testing.T, task reftasks.Task) (*httptest.Server, *service.Runner) {
@@ -523,11 +523,11 @@ func taskRunner(t *testing.T, task reftasks.Task) (*httptest.Server, *service.Ru
 // Events of the uncut reader and of the cut one, the two parts joined.
 func cutAndResume(t *testing.T, task reftasks.Task, k int, viaHeader bool) (uncut, resumed []storedFrame) {
 	server, runner := taskRunner(t, task)
-	created, err := runner.CreateSession(context.Background(), task.Name, nil, session.WithMessages(task.History...))
+	created, err := runner.CreateSession(context.Background(), service.CreateSessionRequest{Agent: task.Name, Messages: task.History})
 	if err != nil {
 		t.Fatal(err)
 	}
-	id := created.ID()
+	id := created.ID
 
 	_, uf, _ := openSession(t, server, id, "", nil)
 	startOf(t, uf)

@@ -60,7 +60,7 @@ func TestStreamingCardIsUpdatedInPlace(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if got, _ := rec.Get(metaCard); got != cards[0].MessageID || got == sent.MessageID {
+	if got := rec.Metadata[metaCard]; got != cards[0].MessageID || got == sent.MessageID {
 		t.Fatalf("metadata %s = %q, want the card's id %q", metaCard, got, cards[0].MessageID)
 	}
 	events, err := a.runner.Events(context.Background(), id)

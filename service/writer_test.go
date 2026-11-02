@@ -24,13 +24,13 @@ func TestIdleSessionMovesToAnyInstance(t *testing.T) {
 	store := memStore()
 	a := instanceRunner(t, store, "instance-a", testkit.EchoModel{}, steadyLiveness)
 	b := instanceRunner(t, store, "instance-b", testkit.EchoModel{}, steadyLiveness)
-	s, err := a.CreateSession(ctx, "echo", nil)
+	s, err := a.CreateSession(ctx, service.CreateSessionRequest{Agent: "echo"})
 	if err != nil {
 		t.Fatal(err)
 	}
 	for i, runner := range []*service.Runner{a, b, a} {
 		began := time.Now()
-		if _, err := runner.Run(ctx, service.RunRequest{SessionID: s.ID(), Prompt: fmt.Sprintf("p%d", i)}); err != nil {
+		if _, err := runner.Run(ctx, service.RunRequest{SessionID: s.ID, Prompt: fmt.Sprintf("p%d", i)}); err != nil {
 			t.Fatal(err)
 		}
 		// The holder is alive but idle, so nothing waits.
@@ -38,14 +38,14 @@ func TestIdleSessionMovesToAnyInstance(t *testing.T) {
 			t.Fatalf("Run %d waited %v for an idle Session", i, waited)
 		}
 	}
-	view, err := b.Record(ctx, s.ID())
+	view, err := b.Record(ctx, s.ID)
 	if err != nil {
 		t.Fatal(err)
 	}
-	if claim := view.Claim(); !isInstance(claim.Instance, "instance-a") || claim.Epoch != 3 {
+	if claim := claimOf(t, store, s.ID); !isInstance(claim.Instance, "instance-a") || claim.Epoch != 3 {
 		t.Fatalf("claim = %+v, want instance-a at epoch 3", claim)
 	}
-	if got := len(view.Messages()); got != 6 {
+	if got := len(view.Messages); got != 6 {
 		t.Fatalf("messages = %d, want 6", got)
 	}
 }
@@ -56,19 +56,19 @@ func TestBusyElsewhereWaitsThenRefuses(t *testing.T) {
 	held := &gateModel{gate: make(chan struct{}), started: make(chan struct{})}
 	a := instanceRunner(t, store, "instance-a", held, steadyLiveness)
 	b := instanceRunner(t, store, "instance-b", testkit.EchoModel{}, service.Liveness{TTL: steadyLiveness.TTL, Wait: 200 * time.Millisecond})
-	s, err := a.CreateSession(ctx, "echo", nil)
+	s, err := a.CreateSession(ctx, service.CreateSessionRequest{Agent: "echo"})
 	if err != nil {
 		t.Fatal(err)
 	}
 	done := make(chan error, 1)
 	go func() {
-		_, err := a.Run(ctx, service.RunRequest{SessionID: s.ID(), Prompt: "slow"})
+		_, err := a.Run(ctx, service.RunRequest{SessionID: s.ID, Prompt: "slow"})
 		done <- err
 	}()
 	<-held.started
 
 	began := time.Now()
-	_, err = b.Run(ctx, service.RunRequest{SessionID: s.ID(), Prompt: "meanwhile"})
+	_, err = b.Run(ctx, service.RunRequest{SessionID: s.ID, Prompt: "meanwhile"})
 	if !errors.Is(err, service.ErrBusy) {
 		t.Fatalf("a Run on a Session running elsewhere = %v, want busy", err)
 	}
@@ -86,18 +86,18 @@ func TestBusyElsewhereWaitsThenRefuses(t *testing.T) {
 		close(held.gate)
 	}()
 	b2 := instanceRunner(t, store, "instance-c", testkit.EchoModel{}, steadyLiveness)
-	if _, err := b2.Run(ctx, service.RunRequest{SessionID: s.ID(), Prompt: "after"}); err != nil {
+	if _, err := b2.Run(ctx, service.RunRequest{SessionID: s.ID, Prompt: "after"}); err != nil {
 		t.Fatalf("a Run that waited for the holder's Run = %v", err)
 	}
 	if err := <-done; err != nil {
 		t.Fatal(err)
 	}
-	view, err := a.Record(ctx, s.ID())
+	view, err := a.Record(ctx, s.ID)
 	if err != nil {
 		t.Fatal(err)
 	}
 	texts := make([]string, 0, 4)
-	for _, m := range view.Messages() {
+	for _, m := range view.Messages {
 		texts = append(texts, gotato.TextOf(m))
 	}
 	if strings.Join(texts, ",") != "slow,released,after,echo: after" {
@@ -125,7 +125,7 @@ func TestLapsedHeartbeatFencesLateWrites(t *testing.T) {
 	paused := &pausableStore{parts: partsOf(backing)}
 	model := testkit.NewFakeModel(testkit.Text("hi"))
 	a := instanceRunner(t, asStore(paused), "instance-a", model, fastLiveness)
-	s, err := a.CreateSession(ctx, "echo", nil)
+	s, err := a.CreateSession(ctx, service.CreateSessionRequest{Agent: "echo"})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -134,7 +134,7 @@ func TestLapsedHeartbeatFencesLateWrites(t *testing.T) {
 
 	// instance-a cannot show its row is alive: it writes nothing and never
 	// calls the model.
-	if _, err := a.Run(ctx, service.RunRequest{SessionID: s.ID(), Prompt: "late"}); !gotato.IsCode(err, gotato.CodeConflict) {
+	if _, err := a.Run(ctx, service.RunRequest{SessionID: s.ID, Prompt: "late"}); !gotato.IsCode(err, gotato.CodeConflict) {
 		t.Fatalf("a Run after the row lapsed = %v, want a conflict", err)
 	}
 	if len(model.Requests()) != 0 {
@@ -142,7 +142,7 @@ func TestLapsedHeartbeatFencesLateWrites(t *testing.T) {
 	}
 	// Its row has expired, so another instance takes the Session at once.
 	b := instanceRunner(t, backing, "instance-b", testkit.EchoModel{}, steadyLiveness)
-	if _, err := b.Run(ctx, service.RunRequest{SessionID: s.ID(), Prompt: "taken over"}); err != nil {
+	if _, err := b.Run(ctx, service.RunRequest{SessionID: s.ID, Prompt: "taken over"}); err != nil {
 		t.Fatal(err)
 	}
 }
@@ -189,11 +189,11 @@ func TestManyInstancesOneWriter(t *testing.T) {
 			}
 			var ids []string
 			for range 2 {
-				s, err := runners[0].CreateSession(ctx, "echo", nil)
+				s, err := runners[0].CreateSession(ctx, service.CreateSessionRequest{Agent: "echo"})
 				if err != nil {
 					t.Fatal(err)
 				}
-				ids = append(ids, s.ID())
+				ids = append(ids, s.ID)
 			}
 
 			type outcome struct {
@@ -285,17 +285,17 @@ func TestClosedRunnerNeverBeatsAgain(t *testing.T) {
 	ctx := context.Background()
 	store := memStore()
 	a := instanceRunner(t, store, "instance-a", testkit.EchoModel{}, steadyLiveness)
-	s, err := a.CreateSession(ctx, "echo", nil)
+	s, err := a.CreateSession(ctx, service.CreateSessionRequest{Agent: "echo"})
 	if err != nil {
 		t.Fatal(err)
 	}
 	if err := a.Close(ctx); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := a.Run(ctx, service.RunRequest{SessionID: s.ID(), Prompt: "late"}); err == nil {
+	if _, err := a.Run(ctx, service.RunRequest{SessionID: s.ID, Prompt: "late"}); err == nil {
 		t.Fatal("a closed Runner ran")
 	}
-	if _, err := a.CreateSessionExclusive(ctx, "echo", "after-close", nil); err == nil || errors.Is(err, service.ErrSessionExists) {
+	if _, err := a.CreateSession(ctx, service.CreateSessionRequest{Agent: "echo", ID: "after-close"}); err == nil || errors.Is(err, service.ErrSessionExists) {
 		t.Fatalf("a closed Runner creating a Session = %v, want a refusal that is not ErrSessionExists", err)
 	}
 	if state, err := store.Liveness.Instance(ctx, a.Instance()); err != nil || state.Alive {
@@ -328,11 +328,11 @@ func TestTwoInstancesOpenOneIdleSessionAtOnce(t *testing.T) {
 			open := sharedStores(t, kind.name)
 			a := instanceRunner(t, open(), "instance-a", testkit.EchoModel{}, liveness)
 			b := instanceRunner(t, open(), "instance-b", testkit.EchoModel{}, liveness)
-			s, err := a.CreateSession(ctx, "echo", nil)
+			s, err := a.CreateSession(ctx, service.CreateSessionRequest{Agent: "echo"})
 			if err != nil {
 				t.Fatal(err)
 			}
-			if _, err := a.Run(ctx, service.RunRequest{SessionID: s.ID(), Prompt: "first"}); err != nil {
+			if _, err := a.Run(ctx, service.RunRequest{SessionID: s.ID, Prompt: "first"}); err != nil {
 				t.Fatal(err)
 			}
 			var failed []error
@@ -340,7 +340,7 @@ func TestTwoInstancesOpenOneIdleSessionAtOnce(t *testing.T) {
 				errs := make(chan error, 2)
 				for _, runner := range []*service.Runner{a, b} {
 					go func() {
-						_, err := runner.Run(ctx, service.RunRequest{SessionID: s.ID(), Prompt: fmt.Sprintf("%s-%d", runner.Instance(), round)})
+						_, err := runner.Run(ctx, service.RunRequest{SessionID: s.ID, Prompt: fmt.Sprintf("%s-%d", runner.Instance(), round)})
 						errs <- err
 					}()
 				}
@@ -353,7 +353,7 @@ func TestTwoInstancesOpenOneIdleSessionAtOnce(t *testing.T) {
 			if len(failed) > 0 {
 				t.Fatalf("%d of %d Runs failed, first: %v", len(failed), 2*kind.rounds, failed[0])
 			}
-			view, err := session.View(ctx, open().Records, s.ID())
+			view, err := session.View(ctx, open().Records, s.ID)
 			if err != nil {
 				t.Fatal(err)
 			}
@@ -371,32 +371,32 @@ func TestRunOfADeletedSessionNeverWritesToTheSessionCreatedAgain(t *testing.T) {
 	store := memStore()
 	held := &gateModel{gate: make(chan struct{}), started: make(chan struct{})}
 	a := instanceRunner(t, store, "instance-a", held, steadyLiveness)
-	s, err := a.CreateSession(ctx, "echo", nil)
+	s, err := a.CreateSession(ctx, service.CreateSessionRequest{Agent: "echo"})
 	if err != nil {
 		t.Fatal(err)
 	}
 	done := make(chan error, 1)
 	go func() {
-		_, err := a.Run(ctx, service.RunRequest{SessionID: s.ID(), Prompt: "slow"})
+		_, err := a.Run(ctx, service.RunRequest{SessionID: s.ID, Prompt: "slow"})
 		done <- err
 	}()
 	<-held.started
-	old, err := store.Records.Load(ctx, s.ID())
+	old, err := store.Records.Load(ctx, s.ID)
 	if err != nil {
 		t.Fatal(err)
 	}
 
 	// Another process deletes the Record and creates it again, as long as the
 	// old one is now.
-	if err := store.Records.Delete(ctx, s.ID()); err != nil {
+	if err := store.Records.Delete(ctx, s.ID); err != nil {
 		t.Fatal(err)
 	}
-	fresh, err := session.CreateWriter(ctx, store.Records, session.New(session.WithID(s.ID())), "other", session.WithIdle())
+	fresh, err := session.CreateWriter(ctx, store.Records, session.New(session.WithID(s.ID)), "other", session.WithIdle())
 	if err != nil {
 		t.Fatal(err)
 	}
 	for {
-		loaded, err := store.Records.Load(ctx, s.ID())
+		loaded, err := store.Records.Load(ctx, s.ID)
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -408,7 +408,7 @@ func TestRunOfADeletedSessionNeverWritesToTheSessionCreatedAgain(t *testing.T) {
 		}
 		commit(t, fresh, gotato.UserMessage("x"))
 	}
-	before, err := store.Records.Log(ctx, s.ID(), 0, 0)
+	before, err := store.Records.Log(ctx, s.ID, 0, 0)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -417,11 +417,11 @@ func TestRunOfADeletedSessionNeverWritesToTheSessionCreatedAgain(t *testing.T) {
 	if err := <-done; err == nil {
 		t.Fatal("the Run of the deleted Session succeeded")
 	}
-	after, err := store.Records.Log(ctx, s.ID(), 0, 0)
+	after, err := store.Records.Log(ctx, s.ID, 0, 0)
 	if err != nil || len(after) != len(before) {
 		t.Fatalf("the new Record holds %d Entries after the Run (%v), want %d", len(after), err, len(before))
 	}
-	loaded, err := store.Records.Load(ctx, s.ID())
+	loaded, err := store.Records.Load(ctx, s.ID)
 	if err != nil || loaded.Header.Epoch != fresh.Record().RecordEpoch() {
 		t.Fatalf("the new Record's epoch = %q (%v), want %q", loaded.Header.Epoch, err, fresh.Record().RecordEpoch())
 	}
@@ -456,7 +456,7 @@ func TestRunWritesClaimAndRelease(t *testing.T) {
 	// creation until then.
 	if firstRecord, err := a.Record(ctx, first.SessionID); err != nil {
 		t.Fatal(err)
-	} else if events := firstRecord.Events(); events[len(events)-1].Kind() != gotato.EventKindSessionReleased {
+	} else if events := firstRecord.Events; events[len(events)-1].Kind() != gotato.EventKindSessionReleased {
 		t.Fatalf("the first Run left the Record at %v, want session_released last", numbered(events))
 	}
 	result, err := a.Run(ctx, service.RunRequest{SessionID: first.SessionID, Prompt: "again"})
@@ -467,7 +467,7 @@ func TestRunWritesClaimAndRelease(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	events := record.Events()
+	events := record.Events
 	claimed, started, ended, released := -1, -1, -1, -1
 	for i, event := range events {
 		switch event.Kind() {
@@ -549,17 +549,17 @@ func TestFencedWritePublishesSessionFenced(t *testing.T) {
 	fenced := instanceRecorder(t, a, gotato.SubscribeFilter(func(event gotato.Event) bool {
 		return event.Kind() == gotato.EventKindSessionFenced
 	}))
-	s, err := a.CreateSession(ctx, "echo", nil)
+	s, err := a.CreateSession(ctx, service.CreateSessionRequest{Agent: "echo"})
 	if err != nil {
 		t.Fatal(err)
 	}
 	done := make(chan error, 1)
 	go func() {
-		_, err := a.Run(ctx, service.RunRequest{SessionID: s.ID(), Prompt: "slow"})
+		_, err := a.Run(ctx, service.RunRequest{SessionID: s.ID, Prompt: "slow"})
 		done <- err
 	}()
 	<-held.started
-	if _, err := b.Run(ctx, service.RunRequest{SessionID: s.ID(), Prompt: "taken"}); err != nil {
+	if _, err := b.Run(ctx, service.RunRequest{SessionID: s.ID, Prompt: "taken"}); err != nil {
 		t.Fatalf("instance-b taking over the Session = %v", err)
 	}
 	close(held.gate)
@@ -570,18 +570,18 @@ func TestFencedWritePublishesSessionFenced(t *testing.T) {
 		t.Fatal("no session_fenced was published to instance-a's Instance stream")
 	}
 	event, ok := fenced.Events()[0].(gotato.SessionFenced)
-	if !ok || !isInstance(event.Instance, "instance-a") || string(event.SessionID) != s.ID() {
-		t.Fatalf("event = %+v, want session_fenced by instance-a for %s", fenced.Events()[0], s.ID())
+	if !ok || !isInstance(event.Instance, "instance-a") || string(event.SessionID) != s.ID {
+		t.Fatalf("event = %+v, want session_fenced by instance-a for %s", fenced.Events()[0], s.ID)
 	}
 	// The fenced Instance wrote nothing after the takeover: its reply is not
 	// in the Record.
-	record, err := b.Record(ctx, s.ID())
+	record, err := b.Record(ctx, s.ID)
 	if err != nil {
 		t.Fatal(err)
 	}
-	for _, message := range record.Messages() {
+	for _, message := range record.Messages {
 		if gotato.TextOf(message) == "released" {
-			t.Fatalf("the fenced Instance's reply is in the Record: %v", record.Messages())
+			t.Fatalf("the fenced Instance's reply is in the Record: %v", record.Messages)
 		}
 	}
 }
@@ -596,7 +596,7 @@ func TestLapsedLivenessPublishesOnce(t *testing.T) {
 	lapsed := instanceRecorder(t, a, gotato.SubscribeFilter(func(event gotato.Event) bool {
 		return event.Kind() == gotato.EventKindLivenessLapsed
 	}))
-	s, err := a.CreateSession(ctx, "echo", nil)
+	s, err := a.CreateSession(ctx, service.CreateSessionRequest{Agent: "echo"})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -604,7 +604,7 @@ func TestLapsedLivenessPublishesOnce(t *testing.T) {
 	time.Sleep(2 * fastLiveness.TTL)
 	var refused atomic.Int32
 	for range 3 {
-		if _, err := a.Run(ctx, service.RunRequest{SessionID: s.ID(), Prompt: "late"}); err != nil && !errors.Is(err, context.Canceled) {
+		if _, err := a.Run(ctx, service.RunRequest{SessionID: s.ID, Prompt: "late"}); err != nil && !errors.Is(err, context.Canceled) {
 			refused.Add(1)
 		}
 	}

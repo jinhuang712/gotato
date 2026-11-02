@@ -385,11 +385,11 @@ func (c *cluster) prompt(sessionID, text string) reply {
 func (c *cluster) create(task reftasks.Task) string {
 	c.t.Helper()
 	if len(task.History) > 0 {
-		s, err := c.anyInstance().runner.CreateSession(context.Background(), task.Name, nil, session.WithMessages(task.History...))
+		s, err := c.anyInstance().runner.CreateSession(context.Background(), service.CreateSessionRequest{Agent: task.Name, Messages: task.History})
 		if err != nil {
 			c.t.Fatal(err)
 		}
-		return s.ID()
+		return s.ID
 	}
 	r := send(c.t, c.front.URL, http.MethodPost, "/v1/sessions", map[string]any{"agent": task.Name}, "")
 	id := r.header.Get(httpapi.SessionIDHeader)
