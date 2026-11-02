@@ -30,7 +30,9 @@ Gotato is a minimal, synchronous Go library. An **Agent** is a definition (model
 - A `testkit.FakeModel` shares one script across all Runs; in a server test use `testkit.NewFuncModel` (it has no `Delay`: wait inside the function).
 - Pass `ctx` everywhere; it cancels model and tool calls.
 - A tool's error text reaches the model only if the error implements `gotato.PublicError` (a `Public() string` method); otherwise the model sees `tool failed`.
-- A `ToolSet` goes in `Agent.Options` (`WithToolSet`), not in `Agent.ToolSources`. An Extension goes in `Agent.Options` too (`WithExtension`).
+- A `ToolSet` goes in `Agent.ToolSets` (with a `Mode`), not in `Agent.ToolSources`. An Extension goes in `Agent.Extensions`. There is no `Agent.Options`: the Runner builds every `SessionOption`.
+- A Session has no instruction or ceiling of its own. Another instruction is another Agent, named by `RunRequest.Agent`. A metadata key that starts with `gotato.` is the Runner's, and `CreateSession`, `RunRequest.Metadata` and `RunRequest.Update` refuse it with `service.ErrReservedKey`.
+- `Runner.CreateSession(ctx, service.CreateSessionRequest{...})`, `Fork` and `Record` return values (`RecordInfo`, `RecordInfo`, `Document`); there is no `Runner.Store()`.
 - A wrapper Model must implement `Unwrap() gotato.Model`, or the context window and cache hints are lost.
 - On shutdown: `Drain`, then `Shutdown` the HTTP server, then `Runner.Close`.
 - Errors are `*gotato.RuntimeError` with a code. `gotato.NotRun(err)` means nothing happened, so resend elsewhere; `gotato.Retryable(err)` means it ran and a later retry may work. HTTP carries both as `Gotato-Not-Run` and `Gotato-Retryable`.

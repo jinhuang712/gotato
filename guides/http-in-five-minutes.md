@@ -68,6 +68,7 @@ curl -s -XPOST localhost:8080/v1/sessions/s1/runs -d '{"prompt":"hello"}'
 
 - `id` is optional: leave the body as `{}` and Gotato picks one, returned in the body and in the `Session-Id` header.
 - Creating an `id` that is taken answers 409 with the code `already_exists`.
+- `metadata` is yours, except for keys that start with `gotato.`: those belong to the Runner, and a create that sets one answers 400 with the code `invalid_argument` and `not_run`, naming the key, and creates nothing. A Session has no instruction of its own on the wire: it runs the Agent it names (`agent`), and a run body can carry `agent` to change it.
 - `GET /v1/sessions` lists Sessions a page at a time, the most recently updated first: `{"sessions":[...],"next":"..."}`. Send `limit` and, for the next page, `cursor` set to the last `next`; `next` is left out after the last page. It needs a store whose `Records` can list (`session.Lister`; the memory and file stores can), and answers 400 `not_supported` otherwise.
 - The body of a Run is `{"prompt": "..."}` or `{"continue": true}`, with an optional `timeout_ms`. A Run that outlasts it settles as `deadline_exceeded`.
 - The Run holds the request open until it settles. A client that drops the request ends the Run: it settles as `canceled`.

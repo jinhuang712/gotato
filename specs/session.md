@@ -6,13 +6,14 @@ A conversation with an agent has to survive a crash, a deploy and a week of sile
 - An Agent is a definition and holds nothing; a Session is one conversation, and its Record in the Store is the truth. The live Session is a goroutine built over that Record for each Run.
 - A Run is made of Turns, and a Turn of Steps that are each written before the next one starts. Every Run ends exactly once, in one of five ways.
 - Steer, FollowUp and Interrupt reach a Run in flight, each at its own point. What is only queued in memory is lost if the Instance dies; what is written is not.
+- Each value has one owner and one typed way in. A way in that is not the owner's is refused with `invalid_argument` before anything is written; nothing is dropped or overridden.
 
 ## Who holds what
 
 The Agent is on top and holds nothing; the Record at the bottom holds everything that must last.
 
 ```text
- Agent            model, instruction, tools, Effect cap, limits   (a definition, shared)
+ Agent            model, instruction, tools, Effect cap, Sampling, limits   (a definition, shared)
    │ runs, many times
    ▼
  Session          one conversation, named by its ID = its Record's ID
@@ -25,6 +26,22 @@ The Agent is on top and holds nothing; the Record at the bottom holds everything
 ```
 
 Read it top to bottom as "what is cheap to lose". The Agent is shared by many Sessions, so it can hold no conversation. The live Session is built when a Run needs it and can be dropped at any time, because the Record holds everything it needs. Its ID is the Record's ID, so whichever Instance builds it, it is the same Session. Keeping the Agent separate from the Session is what lets one definition serve many conversations.
+
+## Who may set what
+
+A value that a layer owns is set only through that layer. The table is the whole rule: the owner, the one typed way in, and what any other way gets.
+
+| Value | Owner | The one way in | Any other way |
+|---|---|---|---|
+| instruction, model, tools, Effect cap, Sampling, Extensions, ceiling | the Agent (the definition) | `service.Agent` fields; the Runner builds every `SessionOption` | there is none: `Agent` has no `Options`, and a Session has no instruction or ceiling of its own, so another one is another Agent |
+| the Agent a Session runs | the Runner | `RunRequest.Agent`, `CreateSessionRequest.Agent` | a `gotato.agent` key in metadata: `ErrReservedKey` |
+| a tool switched off for a Session | the Runner | `Runner.SetToolActive` | a `gotato.tool.<id>` key: `ErrReservedKey` |
+| the prompt cache key | the Runner | `Runner.Fork` | a `gotato.cache_key` key: `ErrReservedKey` |
+| a single-valued option of a live Session | `gotato.Session` | one `WithTranscript`, `WithInstruction`, `WithMaxEffect`, `WithToolFilter`, `WithSampling`, ... | the option given twice: `NewSession` fails, naming it |
+| what a Transcript stores | the Transcript | `Transcript.Capabilities()` | a wrapper that hides the Journal while it says `Durable`: `NewSession` fails |
+| the stored Record | the Runner and its Writer | `CreateSession`, `Run`, `Fork`; they answer values (`RecordInfo`, `Document`) | `Runner.Store()` is gone, and a value returned has no `Set` |
+
+Every metadata key that starts with `gotato.` (`service.ReservedPrefix`) is the Runner's. `CreateSession`, `RunRequest.Metadata`, `RunRequest.Update` and `POST /v1/sessions` refuse it, so a remote caller cannot replace an instruction, move a ceiling or switch an Agent through metadata. The application's own keys are free. A Transcript declares what it can do in `Capabilities` (an ID, a Journal, whether its Events are durable, whether a large Tool Result is spilled, an EventSource and loaded Tools); one that stores must declare all of the parts a store needs, and `NewSession` refuses a Transcript that does not, so a wrapper that loses durability fails at construction and not weeks later.
 
 ## Run, Turn and Round
 
@@ -119,4 +136,4 @@ The Session has one Status at a time and takes one Run at a time: a second Promp
 - Steer, FollowUp and Interrupt let you change a long Run's course without a second Run or a lock of your own.
 
 ## See also
-[FEATURES.md → G-F02](../FEATURES.md#g-f02--sessions-), [G-F01](../FEATURES.md#g-f01--agents-and-runs-) and [G-F26](../FEATURES.md#g-f26--steering-a-run-), decisions [004](../plan/decisions/004-an-agent-is-a-definition-and-a-session-is-the-live-unit.md), [016](../plan/decisions/016-gotato-session-is-the-live-unit-and-session-record-is-what-the-store-keeps.md), [021](../plan/decisions/021-messages-reach-the-writer-and-take-effect-in-its-process.md), [028](../plan/decisions/028-every-step-is-written-as-facts-and-a-log.md) and [038](../plan/decisions/038-a-limit-guards-a-real-failure.md), [GLOSSARY.md](../GLOSSARY.md). The Record, the Events and the Context have specs of their own: [record.md](record.md), [events.md](events.md) and [context.md](context.md).
+[FEATURES.md → G-F02](../FEATURES.md#g-f02--sessions-), [G-F01](../FEATURES.md#g-f01--agents-and-runs-) and [G-F26](../FEATURES.md#g-f26--steering-a-run-), decisions [047](../plan/decisions/047-a-value-a-layer-owns-is-set-only-through-that-layer.md),  [004](../plan/decisions/004-an-agent-is-a-definition-and-a-session-is-the-live-unit.md), [016](../plan/decisions/016-gotato-session-is-the-live-unit-and-session-record-is-what-the-store-keeps.md), [021](../plan/decisions/021-messages-reach-the-writer-and-take-effect-in-its-process.md), [028](../plan/decisions/028-every-step-is-written-as-facts-and-a-log.md) and [038](../plan/decisions/038-a-limit-guards-a-real-failure.md), [GLOSSARY.md](../GLOSSARY.md). The Record, the Events and the Context have specs of their own: [record.md](record.md), [events.md](events.md) and [context.md](context.md).
