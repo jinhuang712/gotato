@@ -143,6 +143,26 @@ Through the Runner, pass extensions in `service.Agent.Options`, as `gotato.WithE
 
 `service.Admission` bounds the work of one pod: `MaxActiveRuns`, `MaxActiveSessions` and `MaxWarmSessions`, and a `Queue` policy for a Session that is busy (`reject` or `wait`). A refused Run is marked not run, so the load balancer can send it to another pod.
 
+### Knowing who asked
+
+A Tool cannot learn who asked from the request: `ToolUse` has no field for it, and nothing in `RunRequest` reaches it. `Metadata` applies when a Session is created, `Update` writes Session metadata, and `RequestID` goes only into `run_started`. What reaches `Before` and `Execute` is the caller's `ctx`. Put the asker into it before `Runner.Run`:
+
+```go
+type askerKey struct{}
+
+ctx = context.WithValue(ctx, askerKey{}, "ann")
+runner.Run(ctx, service.RunRequest{SessionID: id, Prompt: text})
+
+// in a PreToolUse extension, or in a Tool's Execute:
+who, _ := ctx.Value(askerKey{}).(string)
+```
+
+- **It lasts one Run.** The value is the one of the call that started the Run.
+- **Askers of one Session do not mix.** A Session runs one Run at a time, so each Run sees the value of its own caller.
+- **A Run that follows another** (it starts from messages the first Run left queued) runs under the first Run's context without its cancel, so it sees the first caller's value, not the sender's of those messages.
+
+`TestAValueInTheCallersCtxReachesBeforeAndExecute` in [service/service_test.go](../service/service_test.go) pins this.
+
 ## Sometimes
 
 ### ToolSet and ToolSource
