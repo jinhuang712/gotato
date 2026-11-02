@@ -64,3 +64,5 @@ Decided: YYYY-MM-DD    Status: current | superseded by NNN
 | [039](039-tools-load-one-by-one-from-a-catalog.md) | 2026-10-25 | A Tool is the unit of loading, found through a catalog |
 | [040](040-a-large-tool-result-is-spilled-and-read-in-pages.md) | 2026-10-25 | A large Tool Result is spilled into the Record, and read in pages |
 | [041](041-a-read-only-bash-for-large-results-is-another-project.md) | 2026-10-27 | A bash for large results lives in its own project |
+| [042](042-a-models-profile-is-its-own-value-apart-from-the-connection.md) | 2026-11-02 | A model's profile is its own value, apart from the connection to it |
+| [043](043-compaction-moves-content-out-and-never-makes-it-unreadable.md) | 2026-11-02 | Compaction moves content out of the Context and never makes it unreadable |

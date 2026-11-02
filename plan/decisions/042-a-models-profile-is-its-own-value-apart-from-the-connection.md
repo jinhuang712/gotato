@@ -1,7 +1,6 @@
-<!-- what-we-build: draft, waits for the maintainer's approval -->
 # 042. A model's profile is its own value, apart from the connection to it
 
-Decided: 2026-11-02    Status: draft, waits for the maintainer's approval
+Decided: 2026-11-02    Status: current
 
 ## The problem
 [001](001-one-implementation-per-wire-api.md) says a provider is an endpoint, a key, a wire API and its models. `gateway.Config` is one flat struct for one model: the connection (endpoint, key, headers, retries, timeouts) and what the model is (window, provider, cache retention, overflow wording, deferred form) sit among twenty keys, each optional. The window is one of them, and left out it means 0, "unknown", and compaction then has no ceiling, with no word to the team ([038](038-a-limit-guards-a-real-failure.md): a Context past the window has its ceiling). A service that never set it found out only by reading the code (D-034, D-020). Some facts about a model are also held by name inside the code (`thinkingPrefixModels`), because a model has no place of its own to be described.

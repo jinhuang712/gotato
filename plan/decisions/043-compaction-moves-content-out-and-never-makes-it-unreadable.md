@@ -1,7 +1,6 @@
-<!-- what-we-build: draft, waits for the maintainer's approval -->
 # 043. Compaction moves content out of the Context and never makes it unreadable
 
-Decided: 2026-11-02    Status: draft, waits for the maintainer's approval
+Decided: 2026-11-02    Status: current
 
 ## The problem
 A compaction closes a Segment that leaves out Tool Results and a Run's other text, so their facts survive only in the Recap, which is off by default ([032](032-compaction-closes-a-segment-and-never-rewrites-one.md), [033](033-code-builds-a-segment-and-the-model-writes-only-the-recap.md)). The Record keeps every original, and `read_segment` reads a whole Segment page by page, but no line of a Segment names one Tool Result or one Message, so the model cannot ask for one item and cannot tell which are worth a read. A merge makes it worse: it folds Segments into a digest, or into a Recap written from earlier Recaps alone, and many merges later a detail has no path back except reading whole Segments blind. Only a Tool Result over one page gets a reference ([040](040-a-large-tool-result-is-spilled-and-read-in-pages.md)), yet smaller results are what grew the Context in a long Run, in the measurements so far.

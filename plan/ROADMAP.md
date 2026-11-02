@@ -18,7 +18,7 @@ Done when: every item above is out of [TODO.md](TODO.md); the new guide examples
 ## Round 2: small, compatible code
 
 - **D-004** `WithDefaultEffect`: used when a tool has no annotations and no `WithToolEffect`. **D-002** `WithToolFilter` and `WithToolRename`: a rename changes only the name the Model sees; `WithToolEffect`, the filter and the call to the server keep the server's own name.
-- **D-020** a warning once when the context window is 0, and `ceiling=0` in `inspect`.
+- **D-020** `ceiling=0` in `inspect` (the warning was dropped; decision 042 answers the cause).
 - **D-019** the chat wire reads `cache_read_input_tokens` and `cache_creation_input_tokens`.
 - **D-026** with **D-018**: `Code` on `ToolResult` and `ToolEnded`, a code for "not loaded", and the "also found, not loaded" line worded as an instruction.
 - **D-022** `SessionID` on `ToolUse`.
@@ -33,8 +33,8 @@ Done when: each item has a test, a FEATURES.md entry and a CHANGELOG line; no br
 
 Each item starts as a decision in [decisions](decisions/README.md). Code follows only if the decision says yes.
 
-- **Compaction moves, never makes unreadable** ([043](decisions/043-compaction-moves-content-out-and-never-makes-it-unreadable.md), draft): a reference for every Tool Result and Message a compaction or merge takes out of the Context. It answers D-036 and the long-Session merge; decide first, with the per-part sizes of D-035 as its measurement.
-- **Model profile** ([042](decisions/042-a-models-profile-is-its-own-value-apart-from-the-connection.md), draft): describe a model apart from the connection, with the window stated. It answers D-020 and D-034 at the root, and would replace a warning for D-020. Decide first; the draft names three open points.
+- **Compaction moves, never makes unreadable** ([043](decisions/043-compaction-moves-content-out-and-never-makes-it-unreadable.md)): a reference for every Tool Result and Message a compaction or merge takes out of the Context. It answers D-036 and the long-Session merge; decided; the per-part sizes of D-035 are its measurement.
+- **Model profile** ([042](decisions/042-a-models-profile-is-its-own-value-apart-from-the-connection.md)): describe a model apart from the connection, with the window stated. It answers D-020 and D-034 at the root, and would replace a warning for D-020. Decided; two small points are left to the implementation.
 
 Done when: each item has a decision, accepted or refused.
 
@@ -59,5 +59,7 @@ Each has a reason; one is picked up again only when someone names a real failure
 - **D-010** a pass-through field for reasoning effort: no team has needed it;
 - **D-005** a price table or an Event hook: cost is a team's own conversion of `Usage`, and FEATURES.md says so;
 - the core de-duplicating `RequestID` (named in D-007): the example passes the message id as `RequestID`, and no one needs the core to do it;
+- **D-032** a per-Run value that reaches `ToolUse`: the caller's `ctx` already carries one into `Before` and `Execute`, and no one needs more;
+- the exported plumbing of `Feed` (`Published`, `PublishLabeled`, `SetLabel`, `MirrorTo`, `NewInstanceFeed`): a smaller surface means redesigning the `service` and `gotato` split, which costs more than it gives and does not touch a user of Gotato;
 - **D-025** `arguments` on `tool_started`: the base64 form is documented in round 1 and that is enough for now;
 - the other items in [TODO.md](TODO.md), which are fixed or settled outside any release.
