@@ -257,9 +257,9 @@ func TestSubscribeDoesNotLeakGoroutines(t *testing.T) {
 	}
 	// Close removes every subscription deterministically; this cannot depend on
 	// goroutine scheduling.
-	agent.feed.mu.Lock()
-	remaining := len(agent.feed.subs)
-	agent.feed.mu.Unlock()
+	agent.events.feed.mu.Lock()
+	remaining := len(agent.events.feed.subs)
+	agent.events.feed.mu.Unlock()
 	if remaining != 0 {
 		t.Fatalf("the Feed retained %d subscriptions after Close", remaining)
 	}

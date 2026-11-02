@@ -115,7 +115,7 @@ func NewSession(ctx context.Context, options ...SessionOption) (*Session, error)
 		requestID:      cfg.requestID,
 	}
 	if caps.Journal != nil {
-		a.journal = caps.Journal
+		a.events.journal = caps.Journal
 	} else {
 		// A Transcript that keeps no Events: they are numbered in memory,
 		// after the last number of a Feed the host shares with other Runs.
@@ -123,14 +123,14 @@ func NewSession(ctx context.Context, options ...SessionOption) (*Session, error)
 		if cfg.feed != nil {
 			journal.last = cfg.feed.Last()
 		}
-		a.journal = journal
+		a.events.journal = journal
 	}
-	a.feed = cfg.feed
-	if a.feed == nil {
-		a.feed = NewFeed(nil)
-		a.ownFeed = true
+	a.events.feed = cfg.feed
+	if a.events.feed == nil {
+		a.events.feed = NewFeed(nil)
+		a.events.ownFeed = true
 		if caps.Events != nil {
-			a.feed.setSource(caps.Events)
+			a.events.feed.setSource(caps.Events)
 		}
 	}
 	a.extensions.report = a.reportExtension
@@ -168,18 +168,9 @@ type Session struct {
 	// history is the committed history, such as a session.Record, and its size.
 	history        sessionHistory
 	contextBuilder ContextBuilder
-	// journal keeps the Session's stored Events: the Transcript's Journal when
-	// it declares one, and a numbering of its own otherwise.
-	journal Journal
-	feed    *Feed
-	ownFeed bool
-	// staged holds the stored Events of the step in progress, on the Session
-	// goroutine. They are written, and then sent, by flush. emitMu makes a
-	// write and its sending one step, so Events reach subscribers in the
-	// order of their numbers, whichever goroutine writes them.
-	staged     []Event
-	emitMu     sync.Mutex
-	lastNumber atomic.Uint64
+	// events is the Session's stored Events: the Journal, what is staged, the
+	// numbers and the Feed.
+	events     sessionEvents
 	onRunStart func(RunID)
 	// handoff keeps the messages still queued when a Run completes or fails,
 	// for the host to take (TakeQueued); see WithQueueHandoff.
@@ -280,19 +271,19 @@ func (a *Session) Done() <-chan struct{} { return a.done }
 // everything. A subscriber that reads slowly slows only itself: the Session
 // never waits for it.
 func (a *Session) Subscribe(ctx context.Context, options ...SubscribeOption) (Subscription, error) {
-	return a.feed.Subscribe(ctx, options...)
+	return a.events.feed.Subscribe(ctx, options...)
 }
 
 // Published returns how many Events the Session has published: its stored
 // Events and its deltas. A test that reads a Subscription compares it with how
 // many it has read, to know that it has seen everything.
-func (a *Session) Published() uint64 { return a.feed.Published() }
+func (a *Session) Published() uint64 { return a.events.feed.Published() }
 
 // SubscribeRun starts a Subscription to the next Run that starts: its Events
 // and deltas, from its RunStarted to its RunEnded, with the same numbers the
 // Session's stream gives them. Call it before Prompt.
 func (a *Session) SubscribeRun(ctx context.Context) (Subscription, error) {
-	return a.feed.Subscribe(ctx, SubscribeNextRun()...)
+	return a.events.feed.Subscribe(ctx, SubscribeNextRun()...)
 }
 
 // Prompt appends message as the user's Message and runs it to a settled

@@ -182,11 +182,11 @@ func (a *Session) reply(cmd sessionCommand, resp promptResponse, idle bool) {
 func (a *Session) finishClose() {
 	a.dropLeftoverControl()
 	a.setStatus(SessionStatusClosed)
-	if a.ownFeed {
+	if a.events.ownFeed {
 		// A Session that owns its Feed says it left, and ends its streams.
 		// A host's Feed outlives the Session, and the host closes it.
-		a.feed.Publish(SessionUnloaded{Header: NewHeader(a.id, "", 0), Why: "close"})
-		a.feed.Close()
+		a.events.feed.Publish(SessionUnloaded{Header: NewHeader(a.id, "", 0), Why: "close"})
+		a.events.feed.Close()
 	}
 	a.doneOnce.Do(func() { close(a.done) })
 }
