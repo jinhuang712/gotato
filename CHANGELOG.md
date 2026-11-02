@@ -40,6 +40,10 @@ What changed in Gotato, from the user's side. Newest first. A breaking change ca
 
 ### Changed
 
+- **A newly built Segment names each tool result and each kept message by a ref** (D-043). A Segment already written is not changed and renders as before.
+  - Before: a tool call line ended `→ ok` or `→ error failed`, a kept user message or final reply ended with its text, and the Segment header ended `read_segment(1) returns the segment in full.`
+  - After: a tool call line ends `→ ok [result:c1]` (a repeated call lists one ref per call, `×3 [result:c2 result:c3 result:c4]`), a kept message is followed by a `<segment n="1">` part holding `ref msg:m01`, and the header adds `; read_result(ref) returns one tool result or message by its ref.` Anything that matches the old text breaks. The `read_result` tool's description and its `ref` input description changed, so the tool list of a Session differs from one built by the earlier version.
+  - After: a merge's digest lines end `Refs: msg:m01 … result:c1 …` (at most 4 and 4 per Segment), and the model-written merge Recap is asked with each Recap's refs and told to keep them next to what it states.
 - **The Model reads that a ToolSet is unavailable, not that its Tool is unknown.** While a ToolSet is unavailable, a call to a Tool of it fails with `tool_resolution_failure: tool "files.read" is in ToolSet "files", which is unavailable now; try again in a later Run`; `search_tools` by name lists it under `Unavailable now, its ToolSet is unavailable; try again in a later Run: …`, and `search_tools{toolset}` says `files is unavailable now; try again in a later Run.` A search by name for a Tool the Model already sees, such as a root Tool, says `Already available`. `search_tools` stays offered while any listed or folded ToolSet is installed.
   - Before: the call said `unknown tool "files.read"`, the search `Not found: files.read.`, the listing `files has 0 tools:`, a search for a root Tool `Not found`; and `search_tools` left the tool list when no catalog Tool could be loaded, such as while the only ToolSet was down.
   - After: the texts above, and the tool list keeps `search_tools`.
@@ -73,6 +77,7 @@ What changed in Gotato, from the user's side. Newest first. A breaking change ca
 
 ### Added
 
+- **`read_result` also reads a Tool Result that was never spilled, and a Message, by their refs** (D-043): `result:<call_id>` for any Tool Result of a Segment's calls, `msg:<message_id>` for a user message or a final reply a Segment kept. Same pages, same Effect (`read`). It is offered whenever `read_segment` is, also to an Agent with no tool. Reasoning has no ref and is not read back; a ref into pruned Entries reads as removed.
 - **`message_dropped` has the why `commit_failed`.** It closes the one message a Run took and could not commit (it would fail again in the next Run); the messages behind it go back to the queue.
 - `adapter/mcp`: `WithDefaultEffect(effect)` sets the Effect of a tool whose server sent no annotations; without it such a tool is `destructive` and `WithMaxEffect` hides it (D-004).
 - `adapter/mcp`: `WithToolFilter(keep)` leaves a tool out, listed in `Skipped()` as `filtered`, and `WithToolRename(rename)` changes the name the Model sees while the Effect option, the filter and the call to the server keep the server's name (D-002).

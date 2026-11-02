@@ -6,6 +6,7 @@ A Session grows with every Turn, and the model can read only so much. Compaction
 - A compaction closes the Messages since the last Checkpoint, less a kept tail, into a Segment; one batch writes the Segment and a Checkpoint.
 - Code builds the Segment; the model writes only the Recap, which may be absent.
 - Past their budget, the oldest Segments merge. A failed compaction never half-writes.
+- What a Segment leaves out stays readable: each tool call line and each kept message carries a ref, and `read_result` returns the original from the Record.
 
 ## The Record over time
 
@@ -65,7 +66,19 @@ after    [Seg 1-3, one Recap][Seg 4][Seg 5] tail
           └─ new bytes ─────┘ └─ unchanged ─┘
 ```
 
-Segments pile up, and each costs tokens every Turn, so past their budget the oldest are folded into one. The merge makes a new Segment and a new Checkpoint; it does not edit anything. Only the front of the Context changes, and the Segments after it keep their bytes, so the cache loses as little as it can. The merged Segment keeps the numbers it replaced, so the model can still open Segment 2 and read the original.
+Segments pile up, and each costs tokens every Turn, so past their budget the oldest are folded into one. The merge makes a new Segment and a new Checkpoint; it does not edit anything. Only the front of the Context changes, and the Segments after it keep their bytes, so the cache loses as little as it can. The merged Segment keeps the numbers it replaced, so the model can still open Segment 2 and read the original. The refs go through the merge: the digest built by code keeps the refs of what each line stands for, and the Recap the model writes is asked from the earlier Recaps with their refs and told to keep each next to what it states, so a line of the front Segment still has a way back to its original after many merges. A ref a Recap lacks is not an error.
+
+## What a Segment keeps, and the way back
+
+A Segment shows the user's messages, each Run's final reply and one line per tool call; it leaves out tool results, a Run's other text and reasoning. Each line names what it stands for, so the model can ask for one item.
+
+```text
+10:02 payments.get_batch {"batch_id":"B-1"} → ok [result:c1]     result:<call_id>
+Some charges in last night's batch failed. Why?
+<segment n="1">  ref msg:m01  </segment>                          msg:<message_id>
+```
+
+`read_result(ref)` returns the original of either, page by page, from the Record: a result that was never spilled is read the same way as one that was. Reasoning gets no ref and is not read back. A ref points at the Record, so every instance resolves it alike, and into Entries a team pruned it reads as removed. A Segment written by an older version has no refs and renders as it did; a Segment is still written once.
 
 ## Size against the ceiling
 
