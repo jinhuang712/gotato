@@ -3,18 +3,27 @@ package service
 import (
 	"context"
 	"errors"
+	"sync"
 
 	"github.com/jinhuang712/gotato/session"
 )
 
+// releaseSet holds the Sessions whose release write failed. The Claim still
+// names this Instance, so the Session is marked busy under a live holder until
+// the heartbeat writes the release again (repairReleases).
+type releaseSet struct {
+	mu  sync.Mutex
+	ids map[string]struct{}
+}
+
 // markUnreleased remembers a Session whose release write failed.
 func (r *Runner) markUnreleased(sessionID string) {
-	r.releaseMu.Lock()
-	defer r.releaseMu.Unlock()
-	if r.unreleased == nil {
-		r.unreleased = map[string]struct{}{}
+	r.releases.mu.Lock()
+	defer r.releases.mu.Unlock()
+	if r.releases.ids == nil {
+		r.releases.ids = map[string]struct{}{}
 	}
-	r.unreleased[sessionID] = struct{}{}
+	r.releases.ids[sessionID] = struct{}{}
 }
 
 // settle is what each exit that held the Claim of a Session does with the
@@ -48,12 +57,12 @@ func (r *Runner) releaseWriter(ctx context.Context, writer *session.Writer) erro
 // returns, not for good. A Session that is no longer this Instance's, or no
 // longer busy, or gone, is forgotten.
 func (r *Runner) repairReleases() {
-	r.releaseMu.Lock()
-	ids := make([]string, 0, len(r.unreleased))
-	for id := range r.unreleased {
+	r.releases.mu.Lock()
+	ids := make([]string, 0, len(r.releases.ids))
+	for id := range r.releases.ids {
 		ids = append(ids, id)
 	}
-	r.releaseMu.Unlock()
+	r.releases.mu.Unlock()
 	// One bound for the whole pass, so that a slow store cannot hold back the
 	// next renewal.
 	// [LIVENESS] a slow store cannot hold back the next Liveness renewal.
@@ -62,9 +71,9 @@ func (r *Runner) repairReleases() {
 	for _, id := range ids {
 		// Clear the mark before the attempt: a mark set meanwhile is a new
 		// failure and stays. An attempt that is not done marks it again.
-		r.releaseMu.Lock()
-		delete(r.unreleased, id)
-		r.releaseMu.Unlock()
+		r.releases.mu.Lock()
+		delete(r.releases.ids, id)
+		r.releases.mu.Unlock()
 		if !r.repairRelease(ctx, id) {
 			r.markUnreleased(id)
 		}

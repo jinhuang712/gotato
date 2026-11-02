@@ -78,7 +78,7 @@ func notRunIfLapsed(err error) error { return heartbeat.NotRunIfLapsed(err) }
 func (r *Runner) Close(ctx context.Context) error {
 	// The Instance's stream ends: its subscribers read what is queued, and
 	// then io.EOF.
-	defer r.instanceFeed.Close()
+	defer r.feeds.instance.Close()
 	// Warm Sessions hold no Claim, so letting them go writes nothing.
 	r.warm.Close()
 	r.dropAllWarm("closed")

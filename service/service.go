@@ -32,7 +32,6 @@ import (
 	"errors"
 	"fmt"
 	"strings"
-	"sync"
 	"time"
 
 	"github.com/jinhuang712/gotato/gotato"
@@ -315,55 +314,50 @@ type Config struct {
 	clock clock.Clock
 }
 
-// Runner serves Runs against Sessions.
+// Runner serves Runs against Sessions. It is built from parts that each do one
+// job, with a lock of their own, and calls them in order (decision 048): the
+// Liveness row, the table of admitted Runs, the warm copies, the Session locks,
+// the Feeds, the Session streams and the releases that failed. The Runner holds
+// the definitions and the store, one clock and the test hooks.
 type Runner struct {
-	store session.Store
 	// instance is this Runner's Liveness row: its name, the row and the guard
-	// (see heartbeat.go).
-	instance  *heartbeat.Row
-	heartbeat Heartbeat
-	agents    map[string]Agent
-	order     []string
-	bounds    Bounds
-	admitter  Admitter
-
-	// runs holds the admitted Runs and the drain wait (internal/runs). Lock
-	// order: runs, then warm.
-	runs  *runs.Table[*runHandle]
+	// (heartbeat.go).
+	instance *heartbeat.Row
+	// runs holds the admitted Runs, their counts and the drain wait
+	// (internal/runs). Lock order: runs, then warm.
+	runs *runs.Table[*runHandle]
+	// warm holds the idle Sessions, each a cache of a Record and never a lock
+	// (warm.go).
+	warm *warm.Cache
+	// locks serializes the Runs of a Session in this process (locks.go).
 	locks *sessionLocks
+	// feeds are the Instance's stream and the Feeds of the Records in use
+	// (events.go).
+	feeds feedSet
+	// streams are the Session streams open for clients (streams.go).
+	streams streamSet
+	// releases holds the Sessions whose release write failed (release.go).
+	releases releaseSet
 
-	// clock is the one clock of the Runner. warm holds the idle Sessions, each
-	// a cache of a Record and never a lock (see warm.go).
+	// agents are the definitions the Runner serves; the first is the default.
+	agents map[string]Agent
+	order  []string
+	store  session.Store
+
+	// The settings of the Runner (Config): what the Liveness row and the wait
+	// for another Instance's Session take, the bounds that guard the Instance,
+	// the Admitter, and the bounds on the waits of ToolSets and of a drain
+	// (negative is none).
+	heartbeat      Heartbeat
+	bounds         Bounds
+	admitter       Admitter
+	toolSetTimeout time.Duration
+	drainTimeout   time.Duration
+
+	// clock is the one clock of the Runner: every time it reads or waits for.
 	clock clock.Clock
 	// hooks are the seams the tests of this package set (export_test.go).
 	hooks testHooks
-	warm  *warm.Cache
-
-	// unreleased holds the Sessions whose release write failed. The Claim
-	// still names this Instance, so the Session is marked busy under a live
-	// holder until the heartbeat writes the release again (repairReleases).
-	releaseMu  sync.Mutex
-	unreleased map[string]struct{}
-
-	// instanceFeed is the Instance's stream; feeds are the Feeds of the
-	// Records in use, one per Session ID and epoch, each mirrored to it (see
-	// events.go).
-	instanceFeed *gotato.Feed
-	feedsMu      sync.Mutex
-	feeds        map[feedKey]*sessionFeed
-
-	// streams are the Session streams open for clients, and streamsOver says
-	// the drain is over, so a new one ends at once.
-	streamsMu   sync.Mutex
-	streams     map[*SessionStream]struct{}
-	streamsOver bool
-	// streamStarts counts the starts of Session streams (SessionStream.startedAt).
-	streamStarts uint64
-	streamPoll   time.Duration
-	// toolSetTimeout bounds the ToolSet resolution of Tools and SetToolActive.
-	toolSetTimeout time.Duration
-	// drainTimeout bounds how long Drain waits for the Runs; negative is none.
-	drainTimeout time.Duration
 }
 
 // testHooks are the seams the tests of this package set, and nothing else
@@ -396,7 +390,8 @@ func New(cfg Config) (*Runner, error) {
 	r := &Runner{
 		store:          cfg.Store,
 		heartbeat:      cfg.Heartbeat.withDefaults(),
-		streamPoll:     cfg.StreamPoll,
+		streams:        streamSet{poll: cfg.StreamPoll},
+		feeds:          feedSet{byKey: map[feedKey]*sessionFeed{}},
 		toolSetTimeout: cfg.ToolSetTimeout,
 		drainTimeout:   cfg.DrainTimeout,
 		agents:         map[string]Agent{},
@@ -405,7 +400,6 @@ func New(cfg Config) (*Runner, error) {
 		runs:           runs.New[*runHandle](),
 		locks:          newSessionLocks(),
 		clock:          cfg.clock,
-		feeds:          map[feedKey]*sessionFeed{},
 	}
 	if r.clock == nil {
 		r.clock = clock.System()
@@ -444,11 +438,11 @@ func New(cfg Config) (*Runner, error) {
 	if r.drainTimeout == 0 {
 		r.drainTimeout = DefaultDrainTimeout
 	}
-	if r.streamPoll == 0 {
-		r.streamPoll = defaultStreamPoll
+	if r.streams.poll == 0 {
+		r.streams.poll = defaultStreamPoll
 	}
 	r.warm = warm.New(r.clock)
-	r.instanceFeed = gotato.NewInstanceFeed()
+	r.feeds.instance = gotato.NewInstanceFeed()
 	for _, spec := range cfg.Agents {
 		name := strings.TrimSpace(spec.Name)
 		if name == "" {
