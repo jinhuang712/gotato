@@ -20,7 +20,7 @@ Findings from real use, each checked against the code (first pass on 2026-10-29)
 - [ ] **D-032 · A tool cannot learn who asked, except through a `ctx` value set before `Runner.Run` (works, undocumented).** Document the route and pin it with a test; decide whether a per-Run field should reach `ToolUse`.
 - [ ] **D-033 · Follow-up to D-027.** Input length does add about +2 s of first-token time over 44k tokens, so D-019 stays a latency item until measured.
 - [ ] **D-034 · A long Run never compacted mid-Run because the model window was left unset.** Confirmed. No core change; it is another reason for D-020's warning.
-- [ ] **D-035 · `compaction_ended` carries no ceiling or window; `context_built` has no per-part size.** Add the ceiling and window first, then an estimate per part. Compatible.
+- [ ] **D-035 · `compaction_ended` shows no window and hides a ceiling of 0; `context_built` has no per-part size.** Needs a decision first: carrying the two numbers to the Checkpoint changes the arguments of three public `Record` methods. Then an estimate per part.
 - [ ] **D-036 · Decide whether to clear old Tool Results in the middle of a Run.** Write the decision first; check whether the compaction ceiling already answers it.
 - [ ] **D-037 · `search_tools` with `toolset` returns a whole ToolSet (up to 30 KB measured), uncapped and not spilled.** By design; say so in FEATURES.md and the tool-search guide, and name `queries` and `names` as the cheap forms. `loaded_tools` in the result is Record-only on the chat wire.
 
