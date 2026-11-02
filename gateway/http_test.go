@@ -26,7 +26,7 @@ func TestGatewayHonorsRetryAfter(t *testing.T) {
 		_, _ = w.Write([]byte("data: {\"choices\":[{\"delta\":{\"content\":\"ok\"}}]}\n\ndata: [DONE]\n\n"))
 	}))
 	defer server.Close()
-	client, err := New(Config{Endpoint: server.URL, Model: "gateway-model", MaxRetries: 1, RetryBackoff: time.Millisecond})
+	client, err := testClient(ChatCompletions{}, server.URL, 1)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -55,7 +55,7 @@ func TestGatewayDoesNotRetryTerminalQuota(t *testing.T) {
 		_, _ = w.Write([]byte(`{"error":{"message":"You exceeded your current quota: insufficient_quota"}}`))
 	}))
 	defer server.Close()
-	client, err := New(Config{Endpoint: server.URL, Model: "gateway-model", MaxRetries: 3, RetryBackoff: time.Millisecond})
+	client, err := testClient(ChatCompletions{}, server.URL, 3)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -84,7 +84,7 @@ func TestGatewayRetriesBeforeStreamStarts(t *testing.T) {
 		_, _ = w.Write([]byte("data: [DONE]\n\n"))
 	}))
 	defer server.Close()
-	client, err := New(Config{Endpoint: server.URL, Model: "gateway-model", MaxRetries: 1, RetryBackoff: time.Millisecond})
+	client, err := testClient(ChatCompletions{}, server.URL, 1)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -111,7 +111,7 @@ func TestTransportErrorMessageDoesNotNameTheEndpoint(t *testing.T) {
 	closed.Close()
 	for name, endpoint := range map[string]string{"not retried (unknown authority)": tlsServer.URL, "retried and out of attempts": closedURL} {
 		t.Run(name, func(t *testing.T) {
-			client, err := New(Config{Endpoint: endpoint, Model: "m"})
+			client, err := testClient(ChatCompletions{}, endpoint, 2)
 			if err != nil {
 				t.Fatal(err)
 			}
@@ -152,7 +152,7 @@ func TestA200WithAJSONErrorBodySurfacesTheProvidersError(t *testing.T) {
 					_, _ = w.Write([]byte("\n " + tc.body))
 				}))
 				defer server.Close()
-				client, err := New(Config{API: api, BaseURL: server.URL, APIKey: "k", Model: "m", MaxRetries: 2, RetryBackoff: time.Millisecond})
+				client, err := testClient(wireOf(api), server.URL, 2)
 				if err != nil {
 					t.Fatal(err)
 				}
@@ -186,7 +186,7 @@ func TestGatewayRetryIsAnEvent(t *testing.T) {
 		_, _ = w.Write([]byte("data: {\"choices\":[{\"delta\":{\"content\":\"ok\"}}]}\n\ndata: [DONE]\n\n"))
 	}))
 	defer server.Close()
-	client, err := New(Config{Endpoint: server.URL, Model: "gateway-model", MaxRetries: 1, RetryBackoff: time.Millisecond})
+	client, err := testClient(ChatCompletions{}, server.URL, 1)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -227,18 +227,18 @@ func TestGatewayRetryIsAnEvent(t *testing.T) {
 // share one table so they cannot drift apart again.
 func TestEveryAPIReportsRetriesAsEvents(t *testing.T) {
 	apis := []struct {
-		name   string
-		config Config
-		reply  func(t *testing.T, w http.ResponseWriter)
+		name  string
+		wire  WireAPI
+		reply func(t *testing.T, w http.ResponseWriter)
 	}{
-		{"chat completions", Config{API: APIChatCompletions}, func(_ *testing.T, w http.ResponseWriter) {
+		{"chat completions", ChatCompletions{}, func(_ *testing.T, w http.ResponseWriter) {
 			_, _ = w.Write([]byte("data: {\"choices\":[{\"delta\":{\"content\":\"ok\"}}]}\n\ndata: [DONE]\n\n"))
 		}},
-		{"anthropic messages", Config{API: APIAnthropicMessages}, func(t *testing.T, w http.ResponseWriter) {
+		{"anthropic messages", AnthropicMessages{}, func(t *testing.T, w http.ResponseWriter) {
 			writeSSE(t, w, `{"type":"message_start","message":{"usage":{"input_tokens":1}}}`)
 			writeSSE(t, w, `{"type":"message_stop"}`)
 		}},
-		{"openai responses", Config{API: APIResponses, APIKey: "key"}, func(t *testing.T, w http.ResponseWriter) {
+		{"openai responses", Responses{}, func(t *testing.T, w http.ResponseWriter) {
 			writeSSE(t, w, `{"type":"response.completed","response":{"id":"resp_1","status":"completed","usage":{"input_tokens":1,"output_tokens":1,"total_tokens":2}}}`)
 		}},
 	}
@@ -272,9 +272,7 @@ func TestEveryAPIReportsRetriesAsEvents(t *testing.T) {
 					api.reply(t, w)
 				}))
 				defer server.Close()
-				config := api.config
-				config.Endpoint, config.Model, config.MaxRetries, config.RetryBackoff = server.URL, "m", 1, time.Millisecond
-				client, err := New(config)
+				client, err := testClient(api.wire, server.URL, 1)
 				if err != nil {
 					t.Fatal(err)
 				}

@@ -113,7 +113,7 @@ func TestLiveRunAgainstALocalProvider(t *testing.T) {
 	}))
 	defer provider.Close()
 	config := filepath.Join(t.TempDir(), "gateway.yaml")
-	if err := os.WriteFile(config, []byte("api: openai-chat-completions\nendpoint: "+provider.URL+"\napi_key: test\nmodel: local-model\n"), 0o600); err != nil {
+	if err := os.WriteFile(config, []byte("api: openai-chat-completions\nendpoint: "+provider.URL+"/v1/chat/completions\napi_key: test\nmodel: local-model\nwindow: unknown\n"), 0o600); err != nil {
 		t.Fatal(err)
 	}
 

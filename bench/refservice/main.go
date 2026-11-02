@@ -18,6 +18,7 @@ import (
 	"time"
 
 	"github.com/jinhuang712/gotato/gateway"
+	"github.com/jinhuang712/gotato/gotato"
 	"github.com/jinhuang712/gotato/service"
 	"github.com/jinhuang712/gotato/service/httpapi"
 	"github.com/jinhuang712/gotato/session"
@@ -48,7 +49,8 @@ func run(addr, storeDir, endpoint, modelName string) error {
 	if err != nil {
 		return err
 	}
-	model, err := gateway.New(gateway.Config{Endpoint: endpoint, Model: modelName})
+	model, err := gateway.New(gateway.ChatCompletions{}, gateway.Connection{Endpoint: endpoint},
+		gotato.ModelConfig{Name: modelName, Facts: gotato.ModelFacts{Window: gotato.WindowUnknown()}})
 	if err != nil {
 		return err
 	}

@@ -73,10 +73,7 @@ func TestStreamErrorsAreClassifiedAlikeOnEveryWire(t *testing.T) {
 				}
 			}))
 			defer server.Close()
-			client, err := New(Config{API: tc.api, BaseURL: server.URL, APIKey: "k", Model: "m", MaxRetries: 2, RetryBackoff: time.Millisecond})
-			if err != nil {
-				t.Fatal(err)
-			}
+			client := newClientFor(t, wireOf(tc.api), server.URL, modelOf(gotato.ModelFacts{}))
 			stream, err := client.Stream(context.Background(), gotato.ModelRequest{Messages: []gotato.Message{gotato.UserMessage("hi")}})
 			if err != nil {
 				t.Fatal(err)
@@ -128,7 +125,8 @@ func TestTransportErrorsRetryOnlyWhatCanPass(t *testing.T) {
 				attempts.Add(1)
 				return nil, tc.err
 			})}
-			client, err := New(Config{BaseURL: "http://example.invalid", Model: "m", HTTPClient: httpClient, MaxRetries: 2, RetryBackoff: time.Millisecond})
+			client, err := New(ChatCompletions{}, Connection{Endpoint: "http://example.invalid/v1/chat/completions", HTTPClient: httpClient}, modelOf(gotato.ModelFacts{}),
+				WithRetry(Retry{Max: 2, Backoff: time.Millisecond}))
 			if err != nil {
 				t.Fatal(err)
 			}

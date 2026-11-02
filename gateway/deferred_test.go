@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"net/http"
 	"slices"
 	"strings"
 	"testing"
@@ -53,21 +54,29 @@ func loadingTurns() (first, second gotato.ModelRequest) {
 
 type bodyEncoder func(*Client, gotato.ModelRequest) ([]byte, error)
 
+// encodersByAPI encode a request through the Client's own wire, as Stream does
+// before it sends.
 func encodersByAPI() map[API]bodyEncoder {
-	return map[API]bodyEncoder{
-		APIAnthropicMessages: func(c *Client, r gotato.ModelRequest) ([]byte, error) {
-			body, _, err := encodeAnthropicRequest(c.model, r, c.rules)
-			return body, err
-		},
-		APIResponses: func(c *Client, r gotato.ModelRequest) ([]byte, error) {
-			body, _, err := encodeResponsesRequest(c.model, r, c.rules)
-			return body, err
-		},
-		APIChatCompletions: func(c *Client, r gotato.ModelRequest) ([]byte, error) {
-			body, _, err := encodeChatRequest(c.model, r, c.rules)
-			return body, err
-		},
+	encode := func(c *Client, r gotato.ModelRequest) ([]byte, error) {
+		encoded, err := c.wire.Encode(Call{Model: c.Config(), Request: r, APIKey: "k", Header: http.Header{}})
+		if err != nil {
+			return nil, err
+		}
+		return encoded.Body, nil
 	}
+	return map[API]bodyEncoder{APIAnthropicMessages: encode, APIResponses: encode, APIChatCompletions: encode}
+}
+
+// deferredWire is the wire for an API with a Deferred form. Chat Completions
+// has no such setting: it has only the list form.
+func deferredWire(api API, form DeferredForm) WireAPI {
+	switch api {
+	case APIResponses:
+		return Responses{Deferred: form}
+	case APIAnthropicMessages:
+		return AnthropicMessages{Deferred: form}
+	}
+	return ChatCompletions{}
 }
 
 func rawTools(t *testing.T, body []byte) []byte {
@@ -83,11 +92,7 @@ func rawTools(t *testing.T, body []byte) []byte {
 
 func newDeferredClient(t *testing.T, api API, form DeferredForm) *Client {
 	t.Helper()
-	client, err := New(Config{API: api, Model: "m", BaseURL: "https://gw.example.com", DeferredTools: form})
-	if err != nil {
-		t.Fatal(err)
-	}
-	return client
+	return newClientFor(t, deferredWire(api, form), "https://gw.example.com"+endpointPaths[api], modelOf(gotato.ModelFacts{}))
 }
 
 // A deferred Tool whose InputSchema is not JSON is refused by every encoder,
@@ -121,54 +126,47 @@ func TestEachWireAPIKeepsTheToolListWhileAToolLoads(t *testing.T) {
 				t.Fatal(err)
 			}
 			same := bytes.Equal(rawTools(t, a), rawTools(t, b))
-			if want := client.DeferredTools() == DeferredFormNative; same != want {
-				t.Errorf("%s with %q (%s): tool list unchanged = %v, want %v\n%s\n%s", api, form, client.DeferredTools(), same, want, rawTools(t, a), rawTools(t, b))
+			// Chat Completions has only the list form, whatever the setting.
+			if want := api != APIChatCompletions && form != DeferredFormList; same != want {
+				t.Errorf("%s with %q: tool list unchanged = %v, want %v\n%s\n%s", api, form, same, want, rawTools(t, a), rawTools(t, b))
 			}
 		}
 	}
 }
 
 func TestDeferredToolsDefaultsPerWireAPI(t *testing.T) {
+	// Chat Completions has no Deferred setting: it has only the list form.
 	cases := []struct {
-		api              API
-		configured, want DeferredForm
+		form   DeferredForm
+		native bool
 	}{
-		{APIAnthropicMessages, "", DeferredFormNative},
-		{APIResponses, "", DeferredFormNative},
-		{APIChatCompletions, "", DeferredFormList},
-		{APIAnthropicMessages, "list", DeferredFormList},
-		{APIResponses, "list", DeferredFormList},
-		{APIResponses, "native", DeferredFormNative},
-		// Chat Completions has no native form: it uses list whatever is set.
-		{APIChatCompletions, "native", DeferredFormList},
-		{APIChatCompletions, "list", DeferredFormList},
-		{"", "native", DeferredFormList},
+		{"", true},
+		{"native", true},
+		{"list", false},
 	}
 	for _, c := range cases {
-		client, err := New(Config{API: c.api, Model: "m", BaseURL: "https://gw.example.com", DeferredTools: c.configured})
-		if err != nil {
-			t.Fatal(err)
-		}
-		if got := client.DeferredTools(); got != c.want {
-			t.Errorf("%s with %q = %s, want %s", c.api, c.configured, got, c.want)
+		for _, api := range []API{APIAnthropicMessages, APIResponses} {
+			native, err := deferredForm(deferredWire(api, c.form))
+			if err != nil || native != c.native {
+				t.Errorf("%s with %q: native = %v, err = %v, want %v", api, c.form, native, err, c.native)
+			}
 		}
 	}
-	if _, err := New(Config{Model: "m", BaseURL: "https://gw.example.com", DeferredTools: "hosted"}); err == nil {
-		t.Fatal("an unknown form must be refused")
+	for _, api := range []API{APIAnthropicMessages, APIResponses} {
+		if _, err := New(deferredWire(api, "hosted"), Connection{Endpoint: "https://gw.example.com" + endpointPaths[api]}, modelOf(gotato.ModelFacts{})); err == nil {
+			t.Fatalf("%s: an unknown form must be refused", api)
+		}
 	}
 }
 
-func TestParseYAMLReadsDeferredTools(t *testing.T) {
-	config, err := parseYAML([]byte("api: openai-responses\nmodel: m\ndeferred_tools: list\n"))
-	if err != nil {
-		t.Fatal(err)
+func deferredForm(wire WireAPI) (bool, error) {
+	switch w := wire.(type) {
+	case Responses:
+		return w.Deferred.native()
+	case AnthropicMessages:
+		return w.Deferred.native()
 	}
-	if config.DeferredTools != "list" {
-		t.Fatalf("DeferredTools = %q", config.DeferredTools)
-	}
-	if _, err := parseYAML([]byte("api: openai-responses\nmodel: m\ndeferred_tools: both\n")); err == nil {
-		t.Fatal("an unknown form must be refused")
-	}
+	return false, nil
 }
 
 func TestAnthropicNativeFormDefersTheCatalogAndReferencesALoad(t *testing.T) {
@@ -261,7 +259,7 @@ func TestResponsesStreamReadsAToolSearchCall(t *testing.T) {
 	if err := json.Unmarshal([]byte(`{"type":"tool_search_call","execution":"client","call_id":"c1","status":"completed","arguments":{"names":["orders.lookup"]}}`), &item); err != nil {
 		t.Fatal(err)
 	}
-	stream := &responsesStream{calls: map[int]*responsesCall{}, texts: map[int]bool{}, nameMap: map[string]string{"search_tools": gotato.SearchToolName}}
+	stream := newResponsesDecoder(map[string]string{"search_tools": gotato.SearchToolName})
 	stream.finishResponsesItem(0, item, nil)
 	if len(stream.queue) != 1 || stream.queue[0].Kind != gotato.ModelEventKindToolCall {
 		t.Fatalf("queue = %+v", stream.queue)
@@ -276,7 +274,7 @@ func TestResponsesStreamReadsAToolSearchCall(t *testing.T) {
 func TestAnUnreferencedLoadedToolIsSentPlain(t *testing.T) {
 	_, second := loadingTurns()
 	second.Messages = second.Messages[:1]
-	layout := newDeferredLayout(second, providerRules{deferredNative: true})
+	layout := newDeferredLayout(second, true)
 	var labels []string
 	for _, tool := range layout.tools {
 		label := tool.spec.ID
@@ -317,11 +315,8 @@ func toolsField(t *testing.T, body []byte) string {
 func TestFakeNativeDeferredToolsEndToEnd(t *testing.T) {
 	for _, wire := range fakeWires[:2] {
 		t.Run(wire.name, func(t *testing.T) {
-			wire.config.DeferredTools = DeferredFormNative
+			// The wires of fakeWires take the default, which is native.
 			fake, client := newFake(t, wire)
-			if client.DeferredTools() != DeferredFormNative {
-				t.Fatalf("form = %q", client.DeferredTools())
-			}
 			options := append([]gotato.SessionOption{gotato.WithModel(client), gotato.WithTools(reftasks.OrdersLookup())}, reftasks.ToolSearchOptions()...)
 			session, err := gotato.NewSession(context.Background(), options...)
 			if err != nil {

@@ -8,40 +8,35 @@ import (
 	"github.com/jinhuang712/gotato/gotato"
 )
 
-// Without a setting, a recognized provider keeps the cache as long as it
-// offers: an hour on Claude, 30 minutes on OpenAI models from GPT-5.6. A
-// shorter setting falls back to the provider's default, which is the
-// provider's shortest. OpenAI models before GPT-5.6 and the chat API keep
-// their own default.
-func TestCacheRetentionIsTheProvidersLongestUnlessSetShorter(t *testing.T) {
+// The retention is a fact of the model, stated by the team; nothing is guessed
+// from a provider, a host or a name. The Anthropic wire asks for the one-hour
+// ttl on every cache_control marker when the model keeps the cache an hour or
+// more, and sends the provider's default (no ttl) otherwise. The Responses wire
+// sends prompt_cache_options only for the one retention it takes, 30 minutes.
+// The Chat wire has no field for it.
+func TestCacheRetentionFactSteersTheTTL(t *testing.T) {
 	for _, tc := range []struct {
-		provider  Provider
 		api       API
-		model     string
 		retention time.Duration
 		ttl       string
 	}{
-		{ProviderAnthropic, APIAnthropicMessages, "claude-opus-4-6", 0, "1h"},
-		{ProviderAnthropic, APIAnthropicMessages, "claude-opus-4-6", 2 * time.Hour, "1h"},
-		{ProviderAnthropic, APIAnthropicMessages, "claude-opus-4-6", time.Hour, "1h"},
-		{ProviderAnthropic, APIAnthropicMessages, "claude-opus-4-6", 30 * time.Minute, ""},
-		{ProviderAnthropic, APIAnthropicMessages, "claude-opus-4-6", 5 * time.Minute, ""},
-		{ProviderOpenAI, APIResponses, "gpt-6.1-sol", 0, "30m"},
-		{ProviderOpenAI, APIResponses, "gpt-6", 0, "30m"},
-		{ProviderOpenAI, APIResponses, "gpt-5.6", 0, "30m"},
-		{ProviderOpenAI, APIResponses, "gpt-5.6-mini", 24 * time.Hour, "30m"},
-		{ProviderOpenAI, APIResponses, "gpt-6.1-sol", 10 * time.Minute, ""},
-		{ProviderOpenAI, APIResponses, "gpt-5.5", 0, ""},
-		{ProviderOpenAI, APIResponses, "gpt-4.1", 0, ""},
-		{ProviderOpenAI, APIResponses, "o3", 0, ""},
-		{ProviderOpenAI, APIChatCompletions, "gpt-6.1-sol", 0, ""},
-		{ProviderDeepSeek, APIChatCompletions, "deepseek-chat", 0, ""},
-		{"", APIAnthropicMessages, "claude-opus-4-6", 0, ""},
-		{"", APIResponses, "gpt-6.1-sol", 0, ""},
+		{APIAnthropicMessages, 0, ""},
+		{APIAnthropicMessages, 5 * time.Minute, ""},
+		{APIAnthropicMessages, 30 * time.Minute, ""},
+		{APIAnthropicMessages, time.Hour, "1h"},
+		{APIAnthropicMessages, 2 * time.Hour, "1h"},
+		{APIResponses, 0, ""},
+		{APIResponses, 10 * time.Minute, ""},
+		{APIResponses, 30 * time.Minute, "30m"},
+		{APIResponses, time.Hour, ""},
+		{APIResponses, 24 * time.Hour, ""},
+		{APIChatCompletions, 0, ""},
+		{APIChatCompletions, time.Hour, ""},
+		{APIChatCompletions, 30 * time.Minute, ""},
 	} {
-		body := encodeWith(t, tc.api, newProviderRules(tc.provider, tc.api, tc.model, tc.retention, false), twoRounds(tc.api))
+		body := encodeWith(t, tc.api, gotato.ModelFacts{CacheRetention: tc.retention}, twoRounds(tc.api))
 		if got := sentCacheTTL(t, tc.api, body); got != tc.ttl {
-			t.Errorf("%q %s %s retention %v: ttl = %q, want %q\n%s", tc.provider, tc.api, tc.model, tc.retention, got, tc.ttl, body)
+			t.Errorf("%s retention %v: ttl = %q, want %q\n%s", tc.api, tc.retention, got, tc.ttl, body)
 		}
 	}
 }
@@ -78,25 +73,28 @@ func sentCacheTTL(t *testing.T, api API, body string) string {
 	}
 }
 
-// The model's own CacheRetention is the only setting.
-func TestCacheRetentionComesFromTheConfig(t *testing.T) {
-	ttl := func(retention time.Duration) string {
-		t.Helper()
-		client, err := New(Config{API: APIAnthropicMessages, Model: "claude-opus-4-6", CacheRetention: retention})
-		if err != nil {
-			t.Fatal(err)
-		}
-		body, _, err := encodeAnthropicRequest(client.model, gotato.ModelRequest{SystemInstructions: "sys",
-			CacheBreakpoints: []gotato.CacheBreakpoint{{After: gotato.CacheAnchorAfterSystem}}}, client.rules)
-		if err != nil {
-			t.Fatal(err)
-		}
-		return sentCacheTTL(t, APIAnthropicMessages, string(body))
+// The retention steers the encoder through the wire's Encode as well, from the
+// model the Client was built with, and a negative one is refused by New.
+func TestCacheRetentionReachesTheWireThroughTheClient(t *testing.T) {
+	client, err := New(AnthropicMessages{}, Connection{Endpoint: "https://llm.example.com/v1/messages"},
+		gotato.ModelConfig{Name: "m", Facts: gotato.ModelFacts{Window: gotato.WindowUnknown(), CacheRetention: 2 * time.Hour}})
+	if err != nil {
+		t.Fatal(err)
 	}
-	if got := ttl(5 * time.Minute); got != "" {
-		t.Fatalf("model setting 5m: ttl = %q", got)
+	if got := client.Config().Facts.CacheRetention; got != 2*time.Hour {
+		t.Fatalf("Config().Facts.CacheRetention = %v", got)
 	}
-	if _, err := New(Config{API: APIAnthropicMessages, Model: "m", CacheRetention: -time.Minute}); err == nil {
+	encoded, err := client.wire.Encode(Call{Model: client.Config(), Request: gotato.ModelRequest{SystemInstructions: "sys",
+		CacheBreakpoints: []gotato.CacheBreakpoint{{After: gotato.CacheAnchorAfterSystem}}}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got := sentCacheTTL(t, APIAnthropicMessages, string(encoded.Body)); got != "1h" {
+		t.Fatalf("ttl = %q, want 1h", got)
+	}
+	_, err = New(AnthropicMessages{}, Connection{Endpoint: "https://llm.example.com/v1/messages"},
+		gotato.ModelConfig{Name: "m", Facts: gotato.ModelFacts{Window: gotato.WindowUnknown(), CacheRetention: -time.Minute}})
+	if err == nil {
 		t.Fatal("a negative retention was accepted")
 	}
 }

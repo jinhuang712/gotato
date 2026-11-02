@@ -103,13 +103,18 @@ func Example_gatewayAndTool() {
 	fake := httptest.NewServer(fakegateway.New())
 	defer fake.Close()
 
-	// 1. A model. A provider is configuration: a wire API, a model and a key.
-	model, err := gateway.New(gateway.Config{
-		API:     gateway.APIAnthropicMessages, // or OpenAI Chat Completions, or Responses
-		Model:   "claude-sonnet-5-5",
-		APIKey:  "test-key", // the README reads it from the environment
-		BaseURL: fake.URL,   // the README leaves this out
-	})
+	// 1. A model: a wire API, where to send it, and what the model is.
+	model, err := gateway.New(
+		gateway.AnthropicMessages{}, // or ChatCompletions{}, or Responses{}
+		gateway.Connection{
+			Endpoint: fake.URL + "/v1/messages", // the complete URL
+			APIKey:   "test-key",                // the README reads it from the environment
+		},
+		gotato.ModelConfig{
+			Name:  "claude-sonnet-5-5",
+			Facts: gotato.ModelFacts{Window: gotato.WindowTokens(200_000)},
+		},
+	)
 	if err != nil {
 		panic(err)
 	}

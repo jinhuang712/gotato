@@ -49,11 +49,8 @@ func TestRefusedRequestIsContextOverflowOnEveryWireAPI(t *testing.T) {
 			var calls atomic.Int32
 			server := refusingServer(tc.status, tc.body, &calls)
 			defer server.Close()
-			client, err := New(Config{API: tc.api, BaseURL: server.URL, APIKey: "k", Model: "m", MaxRetries: -1})
-			if err != nil {
-				t.Fatal(err)
-			}
-			_, err = client.Stream(context.Background(), gotato.ModelRequest{Messages: []gotato.Message{gotato.UserMessage("hi")}})
+			client := newClientFor(t, wireOf(tc.api), server.URL, modelOf(gotato.ModelFacts{}), WithRetry(Retry{}))
+			_, err := client.Stream(context.Background(), gotato.ModelRequest{Messages: []gotato.Message{gotato.UserMessage("hi")}})
 			var gatewayErr *Error
 			if !errors.As(err, &gatewayErr) {
 				t.Fatalf("err = %v", err)
@@ -71,16 +68,31 @@ func TestRefusedRequestIsContextOverflowOnEveryWireAPI(t *testing.T) {
 	}
 }
 
-func TestOverflowPhrasesAddTheTeamsOwnWording(t *testing.T) {
+// phraseClassifier is DefaultClassifier plus a team's own wording for an
+// overflow, in a message or in a code, as a team wraps it with WithClassifier.
+func phraseClassifier(phrases ...string) Classifier {
+	return func(f Failure) Verdict {
+		v := DefaultClassifier(f)
+		for _, phrase := range phrases {
+			phrase = strings.ToLower(strings.TrimSpace(phrase))
+			if phrase == "" {
+				continue
+			}
+			if strings.Contains(strings.ToLower(f.Message), phrase) || strings.EqualFold(strings.TrimSpace(f.Code), phrase) || strings.EqualFold(strings.TrimSpace(f.Type), phrase) {
+				v.Overflow, v.Retryable = true, false
+			}
+		}
+		return v
+	}
+}
+
+func TestAWrappedClassifierAddsTheTeamsOwnOverflowWording(t *testing.T) {
 	body := `{"error":{"message":"The request is bigger than we take","code":"Request_Too_Big","type":"invalid_request_error"}}`
 	for name, phrases := range map[string][]string{"none": nil, "message": {"bigger than we take"}, "code": {" REQUEST_too_big "}} {
 		var calls atomic.Int32
 		server := refusingServer(400, body, &calls)
-		client, err := New(Config{BaseURL: server.URL, APIKey: "k", Model: "m", MaxRetries: -1, OverflowPhrases: append(phrases, "")})
-		if err != nil {
-			t.Fatal(err)
-		}
-		_, err = client.Stream(context.Background(), gotato.ModelRequest{Messages: []gotato.Message{gotato.UserMessage("hi")}})
+		client := newClientFor(t, ChatCompletions{}, server.URL, modelOf(gotato.ModelFacts{}), WithRetry(Retry{}), WithClassifier(phraseClassifier(phrases...)))
+		_, err := client.Stream(context.Background(), gotato.ModelRequest{Messages: []gotato.Message{gotato.UserMessage("hi")}})
 		server.Close()
 		var gatewayErr *Error
 		if !errors.As(err, &gatewayErr) {
@@ -94,32 +106,21 @@ func TestOverflowPhrasesAddTheTeamsOwnWording(t *testing.T) {
 	var calls atomic.Int32
 	server := refusingServer(400, `{"error":{"message":"prompt is too long"}}`, &calls)
 	defer server.Close()
-	client, err := New(Config{BaseURL: server.URL, APIKey: "k", Model: "m", MaxRetries: -1, OverflowPhrases: []string{"x"}})
-	if err != nil {
-		t.Fatal(err)
-	}
-	_, err = client.Stream(context.Background(), gotato.ModelRequest{Messages: []gotato.Message{gotato.UserMessage("hi")}})
+	client := newClientFor(t, ChatCompletions{}, server.URL, modelOf(gotato.ModelFacts{}), WithRetry(Retry{}), WithClassifier(phraseClassifier("x")))
+	_, err := client.Stream(context.Background(), gotato.ModelRequest{Messages: []gotato.Message{gotato.UserMessage("hi")}})
 	var gatewayErr *Error
 	if !errors.As(err, &gatewayErr) || !gatewayErr.Overflow {
 		t.Fatalf("err = %v", err)
 	}
 }
 
-func TestOverflowPhrasesFromYAMLReachStreamErrors(t *testing.T) {
-	config, err := parseYAML([]byte("api: openai-responses\nbase_url: https://gw.example.com\nmodel: m\noverflow_phrases:\n  - too_much_context\n"))
-	if err != nil || len(config.OverflowPhrases) != 1 {
-		t.Fatalf("config = %+v, err %v", config, err)
-	}
+func TestAWrappedClassifierReachesStreamErrors(t *testing.T) {
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
 		w.Header().Set("Content-Type", "text/event-stream")
 		_, _ = w.Write([]byte("data: {\"type\":\"error\",\"code\":\"too_much_context\",\"message\":\"nope\"}\n\n"))
 	}))
 	defer server.Close()
-	config.BaseURL, config.APIKey, config.MaxRetries = server.URL, "k", -1
-	client, err := New(config)
-	if err != nil {
-		t.Fatal(err)
-	}
+	client := newClientFor(t, Responses{}, server.URL, modelOf(gotato.ModelFacts{}), WithRetry(Retry{}), WithClassifier(phraseClassifier("too_much_context")))
 	stream, err := client.Stream(context.Background(), gotato.ModelRequest{Messages: []gotato.Message{gotato.UserMessage("hi")}})
 	if err != nil {
 		t.Fatal(err)
@@ -150,10 +151,7 @@ func TestRateLimitReachesTheRunAsRetryable(t *testing.T) {
 	var calls atomic.Int32
 	server := refusingServer(http.StatusTooManyRequests, `{"error":{"message":"slow down"}}`, &calls)
 	defer server.Close()
-	client, err := New(Config{API: APIChatCompletions, BaseURL: server.URL, APIKey: "k", Model: "m", MaxRetries: -1})
-	if err != nil {
-		t.Fatal(err)
-	}
+	client := newClientFor(t, wireOf(APIChatCompletions), server.URL, modelOf(gotato.ModelFacts{}), WithRetry(Retry{}))
 	session, err := gotato.NewSession(context.Background(), gotato.WithModel(client))
 	if err != nil {
 		t.Fatal(err)
@@ -174,10 +172,7 @@ func TestResponsesStreamErrorNamesOverflow(t *testing.T) {
 			w.Header().Set("Content-Type", "text/event-stream")
 			_, _ = w.Write([]byte("data: " + event + "\n\n"))
 		}))
-		client, err := New(Config{API: APIResponses, BaseURL: server.URL, APIKey: "k", Model: "m", MaxRetries: -1})
-		if err != nil {
-			t.Fatal(err)
-		}
+		client := newClientFor(t, wireOf(APIResponses), server.URL, modelOf(gotato.ModelFacts{}), WithRetry(Retry{}))
 		stream, err := client.Stream(context.Background(), gotato.ModelRequest{Messages: []gotato.Message{gotato.UserMessage("hi")}})
 		if err != nil {
 			t.Fatal(err)
@@ -198,10 +193,7 @@ func TestAnthropicStreamErrorNamesOverflow(t *testing.T) {
 		writeSSE(t, w, `{"type":"error","error":{"type":"invalid_request_error","message":"prompt is too long"}}`)
 	}))
 	defer server.Close()
-	client, err := New(Config{API: APIAnthropicMessages, BaseURL: server.URL, APIKey: "k", Model: "m", MaxRetries: -1})
-	if err != nil {
-		t.Fatal(err)
-	}
+	client := newClientFor(t, wireOf(APIAnthropicMessages), server.URL, modelOf(gotato.ModelFacts{}), WithRetry(Retry{}))
 	stream, err := client.Stream(context.Background(), gotato.ModelRequest{Messages: []gotato.Message{gotato.UserMessage("hi")}})
 	if err != nil {
 		t.Fatal(err)
@@ -231,10 +223,7 @@ func TestAnthropicContextWindowExceededIsAnOverflowNotAContinuation(t *testing.T
 		}
 	}))
 	defer server.Close()
-	client, err := New(Config{API: APIAnthropicMessages, BaseURL: server.URL, APIKey: "k", Model: "m", MaxRetries: -1})
-	if err != nil {
-		t.Fatal(err)
-	}
+	client := newClientFor(t, wireOf(APIAnthropicMessages), server.URL, modelOf(gotato.ModelFacts{}), WithRetry(Retry{}))
 	limits := gotato.DefaultLimits()
 	limits.MaxTruncatedContinuations = 3
 	session, err := gotato.NewSession(context.Background(), gotato.WithModel(client), gotato.WithLimits(limits))
@@ -251,58 +240,54 @@ func TestAnthropicContextWindowExceededIsAnOverflowNotAContinuation(t *testing.T
 	}
 }
 
-func TestContextWindowFromConfigAndYAML(t *testing.T) {
-	client, err := New(Config{BaseURL: "https://gw.example.com", Model: "m"})
-	if err != nil {
-		t.Fatal(err)
+// The window must be stated: a number, or "unknown" written out.
+func TestNewRequiresAStatedContextWindow(t *testing.T) {
+	conn := Connection{Endpoint: "https://gw.example.com/v1/chat/completions"}
+	if _, err := New(ChatCompletions{}, conn, gotato.ModelConfig{Name: "m"}); err == nil {
+		t.Fatal("a window left out was accepted")
 	}
-	if client.Config().Facts.Window.Tokens() != 0 {
-		t.Fatalf("unset window = %d", client.Config().Facts.Window.Tokens())
+	client, err := New(ChatCompletions{}, conn, gotato.ModelConfig{Name: "m", Facts: gotato.ModelFacts{Window: gotato.WindowUnknown()}})
+	if err != nil || client.Config().Facts.Window.Tokens() != 0 || !client.Config().Facts.Window.Stated() {
+		t.Fatalf("unknown window: %v, err %v", client, err)
 	}
-	client, err = New(Config{BaseURL: "https://gw.example.com", Model: "m", ContextWindowTokens: 200000})
+	client, err = New(ChatCompletions{}, conn, gotato.ModelConfig{Name: "m", Facts: gotato.ModelFacts{Window: gotato.WindowTokens(200000)}})
 	if err != nil || client.Config().Facts.Window.Tokens() != 200000 {
 		t.Fatalf("window = %v, err %v", client, err)
 	}
-	if _, err := New(Config{BaseURL: "https://gw.example.com", Model: "m", ContextWindowTokens: -1}); err == nil {
+	if _, err := New(ChatCompletions{}, conn, gotato.ModelConfig{Name: "m", Facts: gotato.ModelFacts{Window: gotato.WindowTokens(-1)}}); err == nil {
 		t.Fatal("a negative window was accepted")
 	}
-	config, err := parseYAML([]byte("base_url: https://gw.example.com\nmodel: m\ncontext_window_tokens: 128000\n"))
-	if err != nil || config.ContextWindowTokens != 128000 {
-		t.Fatalf("config = %+v, err %v", config, err)
-	}
 }
 
-// The key was renamed from context_window: the loader is strict, so an old
-// file fails and names the key instead of silently losing the window.
-func TestOldContextWindowKeyIsRefused(t *testing.T) {
-	_, err := parseYAML([]byte("base_url: https://gw.example.com\nmodel: m\ncontext_window: 128000\n"))
-	if err == nil || !strings.Contains(err.Error(), "context_window") {
-		t.Fatalf("err = %v, want a refusal naming context_window", err)
-	}
-}
-
-func TestCacheRetentionIsWhatTheClientAsksFor(t *testing.T) {
+// The cache retention is a fact the team states. The Anthropic wire asks for
+// the one-hour cache only at a retention of an hour or more, and Responses
+// asks for prompt_cache_options only at exactly the 30 minutes it takes.
+func TestCacheRetentionIsWhatTheWireAsksFor(t *testing.T) {
 	cases := []struct {
-		name   string
-		config Config
-		want   time.Duration
+		name      string
+		api       API
+		retention time.Duration
+		want      string // a fragment of the encoded request, or "" for none
 	}{
-		{"claude, longest", Config{API: APIAnthropicMessages, Provider: ProviderAnthropic, BaseURL: "https://gw.example.com", Model: "m"}, time.Hour},
-		{"claude, one hour asked", Config{API: APIAnthropicMessages, Provider: ProviderAnthropic, BaseURL: "https://gw.example.com", Model: "m", CacheRetention: time.Hour}, time.Hour},
-		{"claude, shorter keeps the default", Config{API: APIAnthropicMessages, Provider: ProviderAnthropic, BaseURL: "https://gw.example.com", Model: "m", CacheRetention: 10 * time.Minute}, 5 * time.Minute},
-		{"claude model behind an unrecognized address", Config{API: APIAnthropicMessages, Provider: ProviderOther, BaseURL: "https://gw.example.com", Model: "m"}, 0},
-		{"responses with a ttl", Config{API: APIResponses, Provider: ProviderOpenAI, BaseURL: "https://gw.example.com", Model: "gpt-5.6"}, 30 * time.Minute},
-		{"responses without one", Config{API: APIResponses, Provider: ProviderOpenAI, BaseURL: "https://gw.example.com", Model: "gpt-5.6", CacheRetention: 5 * time.Minute}, 0},
-		{"chat completions", Config{BaseURL: "https://gw.example.com", Model: "m"}, 0},
+		{"anthropic, an hour", APIAnthropicMessages, time.Hour, `"ttl":"1h"`},
+		{"anthropic, longer than an hour", APIAnthropicMessages, 2 * time.Hour, `"ttl":"1h"`},
+		{"anthropic, shorter keeps the default", APIAnthropicMessages, 10 * time.Minute, ""},
+		{"anthropic, none stated", APIAnthropicMessages, 0, ""},
+		{"responses, 30 minutes", APIResponses, 30 * time.Minute, `"prompt_cache_options":{"ttl":"30m"}`},
+		{"responses, another retention", APIResponses, 5 * time.Minute, ""},
+		{"chat completions", APIChatCompletions, time.Hour, ""},
 	}
 	for _, tc := range cases {
-		client, err := New(tc.config)
-		if err != nil {
-			t.Fatalf("%s: %v", tc.name, err)
-		}
-		if got := client.Config().Facts.CacheRetention; got != tc.want {
-			t.Errorf("%s: CacheRetention = %s, want %s", tc.name, got, tc.want)
-		}
+		t.Run(tc.name, func(t *testing.T) {
+			body := encodeWith(t, tc.api, gotato.ModelFacts{CacheRetention: tc.retention}, []gotato.Message{gotato.UserMessage("hi")})
+			marker := `"ttl"`
+			if tc.want != "" {
+				marker = tc.want
+			}
+			if has := strings.Contains(body, marker); has != (tc.want != "") {
+				t.Fatalf("contains %s = %v, want %v:\n%s", marker, has, tc.want != "", body)
+			}
+		})
 	}
 }
 

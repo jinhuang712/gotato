@@ -1,12 +1,8 @@
 package gateway
 
 import (
-	"context"
 	"encoding/json"
-	"errors"
 	"fmt"
-	"io"
-	"net/http"
 	"strings"
 
 	"github.com/jinhuang712/gotato/gotato"
@@ -60,8 +56,8 @@ type anthropicBlockState struct {
 	data      string
 }
 
-type anthropicStream struct {
-	sseBody
+// anthropicDecoder reads the reply of one Anthropic Messages attempt.
+type anthropicDecoder struct {
 	nameMap  map[string]string
 	blocks   map[int]*anthropicBlockState
 	queue    []gotato.ModelEvent
@@ -69,61 +65,31 @@ type anthropicStream struct {
 	stop     gotato.StopReason
 	model    string
 	finished bool
-	restart  restarter
-	fail     func(Failure) *Error
 }
 
-func (s *anthropicStream) Recv(ctx context.Context) (gotato.ModelEvent, error) {
-	if ctx == nil {
-		ctx = context.Background()
-	}
-	for len(s.queue) == 0 {
-		if s.finished {
-			return gotato.ModelEvent{}, io.EOF
-		}
-		data, err := readSSEEvent(ctx, s.reader)
-		if err != nil {
-			response, rerr := s.restart.recover(ctx, err)
-			if rerr != nil {
-				var gerr *Error
-				if errors.Is(err, io.EOF) && errors.As(rerr, &gerr) {
-					gerr.Message = "Anthropic stream ended before message_stop (" + gerr.Message + ")"
-				}
-				return gotato.ModelEvent{}, rerr
-			}
-			s.reopen(response)
-			continue
-		}
-		if data == "" {
-			continue
-		}
-		var event anthropicEvent
-		if err := json.Unmarshal([]byte(data), &event); err != nil {
-			return gotato.ModelEvent{}, fmt.Errorf("gateway: invalid SSE event: %w", err)
-		}
-		if err := s.process(event); err != nil {
-			return gotato.ModelEvent{}, err
-		}
-	}
-	event := s.queue[0]
-	s.queue = s.queue[1:]
-	s.restart.delivered = true
-	return event, nil
+func newAnthropicDecoder(names map[string]string) *anthropicDecoder {
+	return &anthropicDecoder{nameMap: names, blocks: make(map[int]*anthropicBlockState)}
 }
 
-// reopen continues on a re-issued response, discarding everything decoded
-// from the interrupted one (nothing of it reached the caller).
-func (s *anthropicStream) reopen(response *http.Response) {
-	s.replace(response)
-	s.blocks = make(map[int]*anthropicBlockState)
+// Decode reads one event. A body that ends before message_stop is handed back
+// to the stream loop as an interruption.
+func (s *anthropicDecoder) Decode(event SSEEvent) ([]gotato.ModelEvent, bool, error) {
+	var err error
+	if !event.End && event.Data != "" {
+		var parsed anthropicEvent
+		if jerr := json.Unmarshal([]byte(event.Data), &parsed); jerr != nil {
+			return nil, false, fmt.Errorf("gateway: invalid SSE event: %w", jerr)
+		}
+		err = s.process(parsed)
+	}
+	out := s.queue
 	s.queue = nil
-	s.usage = anthropicUsage{}
-	s.stop = ""
+	return out, s.finished, err
 }
 
 // process applies one decoded SSE event to the stream's state, queueing the
 // ModelEvents it yields.
-func (s *anthropicStream) process(event anthropicEvent) error {
+func (s *anthropicDecoder) process(event anthropicEvent) error {
 	switch event.Type {
 	case "message_start":
 		if event.Message != nil {
@@ -153,7 +119,7 @@ func (s *anthropicStream) process(event anthropicEvent) error {
 
 // startBlock opens a content block; a text or thinking block may carry its
 // first characters already.
-func (s *anthropicStream) startBlock(event anthropicEvent) {
+func (s *anthropicDecoder) startBlock(event anthropicEvent) {
 	if event.ContentBlock == nil {
 		return
 	}
@@ -175,7 +141,7 @@ func (s *anthropicStream) startBlock(event anthropicEvent) {
 
 // blockDelta adds a delta to its open block: text and thinking are queued as
 // they arrive, tool input and the signature are kept until the block stops.
-func (s *anthropicStream) blockDelta(event anthropicEvent) {
+func (s *anthropicDecoder) blockDelta(event anthropicEvent) {
 	block := s.blocks[event.Index]
 	if block == nil || event.Delta == nil {
 		return
@@ -198,12 +164,12 @@ func (s *anthropicStream) blockDelta(event anthropicEvent) {
 }
 
 // messageDelta records the stop reason and the usage the message ends with.
-func (s *anthropicStream) messageDelta(event anthropicEvent) error {
+func (s *anthropicDecoder) messageDelta(event anthropicEvent) error {
 	if event.Delta != nil && event.Delta.StopReason == "model_context_window_exceeded" {
 		// The window ran out during the reply. That is an overflow, not
 		// an output limit: a continuation would ask the model again on
 		// a full window. The text received stays as a cut-off reply.
-		return s.fail(Failure{Message: "the context window was exceeded during the reply", Code: event.Delta.StopReason})
+		return Failure{Message: "the context window was exceeded during the reply", Code: event.Delta.StopReason}
 	}
 	if event.Delta != nil && event.Delta.StopReason != "" {
 		stop, ok := anthropicStopReason(event.Delta.StopReason)
@@ -219,7 +185,7 @@ func (s *anthropicStream) messageDelta(event anthropicEvent) error {
 }
 
 // stopMessage ends the stream with its Usage and Done events.
-func (s *anthropicStream) stopMessage() {
+func (s *anthropicDecoder) stopMessage() {
 	usage := s.gotatoUsage()
 	if s.stop == "" {
 		s.stop = gotato.StopReasonEndTurn
@@ -231,16 +197,16 @@ func (s *anthropicStream) stopMessage() {
 }
 
 // streamError is the Error an "error" event stands for.
-func (s *anthropicStream) streamError(event anthropicEvent) error {
+func (s *anthropicDecoder) streamError(event anthropicEvent) error {
 	message, kind := "stream error", ""
 	if event.Error != nil {
 		message, kind = event.Error.Message, event.Error.Type
 	}
-	return s.fail(Failure{Message: message, Type: kind})
+	return Failure{Message: message, Type: kind}
 }
 
 // [LIMITATION] a tool call's arguments are emitted whole once complete, never as partial JSON, because the Session runs a call only on complete arguments.
-func (s *anthropicStream) finishBlock(block *anthropicBlockState) error {
+func (s *anthropicDecoder) finishBlock(block *anthropicBlockState) error {
 	switch block.kind {
 	case "tool_use":
 		arguments := block.input.String()
@@ -272,7 +238,7 @@ func (s *anthropicStream) finishBlock(block *anthropicBlockState) error {
 
 // mergeUsage folds the cumulative counts of a message_delta into the counts
 // from message_start.
-func (s *anthropicStream) mergeUsage(delta anthropicUsage) {
+func (s *anthropicDecoder) mergeUsage(delta anthropicUsage) {
 	if delta.OutputTokens != 0 {
 		s.usage.OutputTokens = delta.OutputTokens
 	}
@@ -290,7 +256,7 @@ func (s *anthropicStream) mergeUsage(delta anthropicUsage) {
 // gotatoUsage converts provider counts: the provider reports uncached input
 // separately from cache reads and writes, and gotato.Usage counts all of them
 // as input.
-func (s *anthropicStream) gotatoUsage() gotato.Usage {
+func (s *anthropicDecoder) gotatoUsage() gotato.Usage {
 	input := s.usage.InputTokens + s.usage.CacheReadInputTokens + s.usage.CacheCreationInputTokens
 	return gotato.Usage{
 		InputTokens:      input,

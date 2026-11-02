@@ -51,25 +51,24 @@ func recordingServer(t *testing.T) (*httptest.Server, func() []sent) {
 func TestCacheKeyIsSentAsConfigured(t *testing.T) {
 	for _, tc := range []struct {
 		name      string
-		config    Config
+		wire      WireAPI
+		cacheHead string
 		key       string
 		wantField string // the body field that carries the key, or ""
 		wantHead  string // the header that carries the key, or ""
 	}{
-		{"responses sends prompt_cache_key by default", Config{API: APIResponses}, "k1", "prompt_cache_key", ""},
-		{"responses with the field turned off", Config{API: APIResponses, CacheKeyField: "none"}, "k1", "", ""},
-		{"responses with a header too", Config{API: APIResponses, CacheKeyHeader: "session-id"}, "k1", "prompt_cache_key", "session-id"},
-		{"chat sends nothing by default", Config{}, "k1", "", ""},
-		{"chat with a configured field", Config{CacheKeyField: "prompt_cache_key"}, "k1", "prompt_cache_key", ""},
-		{"chat with a header", Config{CacheKeyHeader: "session-id"}, "k1", "", "session-id"},
-		{"anthropic with a header", Config{API: APIAnthropicMessages, CacheKeyHeader: "x-session-affinity"}, "k1", "", "x-session-affinity"},
-		{"no key sends nothing", Config{API: APIResponses, CacheKeyHeader: "session-id"}, "", "", ""},
+		{"responses sends prompt_cache_key by default", Responses{}, "", "k1", "prompt_cache_key", ""},
+		{"responses with the field turned off", Responses{CacheKeyField: "none"}, "", "k1", "", ""},
+		{"responses with a header too", Responses{}, "session-id", "k1", "prompt_cache_key", "session-id"},
+		{"chat sends nothing by default", ChatCompletions{}, "", "k1", "", ""},
+		{"chat with a configured field", ChatCompletions{CacheKeyField: "prompt_cache_key"}, "", "k1", "prompt_cache_key", ""},
+		{"chat with a header", ChatCompletions{}, "session-id", "k1", "", "session-id"},
+		{"anthropic with a header", AnthropicMessages{}, "x-session-affinity", "k1", "", "x-session-affinity"},
+		{"no key sends nothing", Responses{}, "session-id", "", "", ""},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			server, requests := recordingServer(t)
-			config := tc.config
-			config.Endpoint, config.APIKey, config.Model, config.MaxRetries = server.URL, "secret", "m", -1
-			client, err := New(config)
+			client, err := New(tc.wire, Connection{Endpoint: server.URL, APIKey: "secret", CacheKeyHeader: tc.cacheHead}, modelOf(gotato.ModelFacts{}), WithRetry(Retry{}))
 			if err != nil {
 				t.Fatal(err)
 			}
@@ -108,12 +107,8 @@ func TestCacheKeyIsSentAsConfigured(t *testing.T) {
 	}
 }
 
-func TestCacheKeyFieldIsRefusedWhereTheWireAPIHasNone(t *testing.T) {
-	_, err := New(Config{API: APIAnthropicMessages, Model: "m", CacheKeyField: "prompt_cache_key"})
-	if err == nil || !strings.Contains(err.Error(), "cache_control") {
-		t.Fatalf("err = %v, want a refusal that points to cache_control", err)
-	}
-	if _, err := New(Config{BaseURL: "https://example.com", Model: "m", CacheKeyHeader: "session id"}); err == nil {
+func TestCacheKeyHeaderIsRefusedWhenNotAHeaderName(t *testing.T) {
+	if _, err := New(ChatCompletions{}, Connection{Endpoint: "https://example.com/v1/chat/completions", CacheKeyHeader: "session id"}, modelOf(gotato.ModelFacts{})); err == nil {
 		t.Fatal("New accepted a header name with a space")
 	}
 }
@@ -134,7 +129,7 @@ func TestCacheKeyHeaderSurvivesARestart(t *testing.T) {
 		_, _ = w.Write([]byte("data: {\"choices\":[{\"delta\":{\"content\":\"ok\"},\"finish_reason\":\"stop\"}]}\n\ndata: [DONE]\n\n"))
 	}))
 	defer server.Close()
-	client, err := New(Config{Endpoint: server.URL, Model: "m", CacheKeyHeader: "session-id", MaxRetries: 2, RetryBackoff: time.Millisecond})
+	client, err := New(ChatCompletions{}, Connection{Endpoint: server.URL, CacheKeyHeader: "session-id"}, modelOf(gotato.ModelFacts{}), WithRetry(Retry{Max: 2, Backoff: time.Millisecond}))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -150,34 +145,23 @@ func TestCacheKeyHeaderSurvivesARestart(t *testing.T) {
 	}
 }
 
-func TestParseYAMLCacheKey(t *testing.T) {
-	config, err := parseYAML([]byte(`
-api: openai-responses
-model: m
-api_key: secret
-cache_key_header: session-id
-cache_key_field: none
-`))
-	if err != nil {
-		t.Fatal(err)
-	}
-	if config.CacheKeyHeader != "session-id" || config.CacheKeyField != "none" {
-		t.Fatalf("config = %+v", config)
-	}
-}
-
 // A CacheKeyField that names a field the wire API already sends would replace
-// it in the request, such as the model: New refuses it, and the encoder
-// refuses it again for a Client built by hand.
+// it in the request, such as the model: New refuses it.
 func TestCacheKeyFieldRefusesAFieldTheRequestAlreadySends(t *testing.T) {
 	server, _ := recordingServer(t)
+	withField := func(api API, field string) WireAPI {
+		if api == APIResponses {
+			return Responses{CacheKeyField: field}
+		}
+		return ChatCompletions{CacheKeyField: field}
+	}
 	reserved := map[API][]string{
 		APIChatCompletions: {"model", "stream", "messages", "tools", "stream_options", "temperature", "max_tokens", "tool_choice", "Model"},
 		APIResponses:       {"model", "stream", "input", "store", "instructions", "include", "tool_choice", "reasoning", "prompt_cache_options", "max_output_tokens"},
 	}
 	for api, names := range reserved {
 		for _, name := range names {
-			_, err := New(Config{API: api, BaseURL: server.URL, APIKey: "k", Model: "expected-model", CacheKeyField: name})
+			_, err := New(withField(api, name), Connection{Endpoint: server.URL, APIKey: "k"}, modelOf(gotato.ModelFacts{}))
 			if err == nil || !strings.Contains(err.Error(), "CacheKeyField") {
 				t.Errorf("%s: CacheKeyField %q: err = %v, want a refusal", api, name, err)
 			}
@@ -185,7 +169,7 @@ func TestCacheKeyFieldRefusesAFieldTheRequestAlreadySends(t *testing.T) {
 	}
 	// The names a cache key may use stay allowed.
 	for api, name := range map[API]string{APIChatCompletions: "prompt_cache_key", APIResponses: "prompt_cache_key"} {
-		if _, err := New(Config{API: api, BaseURL: server.URL, APIKey: "k", Model: "m", CacheKeyField: name}); err != nil {
+		if _, err := New(withField(api, name), Connection{Endpoint: server.URL, APIKey: "k"}, modelOf(gotato.ModelFacts{})); err != nil {
 			t.Errorf("%s: %q refused: %v", api, name, err)
 		}
 	}

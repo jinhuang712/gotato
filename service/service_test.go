@@ -163,23 +163,33 @@ func TestDrainCancelsToolSetResolution(t *testing.T) {
 // again", and the same for a Session past its ceiling. The fake refuses a
 // request past its window in each provider's own words and status.
 
-var fakeGatewayWires = []struct {
-	name   string
-	config gateway.Config
-}{
-	{fakegateway.APIAnthropic, gateway.Config{API: gateway.APIAnthropicMessages, Provider: gateway.ProviderAnthropic, Model: "claude-sonnet-5-5"}},
-	{fakegateway.APIResponses, gateway.Config{API: gateway.APIResponses, Provider: gateway.ProviderOpenAI, Model: "gpt-6.1-sol"}},
-	{fakegateway.APIChat, gateway.Config{API: gateway.APIChatCompletions, Provider: gateway.ProviderOther, Model: "chat-model"}},
+// gatewaySetup is a wire API, its path on the fake gateway and the model that
+// speaks it. The window is unknown: the tests set the ceiling in the policy.
+type gatewaySetup struct {
+	wire  gateway.WireAPI
+	path  string
+	model gotato.ModelConfig
 }
 
-func gatewayRunner(t *testing.T, config gateway.Config, fake *fakegateway.Gateway, policy modelctx.CompactPolicy) *service.Runner {
+func unknownWindow(name string) gotato.ModelConfig {
+	return gotato.ModelConfig{Name: name, Facts: gotato.ModelFacts{Window: gotato.WindowUnknown()}}
+}
+
+var fakeGatewayWires = []struct {
+	name   string
+	config gatewaySetup
+}{
+	{fakegateway.APIAnthropic, gatewaySetup{gateway.AnthropicMessages{}, "/v1/messages", unknownWindow("claude-sonnet-5-5")}},
+	{fakegateway.APIResponses, gatewaySetup{gateway.Responses{}, "/v1/responses", unknownWindow("gpt-6.1-sol")}},
+	{fakegateway.APIChat, gatewaySetup{gateway.ChatCompletions{}, "/v1/chat/completions", unknownWindow("chat-model")}},
+}
+
+func gatewayRunner(t *testing.T, setup gatewaySetup, fake *fakegateway.Gateway, policy modelctx.CompactPolicy) *service.Runner {
 	t.Helper()
 	server := httptest.NewServer(fake)
 	t.Cleanup(server.Close)
-	config.BaseURL = server.URL
-	config.APIKey = "k"
-	config.RetryBackoff = time.Millisecond
-	client, err := gateway.New(config)
+	client, err := gateway.New(setup.wire, gateway.Connection{Endpoint: server.URL + setup.path, APIKey: "k"}, setup.model,
+		gateway.WithRetry(gateway.Retry{Max: gateway.DefaultRetry.Max, Backoff: time.Millisecond}))
 	if err != nil {
 		t.Fatal(err)
 	}

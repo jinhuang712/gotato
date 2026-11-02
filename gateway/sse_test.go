@@ -18,7 +18,7 @@ func TestStreamRejectsOversizedSSELine(t *testing.T) {
 		_, _ = w.Write([]byte("data: " + strings.Repeat("x", maxSSELineBytes+10)))
 	}))
 	defer server.Close()
-	client, err := New(Config{Endpoint: server.URL, Model: "m"})
+	client, err := testClient(ChatCompletions{}, server.URL, 0)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -36,13 +36,13 @@ func TestStreamRejectsOversizedSSELine(t *testing.T) {
 // rules discard it, so a cut stream is never read as a whole event.
 func TestReadSSEEventDiscardsAnIncompleteEventAtEOF(t *testing.T) {
 	for _, in := range []string{`data: {"a":1}`, "data: {\"a\":1}\n", `data: {"a"`} {
-		data, err := readSSEEvent(context.Background(), bufio.NewReader(strings.NewReader(in)))
-		if !errors.Is(err, io.EOF) || data != "" {
-			t.Errorf("%q: data = %q, err = %v, want no data and EOF", in, data, err)
+		event, err := readSSEEvent(context.Background(), bufio.NewReader(strings.NewReader(in)))
+		if !errors.Is(err, io.EOF) || event != (SSEEvent{}) {
+			t.Errorf("%q: data = %q, err = %v, want no event and EOF", in, event.Data, err)
 		}
 	}
-	data, err := readSSEEvent(context.Background(), bufio.NewReader(strings.NewReader("data: x\n\n")))
-	if err != nil || data != "x" {
-		t.Errorf("whole event: data = %q, err = %v", data, err)
+	event, err := readSSEEvent(context.Background(), bufio.NewReader(strings.NewReader("data: x\n\n")))
+	if err != nil || event.Data != "x" {
+		t.Errorf("whole event: data = %q, err = %v", event.Data, err)
 	}
 }

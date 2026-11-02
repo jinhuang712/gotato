@@ -8,7 +8,7 @@ import (
 	"github.com/jinhuang712/gotato/gotato"
 )
 
-// The native form of deferred tools (Config.DeferredTools). The core hands a
+// The native form of deferred tools (the Deferred field of a wire API). The core hands a
 // wire API the visible tools (ModelRequest.Tools), which of them were loaded
 // (LoadedTools) and the catalog tools still to load (UnloadedTools). In the
 // list form an adapter sends Tools and ignores the rest, so its tool list grows
@@ -55,8 +55,8 @@ func isSearchToolID(id string) bool {
 // newDeferredLayout lays the request's tools out for the native form. It
 // returns nil when the form is off or the Session has no catalog, and the
 // adapter then sends the plain list.
-func newDeferredLayout(request gotato.ModelRequest, rules providerRules) *deferredLayout {
-	if !rules.deferredNative || (len(request.LoadedTools) == 0 && len(request.UnloadedTools) == 0) {
+func newDeferredLayout(request gotato.ModelRequest, native bool) *deferredLayout {
+	if !native || (len(request.LoadedTools) == 0 && len(request.UnloadedTools) == 0) {
 		return nil
 	}
 	loaded := make(map[string]bool, len(request.LoadedTools))
@@ -129,30 +129,30 @@ func orderedTools(layout *deferredLayout, request gotato.ModelRequest) []layoutT
 	return ordered
 }
 
-// DeferredForm is how deferred tools reach the provider (Config.DeferredTools).
+// DeferredForm is how deferred tools reach the provider: the Deferred field of
+// a wire API that has a native form.
 type DeferredForm string
 
-// The forms of Config.DeferredTools.
+// The forms of DeferredForm. Empty is the wire API's default, which is native
+// on the wires that have one.
 const (
+	// DeferredFormNative keeps the tool list of the request the same while tools
+	// load (every catalog tool is sent deferred, and a load shows as a reference
+	// to it in the history), so the prompt cache survives a load.
 	DeferredFormNative DeferredForm = "native"
-	DeferredFormList   DeferredForm = "list"
+	// DeferredFormList sends the tools loaded so far, so the tool list grows
+	// when one loads.
+	DeferredFormList DeferredForm = "list"
 )
 
-// resolveDeferredTools returns the form a wire API uses for deferred tools:
-// the configured one when the wire API has it, its default when none is
-// configured, and list for a wire API without a native form.
-func resolveDeferredTools(configured DeferredForm, api API) (DeferredForm, error) {
-	form := DeferredForm(strings.ToLower(strings.TrimSpace(string(configured))))
-	switch form {
-	case "", DeferredFormNative, DeferredFormList:
-	default:
-		return "", fmt.Errorf("gateway: unsupported DeferredTools %q (use %s or %s)", configured, DeferredFormNative, DeferredFormList)
+// native reports whether the form is the native one. The default, empty, is
+// native. A form that is neither native nor list is refused.
+func (f DeferredForm) native() (bool, error) {
+	switch DeferredForm(strings.ToLower(strings.TrimSpace(string(f)))) {
+	case "", DeferredFormNative:
+		return true, nil
+	case DeferredFormList:
+		return false, nil
 	}
-	if api == APIChatCompletions {
-		return DeferredFormList, nil
-	}
-	if form == "" {
-		return DeferredFormNative, nil
-	}
-	return form, nil
+	return false, fmt.Errorf("gateway: unsupported Deferred form %q (use %s or %s)", f, DeferredFormNative, DeferredFormList)
 }

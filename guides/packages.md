@@ -49,7 +49,7 @@ gotato + session + modelctx          long conversations compact on their own
 
 ## How they depend on each other
 
-Every shipped package builds on the core. The diagram shows the layers, with each package above the ones it imports; `gateway` and `adapter/mcp` sit beside the chain and import the core alone (`gateway`'s one third-party module, `gopkg.in/yaml.v3`, aside):
+Every shipped package builds on the core. The diagram shows the layers, with each package above the ones it imports; `gateway` and `adapter/mcp` sit beside the chain and import the core alone:
 
 ```text
 service/httpapi

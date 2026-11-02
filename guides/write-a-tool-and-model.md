@@ -180,7 +180,7 @@ func (s TicketTools) Tools(context.Context) ([]gotato.Tool, error) {
 
 ## Models
 
-A Model is one method: `Stream(ctx, ModelRequest) (ModelStream, error)`. The provider adapters in `gateway` implement it for OpenAI Chat Completions, OpenAI Responses and Anthropic Messages. You write your own Model to reach a provider they do not cover, or you wrap one.
+A Model is two methods: `Stream(ctx, ModelRequest) (ModelStream, error)` starts a call, and `Config() ModelConfig` says what the model is: its name, its facts (the context window, how long its provider keeps the prompt cache, whether it takes back only the current Round's reasoning) and its default sampling. The `gateway` package implements it for OpenAI Chat Completions, OpenAI Responses and Anthropic Messages. You write your own Model to reach a provider it does not cover, or you wrap one. A Model that states nothing returns the zero `gotato.ModelConfig`: an unknown window, so compaction has no ceiling and runs only after the provider refuses a request as too long.
 
 ### A Model wrapper
 
@@ -192,6 +192,9 @@ type Logged struct {
 	Inner gotato.Model
 	Log   func(string)
 }
+
+// Config passes the model's description on, so the window and the other facts stay visible.
+func (m Logged) Config() gotato.ModelConfig { return m.Inner.Config() }
 
 func (m Logged) Stream(ctx context.Context, req gotato.ModelRequest) (gotato.ModelStream, error) {
 	m.Log(fmt.Sprintf("request: %d messages, %d tools", len(req.Messages), len(req.Tools)))
@@ -229,11 +232,12 @@ What a Model keeps to:
 - **One goroutine reads a `ModelStream`.** `Recv` returns the next `ModelEvent` and `io.EOF` after the last. The caller always calls `Close`.
 - **A reply is a stream** of `text_delta` and `reasoning_delta` events and `tool_call` events, then `usage`, then `done` with a `StopReason`. The Session may stop reading at `done`, so do your closing work in `Close`, not on `io.EOF`.
 - **Honor `ctx`.** It ends the call, and a Model that ignores it holds the Run.
-- **A wrapper passes the whole `ModelRequest` on.** Besides `Messages` and `Tools` it carries `SystemInstructions`, `Config` (sampling and reasoning hints), `CacheBreakpoints` and `CacheKey` (prompt-cache hints), and `LoadedTools` and `UnloadedTools` (the Tool catalog). A wrapper that copies only the fields it knows silently drops the rest. Change a field by copying the request, not by building a new one.
+- **A wrapper forwards `Config`.** The runtime reads the window, the cache retention and the reasoning rule from `Model.Config().Facts`. A wrapper that embeds the `gotato.Model` has `Config` for free; one that holds it in a field returns `Inner.Config()`, or the facts are lost.
+- **A wrapper passes the whole `ModelRequest` on.** Besides `Messages` and `Tools` it carries `SystemInstructions`, `Sampling` (sampling and reasoning hints), `CacheBreakpoints` and `CacheKey` (prompt-cache hints), and `LoadedTools` and `UnloadedTools` (the Tool catalog). A wrapper that copies only the fields it knows silently drops the rest. Change a field by copying the request, not by building a new one.
 
 ### Failures that say what to do
 
-A Model tells the Session about a failure with a method on the error it returns. (What the Model knows about itself, such as its context window or how long its provider keeps the prompt cache, is a separate matter: `modelctx` reads it from the optional interfaces `ContextWindower` and `CacheRetainer`, and a wrapper passes them on by implementing `Unwrap() gotato.Model`.)
+A Model tells the Session about a failure with a method on the error it returns. (What the Model knows about itself, such as its context window or how long its provider keeps the prompt cache, is a separate matter: it is the `Facts` of the `ModelConfig` that `Config()` returns.)
 
 | Method on the error | What Gotato does | Resulting code |
 |---|---|---|

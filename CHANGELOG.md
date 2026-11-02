@@ -6,6 +6,53 @@ What changed in Gotato, from the user's side. Newest first. A breaking change ca
 
 ### Breaking
 
+- **`gotato.ModelConfig` is now the model's description, and the sampling struct is `gotato.Sampling`** (D-045).
+  - Before: `gotato.ModelConfig{Temperature, MaxTokens, ReasoningEffort, ReasoningSummary}` was the sampling and reasoning hints of a call.
+  - After: `gotato.ModelConfig{Name, Facts ModelFacts, Sampling Sampling}` describes one model. The four sampling fields moved to `gotato.Sampling`, and `ModelFacts{Window, CacheRetention, RoundReasoning, ThinkingBinding}` is what the model is. Rename `gotato.ModelConfig{Temperature: ...}` to `gotato.Sampling{Temperature: ...}`.
+- **`gotato.Model` gains `Config() ModelConfig`; every Model written by hand must add it.**
+  - Before: a Model was one method, `Stream`.
+  - After: a Model is `Stream` and `Config`, and your code no longer compiles until you add the method. Returning the zero `gotato.ModelConfig` is valid: the window reads as unknown, so compaction has no ceiling trigger and runs only after the provider refuses a request as too long; no cache retention; no default sampling. A wrapper that embeds a Model has `Config` already; one that holds it in a field returns `m.Inner.Config()`. `testkit`'s fakes and the gateway's Client implement it.
+- **`WithModelConfig` is `WithSampling`, and `ModelRequest.Config` is `ModelRequest.Sampling`.**
+  - Before: `gotato.WithModelConfig(gotato.ModelConfig{Temperature: &t})`; `ModelRequest.Config`, `"config"` in its JSON.
+  - After: `gotato.WithSampling(gotato.Sampling{Temperature: &t})`; `ModelRequest.Sampling`, `"sampling"` in its JSON. The Model's own default (`Config().Sampling`) sits under the Session's: each field `WithSampling` leaves unset keeps the Model's default, and `ModelRequest.Sampling` carries the result. A wrapper or a fake that read `request.Config` reads `request.Sampling`.
+- **`Window`, `WindowTokens` and `WindowUnknown` moved from `gateway` to `gotato`.**
+  - Before: `gateway.Window`, `gateway.WindowTokens(200_000)`, `gateway.WindowUnknown()`.
+  - After: `gotato.Window`, `gotato.WindowTokens(200_000)`, `gotato.WindowUnknown()`, in `ModelFacts.Window`. A `Window` reads and writes as text (the number, or `unknown`) in JSON and YAML. `gateway.New` still refuses a window that is not stated.
+- **The model capability probes are deleted; the core reads `Model.Config().Facts`.**
+  - Before: `modelctx.ContextWindower`, `CacheRetainer`, `RoundReasoner`, `Unwrapper`, `modelctx.WindowOf`, `RetentionOf`, `DropsReasoning`, and the Client methods `ContextWindowTokens()`, `CacheRetention()`, `RoundReasoningOnly()` and `DeferredTools()`. A wrapper that forgot `Unwrap` hid the window, and the ceiling with it.
+  - After: none of them exists. The Runner and compaction read `Model.Config().Facts` (`Window`, `CacheRetention`, `RoundReasoning`), and a wrapper that embeds a Model forwards `Config` for free. Replace `modelctx.WindowOf(m)` with `m.Config().Facts.Window.Tokens()`, `RetentionOf(m)` with `m.Config().Facts.CacheRetention`, and `DropsReasoning(m)` with `m.Config().Facts.RoundReasoning`; delete your `Unwrap` and capability methods. `Client.Config()` replaces the Client methods; the deferred form is the `Deferred` field of the wire.
+- **`gateway.New` takes a wire API, a connection and a model, and the gateway is four layers.**
+  - Before: `gateway.New(gateway.Config{API: gateway.APIAnthropicMessages, Model: "a-model", APIKey: key, BaseURL: "https://gateway.example.com/v1", ...})`, one flat struct.
+  - After:
+
+    ```go
+    client, err := gateway.New(
+        gateway.AnthropicMessages{},                      // the wire API
+        gateway.Connection{Endpoint: "https://gateway.example.com/v1/messages", APIKey: key},
+        gotato.ModelConfig{Name: "a-model", Facts: gotato.ModelFacts{Window: gotato.WindowTokens(200_000)}},
+        gateway.WithRetry(gateway.DefaultRetry),          // options: WithRetry, WithClassifier
+    )
+    ```
+
+    The layers are the wire API (`gateway.WireAPI` with `Encode(Call) (*Request, error)`; the shipped `ChatCompletions{CacheKeyField}`, `Responses{CacheKeyField, Deferred}` and `AnthropicMessages{Version, Deferred}`), the `Connection` (`Endpoint`, `APIKey`, `CacheKeyHeader`, `Headers`, `HTTPClient`), `Retry` and the `Classifier` (`Failure`, `Verdict{Retryable, Overflow, Limit}`, `DefaultClassifier`, `WithClassifier`). Each has a default and can be replaced. A new wire API is one type of your own; any authentication beyond a key goes in the `RoundTripper` of `Connection.HTTPClient`.
+- **Gotato no longer recognizes a provider from its address or a model from its name; the team states the facts.**
+  - Before: an endpoint at a recognized Claude or OpenAI address got only the current Round's reasoning, the longest cache retention (1 hour on Claude, 30 minutes on Responses) and `block_binding` chosen by model name; any other address got none of that.
+  - After: none of it is derived. A team sets `ModelFacts.RoundReasoning` (the provider takes back only the current Round's reasoning), `ModelFacts.CacheRetention` (the Anthropic wire asks for the ttl `1h` from 1 hour, the Responses wire sends `prompt_cache_options` with `30m` for exactly 30 minutes) and `ModelFacts.ThinkingBinding` (the Anthropic wire sends `block_binding: drop_block` with its beta header). A team that omits them sends more reasoning and gets the provider's default retention; a provider accepts both, so nothing fails, and a team that relied on the old recognition sets the facts to keep its bytes and its cache savings. `officialHosts`, `thinkingPrefixModels` and the `Provider` type are gone.
+- **`gateway.Config`, flat `New`, `NewWithProfile`, `ModelProfile`, `ProfileSet`, `Provider` and `LoadYAML` are removed; the YAML file moved under `internal/cmd`, with new keys.**
+  - Before: `gateway.LoadYAML(path)` returned a `Config`; `gateway/gateway.example.yaml` was the file to copy.
+  - After: a service builds its Client in Go with `gateway.New`. Only Gotato's test tools read a file (`gotato --gateway-config`, `gotato-workload -gateway-config`, `examples/larkbot`), through `internal/cmd/gatewayconf`, which a program outside the module cannot import; the file to copy is `internal/cmd/gatewayconf/gateway.example.yaml`. Key changes: `base_url` and `endpoint` are one `endpoint`, the complete URL with its path; `context_window_tokens` is `window`, a number or `unknown`, and is required; `provider` and `no_drop_block` are gone; `cache_retention` is now a fact, with no default; new keys `round_reasoning`, `thinking_binding`, `temperature`, `max_tokens`, `reasoning_effort`, `reasoning_summary` and `anthropic_version`; `max_retries: 0` turns retries off (it was `-1`); `overflow_phrases`, `retry_backoff`, `max_retry_wait`, `connect_timeout`, `response_header_timeout`, `headers`, `cache_key_field`, `cache_key_header` and `deferred_tools` stay.
+- **`Connection.BaseURL`, the timeout fields and `MaxRetries`, `RetryBackoff`, `MaxRetryWait` are removed.**
+  - Before: `BaseURL` (the gateway added the path), `ConnectTimeout`, `ResponseHeaderTimeout`, `MaxRetries` (`-1` for none), `RetryBackoff`, `MaxRetryWait` on `Config`.
+  - After: `Connection.Endpoint` is the complete URL, path included (`https://gateway.example.com/v1/chat/completions`). `gateway.NewHTTPClient(connect, header)` makes a client with timeouts (10 s and 60 s when `HTTPClient` is nil). `gateway.WithRetry(gateway.Retry{Max, Backoff, MaxWait})` sets the retries: `gateway.DefaultRetry` is 2, 200 ms, 60 s, and `gateway.Retry{}` is off.
+- **`OverflowPhrases` is gone: wrap `DefaultClassifier`.**
+  - Before: `Config.OverflowPhrases: []string{"too_much_context"}` added a team's wording for "the request was too long".
+  - After: `gateway.WithClassifier(func(f gateway.Failure) gateway.Verdict { v := gateway.DefaultClassifier(f); if strings.Contains(f.Message, "too_much_context") { v.Overflow, v.Retryable = true, false }; return v })`. The file's `overflow_phrases` still works in the test tools.
+- **The Responses wire no longer refuses an empty key.**
+  - Before: `openai-responses` with an empty `APIKey` was refused when the Client was built.
+  - After: an empty key sends no credential on every wire, as chat and Anthropic already did, so a keyless local server works over Responses.
+- **A mid-stream error that says rate limit is retryable, a cut stream says "stream interrupted" on every wire, and the Anthropic version has an order.**
+  - Before: an error the provider sent mid-stream was marked `Retryable` only by its code or type; a cut stream was worded for its wire (`ended before message_stop` on Anthropic, for instance); the `anthropic-version` was `2023-06-01` unless a header named it.
+  - After: such an error whose text says rate limit, overloaded or service unavailable is `Retryable` too, like a refused request (the gateway still does not send it again). A cut stream is reported as `stream interrupted` on every wire, so anything that matched the wire-specific text breaks. The `anthropic-version` is `AnthropicMessages.Version`, else a header the Connection sets, else `2023-06-01`. An Overflow verdict is never `Retryable`.
 - **An Event's Run is stamped when the Event is numbered, so no Event of a Run falls outside it.** A `message_queued`, `notice_queued`, `message_dropped` or `message_rejected` that is written outside a Run has no `run_id`, and an `abort_requested` always follows its Run's `run_started`.
   - Before: these Events took the Run's `run_id` when the call was made, not when the Event was written: a Steer from `WithRunStart` or just as a Run ended was stored with the Run's ID before its `run_started` or after its `run_ended`, and an Abort in `WithRunStart` stored `abort_requested` before `run_started`.
   - After: such a Steer or Notice is stored with an empty `run_id`; an Abort before `run_started` is written is stored right after it, in the same write, under the Run. A consumer that read the Run of a `message_queued` as the Run it was sent to should read the Run that takes it from `message_committed`.
@@ -78,7 +125,7 @@ What changed in Gotato, from the user's side. Newest first. A breaking change ca
 
 ### Added
 
-- `gateway`: `ModelProfile` (name, `Window`, provider, cache retention, overflow phrases, deferred form, `NoDropBlock`), `Connection` (the connection fields of `Config`), `NewWithProfile(connection, profile)` and `ProfileSet` (`Get`, `New`), so what a model is lives apart from how to reach it (D-042). The window must be stated, with `WindowTokens(n)` or `WindowUnknown()`; a profile with the zero `Window` is refused. `New(Config)` is unchanged and its window stays optional.
+- `gateway`: four layers a team can replace, each with a default (D-045): `WireAPI` (`ChatCompletions`, `Responses`, `AnthropicMessages`, or your own), `Connection` with `NewHTTPClient`, `Retry` with `DefaultRetry` and `WithRetry`, and `Classifier` with `Failure`, `Verdict`, `DefaultClassifier` and `WithClassifier`. `gotato.ModelConfig`, `ModelFacts`, `Sampling` and `Window` describe the model once; `Model.Config()` returns it, and `gateway.New(wire, connection, model, opts...)` takes it.
 - **`context_built` and the inspect Report say what part of the Context is what.** Five new fields, always written: `estimate_system_tokens`, `estimate_tool_defs_tokens`, `estimate_segments_tokens`, `estimate_history_tokens`, `estimate_tool_results_tokens` (bytes over 4, an estimate). `gotato context inspect` prints them with each part's share in percent. They are additive: no field changed, and an old Record without them reads them as 0.
 - **`read_result` also reads a Tool Result that was never spilled, and a Message, by their refs** (decision 043): `result:<call_id>` for any Tool Result of a Segment's calls, `msg:<message_id>` for a user message or a final reply a Segment kept. Same pages, same Effect (`read`). It is offered whenever `read_segment` is, also to an Agent with no tool. Reasoning has no ref and is not read back; a ref into pruned Entries reads as removed.
 - **`message_dropped` has the why `commit_failed`.** It closes the one message a Run took and could not commit (it would fail again in the next Run); the messages behind it go back to the queue.

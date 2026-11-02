@@ -45,7 +45,7 @@ import (
 	"strconv"
 	"strings"
 
-	"github.com/jinhuang712/gotato/gateway"
+	"github.com/jinhuang712/gotato/internal/cmd/gatewayconf"
 	"github.com/jinhuang712/gotato/internal/reftasks"
 	"github.com/jinhuang712/gotato/internal/workload"
 	"github.com/jinhuang712/gotato/session"
@@ -117,17 +117,17 @@ func run(ctx context.Context, args []string, stdout, stderr io.Writer, getenv fu
 		if path == "" {
 			path = "gateway.yaml"
 		}
-		config, err := gateway.LoadYAML(path)
+		config, err := gatewayconf.Load(path)
 		if err != nil {
 			fmt.Fprintln(stderr, "gotato-workload: the live run needs a gateway configuration:", err)
 			return exitError
 		}
-		client, err := gateway.New(config)
+		client, err := config.New()
 		if err != nil {
 			fmt.Fprintln(stderr, "gotato-workload:", err)
 			return exitError
 		}
-		cfg.Model, cfg.ModelName = client, config.Model
+		cfg.Model, cfg.ModelName = client, config.Model.Name
 		if price == (workload.Price{}) {
 			fmt.Fprintln(stderr, "gotato-workload: no -price, so the report has no cost")
 		}

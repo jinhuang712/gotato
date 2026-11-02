@@ -11,8 +11,8 @@ import (
 	"strings"
 	"time"
 
-	"github.com/jinhuang712/gotato/gateway"
 	"github.com/jinhuang712/gotato/gotato"
+	"github.com/jinhuang712/gotato/internal/cmd/gatewayconf"
 	"github.com/jinhuang712/gotato/service"
 	"github.com/jinhuang712/gotato/session"
 	"github.com/jinhuang712/gotato/testkit"
@@ -111,12 +111,12 @@ func (c *cli) newRuntime(flags modelFlags) (*cliRuntime, error) {
 	}
 	specs = append(specs, testAgents...)
 	rt := &cliRuntime{store: store, storeDir: dir, gatewayCfg: c.gatewayConfigPath(flags)}
-	if config, err := gateway.LoadYAML(rt.gatewayCfg); err != nil {
+	if config, err := gatewayconf.Load(rt.gatewayCfg); err != nil {
 		rt.gatewayErr = err
-	} else if client, err := gateway.New(config); err != nil {
+	} else if client, err := config.New(); err != nil {
 		rt.gatewayErr = err
 	} else {
-		specs = append(specs, service.Agent{Name: "gateway", Model: client, ModelName: config.Model, Instruction: defaultInstruction, Tools: tools, TimeAwayAfter: timeAway})
+		specs = append(specs, service.Agent{Name: "gateway", Model: client, ModelName: config.Model.Name, Instruction: defaultInstruction, Tools: tools, TimeAwayAfter: timeAway})
 	}
 	runner, err := service.New(service.Config{Store: store, Agents: specs})
 	if err != nil {

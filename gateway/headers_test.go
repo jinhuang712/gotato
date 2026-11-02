@@ -27,7 +27,7 @@ func TestRequestHeadersFromContext(t *testing.T) {
 		_, _ = w.Write([]byte("data: {\"choices\":[{\"delta\":{\"content\":\"ok\"},\"finish_reason\":\"stop\"}]}\n\ndata: [DONE]\n\n"))
 	}))
 	defer server.Close()
-	client, err := New(Config{BaseURL: server.URL, APIKey: "secret", Model: "m", Headers: map[string]string{"User-Agent": "configured/1.0", "X-Team": "a"}})
+	client, err := New(ChatCompletions{}, Connection{Endpoint: server.URL, APIKey: "secret", Headers: map[string]string{"User-Agent": "configured/1.0", "X-Team": "a"}}, modelOf(gotato.ModelFacts{}))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -59,7 +59,7 @@ func TestRequestHeadersFromContext(t *testing.T) {
 	}
 
 	// Without configuration or context headers the default user agent applies.
-	plain, _ := New(Config{BaseURL: server.URL, Model: "m"})
+	plain, _ := New(ChatCompletions{}, Connection{Endpoint: server.URL}, modelOf(gotato.ModelFacts{}))
 	stream, err := plain.Stream(WithRequestHeaders(context.Background(), map[string]string{"X-Session": "plain"}), request)
 	if err != nil {
 		t.Fatal(err)
@@ -88,7 +88,7 @@ func TestChatCacheReadTokens(t *testing.T) {
 			w.Header().Set("Content-Type", "text/event-stream")
 			_, _ = w.Write([]byte("data: {\"choices\":[{\"delta\":{\"content\":\"x\"},\"finish_reason\":\"stop\"}],\"usage\":" + usage + "}\n\ndata: [DONE]\n\n"))
 		}))
-		client, _ := New(Config{BaseURL: server.URL, Model: "m"})
+		client, _ := New(ChatCompletions{}, Connection{Endpoint: server.URL}, modelOf(gotato.ModelFacts{}))
 		stream, err := client.Stream(context.Background(), gotato.ModelRequest{Messages: []gotato.Message{gotato.UserMessage("hi")}})
 		if err != nil {
 			t.Fatal(err)
@@ -133,7 +133,7 @@ func TestChatAnthropicStyleCacheUsage(t *testing.T) {
 				_, _ = w.Write([]byte("data: {\"choices\":[{\"delta\":{\"content\":\"x\"},\"finish_reason\":\"stop\"}],\"usage\":" + tc.usage + "}\n\ndata: [DONE]\n\n"))
 			}))
 			defer server.Close()
-			client, _ := New(Config{BaseURL: server.URL, Model: "m"})
+			client, _ := New(ChatCompletions{}, Connection{Endpoint: server.URL}, modelOf(gotato.ModelFacts{}))
 			stream, err := client.Stream(context.Background(), gotato.ModelRequest{Messages: []gotato.Message{gotato.UserMessage("hi")}})
 			if err != nil {
 				t.Fatal(err)
@@ -163,7 +163,7 @@ func TestRequestHeadersReachEveryWireAPI(t *testing.T) {
 				w.Header().Set("Content-Type", "text/event-stream")
 			}))
 			defer server.Close()
-			client, err := New(Config{API: api, BaseURL: server.URL, APIKey: "secret", Model: "m", Headers: map[string]string{"User-Agent": "configured/1.0"}})
+			client, err := New(wireOf(api), Connection{Endpoint: server.URL, APIKey: "secret", Headers: map[string]string{"User-Agent": "configured/1.0"}}, modelOf(gotato.ModelFacts{}))
 			if err != nil {
 				t.Fatal(err)
 			}
@@ -195,10 +195,10 @@ func TestConfigHeadersCannotOverrideProtocolHeaders(t *testing.T) {
 		_, _ = w.Write([]byte("data: {\"choices\":[{\"delta\":{\"content\":\"ok\"}}]}\n\ndata: [DONE]\n\n"))
 	}))
 	defer server.Close()
-	client, err := New(Config{
-		Endpoint: server.URL, Model: "m", APIKey: "secret",
+	client, err := New(ChatCompletions{}, Connection{
+		Endpoint: server.URL, APIKey: "secret",
 		Headers: map[string]string{"Authorization": "Bearer attacker", "Accept": "application/json"},
-	})
+	}, modelOf(gotato.ModelFacts{}))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -218,15 +218,16 @@ func TestConfigHeadersCannotOverrideProtocolHeaders(t *testing.T) {
 // A setting that can never work is refused by New, not found on the first
 // request and sent again as if the network had failed.
 func TestNewRefusesAHeaderOrEndpointThatCanNeverBeSent(t *testing.T) {
-	for name, config := range map[string]Config{
-		"cache key header": {BaseURL: "http://h", Model: "m", CacheKeyHeader: "session(id"},
-		"header name":      {BaseURL: "http://h", Model: "m", Headers: map[string]string{"bad name": "v"}},
-		"header value":     {BaseURL: "http://h", Model: "m", Headers: map[string]string{"X-A": "a\r\nX-B: b"}},
-		"endpoint scheme":  {Endpoint: "ftp://h/x", Model: "m"},
-		"endpoint no host": {Endpoint: "http:///x", Model: "m"},
-		"endpoint garbage": {Endpoint: "http://h\x7f/x", Model: "m"},
+	for name, conn := range map[string]Connection{
+		"cache key header": {Endpoint: "http://h/x", CacheKeyHeader: "session(id"},
+		"header name":      {Endpoint: "http://h/x", Headers: map[string]string{"bad name": "v"}},
+		"header value":     {Endpoint: "http://h/x", Headers: map[string]string{"X-A": "a\r\nX-B: b"}},
+		"endpoint scheme":  {Endpoint: "ftp://h/x"},
+		"endpoint no host": {Endpoint: "http:///x"},
+		"endpoint garbage": {Endpoint: "http://h\x7f/x"},
+		"no endpoint":      {},
 	} {
-		if _, err := New(config); err == nil {
+		if _, err := New(ChatCompletions{}, conn, modelOf(gotato.ModelFacts{})); err == nil {
 			t.Errorf("New accepted %s", name)
 		}
 	}
@@ -238,7 +239,7 @@ func TestAnInvalidRequestHeaderIsNotRetried(t *testing.T) {
 	var hits atomic.Int32
 	server := httptest.NewServer(http.HandlerFunc(func(http.ResponseWriter, *http.Request) { hits.Add(1) }))
 	defer server.Close()
-	client, err := New(Config{BaseURL: server.URL, Model: "m", MaxRetries: 3, RetryBackoff: time.Millisecond})
+	client, err := New(ChatCompletions{}, Connection{Endpoint: server.URL}, modelOf(gotato.ModelFacts{}), WithRetry(Retry{Max: 3, Backoff: time.Millisecond}))
 	if err != nil {
 		t.Fatal(err)
 	}

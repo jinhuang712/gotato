@@ -12,7 +12,6 @@ import (
 	"sync"
 	"sync/atomic"
 	"testing"
-	"time"
 
 	"github.com/jinhuang712/gotato/gotato"
 	"github.com/jinhuang712/gotato/internal/fakegateway"
@@ -52,10 +51,9 @@ func TestReplyRecordsTheModelThatAnswered(t *testing.T) {
 				writeReply(t, w, fallbackReply[api])
 			}))
 			defer server.Close()
-			client, err := New(Config{API: api, BaseURL: server.URL, APIKey: "k", Model: "requested-model", MaxRetries: -1})
-			if err != nil {
-				t.Fatal(err)
-			}
+			model := modelOf(gotato.ModelFacts{})
+			model.Name = "requested-model"
+			client := newClientFor(t, wireOf(api), server.URL, model, WithRetry(Retry{}))
 			session, err := gotato.NewSession(context.Background(), gotato.WithModel(client))
 			if err != nil {
 				t.Fatal(err)
@@ -107,10 +105,7 @@ func TestChatKeepsAndSendsBackACallsExtraContent(t *testing.T) {
 		}
 	}))
 	defer server.Close()
-	client, err := New(Config{BaseURL: server.URL, APIKey: "k", Model: "gemini-3-pro"})
-	if err != nil {
-		t.Fatal(err)
-	}
+	client := newClientFor(t, ChatCompletions{}, server.URL, modelOf(gotato.ModelFacts{}))
 	live, err := gotato.NewSession(context.Background(), gotato.WithModel(client), gotato.WithTools(testkit.NewFakeTool("echo", "echoed")))
 	if err != nil {
 		t.Fatal(err)
@@ -166,14 +161,14 @@ func TestACallsSignatureStaysWithItsWireAPI(t *testing.T) {
 			echoResult("call_1"),
 		}}
 	}
-	chat, _, err := encodeChatRequest("m", request("fc_1"), providerRules{})
+	chat, _, err := encodeChatRequest(modelOf(gotato.ModelFacts{}), request("fc_1"))
 	if err != nil {
 		t.Fatal(err)
 	}
 	if strings.Contains(string(chat), "extra_content") || strings.Contains(string(chat), "fc_1") {
 		t.Errorf("a Responses item ID went out on the chat API:\n%s", chat)
 	}
-	responses, _, err := encodeResponsesRequest("m", request(`{"google":{"thought_signature":"sig-A"}}`), providerRules{})
+	responses, _, err := encodeResponsesRequest(modelOf(gotato.ModelFacts{}), request(`{"google":{"thought_signature":"sig-A"}}`), true)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -219,10 +214,7 @@ func TestUnknownFinishAndUnnamedCallFailTheStream(t *testing.T) {
 				}
 			}))
 			defer server.Close()
-			client, err := New(Config{API: tc.api, BaseURL: server.URL, APIKey: "k", Model: "m", MaxRetries: -1, RetryBackoff: time.Millisecond})
-			if err != nil {
-				t.Fatal(err)
-			}
+			client := newClientFor(t, wireOf(tc.api), server.URL, modelOf(gotato.ModelFacts{}), WithRetry(Retry{}))
 			stream, err := client.Stream(context.Background(), gotato.ModelRequest{Messages: []gotato.Message{gotato.UserMessage("hi")}})
 			if err != nil {
 				t.Fatal(err)
@@ -249,10 +241,7 @@ func TestEmptyFinishReasonIsNotAFinish(t *testing.T) {
 		fmt.Fprint(w, `data: {"choices":[{"delta":{"content":"The answer is fo"},"finish_reason":""}]}`+"\n\n")
 	}))
 	defer server.Close()
-	client, err := New(Config{BaseURL: server.URL, Model: "m", MaxRetries: -1})
-	if err != nil {
-		t.Fatal(err)
-	}
+	client := newClientFor(t, ChatCompletions{}, server.URL, modelOf(gotato.ModelFacts{}), WithRetry(Retry{}))
 	stream, err := client.Stream(context.Background(), gotato.ModelRequest{Messages: []gotato.Message{gotato.UserMessage("hi")}})
 	if err != nil {
 		t.Fatal(err)
@@ -533,11 +522,8 @@ func TestChatErrorInTheMiddleOfAStreamIsNotRetried(t *testing.T) {
 		_, _ = w.Write([]byte("data: {\"error\":{\"message\":\"The server had an error\",\"type\":\"server_error\",\"code\":null}}\n\n"))
 	}))
 	defer server.Close()
-	client, err := New(Config{BaseURL: server.URL, APIKey: "k", Model: "m", RetryBackoff: time.Millisecond})
-	if err != nil {
-		t.Fatal(err)
-	}
-	_, err = drainFake(t, client, gotato.ModelRequest{Messages: []gotato.Message{gotato.UserMessage("hi")}})
+	client := newClientFor(t, ChatCompletions{}, server.URL, modelOf(gotato.ModelFacts{}))
+	_, err := drainFake(t, client, gotato.ModelRequest{Messages: []gotato.Message{gotato.UserMessage("hi")}})
 	var overflow interface{ ContextOverflow() bool }
 	if err == nil || !strings.Contains(err.Error(), "The server had an error") || errors.As(err, &overflow) && overflow.ContextOverflow() || calls.Load() != 1 {
 		t.Fatalf("err = %v after %d requests", err, calls.Load())

@@ -11,6 +11,8 @@ import (
 	"github.com/jinhuang712/gotato/gotato"
 )
 
+var gptTestModel = gotato.ModelConfig{Name: "gpt-test", Facts: gotato.ModelFacts{Window: gotato.WindowTokens(200_000)}}
+
 func TestResponsesStreamNormalizesTextReasoningAndUsage(t *testing.T) {
 	token := testToken("account-test")
 	var request struct {
@@ -44,7 +46,7 @@ func TestResponsesStreamNormalizesTextReasoningAndUsage(t *testing.T) {
 	}))
 	defer server.Close()
 
-	client, err := New(Config{API: "openai-responses", Endpoint: server.URL, APIKey: token, Model: "gpt-test"})
+	client, err := New(Responses{}, Connection{Endpoint: server.URL, APIKey: token}, gptTestModel)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -96,7 +98,7 @@ func TestResponsesStreamNormalizesTextReasoningAndUsage(t *testing.T) {
 
 func TestResponsesReplaysReasoningArtifact(t *testing.T) {
 	artifact := []byte(`{"type":"reasoning","id":"rs_1","encrypted_content":"opaque"}`)
-	body, _, err := encodeResponsesRequest("gpt-test", gotato.ModelRequest{Messages: []gotato.Message{{Role: gotato.RoleAssistant, Parts: []gotato.ContentPart{{Kind: gotato.ContentKindReasoning, Signature: artifact}}}, gotato.UserMessage("next")}}, providerRules{})
+	body, _, err := encodeResponsesRequest(gptTestModel, gotato.ModelRequest{Messages: []gotato.Message{{Role: gotato.RoleAssistant, Parts: []gotato.ContentPart{{Kind: gotato.ContentKindReasoning, Signature: artifact}}}, gotato.UserMessage("next")}}, true)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -126,11 +128,11 @@ func TestResponsesReplaysToolCallItemID(t *testing.T) {
 			tc.call.ToolID = "demo.echo"
 			tc.call.Arguments = []byte(`{"value":"x"}`)
 			result := gotato.ToolResult{CallID: tc.call.ID, Status: gotato.ToolResultStatusOK, Content: []gotato.ContentPart{{Kind: gotato.ContentKindText, Text: "done"}}}
-			body, _, err := encodeResponsesRequest("gpt-test", gotato.ModelRequest{Messages: []gotato.Message{
+			body, _, err := encodeResponsesRequest(gptTestModel, gotato.ModelRequest{Messages: []gotato.Message{
 				gotato.UserMessage("go"),
 				{Role: gotato.RoleAssistant, ToolCalls: []gotato.ToolCall{tc.call}},
 				{Role: gotato.RoleToolResult, ToolResult: &result},
-			}}, providerRules{})
+			}}, true)
 			if err != nil {
 				t.Fatal(err)
 			}
@@ -167,7 +169,7 @@ func TestResponsesStreamReassemblesToolCall(t *testing.T) {
 	}))
 	defer server.Close()
 
-	client, err := New(Config{API: "openai-responses", Endpoint: server.URL, APIKey: token, Model: "gpt-test"})
+	client, err := New(Responses{}, Connection{Endpoint: server.URL, APIKey: token}, gptTestModel)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -208,7 +210,7 @@ func TestResponsesCallWithoutCallIDFailsTheStream(t *testing.T) {
 	}))
 	defer server.Close()
 
-	client, err := New(Config{API: "openai-responses", Endpoint: server.URL, APIKey: token, Model: "gpt-test"})
+	client, err := New(Responses{}, Connection{Endpoint: server.URL, APIKey: token}, gptTestModel)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -266,7 +268,7 @@ func responsesCallsAndStop(t *testing.T, events ...string) ([]gotato.ToolCall, g
 		}
 	}))
 	defer server.Close()
-	client, err := New(Config{API: "openai-responses", Endpoint: server.URL, APIKey: testToken("account-test"), Model: "gpt-test"})
+	client, err := New(Responses{}, Connection{Endpoint: server.URL, APIKey: testToken("account-test")}, gptTestModel)
 	if err != nil {
 		t.Fatal(err)
 	}

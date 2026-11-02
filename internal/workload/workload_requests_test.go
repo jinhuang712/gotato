@@ -222,7 +222,7 @@ func TestSameRecordSameRequest(t *testing.T) {
 // The exceptions principle 2 in DESIGNS.md names do not occur in this play, and the test says
 // why for each:
 //   - A new Round leaving out the last Round's reasoning happens in the
-//     gateway's encoder (gateway.providerRules.roundReasoning), after the
+//     gateway's encoder (the RoundReasoning fact), after the
 //     request is built. The ModelRequest carries every reasoning artifact, so
 //     "with reasoning" plays tasks whose replies all carry reasoning and
 //     requires the prefix to hold with it.
@@ -372,7 +372,7 @@ func checkToolLoading(t *testing.T, pair string, prev, next gotato.ModelRequest)
 
 // wireBodies encodes every request with the gateway for one wire API and
 // deferred form, as the gateway would send it, and returns the JSON bodies and the form the Client used.
-func wireBodies(t *testing.T, api gateway.API, form gateway.DeferredForm, requests []gotato.ModelRequest) ([]map[string]json.RawMessage, gateway.DeferredForm) {
+func wireBodies(t *testing.T, api wireName, form gateway.DeferredForm, requests []gotato.ModelRequest) ([]map[string]json.RawMessage, gateway.DeferredForm) {
 	t.Helper()
 	var mu sync.Mutex
 	var bodies []map[string]json.RawMessage
@@ -386,7 +386,19 @@ func wireBodies(t *testing.T, api gateway.API, form gateway.DeferredForm, reques
 		w.Header().Set("Content-Type", "text/event-stream")
 	}))
 	defer server.Close()
-	client, err := gateway.New(gateway.Config{API: api, Model: "m", BaseURL: server.URL, APIKey: "k", DeferredTools: form})
+	// Chat Completions has only the list form.
+	var wire gateway.WireAPI
+	path := "/v1/chat/completions"
+	used := form
+	switch api {
+	case apiAnthropic:
+		wire, path = gateway.AnthropicMessages{Deferred: form}, "/v1/messages"
+	case apiResponses:
+		wire, path = gateway.Responses{Deferred: form}, "/v1/responses"
+	default:
+		wire, used = gateway.ChatCompletions{}, gateway.DeferredFormList
+	}
+	client, err := gateway.New(wire, gateway.Connection{Endpoint: server.URL + path, APIKey: "k"}, gotato.ModelConfig{Name: "m", Facts: gotato.ModelFacts{Window: gotato.WindowUnknown()}})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -402,7 +414,7 @@ func wireBodies(t *testing.T, api gateway.API, form gateway.DeferredForm, reques
 	if len(bodies) != len(requests) {
 		t.Fatalf("%d bodies for %d requests", len(bodies), len(requests))
 	}
-	return bodies, client.DeferredTools()
+	return bodies, used
 }
 
 // elementsOf decodes a JSON array into its elements, without cache_control.
@@ -455,18 +467,21 @@ func TestToolSearchRequestOnlyGrowsAtItsEnd(t *testing.T) {
 // A task without a catalog never changes its tool list, in either form.
 func TestWireRequestOnlyGrowsAtItsEnd(t *testing.T) {
 	wires := []struct {
-		api                     gateway.API
+		api                     wireName
 		system, tools, messages string
 	}{
-		{gateway.APIAnthropicMessages, "system", "tools", "messages"},
-		{gateway.APIResponses, "instructions", "tools", "input"},
-		{gateway.APIChatCompletions, "", "tools", "messages"},
+		{apiAnthropic, "system", "tools", "messages"},
+		{apiResponses, "instructions", "tools", "input"},
+		{apiChat, "", "tools", "messages"},
 	}
 	for _, task := range reftasks.ReferenceTasks() {
 		_, sent := playAcross(t, session.NewMemoryStore(), task, playOptions{})
 		requests := decodeRequests(t, sent)
 		for _, wire := range wires {
 			for _, form := range []gateway.DeferredForm{gateway.DeferredFormNative, gateway.DeferredFormList} {
+				if wire.api == apiChat && form == gateway.DeferredFormNative {
+					continue // Chat Completions has no native form.
+				}
 				t.Run(task.Name+"/"+string(wire.api)+"/"+string(form), func(t *testing.T) {
 					bodies, used := wireBodies(t, wire.api, form, requests)
 					changed := 0

@@ -4,9 +4,7 @@ import (
 	"bufio"
 	"context"
 	"fmt"
-	"net/http"
 	"strings"
-	"sync"
 )
 
 // SSE framing limits. They bound what one upstream line or event can allocate,
@@ -35,14 +33,18 @@ func readBoundedLine(reader *bufio.Reader) (string, error) {
 	}
 }
 
-// readSSEEvent joins the data: lines of one SSE event, enforcing the line and
-// event size limits.
-func readSSEEvent(ctx context.Context, reader *bufio.Reader) (string, error) {
-	var lines []string
+// readSSEEvent reads one event: its "event:" name and its data: lines joined
+// by a newline, enforcing the line and event size limits. Lines of any other
+// field, and comments, are dropped, and an event with no data line is not one.
+func readSSEEvent(ctx context.Context, reader *bufio.Reader) (SSEEvent, error) {
+	var (
+		lines []string
+		name  string
+	)
 	total := 0
 	for {
 		if err := ctx.Err(); err != nil {
-			return "", err
+			return SSEEvent{}, err
 		}
 		raw, err := readBoundedLine(reader)
 		line := strings.TrimSuffix(raw, "\r")
@@ -50,49 +52,23 @@ func readSSEEvent(ctx context.Context, reader *bufio.Reader) (string, error) {
 			payload := strings.TrimSpace(after)
 			total += len(payload)
 			if total > maxSSEEventBytes {
-				return "", fmt.Errorf("gateway: SSE event exceeds %d bytes", maxSSEEventBytes)
+				return SSEEvent{}, fmt.Errorf("gateway: SSE event exceeds %d bytes", maxSSEEventBytes)
 			}
 			lines = append(lines, payload)
+		} else if after, ok := strings.CutPrefix(line, "event:"); ok {
+			name = strings.TrimSpace(after)
 		}
-		if line == "" && err == nil && len(lines) > 0 {
-			return strings.Join(lines, "\n"), nil
+		if line == "" && err == nil {
+			if len(lines) > 0 {
+				return SSEEvent{Name: name, Data: strings.Join(lines, "\n")}, nil
+			}
+			name = ""
 		}
 		if err != nil {
 			// The stream ended before the blank line that completes the event:
 			// the event is discarded, and the end is the caller's to treat as
 			// a cut stream (or a finished one).
-			return "", err
+			return SSEEvent{}, err
 		}
 	}
-}
-
-// sseBody is what the three streams share: the response being read and the
-// reader over its body. Closing it twice is safe.
-type sseBody struct {
-	response  *http.Response
-	reader    *bufio.Reader
-	closeOnce sync.Once
-}
-
-func newSSEBody(response *http.Response) sseBody {
-	return sseBody{response: response, reader: bufio.NewReader(response.Body)}
-}
-
-// replace continues on a re-issued response and closes the interrupted one.
-func (b *sseBody) replace(response *http.Response) {
-	if b.response != nil && b.response.Body != nil {
-		_ = b.response.Body.Close()
-	}
-	b.response = response
-	b.reader = bufio.NewReader(response.Body)
-}
-
-// Close closes the response body.
-func (b *sseBody) Close() error {
-	b.closeOnce.Do(func() {
-		if b.response != nil && b.response.Body != nil {
-			_ = b.response.Body.Close()
-		}
-	})
-	return nil
 }

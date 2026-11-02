@@ -8,7 +8,7 @@ By the end of this page you know which seam of Gotato to reach for when the defa
 
 | I want to | Seam |
 |---|---|
-| call my own model or provider | `gotato.Model` |
+| call my own model or provider, and say what it is (its window, cache retention, reasoning rule) | `gotato.Model` (`Stream` and `Config`) |
 | give the agent a capability | `gotato.Tool` (`NewFuncTool`) |
 | save Sessions in my own database | `session.Store` |
 | change what the model sees | `gotato.ContextBuilder` |
@@ -23,6 +23,9 @@ By the end of this page you know which seam of Gotato to reach for when the defa
 | supply tools that change between Turns | `gotato.ToolSource`, `service.Agent.ToolSources` |
 | write Recaps with a model | `modelctx.RecapWriter` (`ModelRecap`) |
 | prune or reshape the Messages after the builder | `gotato.ContextTransformer`, `gotato.MessageConverter` |
+| speak a wire API Gotato does not ship | `gateway.WireAPI` |
+| set how often a model call is sent again, or turn it off | `gateway.Retry`, `gateway.WithRetry` |
+| change what a failed model call means | `gateway.Classifier`, `gateway.WithClassifier` |
 
 **Rare** (a specific need, or a store adapter's concern)
 
@@ -31,7 +34,6 @@ By the end of this page you know which seam of Gotato to reach for when the defa
 | put tagged blocks in the system prompt | `gotato.ContextBlock` |
 | replace the search of `search_tools` | `gotato.ToolSearcher` |
 | write the Recap of merged Segments myself | `modelctx.MergeRecapWriter` |
-| let wrappers of a model keep its window and cache hints | `ContextWindower`, `CacheRetainer`, `RoundReasoner`, `Unwrapper` |
 | rewrite the Transcript before a model call | `gotato.TurnPreparer` |
 | keep a Session's Events in my own log | `gotato.Journal`, `gotato.EventSource` |
 
@@ -56,7 +58,11 @@ Each row says what you want, the seam that does it, and where it lives. "Tier" t
 | add tagged blocks to the system prompt | `gotato.ContextBlock` | `ModelContext.System`, set by a `ContextBuilder` | rare |
 | search tools my own way (embeddings, a service) | `gotato.ToolSearcher` | `gotato.WithToolSearcher` | rare |
 | write the Recap of merged Segments myself | `modelctx.MergeRecapWriter` | the same `CompactPolicy.Recap`; a writer with `WriteMergeRecap` is used for merges | rare |
-| report the window, the cache time or the reasoning rule of a model I wrap | `modelctx.ContextWindower`, `CacheRetainer`, `RoundReasoner`, and `Unwrapper` on the wrapper | found by `modelctx.WindowOf`, `RetentionOf`, `DropsReasoning` | rare |
+| report the window, the cache time or the reasoning rule of my model | `Config() gotato.ModelConfig` on the `gotato.Model` (a wrapper that embeds the Model forwards it) | read by the Runner and compaction from `Model.Config().Facts` | common |
+| speak a wire API Gotato does not ship | `gateway.WireAPI` (`Encode(Call) (*Request, error)` and a `Decoder`) | the first argument of `gateway.New` | sometimes |
+| authenticate with more than a static key (a signed request, a token that expires) | an `http.RoundTripper` | `gateway.Connection.HTTPClient` | sometimes |
+| change how often a model call is sent again, or turn it off | `gateway.Retry` | `gateway.WithRetry`; `gateway.Retry{}` is off | sometimes |
+| change what a failed model call means (retryable, too long) | `gateway.Classifier` | `gateway.WithClassifier`; wrap `gateway.DefaultClassifier` to add to it | sometimes |
 | rewrite the Transcript before a model call, such as to compact | `gotato.TurnPreparer` | `gotato.WithExtension` | rare |
 | write a Session's Events to a store of my own | `gotato.Journal` (with `EventSource` and `SpillKeeper` beside it) | a `Transcript` given to `gotato.WithTranscript`; `session.Store` is the usual way | rare |
 | let a subscriber catch up from my own log | `gotato.EventSource` | `gotato.NewFeed(source)`, `gotato.WithFeed` | rare |
@@ -65,7 +71,7 @@ Each row says what you want, the seam that does it, and where it lives. "Tier" t
 
 ### Model
 
-A `gotato.Model` has one method, `Stream`, that starts a call and returns its events. `gateway` implements it for three wire APIs; you implement it for anything else. A wrapper that forwards to another model should also implement `Unwrap() gotato.Model`, or the window and cache hints of the model it wraps are hidden (see the rare seams below).
+A `gotato.Model` has two methods: `Stream` starts a call and returns its events, and `Config` returns a `gotato.ModelConfig`, what the model is. `gateway` implements it for three wire APIs; you implement it for anything else. A Model that states nothing returns the zero `ModelConfig`: an unknown window, no cache retention and no default sampling. A wrapper that embeds the model it wraps forwards `Config` for free; one that holds it in a field returns `Inner.Config()`, or the window and cache facts are lost.
 
 ### Tool
 
@@ -206,6 +212,32 @@ Compact: modelctx.CompactPolicy{Recap: modelctx.ModelRecap{}}, // a Runner fills
 
 Both are Extension stages that run after the builder. A transformer selects, adds or prunes Messages; a converter adapts their shape for one provider. They change what the model sees on this Turn only, never the Transcript.
 
+### WireAPI
+
+Replaces the wire API of the gateway: how a request is written and its reply read. Implement `Encode(Call) (*Request, error)`: the `Call` holds the `ModelConfig`, the `ModelRequest`, the key and the cache key, and the `Request` holds the `Body`, the `Header` the wire sets and `NewDecoder`, which returns a fresh `Decoder` for each attempt. `Decoder.Decode(SSEEvent)` turns one event into `ModelEvent`s and says when the reply is done. The wire never sends, retries or classifies, so it reuses the Connection, the Retry and the Classifier as they are. Pass it as the first argument of `gateway.New`; the shipped ones are `ChatCompletions{}`, `Responses{}` and `AnthropicMessages{}`. A wire may add `Validate() error`, which `gateway.New` calls.
+
+### Connection and its HTTP client
+
+`gateway.Connection` holds the complete `Endpoint`, an `APIKey`, `Headers`, a `CacheKeyHeader` and an `HTTPClient`. Any authentication beyond a static key goes in the `RoundTripper` of the client you pass: sign the request or add a token that expires there. With no `HTTPClient` the gateway uses `gateway.NewHTTPClient(10*time.Second, 60*time.Second)`; call it yourself for other timeouts.
+
+### Retry
+
+`gateway.Retry{Max, Backoff, MaxWait}` says how often a refused request or a cut stream is sent again, how long to wait and the longest wait. Pass it with `gateway.WithRetry`; the default is `gateway.DefaultRetry` (2, 200 ms, 60 s), and `gateway.Retry{}` turns retries off. Whether a failure may be repeated is the Classifier's answer.
+
+### Classifier
+
+`gateway.Classifier` is `func(Failure) Verdict`. A `Failure` is what one attempt showed (the status, the message, the code and type, the headers, the error under it), and a `Verdict{Retryable, Overflow, Limit}` says what it means. `gateway.DefaultClassifier` holds the gateway's own tables. To add to it, write a function that calls it and changes the Verdict, and pass that with `gateway.WithClassifier`:
+
+```go
+func(f gateway.Failure) gateway.Verdict {
+	v := gateway.DefaultClassifier(f)
+	if strings.Contains(f.Message, "request_too_big") { // your provider's wording for "too long"
+		v.Overflow, v.Retryable = true, false
+	}
+	return v
+}
+```
+
 ## Rare
 
 ### ContextBlock
@@ -220,18 +252,18 @@ Replaces the built-in BM25 search of `search_tools`. Gotato hands it a query and
 
 When the oldest Segments pass their budget they are merged into one. A `RecapWriter` that also has `WriteMergeRecap` writes the Recap of the merge (`ModelRecap` does). Any other writer leaves the merged Segment with a digest built by code.
 
-### Model capability interfaces
+### Model config
 
-Optional methods a model can have, so compaction knows its limits. Gotato keeps no table of windows.
+`Model.Config()` returns the facts the runtime reads, so compaction knows its limits. Gotato keeps no table of windows, and it guesses nothing from a model's name or address: the team states them.
 
-| Interface | Method | Used for |
-|---|---|---|
-| `modelctx.ContextWindower` | `ContextWindowTokens() int` | the Compaction ceiling |
-| `modelctx.CacheRetainer` | `CacheRetention() time.Duration` | when a warm Session compacts, before the cache expires |
-| `modelctx.RoundReasoner` | `RoundReasoningOnly() bool` | leaving reasoning out of the Messages compaction keeps |
-| `modelctx.Unwrapper` | `Unwrap() gotato.Model` | a wrapper's way to let the others be found |
+| Field of `gotato.ModelFacts` | Used for |
+|---|---|
+| `Window` (`gotato.WindowTokens(n)` or `gotato.WindowUnknown()`) | the Compaction ceiling |
+| `CacheRetention` | when a warm Session compacts, before the cache expires |
+| `RoundReasoning` | leaving reasoning out of the Messages compaction keeps, and out of earlier Rounds in the request |
+| `ThinkingBinding` | asking the provider to drop a thinking block whose prefix changed (Anthropic wire) |
 
-`gateway.Client` implements the first three. A wrapper of your own that does not implement `Unwrap` hides them, and the window reads as unknown.
+`ModelConfig.Sampling` holds the model's default sampling, which a Session's `gotato.WithSampling` overrides field by field. `gateway.New` takes the same `ModelConfig` and returns it from `Config()`; a wrapper that embeds the Model forwards it, so no fact is hidden.
 
 ### TurnPreparer
 

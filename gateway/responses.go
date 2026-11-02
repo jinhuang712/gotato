@@ -2,43 +2,83 @@ package gateway
 
 import (
 	"bytes"
-	"context"
 	"encoding/base64"
 	"encoding/json"
 	"fmt"
+	"net/http"
+	"reflect"
 	"strings"
+	"time"
 
 	"github.com/jinhuang712/gotato/gotato"
 )
 
-const (
-	defaultResponsesBaseURL = "https://api.openai.com/v1"
-	// defaultResponsesCacheKeyField is the Responses API's own field for a
-	// prompt cache key.
-	defaultResponsesCacheKeyField = "prompt_cache_key"
-)
+// defaultResponsesCacheKeyField is the Responses API's own field for a prompt
+// cache key.
+const defaultResponsesCacheKeyField = "prompt_cache_key"
 
-func (c *Client) streamResponses(ctx context.Context, request gotato.ModelRequest) (gotato.ModelStream, error) {
-	body, names, err := encodeResponsesRequest(c.model, request, c.rules)
+// responsesCacheTTL is the one prompt_cache_options.ttl the Responses API
+// takes, from GPT-5.6 on. It is also their default, so asking for it only makes
+// the retention explicit.
+const responsesCacheTTL = 30 * time.Minute
+
+// Responses is the OpenAI Responses wire API. The zero value is the default.
+type Responses struct {
+	// CacheKeyField names the top-level body field that carries the request's
+	// cache key. Empty is "prompt_cache_key", the API's own; "none" sends no
+	// field. It must not name a field the request already sends.
+	CacheKeyField string
+	// Deferred is how the tools a Session loads one by one from its catalog
+	// are shown: DeferredFormNative (the default) or DeferredFormList. Native
+	// keeps the tool list of the request the same while tools load, so the
+	// prompt cache survives a load.
+	Deferred DeferredForm
+}
+
+// Validate refuses a CacheKeyField that names a field the request already
+// sends, which the cache key would silently replace, and a Deferred form that
+// is neither native nor list. New calls it.
+func (w Responses) Validate() error {
+	if _, err := w.Deferred.native(); err != nil {
+		return err
+	}
+	return checkCacheKeyField(w.cacheKeyField(), reflect.TypeFor[responsesRequest](), responsesReservedFields)
+}
+
+// responsesReservedFields are the top-level fields the request carries besides
+// the ones its encoder struct declares.
+var responsesReservedFields = []string{"max_tool_calls", "metadata", "text", "truncation", "user"}
+
+func (w Responses) cacheKeyField() string {
+	if w.CacheKeyField == "" {
+		return defaultResponsesCacheKeyField
+	}
+	return w.CacheKeyField
+}
+
+// Encode implements WireAPI. The model's facts steer two things: with
+// RoundReasoning the reasoning of an earlier Round is left out of the history,
+// and with a CacheRetention of 30 minutes, the one retention this API
+// takes, the request asks for it with prompt_cache_options. A retention of
+// anything else sends no such field. It sends Sampling's Temperature,
+// MaxTokens, ReasoningEffort and ReasoningSummary.
+func (w Responses) Encode(call Call) (*Request, error) {
+	native, err := w.Deferred.native()
+	if err != nil {
+		return nil, err
+	}
+	body, names, err := encodeResponsesRequest(call.Model, call.Request, native)
 	if err == nil {
-		body, err = c.withCacheKeyField(body, request.CacheKey)
+		body, err = withCacheKeyField(body, w.cacheKeyField(), call.CacheKey)
 	}
 	if err != nil {
 		return nil, err
 	}
-	open := c.withCacheKeyHeader(c.do, request.CacheKey)
-	response, err := open(ctx, body)
-	if err != nil {
-		return nil, err
+	header := http.Header{}
+	if call.APIKey != "" {
+		header.Set("Authorization", "Bearer "+call.APIKey)
 	}
-	return &responsesStream{
-		sseBody: newSSEBody(response),
-		nameMap: names,
-		calls:   make(map[int]*responsesCall),
-		texts:   make(map[int]bool),
-		restart: restarter{client: c, body: body, open: open},
-		fail:    c.fail,
-	}, nil
+	return &Request{Body: body, Header: header, NewDecoder: func() Decoder { return newResponsesDecoder(names) }}, nil
 }
 
 type responsesRequest struct {
@@ -153,16 +193,16 @@ type responsesFunctionOutput struct {
 	Output string `json:"output"`
 }
 
-func encodeResponsesRequest(model string, request gotato.ModelRequest, rules providerRules) ([]byte, map[string]string, error) {
+func encodeResponsesRequest(model gotato.ModelConfig, request gotato.ModelRequest, native bool) ([]byte, map[string]string, error) {
 	names, err := functionNames(request)
 	if err != nil {
 		return nil, nil, err
 	}
-	layout := newDeferredLayout(request, rules)
+	layout := newDeferredLayout(request, native)
 	input := make([]any, 0, len(request.Messages)*2)
 	start := roundStart(request.Messages)
 	for i, message := range request.Messages {
-		items, err := convertResponsesMessage(message, names, rules.keepsReasoning(i, start), layout)
+		items, err := convertResponsesMessage(message, names, keepsReasoning(model.Facts.RoundReasoning, i, start), layout)
 		if err != nil {
 			return nil, nil, err
 		}
@@ -196,7 +236,7 @@ func encodeResponsesRequest(model string, request gotato.ModelRequest, rules pro
 	}
 
 	payload := responsesRequest{
-		Model:             model,
+		Model:             model.Name,
 		Store:             false,
 		Stream:            true,
 		Instructions:      request.SystemInstructions,
@@ -212,8 +252,8 @@ func encodeResponsesRequest(model string, request gotato.ModelRequest, rules pro
 	if request.Sampling.MaxTokens != 0 {
 		payload.MaxOutputTokens = request.Sampling.MaxTokens
 	}
-	if rules.responsesCacheTTL != "" {
-		payload.PromptCacheOptions = &responsesCacheOptions{TTL: rules.responsesCacheTTL}
+	if model.Facts.CacheRetention == responsesCacheTTL {
+		payload.PromptCacheOptions = &responsesCacheOptions{TTL: "30m"}
 	}
 	if request.Sampling.ReasoningEffort != "" || request.Sampling.ReasoningSummary != "" {
 		summary := request.Sampling.ReasoningSummary

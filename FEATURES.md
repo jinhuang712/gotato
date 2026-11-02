@@ -1,4 +1,4 @@
-<!-- what-we-build: drafted 2026-10-29 -->
+<!-- what-we-build: drafted 2026-11-02 -->
 # Gotato — Features
 
 What Gotato has today, what it will have, and what it won't, as an inventory. Each feature is described from the side of the developer who embeds Gotato: the Go calls, the HTTP routes and the configuration keys. How a part works is in [specs/](specs/); why it is built that way is in [plan/decisions/](plan/decisions/README.md); the principles are in [DESIGNS.md](DESIGNS.md); when the planned parts arrive is in [ROADMAP.md](plan/ROADMAP.md); the terms are in [GLOSSARY.md](GLOSSARY.md).
@@ -38,7 +38,7 @@ Every feature by group, with its status: ✅ built, *later* an idea with no mile
 
 | Feature | What it gives you | Status |
 |---|---|---|
-| [G-F07 Models and providers](#g-f07--models-and-providers-) | three wire APIs, retries, reasoning replay, YAML | ✅ |
+| [G-F07 Models and providers](#g-f07--models-and-providers-) | four replaceable layers (wire API, connection, retry, error meaning), three wire APIs, the model's stated facts, reasoning replay | ✅ |
 | [G-F31 Recovering a cut stream](#g-f31--recovering-a-cut-stream-) | a cut model stream is sent again, not failed | ✅ |
 
 **Storage**
@@ -278,7 +278,7 @@ There is no call that only changes metadata (`Runner` and HTTP have no `UpdateSe
 On every Turn Gotato builds what the model sees from the Session, in a fixed order, so the provider can reuse the cached prefix: instruction, then tools sorted by ID, then the Transcript. How it works: [specs/context.md](specs/context.md). Why: decision [031](plan/decisions/031-a-notice-is-a-message-of-its-own-kind.md).
 
 - Reference text the Agent carries (a schema, a runbook) goes in its instruction (`Agent.Instruction`, `gotato.WithInstruction`). Nothing that changes every Turn is added; a fact the model needs now, such as the time, comes from a tool.
-- Cache markers go after the system part, after the tools and on the last message (Anthropic `cache_control`, the last four kept); for a recognized Claude the gateway adds one where the last Round started ([G-F07](#g-f07--models-and-providers-)).
+- Cache markers go after the system part, after the tools and on the last message (Anthropic `cache_control`, the last four kept); for a model whose facts set `RoundReasoning` the Anthropic wire adds one where the last Round started ([G-F07](#g-f07--models-and-providers-)).
 - Every request carries a cache key so a provider serves one conversation from one cache: a hash of the Session ID in the Runner, `gotato.WithCacheKey` with `NewSession`; how it travels is the gateway's configuration.
 - Retrieval, a window or any other way to choose what the model sees is your own `ContextBuilder` ([G-N10](#not-planned)).
 
@@ -306,7 +306,7 @@ A Session can live for weeks and a long Run can outgrow the window. A compaction
 | Refs | every tool call line and every kept user message or final reply of a new Segment carries a ref (`result:<call_id>`, `msg:<message_id>`); `read_result(ref, page?)` returns the original ([G-F35](#g-f35--large-tool-results-)). A merge's digest keeps the refs of what each line stands for (up to 4 messages and 4 results per Segment; a merged Segment's own Recap holds its refs), and the model-written merge Recap is asked with each Recap's refs and told to keep them next to what it states; a Recap is not failed for a missing ref ([decision 043](plan/decisions/043-compaction-moves-content-out-and-never-makes-it-unreadable.md)) |
 | `read_segment(segment, page?)` | offered from the Checkpoint once a Session has a Segment (also in `Runner.Tools`); declares `read`. Returns the Messages as they were, tool results included and reasoning left out, each first line prefixed `[user]`, `[assistant]`, `[call tool.id]`, `[tool tool.id]` (`[tool x failed]`), `[notice]`; the four tags are escaped and a line starting with a prefix gets a backslash. A page is 32 KiB (`modelctx.DefaultReadSegmentPageBytes`, about 8K tokens), `Page 2 of 5` first and the next call last; a line over half a page is cut. A bad page or number says how many pages or which Segments exist. It reads the Record's log from the Segment's first Entry (cost grows with what came after); a fork's Segment is read from its parent's log, checked against `source.record_epoch`; pruned Entries read as removed |
 | Loaded tools | the tools the closed Segment called and the kept tail calls stay loaded, the others unload (`tool_unloaded`, `why: compaction`); a tool of an active ToolSet never unloads ([G-F34](#g-f34--tool-search-)). A tool the Session loaded but never called is unloaded too, and the model's next call to it fails once with the "was not loaded" result and costs a round ([Decision 039](plan/decisions/039-tools-load-one-by-one-from-a-catalog.md)) |
-| Reasoning | when the model is sent only the current Round's reasoning (recognized Claude or OpenAI), the kept tail loses its reasoning (`modelctx.DropsReasoning`; `CompactConfig.DropReasoning` with `modelctx.Compact` alone); DeepSeek and unrecognized providers keep it |
+| Reasoning | when the model's facts set `RoundReasoning` (`Model.Config().Facts`), the kept tail loses its reasoning (the Runner turns `CompactPolicy.DropReasoning` on; `CompactConfig.DropReasoning` with `modelctx.Compact` alone); a model that leaves it unset keeps it |
 
 **What a Segment keeps.** Code builds it; only the Recap comes from a model.
 
@@ -337,9 +337,9 @@ Messages are grouped by the Run that committed them (`Message.RunID`); a Message
 | Past budget | at the start of a Run, when the Segments pass their budget and there is nothing to close (a merge only) | `past_budget` |
 
 - **Idle** runs on the warm Session's own timer, outside any Run; a message that arrives cancels it and is served first, also when the queue policy rejects a Run on a busy Session. A compaction that cannot be written drops the copy (`session_unloaded` with `failed`). A service that keeps its own timer calls the compact endpoint shortly before the cache expires with `min_tokens` set; that is recorded `on_demand`.
-- **No context window and no `CeilingTokens` means no automatic compaction by size.** A window of 0 means unknown (Gotato keeps no table of windows), and nothing logs it. Compaction then runs only after the model refuses a request as too long, once per Turn, and only if the refusal is recognized (`overflow_phrases` adds the team's own wording; the built-in list is short, 400 and 413 only). Set `context_window_tokens` on the model, or `CompactPolicy.CeilingTokens`, to compact before a refusal.
+- **No context window and no `CeilingTokens` means no automatic compaction by size.** An unknown window (`gotato.WindowUnknown()`, or a hand-written Model that states none) means unknown: Gotato keeps no table of windows, and nothing logs it. Compaction then runs only after the model refuses a request as too long, once per Turn, and only if the refusal is recognized (a team wraps `gateway.DefaultClassifier` to add its own wording; the built-in list is short, 400 and 413 only). Give the model a window (`ModelFacts.Window`, `window` in the file), or set `CompactPolicy.CeilingTokens`, to compact before a refusal. `gateway.New` refuses a window left out.
 - **The ceiling is a hard line, not a cost knob.** The Turn's check compares the Context's size, estimated afresh after the compaction (the Messages plus the instruction and tool definitions), with the ceiling. A Run still past it ends `limit_exceeded`, whoever set the ceiling ([Decision 038](plan/decisions/038-a-limit-guards-a-real-failure.md)). A team that sets one below the window must keep it above what a compaction cannot remove: the instruction and tool definitions, the kept tail (up to a quarter of the ceiling), a Recap if any, and the largest Tool Result one Turn can hold (under the 32 KiB page, about 8K tokens). That is a rule of thumb, not measured. A team that wants a cost cap writes its own `TurnStopper`.
-- **Ceiling** = the model's `context_window_tokens` less max(10% of it, 16K tokens), unless the Agent (`CompactPolicy.CeilingTokens`) or Session (`gotato.compact_ceiling`) sets one; a negative `CeilingTokens` turns the trigger off for a model with a window; with no window and none set it is off, and a ceiling set without a window is used as is. The size is the last reported input plus output tokens plus an estimate (bytes ÷ 4) of what came after; after a compaction it is estimated afresh.
+- **Ceiling** = the model's `Facts.Window` less max(10% of it, 16K tokens), unless the Agent (`CompactPolicy.CeilingTokens`) or Session (`gotato.compact_ceiling`) sets one; a negative `CeilingTokens` turns the trigger off for a model with a window; with no window and none set it is off, and a ceiling set without a window is used as is. The size is the last reported input plus output tokens plus an estimate (bytes ÷ 4) of what came after; after a compaction it is estimated afresh.
 - **Overflow:** the Session is compacted and the call sent again, unless the Turn already compacted. The Segment that closes gets no Recap (`skipped_overflow`); the oldest Segments merge too when the Segments alone are past the limit (the limit the refusal names in tokens, else the budget). The gateway reads the limit from the provider's wording (`"maximum context length is N tokens"`, `"N tokens > M maximum"`, `"… + … > M"`, `"context window of M"`) through the error's `ContextLimit()`; `PendingTurn.Refusal` hands it to the preparer. The Runner turns this trigger on for every Agent.
 - Still past the ceiling after the Turn's compaction: the Run ends `limit_exceeded` (its error says: still past, nothing to compact, or the compaction failed); still refused as too long: `context_overflow`. `MaxToolResultBytes` is the first guard.
 
@@ -416,7 +416,7 @@ A service that connects MCP servers can offer hundreds of tools. The model reads
 | A call to an unloaded tool | does not run; the tool is loaded and the failed result says `<id> was not loaded, so this call did not run. It is loaded now; call it again.` A call to a loaded tool whose ToolSet is unavailable now says `tool "<id>" is in ToolSet "<set>", which is unavailable now; try again in a later Run` |
 | How long a tool stays | until the next compaction, which keeps the tools called in the closed Segment or the kept tail and unloads the rest (`tool_unloaded`, `why: compaction`; a tool of an active ToolSet never unloads). The model's next call to an unloaded one gets the "was not loaded" result, so it costs one round |
 
-**The cache.** The tool list comes before the Transcript, so adding a tool re-reads everything after it. The gateway key `deferred_tools` chooses the form:
+**The cache.** The tool list comes before the Transcript, so adding a tool re-reads everything after it. The `Deferred` field of the `Responses` and `AnthropicMessages` wires (`deferred_tools` in the file) chooses the form:
 
 | Value | What happens | Default |
 |---|---|---|
@@ -425,7 +425,7 @@ A service that connects MCP servers can offer hundreds of tools. The model reads
 
 - The core stays wire-agnostic: a `ModelRequest` carries the visible tools, `ModelRequest.LoadedTools` and `ModelRequest.UnloadedTools`, and a Tool Result lists what it loaded (`ToolResult.LoadedTools`, `loaded_tools`). Core owns that list, with `CallID`, `Code`, `Executed` and `Spilled`: only `search_tools` and the refusal of a call to a tool that was not loaded fill it, and a Tool, a `PostToolUse` or a `PreToolDecision` cannot change it. In `native` the tools outside the catalog come first, then every catalog tool in ID order. A loaded tool no Tool Result references any more (a compaction folded the result) is sent as a plain tool, changing the list once, at that compaction. The prefix hash of `context_built` covers loaded and unloaded tools, so it changes at a load in the native form too.
 - A change a service makes in the middle of a Session (a tool switched on for one Session) rewrites the tool list: see [Later](#later), *Changes that keep the cache*.
-- **Not checked against a real provider.** The `tool_search` task runs through `anthropic-messages` and `openai-responses` on `internal/fakegateway` (all 8 requests accepted; same tool-list bytes while tools load). What the fake cannot show: how a provider expands a `tool_reference`; whether it takes a `cache_control` mark on a list ending in deferred tools; how OpenAI streams a `tool_search_call` (read from `response.output_item.added` and `.done` as a `function_call` is; the documentation is silent); the `search_tools` text (`Already available`, `Not found`) is not replayed in the `tool_search_output` form; on Anthropic a load caused by a call to an unloaded tool is a failed Tool Result that carries the `tool_reference`, which the documentation shows only for success. A team whose gateway refuses `native` sets `list`.
+- **Not checked against a real provider.** The `tool_search` task runs through `anthropic-messages` and `openai-responses` on `internal/fakegateway` (all 8 requests accepted; same tool-list bytes while tools load). What the fake cannot show: how a provider expands a `tool_reference`; whether it takes a `cache_control` mark on a list ending in deferred tools; how OpenAI streams a `tool_search_call` (read from `response.output_item.added` and `.done` as a `function_call` is; the documentation is silent); the `search_tools` text (`Already available`, `Not found`) is not replayed in the `tool_search_output` form; on Anthropic a load caused by a call to an unloaded tool is a failed Tool Result that carries the `tool_reference`, which the documentation shows only for success. A team whose gateway refuses `native` sets `Deferred: gateway.DeferredFormList`.
 
 ### G-F12 — The MCP adapter ✅
 
@@ -486,66 +486,82 @@ A tool can return far more than a Context should hold. A Tool Result over one pa
 
 ### G-F07 — Models and providers ✅
 
-A provider is configuration, not code. Any vendor that speaks a supported wire API works without new code, and you can bring your own client by implementing `gotato.Model`. How it works: [specs/model.md](specs/model.md). Why: decisions [001](plan/decisions/001-one-implementation-per-wire-api.md), [029](plan/decisions/029-reasoning-goes-back-for-the-current-round.md).
+A provider is a few Go values, not code. The gateway is four layers, each with a default a team can replace: the wire API, the connection, the retry and the meaning of an error. Any vendor that speaks a supported wire API works without new code, a wire API Gotato does not ship is one type of your own, and you can bring your own client by implementing `gotato.Model` (`Stream` and `Config`). How it works: [specs/model.md](specs/model.md). Why: decisions [001](plan/decisions/001-one-implementation-per-wire-api.md), [029](plan/decisions/029-reasoning-goes-back-for-the-current-round.md), [045](plan/decisions/045-the-gateway-is-layered-and-each-layer-can-be-replaced.md).
 
-Wire APIs (`api:`): `openai-chat-completions` (the default), `openai-responses`, `anthropic-messages`. A provider is a few lines of YAML that `gateway.LoadYAML(path)` reads (`api`, `base_url`, `api_key: ${GOTATO_GATEWAY_API_KEY}`, `model`); [gateway/gateway.example.yaml](gateway/gateway.example.yaml) is the full file to copy, tested so it stays current. The YAML file is the only way to configure the gateway; a secret reaches it through `${NAME}`, and an unknown key is an error that names it.
+```go
+client, err := gateway.New(
+    gateway.AnthropicMessages{},                      // the wire API
+    gateway.Connection{Endpoint: "https://gateway.example.com/v1/messages", APIKey: key},
+    gotato.ModelConfig{                               // what the model is
+        Name:  "a-model",
+        Facts: gotato.ModelFacts{Window: gotato.WindowTokens(200_000)},
+    },
+    gateway.WithRetry(gateway.DefaultRetry),          // optional layers
+)
+```
+
+**Nothing is read from an address or a name.** Gotato keeps no table of providers or models. What a model is, the team states in its `gotato.ModelConfig`; a fact left out has the cautious answer (see the facts below). The YAML file below is read only by the test tools under `internal/cmd`; a service builds its Client in Go.
+
+| Layer | Default | A team replaces it with |
+|---|---|---|
+| Wire API (`gateway.WireAPI`) | `ChatCompletions{CacheKeyField}`, `Responses{CacheKeyField, Deferred}`, `AnthropicMessages{Version, Deferred}` | a type with `Encode(Call) (*Request, error)`; `Request{Body, Header, NewDecoder}`; a `Decoder` reads each `SSEEvent`. It reuses the other layers |
+| Connection (`gateway.Connection`) | `Endpoint` (the complete URL), `APIKey`, `CacheKeyHeader`, `Headers`, `HTTPClient` (nil is `gateway.NewHTTPClient(10s, 60s)`: connect, response headers) | an `HTTPClient` whose `RoundTripper` signs, refreshes a token or goes through a proxy |
+| Retry (`gateway.Retry`) | `gateway.DefaultRetry`: `Max` 2, `Backoff` 200 ms, `MaxWait` 60 s | `gateway.WithRetry(Retry{...})`; `Retry{}` is off |
+| Error meaning (`gateway.Classifier`) | `gateway.DefaultClassifier`: a `Failure` in, a `Verdict{Retryable, Overflow, Limit}` out | `gateway.WithClassifier`, usually a function that calls the default and changes its answer |
+
+**The model's facts (`gotato.ModelFacts`).** The team states them; nothing overrides them and nothing is guessed.
+
+| Fact | Means | If omitted |
+|---|---|---|
+| `Window` | the context window: `gotato.WindowTokens(n)` with n above 0, or `gotato.WindowUnknown()`. Compaction takes its ceiling from it ([G-F06](#g-f06--compaction-)) | **`gateway.New` refuses it**: a window left out is never an accident. A hand-written `gotato.Model` that states nothing reads as unknown |
+| `CacheRetention` | how long the provider keeps the prompt cache. The Runner times an idle compaction from it. `AnthropicMessages` asks for the ttl `1h` on every `cache_control` marker when it is 1 hour or more (a cache write then costs twice the input price); `Responses` sends `prompt_cache_options` with ttl `30m` when it is exactly 30 minutes | unknown: the provider's default retention |
+| `RoundReasoning` | the provider takes back only the current Round's reasoning. Earlier Rounds' reasoning is left out of the request (on all three wires), a cache marker is added on Anthropic where the last Round started, and a compaction leaves reasoning out of the Messages it keeps | every reasoning artifact is sent, which a provider accepts: more bytes, no failure |
+| `ThinkingBinding` | the provider checks the prefix a thinking block was written under. `AnthropicMessages` sends `thinking` `block_binding: drop_block` with its beta header, so a block whose prefix changed is dropped rather than refused | not sent |
 
 | Behavior | What happens |
 |---|---|
-| Retries | a call with no response, or 429 (except a hard quota), 500, 502, 503, 504, 529, or an error that says rate-limited or overloaded; a provider's `Retry-After` or `retry-after-ms` wins over Gotato's backoff. A failed send is retried only when it can pass (timeout, reset, refused connection); an untrusted certificate or unknown host returns at once |
-| Broken streams | a stream that breaks is sent again within the retries ([G-F31](#g-f31--recovering-a-cut-stream-)). An error the provider sends mid-stream (`overloaded_error`, `api_error`, `server_error`, `rate_limit_exceeded`) is marked retryable on all three wire APIs but never sent again by the gateway: the stream started, so the caller decides. An unknown finish reason or status, or a Responses function call without a name or `call_id`, ends with `model_protocol_failure` |
-| Request | carries only what the Agent and the Config set; Responses is sent no instruction or verbosity of its own. `ModelConfig.ReasoningEffort` and `ReasoningSummary` go on Responses (`reasoning`); on chat and Anthropic a request that sets either is refused `not_supported` before anything is sent |
+| Retries | a call with no response, or 429 (except a hard quota), 500, 502, 503, 504, 529, or an error that says rate-limited, overloaded or service unavailable, within `Retry.Max`; a provider's `Retry-After` or `retry-after-ms` wins over the backoff and `Retry.MaxWait` caps every wait. A failed send is retried only when it can pass (timeout, reset, refused connection); an untrusted certificate or unknown host returns at once. An overflow is never retried |
+| Broken streams | a stream that breaks is sent again within the retries ([G-F31](#g-f31--recovering-a-cut-stream-)) and reported as "stream interrupted" on every wire. An error the provider sends mid-stream (`overloaded_error`, `api_error`, `server_error`, `rate_limit_exceeded`, or a text that says rate limit, overloaded or service unavailable) is marked retryable on all three wire APIs but never sent again by the gateway: the stream started, so the caller decides. An unknown finish reason or status, or a Responses function call without a name or `call_id`, ends with `model_protocol_failure` |
+| Request | carries only what the Agent and the Sampling set; Responses is sent no instruction or verbosity of its own. `Sampling.Temperature` and `MaxTokens` go on chat and Anthropic (Anthropic sends 8192 when unset); `ReasoningEffort` and `ReasoningSummary` go on Responses (`reasoning`), and on chat and Anthropic a request that sets either is refused `not_supported` before anything is sent. The Model's own `ModelConfig.Sampling` sits under the Session's `WithSampling`, field by field |
+| Key | the Connection's `APIKey` goes where the wire wants a credential; an empty key sends none, on every wire (a keyless local server works). `Headers` cannot replace the credential, the content type or the stream negotiation |
 | Reply | cut by the output limit reports `max_tokens`, even next to tool calls. `Message.Model` records the model that answered (`model` in each chat chunk, Responses' `response.created` and `response.completed`, Anthropic's `message_start`), the fallback behind a gateway; never sent back. Cache reads are counted on every wire API (`cached_tokens`, DeepSeek's `prompt_cache_hit_tokens`) |
-| Reasoning | kept in the Transcript and sent back as each wire API carries it: `reasoning_content` (chat, as DeepSeek requires), encrypted items (Responses), signed `thinking`/`redacted_thinking` (Anthropic) |
+| Reasoning | kept in the Transcript and sent back as each wire API carries it: `reasoning_content` (chat, as DeepSeek requires), encrypted items (Responses), signed `thinking`/`redacted_thinking` (Anthropic). Which Rounds' reasoning goes back is `RoundReasoning` above |
 | Chat extras | a tool call's `extra_content` is kept and sent back as it came (Gemini 3's thought signature; not yet run against Gemini). Parallel tool calls stay apart when the provider sends no index, a null one, or all at 0: a delta naming a new call ID starts a new call |
 | Tool names | a tool goes under its own ID when the provider accepts it, else each other character becomes `_` (`demo.echo` is `demo_echo`) |
-| Refused as too long | a 400 or 413 whose message, code or type says the request exceeded the context window is an error answering `ContextOverflow()`, ending a Run `context_overflow`; an Anthropic stop `model_context_window_exceeded` mid-reply is the same error and the text received stays as a Cut-off reply; so is an in-stream `{"error": …}`/`error` event on chat and Responses. Phrases are matched without regard to case; `overflow_phrases` adds a team's own. A `max_tokens` alone too large is not an overflow. `internal/fakegateway` plays each provider's form |
-| Headers | `gateway.WithRequestHeaders` adds headers to one Run's requests through its context; neither it nor `headers` can replace authentication, content-type or streaming headers; `User-Agent` defaults to `gotato/0.1` |
-| Cache key | goes in the body field `cache_key_field` names and the header `cache_key_header` names. Responses defaults to `prompt_cache_key`; chat sends no field unless named; `anthropic-messages` takes no field (it caches by `cache_control`) but a header works. A provider that keys by a session header needs `cache_key_header` such as `session-id`, else every Turn is cold |
+| Refused as too long | a 400 or 413 whose message, code or type says the request exceeded the context window is an error answering `ContextOverflow()`, ending a Run `context_overflow`; an Anthropic stop `model_context_window_exceeded` mid-reply is the same error and the text received stays as a Cut-off reply; so is an in-stream `{"error": …}`/`error` event on chat and Responses. Phrases are matched without regard to case; a team adds its own by wrapping `DefaultClassifier` (`overflow_phrases` in the file). A `max_tokens` alone too large is not an overflow. `internal/fakegateway` plays each provider's form |
+| Headers | `gateway.WithRequestHeaders` adds headers to one Run's requests through its context; neither it nor `Connection.Headers` can replace authentication, content-type or streaming headers; `User-Agent` defaults to `gotato/0.1`. `anthropic-version` is `AnthropicMessages.Version`, else a header the Connection sets, else `2023-06-01` |
+| Cache key | goes in the body field `CacheKeyField` names (`ChatCompletions`, `Responses`) and the header `Connection.CacheKeyHeader` names. Responses defaults to `prompt_cache_key`; chat sends no field unless named; `AnthropicMessages` takes no field (it caches by `cache_control`) but a header works. A provider that keys by a session header needs `CacheKeyHeader` such as `session-id`, else every Turn is cold |
+| Deferred tools | `Deferred` on `Responses` and `AnthropicMessages` chooses how loaded tools reach the provider ([G-F34](#g-f34--tool-search-)); chat has only the list form |
 
-**Provider rules.** The gateway follows a provider's rules for reasoning and the cache for the provider `provider` names or, without it, whose own address it calls (`api.anthropic.com`, `api.openai.com`, `api.deepseek.com`), never from a model name; `provider: other` turns this off. Checked against the providers' documentation on 2026-10-18, not against the providers.
+**Caching on the chat wire.** Gotato sends no `cache_control` on the chat wire; the only cache hints there are `ChatCompletions.CacheKeyField` and `Connection.CacheKeyHeader`. A gain therefore needs something between you and the model to add `cache_control` (or the provider to cache the prefix on its own), or the team to use the `AnthropicMessages` wire. The usage fields the chat wire reads today are `prompt_tokens`, `completion_tokens`, `total_tokens`, `prompt_tokens_details.cached_tokens` and DeepSeek's `prompt_cache_hit_tokens` (the larger of the two cache counts, capped at the input) into `CacheReadTokens`. It also reads Anthropic's top-level `cache_read_input_tokens` (into `CacheReadTokens`, with the same larger-of rule and cap) and `cache_creation_input_tokens` (into `CacheWriteTokens`, capped at the input that is not a cache read), as an endpoint that serves an Anthropic model may pass them through; with neither field, `CacheWriteTokens` stays 0 on chat. Both cache fields are omitted when 0, so a missing field cannot tell "no hit" from "not reported" from "never cached". Whether the endpoint adds `cache_control` itself cannot be seen from Gotato.
 
-**An endpoint that is not a provider's own address.** The address is not an official host, so no provider is recognized and the rules are off: no cache TTL, every reasoning artifact sent back (as for DeepSeek), whatever the model behind it is. Set `provider: anthropic` (or `openai`, `deepseek`) in the config to apply that provider's rules to an endpoint that serves it; `provider: other` states "none" on purpose. What the rules change depends on the wire API:
+- A Round is a user Message and every reply and Tool Result after it; a Steer starts one, a Continue without a prompt stays in its Round; on Responses an earlier Round's function call goes without its item ID too. DeepSeek (chat and Anthropic APIs) refuses a request that leaves out earlier `reasoning_content` once tools are in play, so a team that serves it leaves `RoundReasoning` unset; a new model gets the reasoning as it is.
+- Block binding: Claude's newest models check a thinking block follows the prompt it was written under; `ThinkingBinding` asks Claude to drop a block whose prefix changed rather than refuse; the `input_transformations` Claude reports are not read yet.
 
-- `anthropic-messages` with `provider: anthropic`: `cache_control` markers with the retention's TTL (`cache_retention`), `block_binding`, and only the current Round's reasoning. This is the wire that gets cache TTL optimisations.
-- `openai-responses` with `provider: openai`: `prompt_cache_options.ttl` on a model that takes it.
-- `openai-chat-completions`: the provider only sets how reasoning is replayed (Round-only for `anthropic` and `openai`); it adds no `cache_control` and no TTL.
-- **Reasoning effort.** `ModelConfig.ReasoningEffort` and `ReasoningSummary` are sent only on the Responses wire; the chat and Anthropic wires refuse a request that sets either (`not_supported`, `refuseReasoningConfig`), so a team cannot set the effort through a chat-wire gateway today. An unrecognized host needs no `provider` to get its reasoning back: it returns every reasoning artifact.
-
-**Caching on the chat wire.** Gotato sends no `cache_control` on `openai-chat-completions`, whatever `provider` says; the only cache hints there are `cache_key_field` and `cache_key_header`. A gain therefore needs something between you and the model to add `cache_control` (or the provider to cache the prefix on its own), or the team to use the `anthropic-messages` wire with `provider: anthropic`. The usage fields the chat wire reads today are `prompt_tokens`, `completion_tokens`, `total_tokens`, `prompt_tokens_details.cached_tokens` and DeepSeek's `prompt_cache_hit_tokens` (the larger of the two cache counts, capped at the input) into `CacheReadTokens`. It also reads Anthropic's top-level `cache_read_input_tokens` (into `CacheReadTokens`, with the same larger-of rule and cap) and `cache_creation_input_tokens` (into `CacheWriteTokens`, capped at the input that is not a cache read), as an endpoint that serves an Anthropic model may pass them through; with neither field, `CacheWriteTokens` stays 0 on chat. Both cache fields are omitted when 0, so a missing field cannot tell "no hit" from "not reported" from "never cached". Whether the endpoint adds `cache_control` itself cannot be seen from Gotato.
-
-| Provider | Reasoning sent back | Added to the request |
-|---|---|---|
-| `anthropic` | only the current Round's | `cache_control` with `"ttl": "1h"`; on Fable 5.1, Opus 5.5, Sonnet 5.5 and Haiku 5.5, `thinking.block_binding` with `drop_block`, its beta header, and `thinking.type: "adaptive"`, their default |
-| `openai` | only the current Round's | on Responses from GPT-5.6, `prompt_cache_options.ttl: "30m"` |
-| `deepseek`, any other | all of it | nothing |
-
-- A Round is a user Message and every reply and Tool Result after it; a Steer starts one, a Continue without a prompt stays in its Round; on Responses an earlier Round's function call goes without its item ID too. DeepSeek (chat and Anthropic APIs) refuses a request that leaves out earlier `reasoning_content` once tools are in play, as an unknown provider may; a new model gets the reasoning as it is.
-- Block binding: Claude's newest models check a thinking block follows the prompt it was written under; `drop_block` asks Claude to drop a block whose prefix changed rather than refuse; `no_drop_block: true` turns it off; the `input_transformations` Claude reports are not read yet.
-- Cache retention: without `cache_retention` a recognized provider gets its longest (a shorter value than its longer option keeps its default; OpenAI before GPT-5.6 keeps its own, 24 hours without Zero Data Retention). `Client.CacheRetention()` reports it: 1 hour or 5 minutes on Anthropic, 30 minutes on Responses when sent, 0 (unknown) elsewhere.
+**The file the test tools read.** `gotato --gateway-config`, `gotato-workload -gateway-config` and `examples/larkbot` read one YAML file through `internal/cmd/gatewayconf`, the one place a wire API's name maps to a `gateway.WireAPI` value. [internal/cmd/gatewayconf/gateway.example.yaml](internal/cmd/gatewayconf/gateway.example.yaml) is the full file to copy, tested so it stays current. A secret reaches it through `${NAME}`, and an unknown key is an error that names it. `api:` is `openai-chat-completions` (the default), `openai-responses` or `anthropic-messages`.
 
 | Key | Default | What it does |
 |---|---|---|
 | `api` | `openai-chat-completions` | the wire API |
-| `endpoint` or `base_url` | — | where the provider listens |
-| `api_key` | — | the key; `${NAME}` reads the environment |
-| `model` | — | the model to call |
-| `context_window_tokens` | none | **optional, but without it (and without a `CeilingTokens`) compaction runs only after a refusal as too long**; the model's window in tokens, from which compaction takes its ceiling ([G-F06](#g-f06--compaction-)); Gotato keeps no table of windows. `Client.ContextWindowTokens()` |
+| `endpoint` | required | the complete URL requests go to, path included |
+| `api_key` | none | the key; `${NAME}` reads the environment |
 | `headers` | none | headers a provider or proxy requires |
-| `cache_key_field` | `prompt_cache_key` on responses, none on chat; `none` turns off | the body field for the cache key |
 | `cache_key_header` | none | the header for the cache key |
-| `deferred_tools` | `native` on `anthropic-messages`/`openai-responses`, `list` on chat | how loaded tools reach the provider ([G-F34](#g-f34--tool-search-)); `Client.DeferredTools()` |
-| `max_retries` | 2; `-1` none | retries |
-| `retry_backoff` | 200 ms, growing, with jitter | spreads retries |
+| `cache_key_field` | `prompt_cache_key` on responses, none on chat; `none` turns off | the body field for the cache key |
+| `anthropic_version` | `2023-06-01` | the `anthropic-version` header (anthropic-messages) |
+| `deferred_tools` | `native` on `anthropic-messages`/`openai-responses`, `list` on chat | how loaded tools reach the provider |
+| `model` | required | the model to call |
+| `window` | **required** | the context window in tokens, or `unknown`; with `unknown` compaction runs only after a refusal as too long |
+| `cache_retention` | unset (unknown) | a Go duration such as `5m` or `1h` ([G-F33](#g-f33--prompt-cache-retention-)) |
+| `round_reasoning` | false | the provider takes back only the current Round's reasoning |
+| `thinking_binding` | false | ask Claude to drop a thinking block whose prefix changed |
+| `temperature`, `max_tokens`, `reasoning_effort`, `reasoning_summary` | unset | the model's default `Sampling` |
+| `max_retries` | 2; `0` is off | retries (`Retry.Max`) |
+| `retry_backoff` | 200 ms, growing, with jitter | spreads retries (`Retry.Backoff`) |
 | `max_retry_wait` | 60 s | caps the wait, a provider's `Retry-After` included (`Retry-After: 3600` does not hold a Run an hour) |
-| `connect_timeout` | 10 s | the dial and the TLS handshake, each |
+| `connect_timeout` | 10 s | the dial and the TLS handshake, each (`gateway.NewHTTPClient`) |
 | `response_header_timeout` | 60 s | wait for response headers after the request is sent |
-| `provider` | recognized from the address, else none | `anthropic`, `openai`, `deepseek` or `other` |
-| `cache_retention` | the recognized provider's longest | e.g. `cache_retention: 5m` keeps Claude's default and its lower write price |
-| `no_drop_block` | false | stop asking Claude to drop a block whose prefix changed (the gateway picks `block_binding` by model name, `thinkingPrefixModels` in `gateway/reasoning_replay.go`) |
-| `overflow_phrases` | none | the team's own phrases or codes added to the overflow list (`Config.OverflowPhrases`) |
-
-**Connection and model profile (D-042).** `gateway.Config` stays as it is. Beside it, `gateway.Connection` holds the connection fields (API, address, key, headers, cache key, retries, timeouts, `HTTPClient`) and `gateway.ModelProfile` holds what the model is: `Name`, `Window`, `Provider`, `CacheRetention`, `OverflowPhrases`, `DeferredTools`, `NoDropBlock`. `gateway.NewWithProfile(connection, profile)` builds the Client; a `gateway.ProfileSet` (a map from a name to a profile) keeps a team's profiles in one place, `ProfileSet.Get(ref)` errors on a missing name, and `ProfileSet.New(connection)` builds from the profile `Connection.Profile` names. **The profile form asks for the window to be stated**: `gateway.WindowTokens(n)` with n above 0, or `gateway.WindowUnknown()`; a profile without one is refused when the Client is built. With an unknown window, compaction runs only after a refusal as too long. `Client.ContextWindowTokens()` reports it as before, so `modelctx.WindowOf` is unchanged. Gotato keeps no table of windows and no profiles of its own. The YAML file has no profile block yet.
+| `overflow_phrases` | none | the team's own phrases or codes, added to `DefaultClassifier`'s overflow list |
 
 ### G-F31 — Recovering a cut stream ✅
 
@@ -554,7 +570,7 @@ A reply cut off partway must not fail the Run. A stream cut after some output is
 - The identical request is sent again within `max_retries`; each time a `model_retried` Event says so (attempt, wait, why). The reply cut off stays in the Record only as a log, as a Cut-off reply (`StopReasonCutOff`, `reply_cut_off`) that no model is ever sent; it keeps the text received only, not tool-call arguments or reasoning. The new reply is its own, with its own `reply_started`.
 - **A stream reader who sees `model_retried` discards what it received of that reply** (the `text_delta` and `reasoning_delta` since the last `reply_started`). Events come in this order: `model_retried`, `reply_cut_off` when text was kept, `reply_started`.
 - When the attempts run out the Run fails with `model_failure` and the Record keeps the last Cut-off reply. A refusal of the request (`context_overflow` included), an Interrupt, a canceled `ctx` and a deadline are not cuts. Only a transport interruption restarts (a reset, a close before the stream's end); an invalid chunk never does.
-- The gateway sends again after output only when a Session listens (`gotato.ReportModelRetry` returns true); a caller reading `Client.Stream` with no Session gets a retryable error. A Model of your own that retries inside its stream calls `gotato.ReportModelRetry` first and starts the reply over.
+- The gateway sends again after output only when a Session listens (`gotato.ReportModelRetry` returns true); a caller reading `Client.Stream` with no Session gets a retryable "stream interrupted" error. A Model of your own that retries inside its stream calls `gotato.ReportModelRetry` first and starts the reply over.
 
 ## Storage
 
@@ -657,7 +673,7 @@ Settings, on `service.Config` and the HTTP handler:
 
 ### G-F33 — Prompt cache retention ✅
 
-The gateway asks a recognized provider for its longest cache retention: an hour on Claude (which doubles the price of a cache write; `5m` keeps the default), 30 minutes on OpenAI's Responses API from GPT-5.6. It is set where the provider is configured with `cache_retention` ([G-F07](#g-f07--models-and-providers-)), not per Agent. Compaction reads the retention in effect to time an idle compaction ([G-F06](#g-f06--compaction-)). Gotato does not refresh a warm Session's cache (a keepalive is in [Later](#later)).
+The team states how long its provider keeps the prompt cache, as `ModelFacts.CacheRetention` (`cache_retention` in the file; [G-F07](#g-f07--models-and-providers-)), and Gotato guesses none from an address or a name. The Anthropic wire asks for the ttl `1h` when it is 1 hour or more (which doubles the price of a cache write), the Responses wire asks for `30m` when it is exactly 30 minutes, and an unknown or other retention keeps the provider's default. It is set on the model, not per Agent. Compaction reads `Model.Config().Facts.CacheRetention` to time an idle compaction ([G-F06](#g-f06--compaction-)). Gotato does not refresh a warm Session's cache (a keepalive is in [Later](#later)).
 
 ## Endpoints
 
@@ -810,7 +826,7 @@ Ideas worth building once they are needed. None has a milestone yet.
 | Idea | Note |
 |---|---|
 | Telemetry adapters | a package mapping an Instance's Events onto OpenTelemetry; teams can write their own ([G-N11](#not-planned)) |
-| Model catalog | model names and prices next to the providers; a model's window comes from `context_window_tokens`, never looked up |
+| Model catalog | model names and prices next to the providers; a model's window comes from its `ModelFacts.Window`, never looked up |
 | Provider rate-limit information | limits, remaining calls and reset time reported with usage |
 | Idempotency keys | a repeated request ID is not run twice (a `RequestID` is recorded and echoed already, and nothing looks for a repeat) |
 | Examples (G-F24) | one-shot use, a persistent Session, compaction, forks, dynamic tools |
