@@ -662,12 +662,10 @@ func TestCrashAtEveryWriteRebuildsTheLastStep(t *testing.T) {
 				if err != nil {
 					t.Fatalf("crash after write %d: inspect: %v", n, err)
 				}
-				reference := taskRunner(t, memStore(), task, "reference")
-				before, err := reference.CreateSession(ctx, task.Name, nil, session.WithMessages(clean.states[n-1]...), reftasks.WithLoadedToolsOf(clean.states[n-1]))
-				if err != nil {
-					t.Fatal(err)
-				}
-				expected, err := reference.Inspect(ctx, before.ID(), service.InspectConfig{})
+				referenceStore := memStore()
+				reference := taskRunner(t, referenceStore, task, "reference")
+				beforeID := plantRecord(t, referenceStore, task.Name, "", clean.states[n-1])
+				expected, err := reference.Inspect(ctx, beforeID, service.InspectConfig{})
 				if err != nil {
 					t.Fatal(err)
 				}

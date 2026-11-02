@@ -188,12 +188,9 @@ func TestSameRecordSameRequest(t *testing.T) {
 				// The Record as it stood at this Turn: a copy of its first n
 				// Messages under the same cache key, which is the only part of
 				// the Record's identity that reaches the request.
-				prefix, err := viewA.CreateSession(ctx, task.Name, map[string]string{service.ReservedPrefix + "cache_key": cacheKey}, session.WithMessages(stored[:n]...), reftasks.WithLoadedToolsOf(stored[:n]))
-				if err != nil {
-					t.Fatal(err)
-				}
+				prefixID := plantRecord(t, store, task.Name, cacheKey, stored[:n])
 				for _, view := range views {
-					report, err := view.runner.Inspect(ctx, prefix.ID(), service.InspectConfig{})
+					report, err := view.runner.Inspect(ctx, prefixID, service.InspectConfig{})
 					if err != nil {
 						t.Fatal(err)
 					}

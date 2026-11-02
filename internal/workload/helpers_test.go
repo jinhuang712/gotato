@@ -139,3 +139,20 @@ func stripCacheControl(v any) any {
 	}
 	return v
 }
+
+// plantRecord stores a Record of the task's Agent that holds messages, with the
+// Tools they loaded and, when cacheKey is not empty, that cache key, as another
+// process or an earlier version would have left it, and returns its ID. It
+// writes through the store: the Runner's own calls refuse the keys it sets.
+func plantRecord(t *testing.T, store session.Store, agent, cacheKey string, messages []gotato.Message) string {
+	t.Helper()
+	metadata := map[string]string{service.ReservedPrefix + "agent": agent}
+	if cacheKey != "" {
+		metadata[service.ReservedPrefix+"cache_key"] = cacheKey
+	}
+	record := session.New(session.WithMetadata(metadata), session.WithMessages(messages...), reftasks.WithLoadedToolsOf(messages))
+	if _, err := session.CreateWriter(context.Background(), store.Records, record, "planter", session.WithIdle()); err != nil {
+		t.Fatal(err)
+	}
+	return record.ID()
+}
