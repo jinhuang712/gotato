@@ -54,7 +54,7 @@ func (a *Session) InspectContext(ctx context.Context) (ContextInspection, error)
 	if sourceErr != nil {
 		return ContextInspection{}, asRuntimeError(sourceErr)
 	}
-	messages, failure := a.transcriptMessages()
+	messages, failure := a.history.messages()
 	if failure != nil {
 		return ContextInspection{}, failure
 	}

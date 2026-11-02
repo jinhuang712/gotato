@@ -119,7 +119,7 @@ func humanBytes(n int) string {
 // writes: a session.Record or session.Writer declares Capabilities.Spill; over
 // any other Transcript a Tool Result is committed whole.
 func (a *Session) keepsSpilled() (keeps bool, failure *RuntimeError) {
-	caps, failure := a.capabilities()
+	caps, failure := a.history.capabilities()
 	return caps.Spill && failure == nil, failure
 }
 

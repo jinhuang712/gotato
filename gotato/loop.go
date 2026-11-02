@@ -2,7 +2,6 @@ package gotato
 
 import (
 	"context"
-	"encoding/json"
 	"errors"
 	"maps"
 	"time"
@@ -147,7 +146,7 @@ func (st *runState) callModel(turn TurnNumber, runStart int) (assistant Message,
 	// build makes the request of this Turn from the Transcript as it
 	// stands. A TurnPreparer that rewrote the Transcript has it built again.
 	build := func() (turnBuild, *RuntimeError) {
-		messages, failure := a.transcriptMessages()
+		messages, failure := a.history.messages()
 		if failure != nil {
 			return turnBuild{}, failure
 		}
@@ -183,7 +182,7 @@ func (st *runState) callModel(turn TurnNumber, runStart int) (assistant Message,
 			break
 		}
 		if changed {
-			if err := a.measureTranscript(); err != nil {
+			if err := a.history.measure(); err != nil {
 				return Message{}, Usage{}, nil, asRuntimeError(err)
 			}
 			if err := a.syncLoadedTools(); err != nil {
@@ -291,16 +290,9 @@ func (st *runState) runToolBatch(turn TurnNumber, assistant Message) (toolOutcom
 			}
 			content := cloneParts(toolResult.Content)
 			resultMessage := Message{ID: MessageID(nextID("message")), RunID: runID, Role: RoleToolResult, Parts: content, ToolResult: cloneToolResultPtr(toolResult)}
-			commitErr := a.commitMessage(resultMessage)
-			if isMessageTooLarge(commitErr) {
-				// The Tool already ran: the Model is told why its output is
-				// missing, and the Run goes on.
-				size, _ := json.Marshal(resultMessage)
-				toolResult = oversizedResult(toolResult, len(size), a.limits.MaxMessageBytes)
-				resultMessage.Parts = cloneParts(toolResult.Content)
-				resultMessage.ToolResult = cloneToolResultPtr(toolResult)
-				commitErr = a.commitMessage(resultMessage)
-			}
+			// A Result too large for one Message is replaced by one that says
+			// why its output is missing, and the Run goes on.
+			resultMessage, toolResult, commitErr := a.history.commitToolResult(a.limits, resultMessage, toolResult)
 			if commitErr != nil {
 				return asRuntimeError(commitErr)
 			}
@@ -395,11 +387,11 @@ func (a *Session) executeRun(ctx context.Context, prompt *Message) (RunResult, e
 	if err := a.refreshToolSets(runCtx, st.header(0)); err != nil {
 		return st.fail(err)
 	}
-	runStart, failure := a.transcriptLen()
+	runStart, failure := a.history.len()
 	if failure != nil {
 		return st.fail(failure)
 	}
-	if err := a.measureTranscript(); err != nil {
+	if err := a.history.measure(); err != nil {
 		return st.fail(asRuntimeError(err))
 	}
 	if prompt != nil {
@@ -661,7 +653,7 @@ func (a *Session) prepareTurn(ctx context.Context, runID RunID, turn TurnNumber,
 		SessionID:  a.id,
 		RunID:      runID,
 		Turn:       turn,
-		Transcript: a.transcript,
+		Transcript: a.history.transcript,
 		RunStart:   runStart,
 		Request:    request,
 		Overflow:   refusal != nil,

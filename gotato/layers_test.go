@@ -58,8 +58,8 @@ var fileLayer = map[string]int{
 	"transcript.go":   layerMechanism,
 	"turnprep.go":     layerMechanism,
 	// Session and Loop
-	"commit.go":           layerSession,
 	"eventwrite.go":       layerSession,
+	"history.go":          layerSession,
 	"inspect.go":          layerSession,
 	"loop.go":             layerSession,
 	"notice.go":           layerSession,

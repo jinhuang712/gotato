@@ -96,7 +96,7 @@ func NewSession(ctx context.Context, options ...SessionOption) (*Session, error)
 		model:          cfg.model,
 		instruction:    cfg.instruction,
 		tools:          sessionTools{registry: registry},
-		transcript:     cfg.transcript,
+		history:        sessionHistory{transcript: cfg.transcript},
 		contextBuilder: cfg.contextBuilder,
 		extensions:     cfg.extensions,
 		limits:         cfg.limits,
@@ -165,12 +165,9 @@ type Session struct {
 	sampling Sampling
 	cacheKey string
 
-	// transcript is the committed history, such as a session.Record. The Session
-	// goroutine is its only writer during a Run. transcriptBytes tracks the
-	// encoded size incrementally so a commit never re-encodes the history.
-	transcript      Transcript
-	transcriptBytes uint64
-	contextBuilder  ContextBuilder
+	// history is the committed history, such as a session.Record, and its size.
+	history        sessionHistory
+	contextBuilder ContextBuilder
 	// journal keeps the Session's stored Events: the Transcript's Journal when
 	// it declares one, and a numbering of its own otherwise.
 	journal Journal
@@ -386,17 +383,10 @@ func notRunBeforeAdmission(cause error, operation string) *RuntimeError {
 const settleGrace = 5 * time.Second
 
 // Transcript returns the Transcript this Session commits to.
-func (a *Session) Transcript() Transcript { return a.transcript }
-
-// capabilities is the Transcript's declaration now, guarded. It is asked again
-// where it can change, as Durable does for a Record that gets stored.
-func (a *Session) capabilities() (caps Capabilities, failure *RuntimeError) {
-	failure = transcriptCall(func() { caps = a.transcript.Capabilities() })
-	return caps, failure
-}
+func (a *Session) Transcript() Transcript { return a.history.transcript }
 
 // isDurable reports whether the Session's Events are stored.
 func (a *Session) isDurable() (stored bool, failure *RuntimeError) {
-	caps, failure := a.capabilities()
+	caps, failure := a.history.capabilities()
 	return caps.Durable && failure == nil, failure
 }

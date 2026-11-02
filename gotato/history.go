@@ -31,15 +31,21 @@ func oversizedResult(result ToolResult, size int, limit uint64) ToolResult {
 	}
 }
 
-// commitMessage commits one Message under the Message and transcript limits.
-func (a *Session) commitMessage(message Message) error {
-	return a.appendMessage(message, true)
+// sessionHistory is the Session's committed history: its Transcript, such as a
+// session.Record, and the encoded size of what it holds. The Session goroutine
+// is the Transcript's only writer during a Run, so the part has no lock. The
+// size is tracked incrementally so a commit never re-encodes the history.
+type sessionHistory struct {
+	transcript Transcript
+	// size is the encoded size of the Messages in the JSON array a Transcript
+	// is bounded by, without its brackets.
+	size uint64
 }
 
-// appendMessage commits one Message. enforce applies the Message and
-// transcript limits; only the closing results of a failed Run skip them (see
+// commit commits one Message under the Message and transcript limits. enforce
+// is false only for the closing results of a failed Run, which skip them (see
 // closeOpenCalls).
-func (a *Session) appendMessage(message Message, enforce bool) error {
+func (h *sessionHistory) commit(limits CoreLimits, message Message, enforce bool) error {
 	if message.ID == "" {
 		message.ID = MessageID(nextID("message"))
 	}
@@ -48,52 +54,74 @@ func (a *Session) appendMessage(message Message, enforce bool) error {
 	if err != nil {
 		return runtimeError(CodeInternalInvariant, "commitMessage", "cannot encode Message", err)
 	}
-	length, failure := a.transcriptLen()
+	length, failure := h.len()
 	if failure != nil {
 		return failure
 	}
-	if enforce && limitExceededUint32(a.limits.MaxMessages, uint32(length+1)) {
+	if enforce && limitExceededUint32(limits.MaxMessages, uint32(length+1)) {
 		return runtimeError(CodeLimitExceeded, "commitMessage", "maximum Messages exceeded", nil)
 	}
-	if enforce && limitExceededUint64(a.limits.MaxMessageBytes, uint64(len(bytes))) {
+	if enforce && limitExceededUint64(limits.MaxMessageBytes, uint64(len(bytes))) {
 		e := runtimeError(CodeLimitExceeded, "commitMessage", "maximum Message bytes exceeded", nil)
 		e.Details = map[string]string{"limit": limitMessageBytes}
 		return e
 	}
 	// The transcript bound is tracked incrementally: one JSON array of n
 	// elements costs the elements plus n-1 separators and two brackets.
-	candidate := a.transcriptBytes + uint64(len(bytes))
+	candidate := h.size + uint64(len(bytes))
 	if length > 0 {
 		candidate++
 	}
-	if enforce && limitExceededUint64(a.limits.MaxTranscriptBytes, candidate+2) {
+	if enforce && limitExceededUint64(limits.MaxTranscriptBytes, candidate+2) {
 		return runtimeError(CodeLimitExceeded, "commitMessage", "maximum transcript bytes exceeded", nil)
 	}
-	if err := a.appendTranscript(message); err != nil {
+	if err := h.appendGuarded(message); err != nil {
 		return runtimeError(CodeInternalInvariant, "commitMessage", PublicText(err, "cannot append to transcript"), err)
 	}
-	a.transcriptBytes = candidate
+	h.size = candidate
 	return nil
 }
 
-// measureTranscript recomputes the encoded transcript size once per Run so an
-// externally mutated Transcript (a compacted or reloaded Session) is bounded
-// correctly without re-encoding on every commit.
-func (a *Session) measureTranscript() error {
-	messages, failure := a.transcriptMessages()
+// commitToolResult commits the Message of a Tool Result. The Tool already ran,
+// so a Result too large for one Message is not a failure of the Run: it is
+// replaced by a failed Result that tells the Model why its output is missing,
+// and that is committed in its place. It returns the Message and the Result as
+// committed.
+func (h *sessionHistory) commitToolResult(limits CoreLimits, message Message, result ToolResult) (Message, ToolResult, error) {
+	err := h.commit(limits, message, true)
+	if isMessageTooLarge(err) {
+		size, _ := json.Marshal(message)
+		result = oversizedResult(result, len(size), limits.MaxMessageBytes)
+		message.Parts = cloneParts(result.Content)
+		message.ToolResult = cloneToolResultPtr(result)
+		err = h.commit(limits, message, true)
+	}
+	return message, result, err
+}
+
+// commitMessage commits one Message under the Message and transcript limits.
+func (a *Session) commitMessage(message Message) error {
+	return a.history.commit(a.limits, message, true)
+}
+
+// measure recomputes the encoded transcript size once per Run so an externally
+// mutated Transcript (a compacted or reloaded Session) is bounded correctly
+// without re-encoding on every commit.
+func (h *sessionHistory) measure() error {
+	messages, failure := h.messages()
 	if failure != nil {
 		return failure
 	}
 	if len(messages) == 0 {
-		a.transcriptBytes = 0
+		h.size = 0
 		return nil
 	}
 	encoded, err := json.Marshal(messages)
 	if err != nil {
 		return runtimeError(CodeInternalInvariant, "Run", "cannot encode transcript", err)
 	}
-	// Exclude the surrounding brackets; commitMessage adds them back.
-	a.transcriptBytes = uint64(len(encoded)) - 2
+	// Exclude the surrounding brackets; commit adds them back.
+	h.size = uint64(len(encoded)) - 2
 	return nil
 }
 
@@ -103,8 +131,8 @@ func (a *Session) measureTranscript() error {
 // is not later failed at the boundary. It measures the Message as the commit
 // writes it, with the Run ID the commit sets. It is nil when the Message fits.
 // [CONTRACT] a queued Message that the commit would refuse for its size is refused where it arrives, not after the caller is told "queued".
-func (a *Session) controlSizeError(message Message, operation string) error {
-	if a.limits.MaxMessageBytes == 0 {
+func controlSizeError(limits CoreLimits, message Message, operation string) error {
+	if limits.MaxMessageBytes == 0 {
 		return nil
 	}
 	message.RunID = RunID(nextID("run"))
@@ -112,7 +140,7 @@ func (a *Session) controlSizeError(message Message, operation string) error {
 	if err != nil {
 		return runtimeError(CodeInvalidArgument, operation, "cannot encode "+operation+" message", err)
 	}
-	if !limitExceededUint64(a.limits.MaxMessageBytes, uint64(len(encoded))) {
+	if !limitExceededUint64(limits.MaxMessageBytes, uint64(len(encoded))) {
 		return nil
 	}
 	e := runtimeError(CodeLimitExceeded, operation, operation+" message is over the maximum Message bytes", nil)
@@ -131,20 +159,27 @@ func transcriptCall(call func()) *RuntimeError {
 	return runtimeError(CodeInternalInvariant, "Transcript", PublicText(err, "Transcript failed"), err)
 }
 
-// transcriptLen is the Transcript's Len, guarded.
-func (a *Session) transcriptLen() (n int, failure *RuntimeError) {
-	failure = transcriptCall(func() { n = a.transcript.Len() })
+// len is the Transcript's Len, guarded.
+func (h *sessionHistory) len() (n int, failure *RuntimeError) {
+	failure = transcriptCall(func() { n = h.transcript.Len() })
 	return n, failure
 }
 
-// transcriptMessages is the Transcript's Messages, guarded.
-func (a *Session) transcriptMessages() (messages []Message, failure *RuntimeError) {
-	failure = transcriptCall(func() { messages = a.transcript.Messages() })
+// messages is the Transcript's Messages, guarded.
+func (h *sessionHistory) messages() (messages []Message, failure *RuntimeError) {
+	failure = transcriptCall(func() { messages = h.transcript.Messages() })
 	return messages, failure
 }
 
-// appendTranscript appends to the Transcript; a panic in it is an error.
-func (a *Session) appendTranscript(message Message) (err error) {
+// capabilities is the Transcript's declaration now, guarded. It is asked again
+// where it can change, as Durable does for a Record that gets stored.
+func (h *sessionHistory) capabilities() (caps Capabilities, failure *RuntimeError) {
+	failure = transcriptCall(func() { caps = h.transcript.Capabilities() })
+	return caps, failure
+}
+
+// appendGuarded appends to the Transcript; a panic in it is an error.
+func (h *sessionHistory) appendGuarded(message Message) (err error) {
 	defer recoverPanic("Transcript", &err)
-	return a.transcript.Append(message)
+	return h.transcript.Append(message)
 }

@@ -109,7 +109,7 @@ func (a *Session) QueueNotice(ctx context.Context, message Message) (uint64, err
 		return 0, err
 	}
 	// [CONTRACT] a Notice that is told "queued" must not be refused later at the boundary for its size.
-	if err := a.controlSizeError(message, "Notice"); err != nil {
+	if err := controlSizeError(a.limits, message, "Notice"); err != nil {
 		return reject("too_large", err)
 	}
 	// The place is reserved before the Event is written, and held meanwhile.
