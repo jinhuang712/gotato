@@ -33,6 +33,7 @@ Done when: each item has a test, a FEATURES.md entry and a CHANGELOG line; no br
 
 Each item starts as a decision in [decisions](decisions/README.md). Code follows only if the decision says yes.
 
+- **D-024** a cap on Turns and tool calls, moved here from *Not scheduled*: D-027 names a failure (a 16-round Run of 161.7 s with no limit). Decide first, with the wrap-up Notice question of D-024 answered.
 - **D-018** load and run a read-only tool on the refusal: it changes when a load takes effect, and may touch the cache-stable tool list. Decided after round 2: measure first whether the reworded `search_tools` line and the `Code` for "not loaded" bring the refused calls down.
 - **D-019** should the chat wire send `cache_control`.
 - **D-010** a pass-through body field for reasoning effort.
@@ -54,6 +55,5 @@ Starts when rounds 1 and 2 are merged and round 3 is decided.
 
 - G-B13, which needs developers new to Gotato;
 - the ideas in [FEATURES.md → Later](../FEATURES.md#later);
-- **D-024** `MaxTurns` and `MaxToolCalls`: decision 038 allows a limit only for a named failure; picked up when someone names one;
 - **D-025** `arguments` on `tool_started`: the base64 form is documented in round 1 and that is enough for now;
 - the other items in [TODO.md](TODO.md), which are fixed or settled outside any release.

@@ -28,6 +28,12 @@ From the first real adoption (a Lark bot service running on several pods), each 
 - [ ] **D-024 · No helper for a Turn or tool-call cap.** Add `MaxTurns` and `MaxToolCalls` as `TurnStopper` helpers; check whether a `TurnStopper` can send a Notice first.
 - [ ] **D-025 · Tool arguments are base64 in a Record.** Keep `[]byte`; add an optional `arguments` JSON field to `tool_started`; document the form.
 - [ ] **D-026 · A failure's reason is only readable from text.** Add `Code` to `ToolResult` and `ToolEnded`.
+- [ ] **D-027 · The time of a Run is the model's (81% to 99%), not the tools'.** Measured downstream on 8 Runs. Say in FEATURES.md that parallel tools save about 5% and a cache is a matter of cost; reword the "not loaded" line first (D-018); reopen the Turn cap decision (D-024). Ask why the same output took twice as long on 10-29.
+- [ ] **D-028 · The "ask a person" guide has a worked example downstream.** Use it in `guides/extension-points.md` (D-022): fail closed with `Block:true`, an approver list, a card cap, a remembered refusal, a longer total timeout. Say the card path is unchecked against a live chat.
+- [ ] **D-029 · A name prefix is a guess about Effect.** Say so in the MCP section of FEATURES.md; recommend `destructive` by default plus an exact list; use the downstream 5-server cut as a test of filter and rename.
+- [ ] **D-030 · Retrying a `NotRun` after a back-off is a plain answer to `not_writer` for one replica.** One paragraph and its limit in the multi-instance guide.
+- [ ] **D-031 · Lark pitfalls (card size, inline code, `*` across a colour tag, thread key, recall permission).** A list in `examples/larkbot/README.md`.
+- [ ] **D-032 · A tool cannot learn who asked, except through a `ctx` value set before `Runner.Run` (works, undocumented).** Document the route and pin it with a test; decide whether a per-Run field should reach `ToolUse`.
 - [ ] **D-003 · Nothing warns against `http.Client.Timeout` on the MCP transport.** One sentence in the option comment and FEATURES.md.
 - [ ] **D-008 · No Mongo section in `guides/write-a-store.md`.**
 - [ ] **D-011 · `guides/install.md` opens with Go 1.24 only.** Add "1.25 with `adapter/mcp`".
