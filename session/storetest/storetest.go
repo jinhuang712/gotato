@@ -10,6 +10,11 @@
 //     the Header and every field of an Entry as it was written.
 //   - RunLiveness checks session.Liveness: rows expire by the store's clock,
 //     an expired row never comes back, and a row its Instance ended is removed.
+//   - RunDefinitions checks session.Definitions: a document is kept byte for
+//     byte under its (kind, name), kind and name are independent parts of the
+//     key, a save replaces, handles share one backing, no bytes are aliased, an
+//     invalid kind or name is ErrInvalidID, and concurrent saves of one key
+//     leave one whole document.
 //   - RunLister checks session.Lister, the optional listing of Records: the
 //     most recently updated first, paged by Limit and Cursor.
 //
@@ -53,6 +58,14 @@ type OpenLiveness func() session.Liveness
 // LivenessBacking creates one new, empty backing store of Liveness rows,
 // returns how to open handles on it, and how to clean it up.
 type LivenessBacking func() (OpenLiveness, func(), error)
+
+// OpenDefinitions returns a new handle on one backing store of definitions.
+// Every handle must see what the others wrote.
+type OpenDefinitions func() session.Definitions
+
+// DefinitionsBacking creates one new, empty backing store of definitions,
+// returns how to open handles on it, and how to clean it up.
+type DefinitionsBacking func() (OpenDefinitions, func(), error)
 
 // LivenessOption configures RunLiveness and CheckLiveness.
 type LivenessOption func(*livenessConfig)
@@ -128,6 +141,22 @@ var recordsChecks = []check{
 	{"IDs that differ only in case or Unicode form are different Records", checkIDCase},
 }
 
+type definitionsCheck struct {
+	name string
+	run  func(ctx context.Context, open OpenDefinitions) error
+}
+
+var definitionsChecks = []definitionsCheck{
+	{"a document is kept byte for byte, JSON or not", checkDefinitionRoundTrip},
+	{"LoadDefinition of an unknown key is ErrNotFound", checkDefinitionNotFound},
+	{"kind and name are independent parts of the key", checkDefinitionKeysIndependent},
+	{"SaveDefinition replaces what was there", checkDefinitionReplaces},
+	{"every handle sees what the others saved", checkDefinitionHandlesShare},
+	{"a store never shares bytes with its caller", checkDefinitionNotAliased},
+	{"a kind or name the store cannot keep is ErrInvalidID", checkDefinitionInvalidKey},
+	{"concurrent saves of one key leave one whole document", checkDefinitionConcurrentSaves},
+}
+
 var livenessChecks = []livenessCheck{
 	{"Beat creates a Liveness row that Instance returns, and ttl 0 ends it", checkLiveness},
 	{"Beat on a live row renews it and replaces the whole row", checkBeatRenews},
@@ -179,6 +208,26 @@ func RunLiveness(t *testing.T, backing LivenessBacking, options ...LivenessOptio
 	for _, c := range livenessChecks {
 		t.Run(c.name, func(t *testing.T) {
 			if err := runLivenessCheck(context.Background(), backing, config, c); err != nil {
+				t.Fatal(err)
+			}
+		})
+	}
+}
+
+// RunDefinitions runs every check of session.Definitions as a subtest, each on
+// a new backing store.
+func RunDefinitions(t *testing.T, backing DefinitionsBacking) {
+	t.Helper()
+	for _, c := range definitionsChecks {
+		t.Run(c.name, func(t *testing.T) {
+			open, cleanup, err := backing()
+			if err != nil {
+				t.Fatalf("backing: %v", err)
+			}
+			if cleanup != nil {
+				defer cleanup()
+			}
+			if err := c.run(context.Background(), open); err != nil {
 				t.Fatal(err)
 			}
 		})
