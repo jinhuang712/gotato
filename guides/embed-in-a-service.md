@@ -12,9 +12,14 @@ store, err := session.NewFileStore("/var/lib/myservice/sessions")
 if err != nil {
     return err
 }
+profiles := profile.NewRegistry(nil)
+if err := profiles.RegisterAgentProfileInline(profile.AgentProfile{Name: "default", Model: model, Tools: tools}); err != nil {
+    return err
+}
 runner, err := service.New(service.Config{
-    Store:  session.Store{Records: store, Liveness: store},
-    Agents: []service.Agent{{Name: "default", Model: model, Tools: tools}},
+    Store:        session.Store{Records: store, Liveness: store},
+    Profiles:     profiles,
+    DefaultAgent: "default",
 })
 if err != nil {
     return err
@@ -27,7 +32,7 @@ second, err := runner.Run(ctx, service.RunRequest{SessionID: first.SessionID, Pr
 fmt.Println(second.FinalText)
 ```
 
-An Agent is a definition: a model, an instruction, tools, limits. A Session is a conversation that runs it. The Runner keeps the two apart, so one Agent serves many Sessions.
+An Agent is a definition, in code a `profile.AgentProfile`: a model, an instruction, tools, limits. A Session is a conversation that runs it. The Runner keeps the two apart, so one Agent serves many Sessions. The Runner looks the Agent up by name in the `profile.Registry` you give it, each time it builds a Session, and `DefaultAgent` names the one a request that names none runs. How the pod keeps idle Sessions (`Config.Warm`) and when a pause counts as time away (`Config.TimeAwayAfter`) are the pod's settings, not the Agent's.
 
 This example is run as a test: `ExampleRunner_Run` in [service/run_test.go](../service/run_test.go).
 
@@ -70,12 +75,13 @@ case gotato.Retryable(err):
 A Session has no instruction of its own: the instruction, the model, the tools, the Effect cap, the Sampling and the compaction ceiling all come from its Agent. To answer one message in French, or to give one kind of job a tighter cap, register another Agent and name it on the request.
 
 ```go
+profiles := profile.NewRegistry(nil)
+err := profiles.RegisterAgentProfileInline(profile.AgentProfile{Name: "default", Model: model, Instruction: "You answer questions about open tickets.", Tools: tools})
+err = profiles.RegisterAgentProfileInline(profile.AgentProfile{Name: "french", Model: model, Instruction: "You answer questions about open tickets, in French.", Tools: tools})
 runner, err := service.New(service.Config{
-    Store: session.Store{Records: store, Liveness: store},
-    Agents: []service.Agent{
-        {Name: "default", Model: model, Instruction: "You answer questions about open tickets.", Tools: tools},
-        {Name: "french", Model: model, Instruction: "You answer questions about open tickets, in French.", Tools: tools},
-    },
+    Store:        session.Store{Records: store, Liveness: store},
+    Profiles:     profiles,
+    DefaultAgent: "default",
 })
 
 // Answer this message in French. The Session now runs "french", and stays on it
@@ -83,9 +89,36 @@ runner, err := service.New(service.Config{
 out, err := runner.Run(ctx, service.RunRequest{SessionID: id, Agent: "french", Prompt: "what is open today?"})
 ```
 
-`RunRequest.Agent` is the one way to change a Session's Agent, and it is saved with the Run (`SkipSave` keeps the Session as it was). A job that runs again and again with its own background is its own Agent too.
+`RunRequest.Agent` is the one way to change a Session's Agent, and it is saved with the Run (`SkipSave` keeps the Session as it was). An AgentProfile holds typed fields and no function that runs on the Session: `Instruction`, `Tools`, `ToolSets` (each a `profile.ToolSet{Set, Mode}`: listed, folded or active), `ToolSources`, `ToolSearcher`, `MaxEffect`, `Sampling`, `Extensions`, `ContextBuilder`, `Limits`, `ReadBack`, `RunTimeout` and `Compact`. There is no `AgentProfile.Options`: the Runner builds every `gotato.SessionOption` itself, so an Agent cannot replace the Writer or raise its own cap. `ReadBack` is the one hole, and only for the read-back tool.
 
-An Agent holds typed fields and no function that runs on the Session: `Instruction`, `Tools`, `ToolSets` (each with a `Mode`: listed, folded or active), `ToolSources`, `ToolSearcher`, `MaxEffect`, `Sampling`, `Extensions`, `ContextBuilder`, `Limits` and `Compact`. There is no `Agent.Options`: the Runner builds every `gotato.SessionOption` itself, so an Agent cannot replace the Writer or raise its own cap.
+### A job that runs again is a TaskSpec
+
+A report every morning has its own background and wants narrower bounds than the Agent it runs. Register it as a `profile.TaskSpec`: it names its AgentProfile, a Background, and bounds that can only narrow it (a subset of the Tools, an Effect cap no higher, a timeout no longer, a `MaxTokens` no higher).
+
+```go
+err = profiles.RegisterTaskSpecInline(profile.TaskSpec{
+    Name:       "morning-report",
+    Profile:    "default",
+    Background: "Report the tickets that opened since yesterday.",
+    MaxEffect:  gotato.ToolEffectRead,
+})
+out, err := runner.Run(ctx, service.RunRequest{Task: "morning-report", Prompt: "Go."})
+```
+
+A Run of a TaskSpec opens a new Session, so it takes no `SessionID` and no `Agent`. The Background is added once after the instruction, and the Session keeps the TaskSpec as it was, so another pod builds it the same after you change the registered spec. A spec that widens its profile is refused (`profile.ErrWidens`). `RunRequest.TaskSpec` carries a spec as a value instead of by name.
+
+### Definitions from your own store
+
+A definition can live in your database instead of your code. Fill a `profile.Catalog` with the models, tools and ToolSets your code offers, and register a name whose document is read from your `session.Definitions`:
+
+```go
+catalog, err := profile.NewCatalog(map[string]gotato.Model{"main": model}, tools, nil)
+profiles := profile.NewRegistry(catalog)
+err = profiles.RegisterAgentProfileWithStore("support", defs)  // defs is a session.Definitions
+err = profiles.RegisterTaskSpecWithStore("nightly", defs)
+```
+
+The stored document is data only (a model name, Tool names, numbers and text); it selects from the Catalog and never adds to it. Each name is registered once, and a row whose name is not registered is not a definition. [Write a store](write-a-store.md) says how to build `defs`.
 
 ### Keys under `gotato.` are the Runner's
 

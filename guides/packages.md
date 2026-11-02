@@ -15,7 +15,7 @@ github.com/jinhuang712/gotato
 ├── gotato/            the core: Session, Tool, Model, Event (standard library only)
 ├── session/
 │   └── storetest/     the Store contract suite
-├── modelctx/  gateway/  service/  service/httpapi/  testkit/
+├── modelctx/  gateway/  profile/  service/  service/httpapi/  testkit/
 ├── internal/          text: string helpers shared by the packages above (standard library only);
 │                      the rest are our own test tools, the test CLI (internal/cmd/gotato) among them,
 │                      which no shipped package imports
@@ -31,6 +31,7 @@ github.com/jinhuang712/gotato
 | Run an agent in your program | `gotato`, and a model: `gateway` for a provider's wire API, or your own `gotato.Model` |
 | Keep conversations in a store and continue them on any pod | add `service` (the Runner) and `session` (the Store) |
 | Keep long conversations small | `modelctx`; the Runner brings it |
+| Register Agents and jobs that run again, inline or from your own store | `profile` (AgentProfile, TaskSpec, the Registry); a Runner needs one |
 | Call MCP servers | `adapter/mcp` (a module of its own) |
 | Serve it over HTTP | `service/httpapi` |
 | Write tests with a fake model | `testkit` |
@@ -58,6 +59,9 @@ service/httpapi
    service
       │
       ▼
+   profile
+      │
+      ▼
   modelctx          testkit   session/storetest
       │                   │       │
       ▼                   ▼       ▼
@@ -77,17 +81,18 @@ An arrow reads "imports". Some imports skip a layer, and the table lists all of 
 | `modelctx` | `gotato`, `session` |
 | `testkit` | `gotato`, `session` |
 | `session/storetest` | `gotato`, `session` |
-| `service` | `gotato`, `session`, `modelctx` |
+| `profile` | `gotato`, `session`, `modelctx` |
+| `service` | `gotato`, `session`, `modelctx`, `profile` |
 | `service/httpapi` | `gotato`, `session`, `modelctx`, `service` |
 | `adapter/mcp` | `gotato` |
 
-`session` and `gateway` depend on the core alone, and not on each other. `testkit` and `session/storetest` import the core and `session`. Of the shipped packages, only `service/httpapi` imports `service`.
+`session` and `gateway` depend on the core alone, and not on each other. `testkit` and `session/storetest` import the core and `session`. `profile` sits between `service` and `session`: it imports no `service`, and the core and `session` import none of it, so a program that does not host Agents never loads it. Of the shipped packages, only `service/httpapi` imports `service`.
 
 `gotato/layering_test.go` holds this table as `allowedImports` and fails on any import outside it, on a table entry no code uses, and on a new package that is not in it. To add a dependency on purpose, extend the table in the same commit and say why.
 
 ## Next
 
 - [Getting started](getting-started.md) uses the core and a model.
-- [Embed Gotato in a service](embed-in-a-service.md) adds `service` and `session`.
+- [Embed Gotato in a service](embed-in-a-service.md) adds `service`, `profile` and `session`.
 - [Write a Tool or a Model](write-a-tool-and-model.md), [write a Store](write-a-store.md), and [pick an extension point](extension-points.md).
 - [HTTP in five minutes](http-in-five-minutes.md), a [minimal `main.go`](minimal-main.md), and [tests with fakes](test-with-fakes.md).

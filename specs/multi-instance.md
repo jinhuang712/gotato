@@ -91,7 +91,7 @@ After a Run the Instance keeps the Record and its Writer in memory, with no Clai
      yes ─▶ another Instance wrote: drop the copy, load from the last Checkpoint
 ```
 
-The copy holds no Claim, so another Instance can take the Session over at any time and nothing is pinned to this one; the head check finds out in one cheap read. If the Resume loses a race, the copy falls back to a load. Warm Sessions count toward the Instance's limit of active Sessions (`Bounds.MaxActiveSessions`), and the longest-idle one is evicted first, in one place for both bounds, so a Run is refused only when every live Session is running. A copy whose Writer failed is never kept.
+The copy holds no Claim, so another Instance can take the Session over at any time and nothing is pinned to this one; the head check finds out in one cheap read. If the Resume loses a race, the copy falls back to a load. Warm Sessions count toward the Instance's limit of active Sessions (`Bounds.MaxActiveSessions`), and the longest-idle one is evicted first, in one place for both bounds, so a Run is refused only when every live Session is running. A copy whose Writer failed is never kept. How long a copy stays, and when a pause counts as time away, are the host's settings, `Config.Warm` and `Config.TimeAwayAfter`, the same for every Agent the Runner serves.
 
 ## A Runner is built from parts
 
@@ -120,7 +120,9 @@ Whether a Run may start is decided in a fixed order, and only the last step is a
      ─▶ registered, counted; release is called once when the Run ends
 ```
 
-The drain and the memory bound guard the Instance, not a policy, so a policy cannot hold more Sessions than memory allows; they run before `Admit`. The default `Admitter` is `service.Limits{MaxActiveRuns}`, and a service writes its own to give one tenant ten Runs and another fifty ([extension points](../guides/extension-points.md#admission)).
+The drain and the memory bound guard the Instance, not a policy, so a policy cannot hold more Sessions than memory allows; they run before `Admit`. The default `Admitter` is `service.Limits{MaxActiveRuns}`, and a service writes its own to give one tenant ten Runs and another fifty ([extension points](../guides/extension-points.md#admission)). The `Admission` it is given names the Session, the AgentProfile (`Agent`) and, for a Run of a TaskSpec, the TaskSpec (`Task`), so a policy may treat a nightly job apart from a chat.
+
+Every Instance of a service registers the same definitions, and each looks them up by name when it builds a Session, so a profile replaced in a shared store reaches the Sessions that are built after it, on any Instance, and never a Run in flight. A Session opened for a TaskSpec carries the spec in its Record, so an Instance that loads it later builds it as the first one did ([the Record](record.md)).
 
 ## A message that misses the Writer
 

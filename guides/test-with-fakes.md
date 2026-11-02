@@ -52,6 +52,7 @@ import (
 	"time"
 
 	"github.com/jinhuang712/gotato/gotato"
+	"github.com/jinhuang712/gotato/profile"
 	"github.com/jinhuang712/gotato/service"
 	"github.com/jinhuang712/gotato/service/httpapi"
 	"github.com/jinhuang712/gotato/session"
@@ -224,14 +225,17 @@ The Run settles as `failed` with the code `model_failure`, and the error is retu
 
 ## A Runner and its HTTP endpoint
 
-A `service.Runner` takes the same fakes as an Agent's `Model`. Test the Runner in process, or put its handler behind `httptest.NewServer` and call it as a client would.
+A `service.Runner` takes the same fakes as an AgentProfile's `Model`, registered in a `profile.Registry`. Test the Runner in process, or put its handler behind `httptest.NewServer` and call it as a client would.
 
 ```go
 func TestRunnerWithoutHTTP(t *testing.T) {
 	memory := session.NewMemoryStore()
+	profiles := profile.NewRegistry(nil)
+	_ = profiles.RegisterAgentProfileInline(profile.AgentProfile{Name: "default", Model: testkit.EchoModel{}})
 	runner, _ := service.New(service.Config{
-		Store:  session.Store{Records: memory, Liveness: memory},
-		Agents: []service.Agent{{Name: "default", Model: testkit.EchoModel{}}},
+		Store:        session.Store{Records: memory, Liveness: memory},
+		Profiles:     profiles,
+		DefaultAgent: "default",
 	})
 	defer runner.Close(context.Background())
 	out, err := runner.Run(context.Background(), service.RunRequest{Prompt: "hi"})
@@ -244,9 +248,14 @@ func TestRunnerWithoutHTTP(t *testing.T) {
 ```go
 func TestARunOverHTTP(t *testing.T) {
 	memory := session.NewMemoryStore()
+	profiles := profile.NewRegistry(nil)
+	if err := profiles.RegisterAgentProfileInline(profile.AgentProfile{Name: "default", Model: testkit.NewFakeModel(testkit.Text("pong"))}); err != nil {
+		t.Fatal(err)
+	}
 	runner, err := service.New(service.Config{
-		Store:  session.Store{Records: memory, Liveness: memory},
-		Agents: []service.Agent{{Name: "default", Model: testkit.NewFakeModel(testkit.Text("pong"))}},
+		Store:        session.Store{Records: memory, Liveness: memory},
+		Profiles:     profiles,
+		DefaultAgent: "default",
 	})
 	if err != nil {
 		t.Fatal(err)

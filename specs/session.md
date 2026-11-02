@@ -6,6 +6,7 @@ A conversation with an agent has to survive a crash, a deploy and a week of sile
 - An Agent is a definition and holds nothing; a Session is one conversation, and its Record in the Store is the truth. The live Session is a goroutine built over that Record for each Run.
 - A Run is made of Turns, and a Turn of Steps that are each written before the next one starts. Every Run ends exactly once, in one of five ways.
 - Steer, FollowUp and Interrupt reach a Run in flight, each at its own point. What is only queued in memory is lost if the Instance dies; what is written is not.
+- A host registers an AgentProfile (the Agent as code) and, for a job that runs again, a TaskSpec that only narrows it, inline or from a store of its own. A Session looks its AgentProfile up by name each time it is built.
 - Each value has one owner and one typed way in. A way in that is not the owner's is refused with `invalid_argument` before anything is written; nothing is dropped or overridden.
 
 ## Who holds what
@@ -25,7 +26,7 @@ The Agent is on top and holds nothing; the Record at the bottom holds everything
  Record           append-only log of Entries                      (in the Store: the truth)
 ```
 
-Read it top to bottom as "what is cheap to lose". The Agent is shared by many Sessions, so it can hold no conversation. The live Session is built when a Run needs it and can be dropped at any time, because the Record holds everything it needs. Its ID is the Record's ID, so whichever Instance builds it, it is the same Session. Keeping the Agent separate from the Session is what lets one definition serve many conversations.
+Read it top to bottom as "what is cheap to lose". The Agent is shared by many Sessions, so it can hold no conversation. The live Session is built when a Run needs it and can be dropped at any time, because the Record holds everything it needs. Its ID is the Record's ID, so whichever Instance builds it, it is the same Session. Keeping the Agent separate from the Session is what lets one definition serve many conversations. In code the definition is a `profile.AgentProfile`.
 
 ## A Session is built from parts
 
@@ -52,8 +53,9 @@ A value that a layer owns is set only through that layer. The table is the whole
 
 | Value | Owner | The one way in | Any other way |
 |---|---|---|---|
-| instruction, model, tools, Effect cap, Sampling, Extensions, ceiling | the Agent (the definition) | `service.Agent` fields; the Runner builds every `SessionOption` | there is none: `Agent` has no `Options`, and a Session has no instruction or ceiling of its own, so another one is another Agent |
-| the Agent a Session runs | the Runner | `RunRequest.Agent`, `CreateSessionRequest.Agent` | a `gotato.agent` key in metadata: `ErrReservedKey` |
+| instruction, model, tools, Effect cap, Sampling, Extensions, ceiling | the Agent (the definition) | `profile.AgentProfile` fields; the Runner builds every `SessionOption` | there is none: `AgentProfile` has no `Options`, and a Session has no instruction or ceiling of its own, so another one is another Agent. The one hole is the read-back tool: `AgentProfile.ReadBack` replaces the Runner's default |
+| the AgentProfile a Session runs | the Runner | `RunRequest.Agent`, `CreateSessionRequest.Agent` | a `gotato.agent` key in metadata: `ErrReservedKey` |
+| the TaskSpec a Session was opened for | the Runner | `RunRequest.Task`, `RunRequest.TaskSpec` | a `gotato.task_spec` key: `ErrReservedKey` |
 | a tool switched off for a Session | the Runner | `Runner.SetToolActive` | a `gotato.tool.<id>` key: `ErrReservedKey` |
 | the prompt cache key | the Runner | `Runner.Fork` | a `gotato.cache_key` key: `ErrReservedKey` |
 | a single-valued option of a live Session | `gotato.Session` | one `WithTranscript`, `WithInstruction`, `WithMaxEffect`, `WithToolFilter`, `WithSampling`, ... | the option given twice: `NewSession` fails, naming it |
@@ -61,6 +63,28 @@ A value that a layer owns is set only through that layer. The table is the whole
 | the stored Record | the Runner and its Writer | `CreateSession`, `Run`, `Fork`; they answer values (`RecordInfo`, `Document`) | `Runner.Store()` is gone, and a value returned has no `Set` |
 
 Every metadata key that starts with `gotato.` (`service.ReservedPrefix`) is the Runner's. `CreateSession`, `RunRequest.Metadata`, `RunRequest.Update` and `POST /v1/sessions` refuse it, so a remote caller cannot replace an instruction, move a ceiling or switch an Agent through metadata. The application's own keys are free. A Transcript declares what it can do in `Capabilities` (an ID, a Journal, whether its Events are durable, whether a large Tool Result is spilled, an EventSource and loaded Tools); one that stores must declare all of the parts a store needs, and `NewSession` refuses a Transcript that does not, so a wrapper that loses durability fails at construction and not weeks later.
+
+## Agent profiles and task specs
+
+The Agent in the picture above is, in code, a `profile.AgentProfile`, held by a `profile.Registry` that the host gives the Runner. This diagram shows where a Session's AgentProfile comes from ([decision 044](../plan/decisions/044-an-agent-profile-and-a-task-spec-are-registered-inline-or-from-a-store.md)). The package `profile` is optional and sits between `service` and `session`: it imports no `service`, and the core runs without it.
+
+```text
+ service.Config{Profiles, DefaultAgent, Warm, TimeAwayAfter}
+   │ asks the Registry by name, each time a Session is built
+   ▼
+ profile.Registry
+   ├─ inline:     a Go value
+   └─ from store: session.Definitions ─▶ document ─▶ resolved through the Catalog
+   ▼
+ AgentProfile  ◀── narrowed by ── TaskSpec (checked by TaskSpec.Narrow)
+```
+
+- **Two definitions.** An AgentProfile is a kind of Agent: name, instruction, model, Tools and ToolSets, Effect cap, Sampling, compaction parts, limits, a Run timeout and, optionally, its own ReadBack. A TaskSpec is a job that runs again: a name, its AgentProfile, a Background and bounds that only narrow it. How the host keeps Sessions (`Config.Warm`, `Config.TimeAwayAfter`) is the host's setting and not a profile's.
+- **Four registrations.** `RegisterAgentProfileInline(p)` and `RegisterTaskSpecInline(t)` register a value; `RegisterAgentProfileWithStore(name, defs)` and `RegisterTaskSpecWithStore(name, defs)` register a name whose document is read from a `session.Definitions` at each lookup. Each name is registered once and a later registration replaces. There is no fallback store: a row that is not registered by name is not a definition.
+- **Stored documents are data only.** A document names a model, Tools and ToolSets, and holds numbers and text; the `profile.Catalog` the service fills with its Go models, Tools and ToolSets resolves the names. A stored definition selects what the code offers and never adds to it. Values that are Go code (Extensions, ToolSources, the parts of `Compact`) are set inline.
+- **Narrowing.** After a value is resolved, inline or stored, `TaskSpec.Narrow` refuses a spec that widens its profile (a Tool or ToolSet the profile lacks, a higher Effect cap, a longer timeout, a higher `MaxTokens`) and a name the Catalog lacks. Its other Sampling fields may differ.
+- **Lookup per build.** A Session looks its AgentProfile up by name each time it is built, so a replaced profile reaches new and rebuilt Sessions and never a Run in flight. `Config.DefaultAgent` names the one a request that names none runs; an unknown name is `ErrUnknownAgent`.
+- **A Run of a TaskSpec** is `RunRequest.Task` (a registered name) or `RunRequest.TaskSpec` (a value), never both. It opens a new Session, so it takes no `SessionID` and no `Agent`. The Background is appended once, after the instruction, and the TaskSpec is kept in the Session's metadata under `gotato.task_spec` as a JSON document, so every Instance builds the Session the same after the registered spec changes. The Session's `gotato.agent` is the TaskSpec's profile, and a later `RunRequest.Agent` on it is refused. `Admission.Task` names the TaskSpec to the Admitter.
 
 ## Run, Turn and Round
 
@@ -155,4 +179,4 @@ The Session has one Status at a time and takes one Run at a time: a second Promp
 - Steer, FollowUp and Interrupt let you change a long Run's course without a second Run or a lock of your own.
 
 ## See also
-[FEATURES.md → G-F02](../FEATURES.md#g-f02--sessions-), [G-F01](../FEATURES.md#g-f01--agents-and-runs-) and [G-F26](../FEATURES.md#g-f26--steering-a-run-), decisions [047](../plan/decisions/047-a-value-a-layer-owns-is-set-only-through-that-layer.md),  [004](../plan/decisions/004-an-agent-is-a-definition-and-a-session-is-the-live-unit.md), [016](../plan/decisions/016-gotato-session-is-the-live-unit-and-session-record-is-what-the-store-keeps.md), [021](../plan/decisions/021-messages-reach-the-writer-and-take-effect-in-its-process.md), [028](../plan/decisions/028-every-step-is-written-as-facts-and-a-log.md) and [038](../plan/decisions/038-a-limit-guards-a-real-failure.md), [GLOSSARY.md](../GLOSSARY.md). The Record, the Events and the Context have specs of their own: [record.md](record.md), [events.md](events.md) and [context.md](context.md).
+[FEATURES.md → G-F02](../FEATURES.md#g-f02--sessions-), [G-F01](../FEATURES.md#g-f01--agents-and-runs-) and [G-F26](../FEATURES.md#g-f26--steering-a-run-), decisions [047](../plan/decisions/047-a-value-a-layer-owns-is-set-only-through-that-layer.md),  [004](../plan/decisions/004-an-agent-is-a-definition-and-a-session-is-the-live-unit.md), [016](../plan/decisions/016-gotato-session-is-the-live-unit-and-session-record-is-what-the-store-keeps.md), [021](../plan/decisions/021-messages-reach-the-writer-and-take-effect-in-its-process.md), [028](../plan/decisions/028-every-step-is-written-as-facts-and-a-log.md) and [038](../plan/decisions/038-a-limit-guards-a-real-failure.md), decision [044](../plan/decisions/044-an-agent-profile-and-a-task-spec-are-registered-inline-or-from-a-store.md), [GLOSSARY.md](../GLOSSARY.md). The Record, the Events and the Context have specs of their own: [record.md](record.md), [events.md](events.md) and [context.md](context.md).

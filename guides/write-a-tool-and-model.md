@@ -67,7 +67,7 @@ s, err := gotato.NewSession(ctx,
 // s.Tools() is empty: the model is never offered close_ticket.
 ```
 
-On the service side, `service.Agent` has a `MaxEffect` field with the same cap, so one Agent can be read-only and another not. A `PreToolUse` Extension can gate a single call by its Effect; see [the extension points](extension-points.md).
+On the service side, `profile.AgentProfile` has a `MaxEffect` field with the same cap, so one Agent can be read-only and another not. A `PreToolUse` Extension can gate a single call by its Effect; see [the extension points](extension-points.md).
 
 ### A Tool type
 
@@ -129,7 +129,7 @@ The rules a Tool keeps:
 - **Honor `ctx`.** The Session cancels it when the Run is aborted or the call passes its deadline. At the deadline the Run stops waiting: the Model reads that the call timed out with its outcome unknown, and the Run goes on. A Tool that ignores `ctx` runs on in its goroutine until it returns, and its late result is dropped.
 - **Thread safety.** A Turn may run its Tool calls in parallel. Set `ToolSpec.Sequential` for a Tool that must never run beside another Tool of the same Turn, and guard shared state in the Tool itself (the sketch above does not, because the example runs one call at a time).
 - **A panic becomes a failed Tool Result,** and does not take the process down.
-- **Install it** with `gotato.WithTools(tool)` on a Session, or in `service.Agent.Tools`.
+- **Install it** with `gotato.WithTools(tool)` on a Session, or in `profile.AgentProfile.Tools`.
 
 ### Errors the Model reads
 

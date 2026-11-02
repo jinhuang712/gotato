@@ -21,6 +21,7 @@ By the end of this page you have a `session.Store` of your own that passes the c
 | | [MongoDB](#mongodb) | Unique index, `E11000`, the epoch, and a single-node replica set. |
 | | [When a check fails](#when-a-check-fails) | A failure names the rule. |
 | | [Things the suite does not know](#things-the-suite-does-not-know) | |
+| **Beside the Store** | [A separate, optional contract: Definitions](#a-separate-optional-contract-definitions) | Documents by kind and name, for a service's own Agent definitions. |
 
 ## The contract
 
@@ -577,6 +578,21 @@ A failure message names the rule that broke. If the adapter above returned `ErrN
 - **Your database's failure modes.** A lost connection, a deadlock the database retries, a serialization failure: map the ones that mean "someone else wrote first" to `ErrConflict`, and let the rest be plain errors. The Runner reports them as `store_failure`.
 - **Your transaction isolation.** The race check runs writers against your handles at once, but a database at a weak isolation level can pass it on a quiet machine. Rely on the unique key, not on a read before the write.
 - **Your scale.** The suite checks behavior, not speed. `Load` reads from the last Checkpoint on, so index `(id, seq)` and make sure your database finds the last Checkpoint without reading the whole log.
+
+## A separate, optional contract: Definitions
+
+A service that keeps its AgentProfile and TaskSpec definitions in its own database implements a second, smaller contract, `session.Definitions`. It is not a part of `session.Store`, which has no field for it: you pass it to `RegisterAgentProfileWithStore` or `RegisterTaskSpecWithStore` on a `profile.Registry`, and a service that registers its Agents in code needs none of it.
+
+```go
+type Definitions interface {
+	SaveDefinition(ctx context.Context, kind, name string, doc []byte) error
+	LoadDefinition(ctx context.Context, kind, name string) ([]byte, error) // errors.Is ErrNotFound when none
+}
+```
+
+- **A document is bytes.** The store keeps what it was given, copies it in and out, and never reads it; `profile` owns the format.
+- **Keys are refused alike.** Call `session.CheckDefinitionKey(kind, name)` first, and return its `ErrInvalidID` for an empty key, one over `session.MaxDefinitionKeyBytes`, or one with a control character, a path separator, `..` or a leading `.`.
+- **Prove it** with `storetest.RunDefinitions(t, backing)`, in the same shape as the other suites. `session.NewMemoryDefinitions()` and `session.NewFileDefinitions(dir)` are the reference stores.
 
 ## Next
 

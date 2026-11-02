@@ -24,6 +24,7 @@ import (
 	"os"
 
 	"github.com/jinhuang712/gotato/gotato"
+	"github.com/jinhuang712/gotato/profile"
 	"github.com/jinhuang712/gotato/service"
 	"github.com/jinhuang712/gotato/service/httpapi"
 	"github.com/jinhuang712/gotato/session"
@@ -35,13 +36,18 @@ func main() {
 	if err != nil {
 		log.Fatal(err)
 	}
+	profiles := profile.NewRegistry(nil)
+	if err := profiles.RegisterAgentProfileInline(profile.AgentProfile{
+		Name:  "default",
+		Model: testkit.DemoModel{}, // answers "demo response: <text>"; "use-tool" calls demo.echo
+		Tools: []gotato.Tool{testkit.DemoEchoTool()},
+	}); err != nil {
+		log.Fatal(err)
+	}
 	runner, err := service.New(service.Config{
-		Store: session.Store{Records: store, Liveness: store},
-		Agents: []service.Agent{{
-			Name:  "default",
-			Model: testkit.DemoModel{}, // answers "demo response: <text>"; "use-tool" calls demo.echo
-			Tools: []gotato.Tool{testkit.DemoEchoTool()},
-		}},
+		Store:        session.Store{Records: store, Liveness: store},
+		Profiles:     profiles,
+		DefaultAgent: "default",
 	})
 	if err != nil {
 		log.Fatal(err)
@@ -50,7 +56,7 @@ func main() {
 }
 ```
 
-- The Agent is a definition; every Session you create runs one. Swap `testkit.DemoModel` for a model from the `gateway` package when you have a provider.
+- The Agent is a definition (a `profile.AgentProfile`, registered by name); every Session you create runs one, the `DefaultAgent` when a request names none. Swap `testkit.DemoModel` for a model from the `gateway` package when you have a provider.
 - This program has no graceful shutdown. [A minimal main](minimal-main.md) adds it.
 - Authentication, rate limiting and logging are yours: wrap the handler in your own middleware. The handler has none.
 
@@ -142,10 +148,11 @@ For the Instance to name an address, give each one `service.Config.Address`: whe
 
 ```go
 runner, err := service.New(service.Config{
-	Store:    session.Store{Records: store, Liveness: store},
-	Instance: "pod-a",                 // a label; each start adds a random suffix
-	Address:  "http://10.0.0.7:8080",  // advertised in the Liveness row
-	Agents:   agents,
+	Store:        session.Store{Records: store, Liveness: store},
+	Instance:     "pod-a",                // a label; each start adds a random suffix
+	Address:      "http://10.0.0.7:8080", // advertised in the Liveness row
+	Profiles:     profiles,
+	DefaultAgent: "default",
 })
 ```
 
