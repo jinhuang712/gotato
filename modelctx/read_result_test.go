@@ -16,6 +16,9 @@ import (
 	"github.com/jinhuang712/gotato/testkit"
 )
 
+// spillPreviewBytes is the preview a spilled result keeps by default.
+var spillPreviewBytes = int(gotato.DefaultLimits().SpillPreviewBytes)
+
 // countingStore counts the reads of the log, to tell a body read from the
 // store from one served by the live Record.
 type countingStore struct {
@@ -57,7 +60,7 @@ func (f *spillFixture) call(id, body string) []gotato.ModelRequest {
 	})
 	session, err := gotato.NewSession(context.Background(), gotato.WithModel(model), gotato.WithTranscript(f.writer),
 		gotato.WithTools(testkit.NewFakeTool("demo.read", body)),
-		gotato.WithTools(modelctx.ReadResultTool(f.writer.Record(), f.store, modelctx.ReadResultConfig{})))
+		gotato.WithReadBack(readBackOf(f.writer.Record(), f.store, 0)))
 	if err != nil {
 		f.t.Fatal(err)
 	}
@@ -116,7 +119,7 @@ func TestALargeToolResultIsSpilledAndReadInPages(t *testing.T) {
 	// The model's second request carries the preview and the ref, not the body.
 	last := requests[len(requests)-1]
 	results := testkit.ToolResults(last)
-	if len(results) != 1 || len(results[0]) > gotato.SpillPreviewBytes+300 {
+	if len(results) != 1 || len(results[0]) > spillPreviewBytes+300 {
 		t.Fatalf("%d results, the first %d bytes: the Context should hold a preview", len(results), len(results[0]))
 	}
 	preview := results[0]
@@ -132,7 +135,7 @@ func TestALargeToolResultIsSpilledAndReadInPages(t *testing.T) {
 	}
 	// The live Record serves the body from memory: the store's log is not read.
 	reads := f.store.logs.Load()
-	tool := modelctx.ReadResultTool(record, f.store, modelctx.ReadResultConfig{})
+	tool := resultToolOf(record, f.store, 0)
 	first, err := readResult(t, tool, `{"ref":"result:c1"}`)
 	if err != nil || f.store.logs.Load() != reads || !strings.HasPrefix(first, fmt.Sprintf("Result result:c1, %d bytes. Page 1 of %d.\n", len(body), pages)) {
 		t.Fatalf("first page (err %v, %d log reads after %d): %.120q", err, f.store.logs.Load(), reads, first)
@@ -169,7 +172,7 @@ func TestALargeToolResultIsSpilledAndReadInPages(t *testing.T) {
 
 	// The reloaded instance reads the body from the store, page by page, and
 	// gets all of it back.
-	reloaded := modelctx.ReadResultTool(a, f.store, modelctx.ReadResultConfig{})
+	reloaded := resultToolOf(a, f.store, 0)
 	var got []string
 	for page := 1; ; page++ {
 		text, err := readResult(t, reloaded, fmt.Sprintf(`{"ref":"result:c1","page":%d}`, page))
@@ -206,10 +209,10 @@ func TestALargeToolResultIsSpilledAndReadInPages(t *testing.T) {
 // byte more is spilled.
 func TestAResultJustUnderThePageIsNotSpilled(t *testing.T) {
 	f := newSpillFixture(t, "edge")
-	f.call("c1", strings.Repeat("a", gotato.SpillPageBytes))
-	f.call("c2", strings.Repeat("b", gotato.SpillPageBytes+1))
+	f.call("c1", strings.Repeat("a", modelctx.DefaultPageBytes))
+	f.call("c2", strings.Repeat("b", modelctx.DefaultPageBytes+1))
 	record := f.writer.Record()
-	if r := resultOf(t, record, "c1"); r.Spilled != nil || len(textOf(r)) != gotato.SpillPageBytes {
+	if r := resultOf(t, record, "c1"); r.Spilled != nil || len(textOf(r)) != modelctx.DefaultPageBytes {
 		t.Errorf("a result of one page was spilled: %+v", r.Spilled)
 	}
 	if r := resultOf(t, record, "c2"); r.Spilled == nil {
@@ -220,10 +223,10 @@ func TestAResultJustUnderThePageIsNotSpilled(t *testing.T) {
 // A preview is cut on a rune boundary.
 func TestAPreviewIsCutOnARune(t *testing.T) {
 	f := newSpillFixture(t, "runes")
-	f.call("c1", strings.Repeat("é", gotato.SpillPageBytes))
+	f.call("c1", strings.Repeat("é", modelctx.DefaultPageBytes))
 	preview := textOf(resultOf(t, f.writer.Record(), "c1"))
 	head, _, _ := strings.Cut(preview, "\n[Result cut")
-	if !strings.HasPrefix(preview, head) || len(head) > gotato.SpillPreviewBytes || len(head)%2 != 0 {
+	if !strings.HasPrefix(preview, head) || len(head) > spillPreviewBytes || len(head)%2 != 0 {
 		t.Errorf("the preview is %d bytes: cut in the middle of a rune?", len(head))
 	}
 }
@@ -247,7 +250,7 @@ func (imageTool) Spec() gotato.ToolSpec {
 
 func (imageTool) Execute(context.Context, gotato.ToolUse, gotato.ToolProgressFunc) (gotato.ToolResult, error) {
 	return gotato.ToolResult{Content: []gotato.ContentPart{
-		{Kind: gotato.ContentKindText, Text: strings.Repeat("a", gotato.SpillPageBytes+10)},
+		{Kind: gotato.ContentKindText, Text: strings.Repeat("a", modelctx.DefaultPageBytes+10)},
 		{Kind: gotato.ContentKindImage, MIMEType: "image/png", Data: []byte("png")},
 	}}, nil
 }
@@ -256,7 +259,8 @@ func (imageTool) Execute(context.Context, gotato.ToolUse, gotato.ToolProgressFun
 func TestSpillKeepsThePartsThatAreNotText(t *testing.T) {
 	f := newSpillFixture(t, "image")
 	model := testkit.NewFakeModel(testkit.ToolCalls(gotato.ToolCall{ID: "c1", ToolID: "demo.read", Arguments: []byte(`{}`)}), testkit.Text("done"))
-	agent, err := gotato.NewSession(context.Background(), gotato.WithModel(model), gotato.WithTranscript(f.writer), gotato.WithTools(imageTool{}))
+	agent, err := gotato.NewSession(context.Background(), gotato.WithModel(model), gotato.WithTranscript(f.writer), gotato.WithTools(imageTool{}),
+		gotato.WithReadBack(readBackOf(f.writer.Record(), f.store, 0)))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -287,7 +291,7 @@ func TestARefOfNoResultOfThisSessionFailsAsAToolResult(t *testing.T) {
 			return testkit.ToolCalls(gotato.ToolCall{ID: gotato.ToolCallID(id), ToolID: "read_result", Arguments: fmt.Appendf(nil, `{"ref":%q}`, ref)}), nil
 		})
 		agent, err := gotato.NewSession(context.Background(), gotato.WithModel(model), gotato.WithTranscript(f.writer),
-			gotato.WithTools(modelctx.ReadResultTool(f.writer.Record(), f.store, modelctx.ReadResultConfig{})))
+			gotato.WithTools(resultToolOf(f.writer.Record(), f.store, 0)))
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -306,7 +310,7 @@ func TestARefOfNoResultOfThisSessionFailsAsAToolResult(t *testing.T) {
 // read_result is a sibling of read_segment: it declares read, and offers both
 // the ref and the page.
 func TestReadResultDeclaresReadAndItsInput(t *testing.T) {
-	tool := modelctx.ReadResultTool(session.New(), session.NewMemoryStore(), modelctx.ReadResultConfig{})
+	tool := resultToolOf(session.New(), session.NewMemoryStore(), 0)
 	spec := tool.Spec()
 	if spec.ID != "read_result" || spec.Effect != gotato.ToolEffectRead || !strings.Contains(string(spec.InputSchema), `"ref"`) || !strings.Contains(string(spec.InputSchema), `"page"`) {
 		t.Fatalf("spec = %+v", spec)
@@ -322,7 +326,7 @@ func TestFollowingThePreviewReadsEveryByte(t *testing.T) {
 	requests := f.call("c1", body)
 	preview := testkit.ToolResults(requests[len(requests)-1])[0]
 
-	tool := modelctx.ReadResultTool(f.writer.Record(), f.store, modelctx.ReadResultConfig{})
+	tool := resultToolOf(f.writer.Record(), f.store, 0)
 	next := regexp.MustCompile(`read_result\(ref="(result:[^"]+)", page=(\d+)\)`)
 	seen := preview
 	for range 10 {
@@ -349,8 +353,8 @@ func TestFollowingThePreviewReadsEveryByte(t *testing.T) {
 // log search finds the newest Entry, and the refs listed hold each ID once.
 func TestARepeatedCallIDMeansTheLatestSpilledResult(t *testing.T) {
 	f := newSpillFixture(t, "repeat")
-	first := strings.Repeat("first body\n", gotato.SpillPageBytes/8)
-	second := strings.Repeat("second body\n", gotato.SpillPageBytes/8)
+	first := strings.Repeat("first body\n", modelctx.DefaultPageBytes/8)
+	second := strings.Repeat("second body\n", modelctx.DefaultPageBytes/8)
 	f.call("c1", first)
 	f.call("c1", second)
 	record := f.writer.Record()

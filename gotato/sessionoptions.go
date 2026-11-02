@@ -12,6 +12,7 @@ type sessionConfig struct {
 	tools          []Tool
 	toolSets       []toolSetConfig
 	toolSources    []ToolSource
+	readBack       ReadBack
 	toolFilter     func(string) bool
 	toolSearcher   ToolSearcher
 	extensions     extensionSet

@@ -14,15 +14,57 @@ import (
 // is stored in the Record as a tool_result_spilled Entry of its own, and the
 // Tool Result Message that goes in the Transcript, and so in every Context,
 // holds a preview and a ref. The model reads the rest with read_result.
-const (
-	// SpillPageBytes is one page of text: the line past which a Tool Result is
-	// spilled, and the size of a page of read_result and read_segment. About
-	// 8K tokens.
-	SpillPageBytes = 32 << 10
-	// SpillPreviewBytes is the start of a spilled result that stays in the
-	// Context: about 2K tokens (bytes ÷ 4), cut on a rune boundary.
-	SpillPreviewBytes = 8000
-)
+//
+// A Session spills only with a ReadBack installed (WithReadBack), so every ref
+// it writes has a reader; the ReadBack owns the page size, which the spill
+// threshold, the pages the preview counts and the read tools all use.
+
+// ReadBack makes the originals Gotato moved out of the Context readable
+// again: a ToolSource that offers the tools that read a spilled Tool Result
+// and a closed Segment back, and the one owner of the page size.
+//
+// PageBytes is the most one page holds, in bytes. It is the line past which a
+// Tool Result is spilled, the size of a page of every read tool, and what the
+// preview counts its pages by, so the three cannot disagree. The Session asks
+// it once, in NewSession, and refuses a value below 1.
+// modelctx.ReadBack is the default.
+// [SEAM] a host replaces where originals are read from, how a page is cut and how a read is worded.
+type ReadBack interface {
+	ToolSource
+	PageBytes() int
+}
+
+// WithReadBack installs the ReadBack that gives the Session its read tools and
+// its page size, and turns the spill of large Tool Results on. A later call
+// replaces an earlier one. NewSession fails with CodeInvalidArgument when its
+// PageBytes is below 1 or it panics. Its Tools are asked with every other
+// ToolSource, so a Tool ID it shares with another fails the Session whole.
+func WithReadBack(readBack ReadBack) SessionOption {
+	return func(c *sessionConfig) error {
+		if readBack == nil {
+			return runtimeError(CodeInvalidArgument, "WithReadBack", "ReadBack is nil", nil)
+		}
+		c.readBack = readBack
+		return nil
+	}
+}
+
+// installReadBack adds the ReadBack to the ToolSources and returns the page
+// size it owns, 0 when none is installed.
+func (c *sessionConfig) installReadBack() (int, error) {
+	if c.readBack == nil {
+		return 0, nil
+	}
+	var page int
+	if err := callHost("ReadBack.PageBytes", func() error { page = c.readBack.PageBytes(); return nil }); err != nil {
+		return 0, runtimeError(CodeInvalidArgument, "WithReadBack", "ReadBack.PageBytes failed", err)
+	}
+	if page < 1 {
+		return 0, runtimeError(CodeInvalidArgument, "WithReadBack", "ReadBack.PageBytes is below 1", nil)
+	}
+	c.toolSources = append(c.toolSources, c.readBack)
+	return page, nil
+}
 
 // SpillKeeper is an optional method of a Transcript: it says the Transcript's
 // Journal keeps the Entries it writes, so the body of a spilled result can be
@@ -57,12 +99,14 @@ func spillBody(content []ContentPart) string {
 }
 
 // spillPreview is what stays in the Context of a spilled result: the start of
-// the body and a line that says how much was cut and how to read the rest. The
-// same body gives the same preview on every Instance.
-func spillPreview(call ToolCallID, body string) string {
-	pages := len(text.Paginate(text.SplitLines(body, SpillPageBytes), SpillPageBytes))
+// the body, at most preview bytes, and a line that says how much was cut and
+// how to read the rest. The pages it counts are those of the ReadBack's page
+// size, which is the size read_result pages by. The same body gives the same
+// preview on every Instance.
+func spillPreview(call ToolCallID, body string, page, preview int) string {
+	pages := len(text.Paginate(text.SplitLines(body, page), page))
 	var b strings.Builder
-	b.WriteString(cutRunes(body, SpillPreviewBytes))
+	b.WriteString(cutRunes(body, preview))
 	if !strings.HasSuffix(b.String(), "\n") {
 		b.WriteByte('\n')
 	}
@@ -91,12 +135,16 @@ func (a *Session) keepsSpilled() (keeps bool, failure *RuntimeError) {
 	return keeps, failure
 }
 
-// spill spills a result whose text is longer than one page, before it is
-// committed, so the Message it becomes is small. The full text is written as a
+// spill spills a result whose text is longer than one page (the ReadBack's
+// PageBytes), before it is committed, so the Message it becomes is small. The full text is written as a
 // ToolResultSpilled Entry first, so the Message can record its position. It
 // returns the result as the Transcript holds it: a preview in place of the
 // text, the Parts that are not text kept as they were, and Spilled set.
 func (a *Session) spill(ctx context.Context, runID RunID, turn TurnNumber, toolID string, result ToolResult) (ToolResult, *RuntimeError) {
+	if a.spillPage < 1 {
+		// No ReadBack: nothing would read the body back.
+		return result, nil
+	}
 	keeps, failure := a.keepsSpilled()
 	if failure != nil {
 		return result, failure
@@ -110,7 +158,7 @@ func (a *Session) spill(ctx context.Context, runID RunID, turn TurnNumber, toolI
 			size += len(part.Text)
 		}
 	}
-	if size <= SpillPageBytes {
+	if size <= a.spillPage {
 		return result, nil
 	}
 	body := spillBody(result.Content)
@@ -132,7 +180,7 @@ func (a *Session) spill(ctx context.Context, runID RunID, turn TurnNumber, toolI
 	if seq == 0 {
 		return result, runtimeError(CodeStoreFailure, "spill", "the Journal did not return the spilled result it wrote", nil)
 	}
-	content := []ContentPart{{Kind: ContentKindText, Text: spillPreview(result.CallID, body)}}
+	content := []ContentPart{{Kind: ContentKindText, Text: spillPreview(result.CallID, body, a.spillPage, min(int(a.limits.SpillPreviewBytes), a.spillPage))}}
 	for _, part := range result.Content {
 		if part.Kind != ContentKindText {
 			content = append(content, part)

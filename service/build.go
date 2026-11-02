@@ -46,8 +46,8 @@ func (r *Runner) buildSession(ctx context.Context, spec Agent, s *session.Record
 		gotato.WithCacheKey(sessionCacheKey(s)),
 	}
 	options = append(options, gotato.WithExtension(auto))
-	source := &sessionTools{spec: spec, session: s, segments: r.segmentTools(spec, s), results: r.resultTools(s)}
-	options = append(options, gotato.WithToolSource(source),
+	source := &sessionTools{spec: spec, session: s}
+	options = append(options, gotato.WithToolSource(source), gotato.WithReadBack(r.readBack(spec, s, source)),
 		// A Tool switched off for the Session is never in the catalog, found or loaded.
 		gotato.WithToolFilter(source.active))
 	if spec.MaxEffect != gotato.ToolEffectUnspecified {

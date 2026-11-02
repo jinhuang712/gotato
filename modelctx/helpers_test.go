@@ -332,3 +332,18 @@ func segmentsFixture(t *testing.T, n int, recap modelctx.RecapWriter) *fixture {
 }
 
 const goodRecap = "## What happened\n- looked at batch B-1; retried O-1\n## Key facts\n- B-1: 412 charges, 3 failed\n## Open items\n"
+
+// readBackOf is the ReadBack of record over log, with a page of page bytes (0
+// is the default).
+func readBackOf(record *session.Record, log session.EntryLog, page int) modelctx.ReadBack {
+	return modelctx.ReadBack{Originals: modelctx.RecordOriginals(record, log), PageSize: page}
+}
+
+// resultToolOf and segmentToolOf are read_result and read_segment of record.
+func resultToolOf(record *session.Record, log session.EntryLog, page int) gotato.Tool {
+	return modelctx.ResultTool(readBackOf(record, log, page))
+}
+
+func segmentToolOf(record *session.Record, log session.EntryLog, page int) gotato.Tool {
+	return modelctx.SegmentTool(readBackOf(record, log, page))
+}

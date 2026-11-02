@@ -35,8 +35,10 @@ var fileLayer = map[string]int{
 	"tokens.go":         layerFoundation,
 	// build and read-back
 	"merge_digest.go":  layerSegments,
+	"originals.go":     layerSegments,
 	"read_result.go":   layerSegments,
 	"read_segment.go":  layerSegments,
+	"readback.go":      layerSegments,
 	"recap.go":         layerSegments,
 	"segment_build.go": layerSegments,
 	// compaction decisions

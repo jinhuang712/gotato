@@ -15,7 +15,7 @@ import (
 // read runs read_result on ref against the fixture's Record and store.
 func (f *fixture) read(ref string, page int) (string, error) {
 	f.t.Helper()
-	tool := modelctx.ReadResultTool(f.rec, f.store, modelctx.ReadResultConfig{})
+	tool := resultToolOf(f.rec, f.store, 0)
 	return readResult(f.t, tool, fmt.Sprintf(`{"ref":%q,"page":%d}`, ref, page))
 }
 
@@ -58,7 +58,7 @@ func TestARefReadsAnUnspilledResultAndACutMessageWhole(t *testing.T) {
 	call := gotato.Message{Role: gotato.RoleAssistant, RunID: "r1", StopReason: gotato.StopReasonToolCalls,
 		ToolCalls: []gotato.ToolCall{{ID: "big1", ToolID: "demo.read", Arguments: []byte(`{}`)}}}
 	f.commit(call, 2)
-	body := bigBody(gotato.SpillPageBytes - 1000) // under one page: not spilled
+	body := bigBody(modelctx.DefaultPageBytes - 1000) // under one page: not spilled
 	f.commit(gotato.Message{Role: gotato.RoleToolResult, RunID: "r1", ToolResult: &gotato.ToolResult{CallID: "big1", Status: gotato.ToolResultStatusOK},
 		Parts: []gotato.ContentPart{{Kind: gotato.ContentKindText, Text: body}}}, 3)
 	long := strings.Repeat("word ", 5000) // 25000 bytes, past the 8000 a Segment keeps
@@ -108,7 +108,7 @@ func TestARefIntoPrunedEntriesReadsAsRemoved(t *testing.T) {
 	mustCompact(t, f.rec, modelctx.CompactConfig{})
 	fresh := f.reload()
 	empty := session.NewMemoryStore()
-	tool := modelctx.ReadResultTool(fresh, empty, modelctx.ReadResultConfig{})
+	tool := resultToolOf(fresh, empty, 0)
 	got, err := readResult(t, tool, `{"ref":"result:c1"}`)
 	if err != nil || !strings.Contains(got, "removed from the Record") {
 		t.Errorf("got %q, %v", got, err)

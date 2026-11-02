@@ -22,29 +22,42 @@ import (
 type sessionTools struct {
 	spec    Agent
 	session *session.Record
-	// segments gives the built-in read_segment tool once the Session has a
-	// Segment; nil for a surface that is not a Session's.
-	segments gotato.ToolSource
-	// results gives the built-in read_result tool to a Session whose Agent
-	// has any tool; nil for a surface that is not a Session's.
-	results gotato.ToolSource
 	// hasToolSets is set once the live Session is built and has a ToolSet,
 	// whose Tools can spill a result like any other.
 	hasToolSets atomic.Bool
 }
 
-// segmentTools is the ToolSource that offers read_segment for a Session of the
-// Agent spec: the Messages are read back from the Runner's store, in pages
-// that fit one page, in the zone of its Segments' times.
-func (r *Runner) segmentTools(spec Agent, record *session.Record) gotato.ToolSource {
-	options := modelctx.ReadSegmentConfig{Location: spec.Compact.Location}
-	return modelctx.SegmentTools(record, r.store.Records, options)
+// readBack is the gotato.ReadBack of a live Session of the Agent spec: the
+// default modelctx.ReadBack over the Runner's store, so the Messages a Segment
+// closed and the body of a spilled result are read back from the Record or
+// from the store, in the zone of the Segments' times. An Agent can replace it
+// with gotato.WithReadBack in its Options.
+func (r *Runner) readBack(spec Agent, record *session.Record, source *sessionTools) gotato.ReadBack {
+	return agentReadBack{
+		ReadBack: modelctx.ReadBack{Originals: modelctx.RecordOriginals(record, r.store.Records), Location: spec.Compact.Location},
+		hasTools: len(spec.Tools) > 0 || len(spec.ToolSources) > 0,
+		toolSets: &source.hasToolSets,
+	}
 }
 
-// resultTools is the ToolSource that offers read_result: a spilled result is
-// read back from the live Record or from the Runner's store.
-func (r *Runner) resultTools(record *session.Record) gotato.ToolSource {
-	return modelctx.ResultTools(record, r.store.Records, modelctx.ReadResultConfig{})
+// agentReadBack offers read_result only to a Session whose Agent has a tool,
+// its own, a ToolSource's or a ToolSet's, so the tool list does not change on
+// the Turn a result is first spilled and an Agent with no tool has none. It
+// also offers it whenever read_segment is: a Segment's refs to its messages
+// and results are read with it.
+type agentReadBack struct {
+	modelctx.ReadBack
+	hasTools bool
+	toolSets *atomic.Bool
+}
+
+// Tools implements gotato.ToolSource.
+func (a agentReadBack) Tools(ctx context.Context) ([]gotato.Tool, error) {
+	tools, err := a.ReadBack.Tools(ctx)
+	if err != nil || len(tools) > 1 || a.hasTools || a.toolSets.Load() {
+		return tools, err
+	}
+	return nil, nil
 }
 
 func (t *sessionTools) Tools(ctx context.Context) ([]gotato.Tool, error) {
@@ -77,27 +90,6 @@ func (t *sessionTools) Tools(ctx context.Context) ([]gotato.Tool, error) {
 		}
 		add(supplied)
 	}
-	// read_result is offered whenever the Agent has a tool, its own or a
-	// ToolSet's, so the tool list does not change on the Turn a result is
-	// first spilled.
-	var segmentTools []gotato.Tool
-	if t.segments != nil && failure == nil {
-		supplied, err := t.segments.Tools(ctx)
-		if err != nil {
-			return nil, err
-		}
-		segmentTools = supplied
-	}
-	// It is also offered whenever read_segment is: a Segment's refs to its
-	// messages and results are read with it.
-	if t.results != nil && (len(tools) > 0 || t.hasToolSets.Load() || len(segmentTools) > 0) && failure == nil {
-		supplied, err := t.results.Tools(ctx)
-		if err != nil {
-			return nil, err
-		}
-		add(supplied)
-	}
-	add(segmentTools)
 	if failure != nil {
 		return nil, failure
 	}
@@ -154,11 +146,6 @@ func (r *Runner) Tools(ctx context.Context, agent, sessionID string) ([]ToolEntr
 	}
 	all := &sessionTools{spec: spec}
 	filter := &sessionTools{spec: spec, session: s}
-	if s != nil {
-		// A Session that has a Segment offers read_segment too.
-		all.segments = r.segmentTools(spec, s)
-		all.results = r.resultTools(s)
-	}
 	entries := make([]ToolEntry, 0)
 	offered, err := all.Tools(ctx)
 	if err != nil {
