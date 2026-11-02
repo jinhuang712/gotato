@@ -72,7 +72,10 @@ func (a *AutoCompactor) PrepareTurn(ctx context.Context, pending gotato.PendingT
 		CeilingTokens: ceiling, BudgetTokens: a.compactor.effectiveBudget(),
 	}
 	if pending.Turn == 1 {
-		state.SegmentTokens = EstimateTokens(flatten(segments))
+		// Sized as a merge sizes them, one Segment at a time.
+		for _, segment := range segments {
+			state.SegmentTokens += EstimateTokens(segment.Messages)
+		}
 	}
 	why, due := a.due(ctx, state)
 	if !due {
