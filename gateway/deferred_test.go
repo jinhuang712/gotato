@@ -12,7 +12,7 @@ import (
 	"github.com/jinhuang712/gotato/gotato"
 	"github.com/jinhuang712/gotato/internal/fakegateway"
 	"github.com/jinhuang712/gotato/internal/reftasks"
-	"github.com/jinhuang712/gotato/service"
+	"github.com/jinhuang712/gotato/profile"
 )
 
 var (
@@ -320,7 +320,7 @@ func TestFakeNativeDeferredToolsEndToEnd(t *testing.T) {
 			fake, client := newFake(t, wire)
 			options := []gotato.SessionOption{gotato.WithModel(client), gotato.WithTools(reftasks.OrdersLookup())}
 			for _, set := range reftasks.ToolSearchToolSets() {
-				if set.Mode == service.ToolSetFolded {
+				if set.Mode == profile.ToolSetFolded {
 					options = append(options, gotato.WithFoldedToolSet(set.Set))
 				} else {
 					options = append(options, gotato.WithToolSet(set.Set))

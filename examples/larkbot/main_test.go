@@ -32,7 +32,7 @@ func TestCreateExclusiveIsIdempotentByError(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	runner, err := service.New(service.Config{Store: memStore(), Agents: []service.Agent{agent}})
+	runner, err := service.New(service.Config{Store: memStore(), Profiles: registryOf(agent), DefaultAgent: agent.Name})
 	if err != nil {
 		t.Fatal(err)
 	}

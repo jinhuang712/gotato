@@ -9,6 +9,7 @@ import (
 	"testing"
 
 	"github.com/jinhuang712/gotato/gotato"
+	"github.com/jinhuang712/gotato/profile"
 	"github.com/jinhuang712/gotato/service"
 	"github.com/jinhuang712/gotato/testkit"
 )
@@ -42,7 +43,7 @@ func (s effectSet) Tools(context.Context) ([]gotato.Tool, error) { return s.tool
 // a Tool a Session switched off. The Runner builds every SessionOption.
 func TestAnAgentHoldsNoSessionOption(t *testing.T) {
 	option := reflect.TypeFor[gotato.SessionOption]()
-	agent := reflect.TypeFor[service.Agent]()
+	agent := reflect.TypeFor[profile.AgentProfile]()
 	for i := range agent.NumField() {
 		field := agent.Field(i)
 		ft := field.Type
@@ -58,18 +59,18 @@ func TestAnAgentHoldsNoSessionOption(t *testing.T) {
 // The cap of an Agent covers the Tools of its ToolSets, however they are
 // installed: nothing the Agent holds sets another cap or lifts it.
 func TestAnAgentsCapHidesTheToolsOfItsToolSets(t *testing.T) {
-	for _, mode := range []service.ToolSetMode{service.ToolSetListed, service.ToolSetFolded, service.ToolSetActive} {
+	for _, mode := range []profile.ToolSetMode{profile.ToolSetListed, profile.ToolSetFolded, profile.ToolSetActive} {
 		t.Run(string(mode), func(t *testing.T) {
 			set := effectSet{name: "files", tools: []gotato.Tool{effectTool{"read", gotato.ToolEffectRead}, effectTool{"wipe", gotato.ToolEffectDestructive}}}
 			model := testkit.NewFakeModel(testkit.Text("ok"))
-			runner, _ := newRunner(t, service.Agent{Name: "capped", Model: model, MaxEffect: gotato.ToolEffectRead, ToolSets: []service.ToolSet{{Set: set, Mode: mode}}})
+			runner, _ := newRunner(t, profile.AgentProfile{Name: "capped", Model: model, MaxEffect: gotato.ToolEffectRead, ToolSets: []profile.ToolSet{{Set: set, Mode: mode}}})
 			ctx := context.Background()
 			result, err := runner.Run(ctx, service.RunRequest{Prompt: "go"})
 			if err != nil {
 				t.Fatal(err)
 			}
 			request, _ := model.LastRequest()
-			if mode == service.ToolSetActive && !slices.Contains(toolIDsOf(request), "files.read") {
+			if mode == profile.ToolSetActive && !slices.Contains(toolIDsOf(request), "files.read") {
 				t.Fatalf("an active ToolSet's Tool within the cap is not offered: %v", toolIDsOf(request))
 			}
 			if slices.Contains(toolIDsOf(request), "files.wipe") {
@@ -95,9 +96,9 @@ func TestAnAgentsCapHidesTheToolsOfItsToolSets(t *testing.T) {
 // active is visible always.
 func TestToolSetModesSetHowTheModelSeesATool(t *testing.T) {
 	set := effectSet{name: "files", tools: []gotato.Tool{effectTool{"read", gotato.ToolEffectRead}}}
-	for mode, visible := range map[service.ToolSetMode]bool{service.ToolSetListed: false, service.ToolSetFolded: false, service.ToolSetActive: true, "": false} {
+	for mode, visible := range map[profile.ToolSetMode]bool{profile.ToolSetListed: false, profile.ToolSetFolded: false, profile.ToolSetActive: true, "": false} {
 		model := testkit.NewFakeModel(testkit.Text("ok"))
-		runner, _ := newRunner(t, service.Agent{Name: "a", Model: model, ToolSets: []service.ToolSet{{Set: set, Mode: mode}}})
+		runner, _ := newRunner(t, profile.AgentProfile{Name: "a", Model: model, ToolSets: []profile.ToolSet{{Set: set, Mode: mode}}})
 		if _, err := runner.Run(context.Background(), service.RunRequest{Prompt: "go"}); err != nil {
 			t.Fatal(err)
 		}
@@ -139,12 +140,12 @@ func TestAnAgentsSamplingExtensionsAndSearcherReachItsSession(t *testing.T) {
 	)
 	searcher := &recordingSearcher{}
 	set := effectSet{name: "files", tools: []gotato.Tool{effectTool{"read", gotato.ToolEffectRead}}}
-	runner, _ := newRunner(t, service.Agent{
+	runner, _ := newRunner(t, profile.AgentProfile{
 		Name:         "a",
 		Model:        model,
 		Sampling:     gotato.Sampling{MaxTokens: 77},
 		Extensions:   []any{briefNote{}},
-		ToolSets:     []service.ToolSet{{Set: set}},
+		ToolSets:     []profile.ToolSet{{Set: set}},
 		ToolSearcher: searcher,
 	})
 	if _, err := runner.Run(context.Background(), service.RunRequest{Prompt: "go"}); err != nil {
@@ -164,18 +165,10 @@ func TestAnAgentsSamplingExtensionsAndSearcherReachItsSession(t *testing.T) {
 	}
 }
 
-// New refuses a ToolSet, a Mode or an Extension that cannot be installed, before
-// any Session exists.
-func TestNewRefusesAnAgentWithAnUnusableToolSetOrExtension(t *testing.T) {
-	cases := map[string]service.Agent{
-		"nil ToolSet":       {Name: "a", Model: testkit.EchoModel{}, ToolSets: []service.ToolSet{{}}},
-		"unknown Mode":      {Name: "a", Model: testkit.EchoModel{}, ToolSets: []service.ToolSet{{Set: effectSet{name: "x"}, Mode: "hidden"}}},
-		"nil Extension":     {Name: "a", Model: testkit.EchoModel{}, Extensions: []any{nil}},
-		"unknown MaxEffect": {Name: "a", Model: testkit.EchoModel{}, MaxEffect: "tiny"},
-	}
-	for name, agent := range cases {
-		if _, err := service.New(service.Config{Store: memStore(), Agents: []service.Agent{agent}}); err == nil {
-			t.Errorf("%s: New accepted the Agent", name)
-		}
+// New needs a Registry of profiles; the profile rules themselves are enforced at
+// registration (see profile's tests).
+func TestNewRefusesNilProfiles(t *testing.T) {
+	if _, err := service.New(service.Config{Store: memStore()}); err == nil {
+		t.Error("New accepted a nil Profiles")
 	}
 }

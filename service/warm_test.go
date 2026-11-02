@@ -11,6 +11,7 @@ import (
 
 	"github.com/jinhuang712/gotato/gotato"
 	"github.com/jinhuang712/gotato/modelctx"
+	"github.com/jinhuang712/gotato/profile"
 	"github.com/jinhuang712/gotato/service"
 	"github.com/jinhuang712/gotato/session"
 	"github.com/jinhuang712/gotato/testkit"
@@ -25,8 +26,8 @@ func warmInstance(t *testing.T, store session.Store, name string, clock service.
 	}
 	runner, err := service.New(service.WithClock(service.Config{
 		Store: store, Instance: name,
-		Bounds: service.Bounds{Queue: service.QueuePolicyWait},
-		Agents: []service.Agent{{Name: "echo", Model: model, Warm: warm}},
+		Bounds:   service.Bounds{Queue: service.QueuePolicyWait},
+		Profiles: registry(t, profile.AgentProfile{Name: "echo", Model: model}), DefaultAgent: "echo", Warm: warm,
 	}, clock))
 	if err != nil {
 		t.Fatal(err)
@@ -269,36 +270,6 @@ func TestWarmSessionLeavesMemoryAtItsTTL(t *testing.T) {
 	}
 }
 
-func TestWarmTTLIsPerAgent(t *testing.T) {
-	clock := newFakeClock()
-	store := memStore()
-	runner, err := service.New(service.WithClock(service.Config{Store: store, Agents: []service.Agent{
-		{Name: "short", Model: testkit.EchoModel{}, Warm: service.WarmPolicy{TTL: 10 * time.Minute, NoIdleCompaction: true}},
-		{Name: "never", Model: testkit.EchoModel{}, Warm: service.WarmPolicy{TTL: -1}},
-		{Name: "default", Model: testkit.EchoModel{}, Warm: service.WarmPolicy{NoIdleCompaction: true}},
-	}}, clock))
-	if err != nil {
-		t.Fatal(err)
-	}
-	t.Cleanup(func() { _ = runner.Close(context.Background()) })
-	for _, agent := range []string{"short", "never", "default"} {
-		if _, err := runner.Run(context.Background(), service.RunRequest{Agent: agent, Prompt: agent}); err != nil {
-			t.Fatal(err)
-		}
-	}
-	if runner.WarmSessions() != 2 {
-		t.Fatalf("warm Sessions = %d, want 2: a negative TTL keeps none", runner.WarmSessions())
-	}
-	clock.Advance(10 * time.Minute)
-	if runner.WarmSessions() != 1 {
-		t.Fatalf("warm Sessions = %d after 10 minutes, want the default Agent's", runner.WarmSessions())
-	}
-	clock.Advance(50 * time.Minute)
-	if runner.WarmSessions() != 0 {
-		t.Fatalf("warm Sessions = %d after 60 minutes, want 0", runner.WarmSessions())
-	}
-}
-
 // retainingModel is a model whose provider keeps the prompt cache for a while.
 type retainingModel struct {
 	gotato.Model
@@ -447,11 +418,10 @@ func TestRunDuringAnIdleCompactionCancelsIt(t *testing.T) {
 	model := &askModel{started: make(chan struct{}), reply: recapModel()}
 	runner, err := service.New(service.WithClock(service.Config{
 		Store: asStore(store), Instance: "a",
-		Agents: []service.Agent{{
+		Profiles: registry(t, profile.AgentProfile{
 			Name: "echo", Model: model,
 			Compact: modelctx.Compactor{Recap: modelctx.ModelRecap{}},
-			Warm:    service.WarmPolicy{IdleMinTokens: -1},
-		}},
+		}), DefaultAgent: "echo", Warm: service.WarmPolicy{IdleMinTokens: -1},
 	}, clock))
 	if err != nil {
 		t.Fatal(err)

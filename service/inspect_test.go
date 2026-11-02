@@ -8,6 +8,7 @@ import (
 
 	"github.com/jinhuang712/gotato/gotato"
 	"github.com/jinhuang712/gotato/modelctx"
+	"github.com/jinhuang712/gotato/profile"
 	"github.com/jinhuang712/gotato/service"
 	"github.com/jinhuang712/gotato/testkit"
 )
@@ -25,7 +26,7 @@ func (briefNote) Transform(_ context.Context, snapshot gotato.ContextSnapshot) (
 func TestInspectMatchesTheNextRun(t *testing.T) {
 	model := testkit.NewFakeModel(testkit.Text("on its way"))
 	maxTokens := gotato.Sampling{MaxTokens: 256}
-	runner, _ := newRunner(t, service.Agent{
+	runner, _ := newRunner(t, profile.AgentProfile{
 		Name:        "orders",
 		Model:       model,
 		Instruction: "You track orders.",
@@ -71,7 +72,7 @@ func TestInspectMatchesTheNextRun(t *testing.T) {
 }
 
 func TestInspectSaysWhenCompactionIsPending(t *testing.T) {
-	runner, _ := newRunner(t, service.Agent{Name: "echo", Model: testkit.EchoModel{}, Compact: modelctx.Compactor{CompactPolicy: modelctx.CompactPolicy{CeilingTokens: 20000}}})
+	runner, _ := newRunner(t, profile.AgentProfile{Name: "echo", Model: testkit.EchoModel{}, Compact: modelctx.Compactor{CompactPolicy: modelctx.CompactPolicy{CeilingTokens: 20000}}})
 	ctx := context.Background()
 	first, err := runner.Run(ctx, service.RunRequest{Prompt: "hi"})
 	if err != nil {

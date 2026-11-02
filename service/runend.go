@@ -6,6 +6,7 @@ import (
 
 	"github.com/jinhuang712/gotato/gotato"
 	"github.com/jinhuang712/gotato/modelctx"
+	"github.com/jinhuang712/gotato/profile"
 	"github.com/jinhuang712/gotato/session"
 )
 
@@ -62,7 +63,7 @@ func (st *runState) dropReason(runCtx context.Context) string {
 
 // persist saves the settled Session, even when the Run was canceled, and
 // reports the save. A failed write of the Run is added to its error.
-func (st *runState) persist(runCtx context.Context, spec Agent, result *gotato.RunResult) {
+func (st *runState) persist(runCtx context.Context, spec profile.AgentProfile, result *gotato.RunResult) {
 	r, s, writer := st.r, st.s, st.writer
 	if writer == nil {
 		return
@@ -111,7 +112,7 @@ func (st *runState) persist(runCtx context.Context, spec Agent, result *gotato.R
 }
 
 // respond builds the Run's response from its settled result.
-func (st *runState) respond(spec Agent, auto *modelctx.AutoCompactor, result gotato.RunResult) {
+func (st *runState) respond(spec profile.AgentProfile, auto *modelctx.AutoCompactor, result gotato.RunResult) {
 	s, runErr := st.s, st.runErr
 	st.r.noteFailure(runErr, s.ID(), spec.Name)
 	out := RunResponse{

@@ -11,6 +11,7 @@ import (
 
 	"github.com/jinhuang712/gotato/gotato"
 	"github.com/jinhuang712/gotato/internal/reftasks"
+	"github.com/jinhuang712/gotato/profile"
 	"github.com/jinhuang712/gotato/service"
 	"github.com/jinhuang712/gotato/session"
 )
@@ -201,9 +202,9 @@ func newRig(t *testing.T) (*rig, *flakyStore) {
 	mem := session.NewMemoryStore()
 	store := &flakyStore{Records: mem, Liveness: mem}
 	r := &rig{t: t, store: store}
-	runner, err := service.New(service.Config{Store: store.store(), Agents: []service.Agent{{
+	runner, err := service.New(withAgents(service.Config{Store: store.store()}, []profile.AgentProfile{{
 		Name: "probe", Model: rigModel{r}, Tools: []gotato.Tool{rigTool{r}},
-	}}})
+	}}...))
 	if err != nil {
 		t.Fatal(err)
 	}

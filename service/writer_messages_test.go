@@ -10,6 +10,7 @@ import (
 	"testing"
 
 	"github.com/jinhuang712/gotato/gotato"
+	"github.com/jinhuang712/gotato/profile"
 	"github.com/jinhuang712/gotato/service"
 	"github.com/jinhuang712/gotato/session"
 )
@@ -41,8 +42,8 @@ func addressedRunner(t *testing.T, store session.Store, instance string, model g
 	t.Helper()
 	runner, err := service.New(service.Config{
 		Store: store, Instance: instance, Address: "http://" + instance + ".example:8080", Heartbeat: steadyLiveness,
-		Bounds: service.Bounds{Queue: service.QueuePolicyWait},
-		Agents: []service.Agent{{Name: "echo", Model: model}},
+		Bounds:   service.Bounds{Queue: service.QueuePolicyWait},
+		Profiles: registry(t, profile.AgentProfile{Name: "echo", Model: model}), DefaultAgent: "echo",
 	})
 	if err != nil {
 		t.Fatal(err)

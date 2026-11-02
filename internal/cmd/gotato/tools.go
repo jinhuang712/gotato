@@ -92,9 +92,6 @@ func (c *cli) listTools(ctx context.Context, rt *cliRuntime, flags modelFlags, s
 	if err != nil {
 		return toolListing{}, err
 	}
-	// Runner.Tools resolves an empty agent to the session's stored agent, or
-	// the first registered agent when there is no session. Mirror that here so
-	// the listing reports the agent that actually selected the surface.
 	if agent == "" && sessionID != "" {
 		s, err := session.Open(ctx, rt.store.Records, sessionID)
 		if err != nil {
@@ -102,16 +99,16 @@ func (c *cli) listTools(ctx context.Context, rt *cliRuntime, flags modelFlags, s
 		}
 		agent, _ = s.Get(agentKey)
 	}
-	if agent == "" {
-		if names := rt.runner.Agents(); len(names) > 0 {
-			agent = names[0]
-		}
+	// An empty agent is the default one.
+	spec, err := rt.runner.AgentProfile(ctx, agent)
+	if err != nil {
+		return toolListing{}, err
 	}
+	agent = spec.Name
 	entries, err := rt.runner.Tools(ctx, agent, sessionID)
 	if err != nil {
 		return toolListing{}, err
 	}
-	spec, _ := rt.runner.Agent(agent)
 	listing := toolListing{SessionID: sessionID, Agent: agent, MaxEffect: string(spec.MaxEffect), Tools: []toolView{}}
 	for _, entry := range entries {
 		listing.Tools = append(listing.Tools, viewOf(entry))

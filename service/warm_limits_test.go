@@ -11,6 +11,7 @@ import (
 
 	"github.com/jinhuang712/gotato/gotato"
 	"github.com/jinhuang712/gotato/modelctx"
+	"github.com/jinhuang712/gotato/profile"
 	"github.com/jinhuang712/gotato/service"
 	"github.com/jinhuang712/gotato/session"
 	"github.com/jinhuang712/gotato/testkit"
@@ -29,9 +30,7 @@ func benchHeap() uint64 {
 func warmedRunner(b *testing.B, sessions, messages int, ttl time.Duration) *service.Runner {
 	b.Helper()
 	ctx := context.Background()
-	runner, err := service.New(service.Config{Store: memStore(), Agents: []service.Agent{
-		{Name: "echo", Model: testkit.EchoModel{}, Warm: service.WarmPolicy{TTL: ttl, NoIdleCompaction: true}},
-	}})
+	runner, err := service.New(service.Config{Store: memStore(), Profiles: registry(b, profile.AgentProfile{Name: "echo", Model: testkit.EchoModel{}}), DefaultAgent: "echo", Warm: service.WarmPolicy{TTL: ttl, NoIdleCompaction: true}})
 	if err != nil {
 		b.Fatal(err)
 	}
@@ -95,8 +94,8 @@ func TestMaxWarmSessionsEvictsTheOldestIdle(t *testing.T) {
 	clock := newFakeClock()
 	runner, err := service.New(service.WithClock(service.Config{
 		Store: memStore(), Instance: "a",
-		Bounds: service.Bounds{MaxWarmSessions: 2},
-		Agents: []service.Agent{{Name: "echo", Model: testkit.EchoModel{}, Warm: service.WarmPolicy{NoIdleCompaction: true}}},
+		Bounds:   service.Bounds{MaxWarmSessions: 2},
+		Profiles: registry(t, profile.AgentProfile{Name: "echo", Model: testkit.EchoModel{}}), DefaultAgent: "echo", Warm: service.WarmPolicy{NoIdleCompaction: true},
 	}, clock))
 	if err != nil {
 		t.Fatal(err)
@@ -125,8 +124,8 @@ func TestMaxWarmSessionsEvictsTheOldestIdle(t *testing.T) {
 // keep every Session of the hour for ever.
 func TestWarmSessionsHaveADefaultBound(t *testing.T) {
 	runner, err := service.New(service.Config{
-		Store:  memStore(),
-		Agents: []service.Agent{{Name: "echo", Model: testkit.EchoModel{}}},
+		Store:    memStore(),
+		Profiles: registry(t, profile.AgentProfile{Name: "echo", Model: testkit.EchoModel{}}), DefaultAgent: "echo",
 	})
 	if err != nil {
 		t.Fatal(err)
@@ -175,7 +174,7 @@ func TestRefusedCallerDoesNotEvictTheWarmSession(t *testing.T) {
 	}
 	for name, call := range calls {
 		t.Run(name, func(t *testing.T) {
-			runner := newRunnerOn(t, asStore(guarded{partsOf(memStore())}), service.Agent{Name: "a", Model: testkit.EchoModel{}})
+			runner := newRunnerOn(t, asStore(guarded{partsOf(memStore())}), profile.AgentProfile{Name: "a", Model: testkit.EchoModel{}})
 			ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 			defer cancel()
 			s, err := runner.CreateSession(ctx, service.CreateSessionRequest{Agent: "a"})
@@ -205,8 +204,8 @@ func limitedInstance(t *testing.T, store session.Store, clock service.Clock, mod
 	t.Helper()
 	runner, err := service.New(service.WithClock(service.Config{
 		Store: store, Instance: "a",
-		Bounds: service.Bounds{MaxActiveSessions: limit, Queue: service.QueuePolicyWait},
-		Agents: []service.Agent{{Name: "echo", Model: model, Warm: service.WarmPolicy{NoIdleCompaction: true}}},
+		Bounds:   service.Bounds{MaxActiveSessions: limit, Queue: service.QueuePolicyWait},
+		Profiles: registry(t, profile.AgentProfile{Name: "echo", Model: model}), DefaultAgent: "echo", Warm: service.WarmPolicy{NoIdleCompaction: true},
 	}, clock))
 	if err != nil {
 		t.Fatal(err)
@@ -406,11 +405,10 @@ func TestEvictionCancelsAnIdleCompactionInProgress(t *testing.T) {
 	runner, err := service.New(service.WithClock(service.Config{
 		Store: asStore(store), Instance: "a",
 		Bounds: service.Bounds{MaxActiveSessions: 1},
-		Agents: []service.Agent{{
+		Profiles: registry(t, profile.AgentProfile{
 			Name: "echo", Model: model,
 			Compact: modelctx.Compactor{Recap: modelctx.ModelRecap{}},
-			Warm:    service.WarmPolicy{IdleMinTokens: -1},
-		}},
+		}), DefaultAgent: "echo", Warm: service.WarmPolicy{IdleMinTokens: -1},
 	}, clock))
 	if err != nil {
 		t.Fatal(err)

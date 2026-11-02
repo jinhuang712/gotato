@@ -45,10 +45,14 @@ type Admitter interface {
 type Admission struct {
 	// SessionID is the Session the Run is on: empty for a Run that creates one.
 	SessionID string
-	// Agent is the name the request gives (RunRequest.Agent): empty when the
-	// request names none, and the Run takes the Session's Agent, or the
+	// Agent is the AgentProfile's name the request gives (RunRequest.Agent), or
+	// the TaskSpec's AgentProfile for a Run of a TaskSpec: empty when the
+	// request names none, and the Run takes the Session's AgentProfile, or the
 	// default.
 	Agent string
+	// Task is the name of the TaskSpec the Run is of (RunRequest.Task, or the
+	// Name of RunRequest.TaskSpec): empty for a Run that is of none.
+	Task string
 }
 
 // Load is what this Instance holds when a Run is asked about, not counting the
@@ -102,8 +106,11 @@ func (r refusal) Unwrap() error { return r.err }
 // still take it, unless a warm Session can be evicted to make room; then the
 // Admitter decides. It returns the func that ends the admission, to call
 // exactly once when the Run is over: the Admitter's release, then the count.
-func (r *Runner) admit(ctx context.Context, handle *runHandle, request RunRequest) (func(), error) {
-	admission := Admission{SessionID: handle.sessionID, Agent: request.Agent}
+func (r *Runner) admit(ctx context.Context, handle *runHandle, request RunRequest, agent string) (func(), error) {
+	admission := Admission{SessionID: handle.sessionID, Agent: agent}
+	if request.task != nil {
+		admission.Task = request.task.spec.Name
+	}
 	decide := func(counts runs.Counts) (release func(), err error) {
 		defer func() {
 			// [CONTRACT] a panic in the Admitter refuses the Run; it does not take the Runner down with the table's lock held.

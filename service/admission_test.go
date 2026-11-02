@@ -8,6 +8,7 @@ import (
 	"time"
 
 	"github.com/jinhuang712/gotato/gotato"
+	"github.com/jinhuang712/gotato/profile"
 	"github.com/jinhuang712/gotato/service"
 	"github.com/jinhuang712/gotato/session"
 	"github.com/jinhuang712/gotato/testkit"
@@ -17,7 +18,7 @@ func TestSessionIsSingleFlightRejectPolicy(t *testing.T) {
 	block := make(chan struct{})
 	model := testkit.NewFakeModel(testkit.Text("slow"))
 	model.Block = block
-	runner, _ := newRunner(t, service.Agent{Name: "slow", Model: model})
+	runner, _ := newRunner(t, profile.AgentProfile{Name: "slow", Model: model})
 	ctx := context.Background()
 	s, _ := runner.CreateSession(ctx, service.CreateSessionRequest{Agent: "slow"})
 
@@ -43,8 +44,8 @@ func TestWaitPolicyQueuesAndAbortSessionAborts(t *testing.T) {
 	model.Block = block
 	store := memStore()
 	runner, err := service.New(service.Config{
-		Store:  store,
-		Agents: []service.Agent{{Name: "slow", Model: model}},
+		Store:    store,
+		Profiles: registry(t, profile.AgentProfile{Name: "slow", Model: model}), DefaultAgent: "slow",
 		Bounds: service.Bounds{Queue: service.QueuePolicyWait}, Admitter: service.Limits{MaxActiveRuns: 2},
 	})
 	if err != nil {
@@ -86,8 +87,8 @@ func TestQueuedRunIsCancelable(t *testing.T) {
 	model := testkit.NewFakeModel(testkit.Text("slow"))
 	model.Block = block
 	runner, _ := service.New(service.Config{
-		Store:  memStore(),
-		Agents: []service.Agent{{Name: "slow", Model: model}},
+		Store:    memStore(),
+		Profiles: registry(t, profile.AgentProfile{Name: "slow", Model: model}), DefaultAgent: "slow",
 		Bounds: service.Bounds{Queue: service.QueuePolicyWait}, Admitter: service.Limits{MaxActiveRuns: 4},
 	})
 	ctx := context.Background()
@@ -133,7 +134,7 @@ func TestSessionMutationsRespectTheLock(t *testing.T) {
 	block := make(chan struct{})
 	model := testkit.NewFakeModel(testkit.Text("slow"))
 	model.Block = block
-	runner, _ := newRunner(t, service.Agent{Name: "slow", Model: model, Tools: []gotato.Tool{testkit.DemoEchoTool()}})
+	runner, _ := newRunner(t, profile.AgentProfile{Name: "slow", Model: model, Tools: []gotato.Tool{testkit.DemoEchoTool()}})
 	ctx := context.Background()
 	s, _ := runner.CreateSession(ctx, service.CreateSessionRequest{Agent: "slow"})
 
@@ -181,8 +182,8 @@ func (s *blockingGetStore) Load(ctx context.Context, id string) (session.Loaded,
 func TestAbortSessionReachesRunLoadingSession(t *testing.T) {
 	blocking := &blockingGetStore{parts: partsOf(memStore()), started: make(chan struct{})}
 	runner, err := service.New(service.Config{
-		Store:  asStore(blocking),
-		Agents: []service.Agent{{Name: "echo", Model: testkit.EchoModel{}, ModelName: "echo"}},
+		Store:    asStore(blocking),
+		Profiles: registry(t, profile.AgentProfile{Name: "echo", Model: testkit.EchoModel{}, ModelName: "echo"}), DefaultAgent: "echo",
 	})
 	if err != nil {
 		t.Fatal(err)
@@ -215,7 +216,7 @@ func TestAbortSessionReachesRunLoadingSession(t *testing.T) {
 
 // A negative limit is a mistake in the Config, for runs as it is for Sessions.
 func TestNewRefusesANegativeMaxActiveRuns(t *testing.T) {
-	_, err := service.New(service.Config{Store: memStore(), Agents: []service.Agent{{Name: "a", Model: testkit.EchoModel{}}}, Admitter: service.Limits{MaxActiveRuns: -1}})
+	_, err := service.New(service.Config{Store: memStore(), Profiles: registry(t, profile.AgentProfile{Name: "a", Model: testkit.EchoModel{}}), DefaultAgent: "a", Admitter: service.Limits{MaxActiveRuns: -1}})
 	if err == nil {
 		t.Fatal("New accepted MaxActiveRuns -1")
 	}

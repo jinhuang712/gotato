@@ -6,6 +6,7 @@ import (
 
 	"github.com/jinhuang712/gotato/gotato"
 	"github.com/jinhuang712/gotato/modelctx"
+	"github.com/jinhuang712/gotato/profile"
 	"github.com/jinhuang712/gotato/service/internal/warm"
 	"github.com/jinhuang712/gotato/session"
 )
@@ -24,7 +25,7 @@ const (
 	defaultIdleMinTokens = 20000
 )
 
-// WarmPolicy says how long a Session of an Agent stays in memory after its
+// WarmPolicy says how long a Session stays in memory after its
 // Run, and whether it is compacted while it idles. The zero value is the
 // default: 60 minutes, and an idle compaction shortly before the prompt cache
 // expires or the Session leaves memory.
@@ -99,7 +100,7 @@ func (p WarmPolicy) idleSchedule(retention time.Duration) (after time.Duration, 
 // the Agent it ran with. It holds no Claim.
 type warmCopy struct {
 	writer *session.Writer
-	spec   Agent
+	spec   profile.AgentProfile
 }
 
 // copyOf returns the copy a warm entry keeps.
@@ -111,8 +112,8 @@ func (r *Runner) WarmSessions() int { return r.warm.Len() }
 // keepWarm keeps the Session writer wrote, released and healthy, in memory for
 // the Agent's TTL, and arms its timers. A Writer that failed, a draining or
 // closed Runner and a negative TTL keep nothing.
-func (r *Runner) keepWarm(writer *session.Writer, spec Agent) {
-	ttl := spec.Warm.ttl()
+func (r *Runner) keepWarm(writer *session.Writer, spec profile.AgentProfile) {
+	ttl := r.warmPolicy.ttl()
 	// [DATA-LOSS] a failed Writer's copy may differ from the store and must not serve the next Run.
 	if ttl < 0 || writer == nil || writer.Failed() != nil {
 		return
@@ -121,7 +122,7 @@ func (r *Runner) keepWarm(writer *session.Writer, spec Agent) {
 		return
 	}
 	plan := warm.Plan{TTL: ttl, OnExpire: r.expire}
-	if after, why, on := spec.Warm.idleSchedule(spec.Model.Config().Facts.CacheRetention); on {
+	if after, why, on := r.warmPolicy.idleSchedule(spec.Model.Config().Facts.CacheRetention); on {
 		plan.IdleAfter, plan.OnIdle = after, func(entry *warm.Entry) { r.idleCompact(entry, why) }
 	}
 	if r.warm.Put(writer.ID(), spec.Name, &warmCopy{writer: writer, spec: spec}, plan) == nil {
@@ -222,7 +223,12 @@ func (r *Runner) compactIdleLocked(ctx context.Context, entry *warm.Entry, why g
 		return
 	}
 	record := writer.Record()
-	minTokens := kept.spec.Warm.minTokens()
+	// The profile may have been replaced since the Session went idle.
+	spec := kept.spec
+	if current, err := r.agentOf(ctx, record); err == nil {
+		spec = current
+	}
+	minTokens := r.warmPolicy.minTokens()
 	if minTokens > 0 && modelctx.EstimateTokens(record.Tail()) < minTokens {
 		return
 	}
@@ -240,9 +246,9 @@ func (r *Runner) compactIdleLocked(ctx context.Context, entry *warm.Entry, why g
 		}
 		return
 	}
-	compactOpts := []modelctx.CompactOption{modelctx.WithCompactionWhy(why), modelctx.WithRecapContext(r.recapContext(kept.spec, record))}
+	compactOpts := []modelctx.CompactOption{modelctx.WithCompactionWhy(why), modelctx.WithRecapContext(r.recapContext(spec, record))}
 	// The result needs no report: the compaction's Events say what it did.
-	_, _ = modelctx.Compact(ctx, record, compactorFor(kept.spec), modelctx.CompactConfig{MinTokens: minTokens}, compactOpts...)
+	_, _ = modelctx.Compact(ctx, record, compactorFor(spec), modelctx.CompactConfig{MinTokens: minTokens}, compactOpts...)
 	saveCtx, cancelSave := persistContext(ctx)
 	releaseErr := r.releaseWriter(saveCtx, writer)
 	cancelSave()

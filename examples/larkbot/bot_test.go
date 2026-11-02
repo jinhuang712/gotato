@@ -14,6 +14,7 @@ import (
 
 	"github.com/jinhuang712/gotato/examples/larkbot/internal/fakelark"
 	"github.com/jinhuang712/gotato/gotato"
+	"github.com/jinhuang712/gotato/profile"
 	"github.com/jinhuang712/gotato/service"
 	"github.com/jinhuang712/gotato/service/httpapi"
 	"github.com/jinhuang712/gotato/session"
@@ -163,7 +164,7 @@ func newLarkInstance(t *testing.T, store storeParts, name, fakeURL string, model
 	t.Cleanup(srv.Close)
 	runner, err := service.New(service.Config{
 		Store: session.Store{Records: store, Liveness: store}, Instance: name, Address: "http://" + srv.Listener.Addr().String(),
-		Agents: []service.Agent{{Name: "fake", Model: model, ModelName: "fake", Limits: botLimits()}},
+		Profiles: registryOf(profile.AgentProfile{Name: "fake", Model: model, ModelName: "fake", Limits: botLimits()}), DefaultAgent: "fake",
 	})
 	if err != nil {
 		t.Fatal(err)

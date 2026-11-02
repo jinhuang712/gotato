@@ -12,6 +12,7 @@ import (
 	"time"
 
 	"github.com/jinhuang712/gotato/gotato"
+	"github.com/jinhuang712/gotato/profile"
 	"github.com/jinhuang712/gotato/service"
 	"github.com/jinhuang712/gotato/service/httpapi"
 	"github.com/jinhuang712/gotato/session"
@@ -23,13 +24,12 @@ func anyAddress(string) bool { return true }
 
 func newServer(t *testing.T) (*httptest.Server, *service.Runner) {
 	t.Helper()
-	runner, err := service.New(service.Config{
+	runner, err := service.New(withAgents(service.Config{
 		Store: memStore(),
-		Agents: []service.Agent{
-			{Name: "echo", Model: testkit.EchoModel{}, ModelName: "echo"},
-			{Name: "demo", Model: testkit.DemoModel{}, ModelName: "demo", Tools: []gotato.Tool{testkit.DemoEchoTool()}},
-		},
-	})
+	}, []profile.AgentProfile{
+		{Name: "echo", Model: testkit.EchoModel{}, ModelName: "echo"},
+		{Name: "demo", Model: testkit.DemoModel{}, ModelName: "demo", Tools: []gotato.Tool{testkit.DemoEchoTool()}},
+	}...))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -108,11 +108,10 @@ func newInstance(t *testing.T, store session.Store, name string, model gotato.Mo
 	if advertise {
 		address = "http://" + in.server.Listener.Addr().String()
 	}
-	runner, err := service.New(service.Config{
+	runner, err := service.New(withAgents(service.Config{
 		Store: store, Instance: name, Address: address,
 		Heartbeat: service.Heartbeat{TTL: 5 * time.Second, Wait: 3 * time.Second},
-		Agents:    []service.Agent{{Name: "echo", Model: model}},
-	})
+	}, []profile.AgentProfile{{Name: "echo", Model: model}}...))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -178,3 +177,16 @@ func running(t *testing.T, in *instance, g *gate) (string, func() service.RunRes
 }
 
 func newGate() *gate { return &gate{started: make(chan struct{}, 4), release: make(chan struct{})} }
+
+// withAgents registers agents as the Config's AgentProfiles, the first the
+// default.
+func withAgents(cfg service.Config, agents ...profile.AgentProfile) service.Config {
+	registry := profile.NewRegistry(nil)
+	for _, agent := range agents {
+		if err := registry.RegisterAgentProfileInline(agent); err != nil {
+			panic(err)
+		}
+	}
+	cfg.Profiles, cfg.DefaultAgent = registry, agents[0].Name
+	return cfg
+}

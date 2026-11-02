@@ -15,6 +15,7 @@ import (
 	"github.com/jinhuang712/gotato/gotato"
 	"github.com/jinhuang712/gotato/internal/fakegateway"
 	"github.com/jinhuang712/gotato/modelctx"
+	"github.com/jinhuang712/gotato/profile"
 	"github.com/jinhuang712/gotato/service"
 	"github.com/jinhuang712/gotato/session"
 	"github.com/jinhuang712/gotato/testkit"
@@ -61,7 +62,7 @@ func (s *refusingStore) Log(ctx context.Context, id string, after uint64, limit 
 func TestAbortSessionAuthorizesWhileTheRunIsLoading(t *testing.T) {
 	ctx := context.Background()
 	store := &refusingStore{parts: partsOf(memStore()), entered: make(chan struct{}), proceed: make(chan struct{})}
-	r, err := service.New(service.Config{Store: asStore(store), Agents: []service.Agent{{Name: "echo", Model: testkit.EchoModel{}}}})
+	r, err := service.New(service.Config{Store: asStore(store), Profiles: registry(t, profile.AgentProfile{Name: "echo", Model: testkit.EchoModel{}}), DefaultAgent: "echo"})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -111,7 +112,7 @@ func (s resolvingSet) Tools(ctx context.Context) ([]gotato.Tool, error) {
 func startResolving(t *testing.T) (*service.Runner, string, context.Context, chan error, resolvingSet) {
 	t.Helper()
 	set := resolvingSet{entered: make(chan context.Context, 1), release: make(chan struct{})}
-	r, err := service.New(service.Config{Store: memStore(), Agents: []service.Agent{{Name: "slow", Model: testkit.EchoModel{}, ToolSets: []service.ToolSet{{Set: set}}}}})
+	r, err := service.New(service.Config{Store: memStore(), Profiles: registry(t, profile.AgentProfile{Name: "slow", Model: testkit.EchoModel{}, ToolSets: []profile.ToolSet{{Set: set}}}), DefaultAgent: "slow"})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -193,7 +194,7 @@ func gatewayRunner(t *testing.T, setup gatewaySetup, fake *fakegateway.Gateway, 
 	if err != nil {
 		t.Fatal(err)
 	}
-	runner, err := service.New(service.Config{Store: memStore(), Agents: []service.Agent{{Name: "fake", Model: client, Compact: policy}}})
+	runner, err := service.New(service.Config{Store: memStore(), Profiles: registry(t, profile.AgentProfile{Name: "fake", Model: client, Compact: policy}), DefaultAgent: "fake"})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -377,7 +378,7 @@ func TestAnOverflowInTheMiddleOfAReplyEndsTheRunAndKeepsTheCutOffTextOnEachWireA
 
 func TestRunnerKeysEachSessionsPromptCache(t *testing.T) {
 	model := testkit.NewFakeModel(testkit.Text("a"), testkit.Text("b"), testkit.Text("c"))
-	runner, _ := newRunner(t, service.Agent{Name: "echo", Model: model})
+	runner, _ := newRunner(t, profile.AgentProfile{Name: "echo", Model: model})
 	ctx := context.Background()
 	first, err := runner.Run(ctx, service.RunRequest{Prompt: "one"})
 	if err != nil {
@@ -405,7 +406,7 @@ func TestRunnerKeysEachSessionsPromptCache(t *testing.T) {
 
 func TestForkKeepsTheParentsCacheKey(t *testing.T) {
 	model := testkit.NewFakeModel(testkit.Text("a"), testkit.Text("b"), testkit.Text("c"))
-	runner, store := newRunner(t, service.Agent{Name: "echo", Model: model})
+	runner, store := newRunner(t, profile.AgentProfile{Name: "echo", Model: model})
 	ctx := context.Background()
 	parent, err := runner.Run(ctx, service.RunRequest{Prompt: "one"})
 	if err != nil {
@@ -462,7 +463,7 @@ func (p *deadlineProbe) Before(ctx context.Context, _ gotato.ToolUse) (gotato.Pr
 func runDeadline(t *testing.T, ctx context.Context, runTimeout, requestTimeout time.Duration) (time.Duration, bool) {
 	t.Helper()
 	probe := &deadlineProbe{}
-	runner, _ := newRunner(t, service.Agent{
+	runner, _ := newRunner(t, profile.AgentProfile{
 		Name:       "probe",
 		Model:      testkit.NewFakeModel(testkit.ToolCalls(gotato.ToolCall{ID: "c1", ToolID: "lookup", Arguments: []byte(`{}`)}), testkit.Text("done")),
 		Tools:      []gotato.Tool{testkit.NewFakeTool("lookup", "found")},
@@ -548,7 +549,7 @@ func TestAValueInTheCallersCtxReachesBeforeAndExecute(t *testing.T) {
 	call := func(id string) testkit.Script {
 		return testkit.ToolCalls(gotato.ToolCall{ID: gotato.ToolCallID(id), ToolID: "whoami", Arguments: []byte(`{}`)})
 	}
-	runner, _ := newRunner(t, service.Agent{
+	runner, _ := newRunner(t, profile.AgentProfile{
 		Name:       "asker",
 		Model:      testkit.NewFakeModel(call("c1"), testkit.Text("one"), call("c2"), testkit.Text("two")),
 		Tools:      []gotato.Tool{tool},
@@ -578,7 +579,7 @@ func TestARunPastItsRunTimeoutSettlesAsDeadlineExceeded(t *testing.T) {
 		<-ctx.Done()
 		return nil, ctx.Err()
 	})
-	runner, _ := newRunner(t, service.Agent{Name: "slow", Model: model, RunTimeout: 50 * time.Millisecond})
+	runner, _ := newRunner(t, profile.AgentProfile{Name: "slow", Model: model, RunTimeout: 50 * time.Millisecond})
 	result, err := runner.Run(context.Background(), service.RunRequest{Prompt: "go"})
 	if err == nil || result.Result.Status != gotato.RunStatusDeadlineExceeded {
 		t.Fatalf("Run = %+v, %v; want deadline_exceeded", result.Result, err)
@@ -588,7 +589,7 @@ func TestARunPastItsRunTimeoutSettlesAsDeadlineExceeded(t *testing.T) {
 // A negative Timeout is refused: it must not remove the Agent's RunTimeout,
 // which an expired remaining time computed by the caller would do.
 func TestANegativeRequestTimeoutIsRefused(t *testing.T) {
-	runner, _ := newRunner(t, service.Agent{Name: "a", Model: testkit.EchoModel{}, RunTimeout: time.Minute})
+	runner, _ := newRunner(t, profile.AgentProfile{Name: "a", Model: testkit.EchoModel{}, RunTimeout: time.Minute})
 	_, err := runner.Run(context.Background(), service.RunRequest{Prompt: "go", Timeout: -time.Second})
 	var re *gotato.RuntimeError
 	if !errors.As(err, &re) || re.Code != gotato.CodeInvalidArgument || !re.NotRun {
@@ -630,9 +631,9 @@ func (m *peekingModel) Config() gotato.ModelConfig { return gotato.ModelConfig{}
 func TestEveryStepIsStoredBeforeTheNext(t *testing.T) {
 	store := memStore()
 	model := &peekingModel{store: store}
-	runner, err := service.New(service.Config{Store: store, Agents: []service.Agent{{
+	runner, err := service.New(service.Config{Store: store, Profiles: registry(t, profile.AgentProfile{
 		Name: "lookup", Model: model, Tools: []gotato.Tool{testkit.NewFakeTool("lookup", "found")},
-	}}})
+	}), DefaultAgent: "lookup"})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -688,15 +689,13 @@ func (s *crashingStore) Append(ctx context.Context, id string, after uint64, ent
 
 func TestACrashDuringAToolIsAnsweredOnTheNextRun(t *testing.T) {
 	backing := memStore()
-	agent := func(model gotato.Model) service.Agent {
-		return service.Agent{Name: "lookup", Model: model, Tools: []gotato.Tool{testkit.NewFakeTool("lookup", "found")}}
+	agent := func(model gotato.Model) profile.AgentProfile {
+		return profile.AgentProfile{Name: "lookup", Model: model, Tools: []gotato.Tool{testkit.NewFakeTool("lookup", "found")}}
 	}
 	// A short TTL lets the crashed instance's row expire quickly. The instance
 	// that takes over is alive, so its TTL is long.
 	crashLiveness := service.Heartbeat{TTL: 100 * time.Millisecond, Wait: 2 * time.Second}
-	crashing, err := service.New(service.Config{Store: asStore(&crashingStore{parts: partsOf(backing)}), Heartbeat: crashLiveness, Agents: []service.Agent{
-		agent(testkit.NewFakeModel(testkit.ToolCalls(gotato.ToolCall{ID: "call-1", ToolID: "lookup", Arguments: []byte(`{}`)}))),
-	}})
+	crashing, err := service.New(service.Config{Store: asStore(&crashingStore{parts: partsOf(backing)}), Heartbeat: crashLiveness, Profiles: registry(t, agent(testkit.NewFakeModel(testkit.ToolCalls(gotato.ToolCall{ID: "call-1", ToolID: "lookup", Arguments: []byte(`{}`)})))), DefaultAgent: agent(testkit.NewFakeModel(testkit.ToolCalls(gotato.ToolCall{ID: "call-1", ToolID: "lookup", Arguments: []byte(`{}`)}))).Name})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -711,7 +710,7 @@ func TestACrashDuringAToolIsAnsweredOnTheNextRun(t *testing.T) {
 
 	// Another instance takes the Session over.
 	model := testkit.NewFakeModel(testkit.Text("sorry, let me retry"))
-	next, err := service.New(service.Config{Store: backing, Heartbeat: service.Heartbeat{TTL: steadyLiveness.TTL, Wait: 2 * time.Second}, Agents: []service.Agent{agent(model)}})
+	next, err := service.New(service.Config{Store: backing, Heartbeat: service.Heartbeat{TTL: steadyLiveness.TTL, Wait: 2 * time.Second}, Profiles: registry(t, agent(model)), DefaultAgent: agent(model).Name})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -743,7 +742,7 @@ func TestACrashDuringAToolIsAnsweredOnTheNextRun(t *testing.T) {
 func TestCompactAppendReloadKeepsTheContext(t *testing.T) {
 	ctx := context.Background()
 	store := memStore()
-	first, err := service.New(service.Config{Store: store, Instance: "instance-a", Agents: []service.Agent{{Name: "echo", Model: testkit.EchoModel{}}}})
+	first, err := service.New(service.Config{Store: store, Instance: "instance-a", Profiles: registry(t, profile.AgentProfile{Name: "echo", Model: testkit.EchoModel{}}), DefaultAgent: "echo"})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -768,7 +767,7 @@ func TestCompactAppendReloadKeepsTheContext(t *testing.T) {
 	}
 	_ = first.Close(ctx)
 
-	second, err := service.New(service.Config{Store: store, Instance: "instance-b", Agents: []service.Agent{{Name: "echo", Model: testkit.EchoModel{}}}})
+	second, err := service.New(service.Config{Store: store, Instance: "instance-b", Profiles: registry(t, profile.AgentProfile{Name: "echo", Model: testkit.EchoModel{}}), DefaultAgent: "echo"})
 	if err != nil {
 		t.Fatal(err)
 	}

@@ -7,6 +7,7 @@ import (
 
 	"github.com/jinhuang712/gotato/gotato"
 	"github.com/jinhuang712/gotato/modelctx"
+	"github.com/jinhuang712/gotato/profile"
 	"github.com/jinhuang712/gotato/session"
 )
 
@@ -27,6 +28,9 @@ type runState struct {
 	sessionID string
 	// acquired is the shared Feed the Run holds, released when serve returns.
 	acquired feedKey
+	// agent is the AgentProfile the Run built its new Session from, so the
+	// Run looks it up once.
+	agent *profile.AgentProfile
 
 	// started says the Run's live Session was built, so the Run cannot be
 	// undone by deleting the Session it created.
@@ -63,6 +67,9 @@ func (r *Runner) serve(ctx, runCtx context.Context, request RunRequest, stream *
 			st.s = session.New()
 			for key, value := range request.Metadata {
 				st.s.Set(key, value)
+			}
+			if request.task != nil {
+				st.s.Set(metaTask, request.task.snapshot)
 			}
 			st.feed = newFeed(nil)
 			defer st.feed.Close()
@@ -117,12 +124,12 @@ func (st *runState) serveLocked(ctx, runCtx context.Context) error {
 	if err != nil {
 		return err
 	}
-	spec, ok := st.resolveAgent()
+	spec, err := st.resolveAgent(runCtx)
 	if request.SessionID != "" {
-		st.announceOpen(spec, ok, opened.early, opened.reused, opened.loadTime)
+		st.announceOpen(spec, err == nil, opened.early, opened.reused, opened.loadTime)
 	}
-	if !ok {
-		return st.abandon(runCtx, ErrUnknownAgent)
+	if err != nil {
+		return st.abandon(runCtx, err)
 	}
 	st.applyUpdate(spec)
 
@@ -159,7 +166,7 @@ func (st *runState) abandon(runCtx context.Context, err error) error {
 // resolution of the Agent's ToolSources and ToolSets, runs under runCtx, so a
 // Stop or Drain that arrives before the handle reaches the live Session
 // cancels it.
-func (st *runState) startRun(ctx, runCtx context.Context, spec Agent) (*gotato.Session, *modelctx.AutoCompactor, error) {
+func (st *runState) startRun(ctx, runCtx context.Context, spec profile.AgentProfile) (*gotato.Session, *modelctx.AutoCompactor, error) {
 	r, s, handle, follow := st.r, st.s, st.handle, st.follow
 	onRunStart := withRunStart(func(runID gotato.RunID) {
 		st.track.set(runID)
@@ -215,13 +222,13 @@ func (st *runState) startRun(ctx, runCtx context.Context, spec Agent) (*gotato.S
 // Session under the Run's deadline: the request's Timeout, else the Agent's
 // RunTimeout. The caller's own deadline on ctx overrides it when it is
 // shorter, as any child context's does.
-func (st *runState) promptWithDeadline(ctx context.Context, spec Agent, live *gotato.Session) (gotato.RunResult, error) {
+func (st *runState) promptWithDeadline(ctx context.Context, spec profile.AgentProfile, live *gotato.Session) (gotato.RunResult, error) {
 	runDeadline := st.request.Timeout
 	if runDeadline == 0 {
 		runDeadline = spec.RunTimeout
 	}
 	if runDeadline == 0 {
-		runDeadline = defaultRunTimeout
+		runDeadline = profile.DefaultRunTimeout
 	}
 	promptCtx := ctx
 	if runDeadline > 0 {

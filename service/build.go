@@ -7,17 +7,18 @@ import (
 
 	"github.com/jinhuang712/gotato/gotato"
 	"github.com/jinhuang712/gotato/modelctx"
+	"github.com/jinhuang712/gotato/profile"
 	"github.com/jinhuang712/gotato/session"
 )
 
-// buildSession builds the live Session for one Run from its Agent: every
-// SessionOption is the Runner's, built from the Agent's typed fields and the
+// buildSession builds the live Session for one Run from its AgentProfile: every
+// SessionOption is the Runner's, built from the profile's typed fields and the
 // Record's tool switches. override replaces the instruction for an inspection
 // only; a Run passes none. With a writer, the writer is its Transcript, so every
 // step of a Run is written as it happens; without one the Record is, and keeps
 // the Session's Events in memory. extra options come after the Agent's own, and
 // NewSession refuses one that repeats a single-valued option.
-func (r *Runner) buildSession(ctx context.Context, spec Agent, s *session.Record, writer *session.Writer, override InspectConfig, extra ...gotato.SessionOption) (*gotato.Session, *modelctx.AutoCompactor, error) {
+func (r *Runner) buildSession(ctx context.Context, spec profile.AgentProfile, s *session.Record, writer *session.Writer, override InspectConfig, extra ...gotato.SessionOption) (*gotato.Session, *modelctx.AutoCompactor, error) {
 	// Without a writer nothing is stored: the live Session numbers its Events
 	// on its own stream, and does not use the Record's numbers, which are
 	// positions in the log that this Run does not write.
@@ -50,9 +51,9 @@ func (r *Runner) buildSession(ctx context.Context, spec Agent, s *session.Record
 	}
 	for _, set := range spec.ToolSets {
 		switch set.Mode {
-		case ToolSetFolded:
+		case profile.ToolSetFolded:
 			options = append(options, gotato.WithFoldedToolSet(set.Set))
-		case ToolSetActive:
+		case profile.ToolSetActive:
 			options = append(options, gotato.WithActiveToolSet(set.Set))
 		default:
 			options = append(options, gotato.WithToolSet(set.Set))

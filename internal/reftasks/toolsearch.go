@@ -13,7 +13,7 @@ import (
 	"github.com/jinhuang712/gotato/testkit"
 
 	"github.com/jinhuang712/gotato/gotato"
-	"github.com/jinhuang712/gotato/service"
+	"github.com/jinhuang712/gotato/profile"
 	"github.com/jinhuang712/gotato/session"
 )
 
@@ -128,11 +128,11 @@ func (t toolSearchFunc) Execute(_ context.Context, use gotato.ToolUse, _ gotato.
 // ToolSearchToolSets returns the ToolSets the tool_search task adds to its
 // Agent: the shop and the carrier as listed ToolSets, the warehouse as a folded
 // one.
-func ToolSearchToolSets() []service.ToolSet {
-	return []service.ToolSet{
-		{Set: newToolSearchSet(ShopSetName), Mode: service.ToolSetListed},
-		{Set: newToolSearchSet(CarrierSetName), Mode: service.ToolSetListed},
-		{Set: newToolSearchSet(WarehouseSetName), Mode: service.ToolSetFolded},
+func ToolSearchToolSets() []profile.ToolSet {
+	return []profile.ToolSet{
+		{Set: newToolSearchSet(ShopSetName), Mode: profile.ToolSetListed},
+		{Set: newToolSearchSet(CarrierSetName), Mode: profile.ToolSetListed},
+		{Set: newToolSearchSet(WarehouseSetName), Mode: profile.ToolSetFolded},
 	}
 }
 

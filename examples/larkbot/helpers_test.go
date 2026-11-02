@@ -15,6 +15,7 @@ import (
 	"time"
 
 	"github.com/jinhuang712/gotato/gotato"
+	"github.com/jinhuang712/gotato/profile"
 	"github.com/jinhuang712/gotato/service"
 	"github.com/jinhuang712/gotato/service/httpapi"
 	"github.com/jinhuang712/gotato/session"
@@ -127,7 +128,7 @@ func newInstanceWith(t *testing.T, store storeParts, name string, model *testkit
 	t.Cleanup(srv.Close)
 	runner, err := service.New(service.Config{
 		Store: session.Store{Records: store, Liveness: store}, Instance: name, Address: "http://" + srv.Listener.Addr().String(),
-		Agents: []service.Agent{{Name: "fake", Model: model, ModelName: "fake"}},
+		Profiles: registryOf(profile.AgentProfile{Name: "fake", Model: model, ModelName: "fake"}), DefaultAgent: "fake",
 	})
 	if err != nil {
 		t.Fatal(err)

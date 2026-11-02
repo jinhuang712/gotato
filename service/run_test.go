@@ -13,6 +13,7 @@ import (
 	"github.com/jinhuang712/gotato/gotato"
 	itext "github.com/jinhuang712/gotato/internal/text"
 	"github.com/jinhuang712/gotato/modelctx"
+	"github.com/jinhuang712/gotato/profile"
 	"github.com/jinhuang712/gotato/service"
 	"github.com/jinhuang712/gotato/session"
 	"github.com/jinhuang712/gotato/testkit"
@@ -64,8 +65,8 @@ func TestAnAgentOwnsItsInstructionAndAStoredSettingIsIgnored(t *testing.T) {
 		testkit.Text("done"),
 	)
 	runner, store := newRunner(t,
-		service.Agent{Name: "echo", Model: testkit.EchoModel{}},
-		service.Agent{Name: "tools", Model: model, Instruction: "spec instruction", Tools: []gotato.Tool{testkit.DemoEchoTool()}},
+		profile.AgentProfile{Name: "echo", Model: testkit.EchoModel{}},
+		profile.AgentProfile{Name: "tools", Model: model, Instruction: "spec instruction", Tools: []gotato.Tool{testkit.DemoEchoTool()}},
 	)
 	ctx := context.Background()
 	// A Session of an earlier version may still carry an instruction, a
@@ -161,7 +162,7 @@ func TestStreamRunInspectCompactFork(t *testing.T) {
 }
 
 func TestAutoCompactFromSpecAndSession(t *testing.T) {
-	runner, store := newRunner(t, service.Agent{Name: "echo", Model: testkit.EchoModel{}, Compact: modelctx.Compactor{CompactPolicy: modelctx.CompactPolicy{CeilingTokens: 20000}}})
+	runner, store := newRunner(t, profile.AgentProfile{Name: "echo", Model: testkit.EchoModel{}, Compact: modelctx.Compactor{CompactPolicy: modelctx.CompactPolicy{CeilingTokens: 20000}}})
 	ctx := context.Background()
 	var last service.RunResponse
 	for i := 0; i < 8 && !last.Compacted; i++ {
@@ -185,7 +186,7 @@ func TestCallerCancelReportsCanceled(t *testing.T) {
 	block := make(chan struct{})
 	model := testkit.NewFakeModel(testkit.Text("slow"))
 	model.Block = block
-	runner, store := newRunner(t, service.Agent{Name: "slow", Model: model})
+	runner, store := newRunner(t, profile.AgentProfile{Name: "slow", Model: model})
 
 	ctx, cancel := context.WithCancel(context.Background())
 	done := make(chan service.RunResponse, 1)
@@ -226,7 +227,7 @@ func (s *countingStore) Load(ctx context.Context, id string) (session.Loaded, er
 
 func TestRunLoadsTheSessionOnce(t *testing.T) {
 	store := &countingStore{parts: partsOf(memStore())}
-	runner, err := service.New(service.Config{Store: asStore(store), Agents: []service.Agent{{Name: "echo", Model: testkit.EchoModel{}}}})
+	runner, err := service.New(service.Config{Store: asStore(store), Profiles: registry(t, profile.AgentProfile{Name: "echo", Model: testkit.EchoModel{}}), DefaultAgent: "echo"})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -252,7 +253,7 @@ func TestCanceledRunKeepsItsRunID(t *testing.T) {
 	defer close(block)
 	model := testkit.NewFakeModel(testkit.Text("slow"))
 	model.Block = block
-	runner, store := newRunner(t, service.Agent{Name: "slow", Model: model})
+	runner, store := newRunner(t, profile.AgentProfile{Name: "slow", Model: model})
 	ctx := context.Background()
 	s, err := runner.CreateSession(ctx, service.CreateSessionRequest{Agent: "slow"})
 	if err != nil {
@@ -363,9 +364,14 @@ func TestStreamRunAdmittedCallsAdmittedWithANilSink(t *testing.T) {
 // A Runner keeps each Session in a Store, so any instance that shares the
 // Store can run its next message.
 func ExampleRunner_Run() {
+	profiles := profile.NewRegistry(nil)
+	if err := profiles.RegisterAgentProfileInline(profile.AgentProfile{Name: "default", Model: testkit.EchoModel{}}); err != nil {
+		panic(err)
+	}
 	runner, err := service.New(service.Config{
-		Store:  memStore(), // session.NewFileStore(dir), or your own session.Store
-		Agents: []service.Agent{{Name: "default", Model: testkit.EchoModel{}}},
+		Store:        memStore(), // session.NewFileStore(dir), or your own session.Store
+		Profiles:     profiles,
+		DefaultAgent: "default",
 	})
 	if err != nil {
 		panic(err)
@@ -437,7 +443,7 @@ func TestCompactionLeavesOutReasoningForAModelSentOnlyTheCurrentRound(t *testing
 			return fake
 		}
 
-		runner, store := newRunner(t, service.Agent{Name: "a", Model: model()})
+		runner, store := newRunner(t, profile.AgentProfile{Name: "a", Model: model()})
 		first, err := runner.Run(ctx, service.RunRequest{Agent: "a", Prompt: "u1"})
 		if err != nil {
 			t.Fatal(err)
@@ -462,7 +468,7 @@ func TestCompactionLeavesOutReasoningForAModelSentOnlyTheCurrentRound(t *testing
 		tight := policy
 		tight.CeilingTokens = 1
 		sharedModel := model()
-		runner, store = newRunner(t, service.Agent{Name: "a", Model: sharedModel, Compact: policy}, service.Agent{Name: "b", Model: sharedModel, Compact: tight})
+		runner, store = newRunner(t, profile.AgentProfile{Name: "a", Model: sharedModel, Compact: policy}, profile.AgentProfile{Name: "b", Model: sharedModel, Compact: tight})
 		first, err = runner.Run(ctx, service.RunRequest{Agent: "a", Prompt: "u1"})
 		if err != nil {
 			t.Fatal(err)
@@ -513,7 +519,7 @@ func runThree(t *testing.T, runner *service.Runner) string {
 
 func TestTheModelsRecapIsOffUnlessTheAgentTurnsItOn(t *testing.T) {
 	model := recapModel()
-	runner, _ := newRunner(t, service.Agent{Name: "ops", Model: model, Instruction: "be brief"})
+	runner, _ := newRunner(t, profile.AgentProfile{Name: "ops", Model: model, Instruction: "be brief"})
 	id := runThree(t, runner)
 	result, err := runner.Compact(context.Background(), id, modelctx.CompactConfig{})
 	if err != nil || !result.Replaced || result.Compaction.Recap != "none" {
@@ -526,7 +532,7 @@ func TestTheModelsRecapIsOffUnlessTheAgentTurnsItOn(t *testing.T) {
 
 func TestAnAgentTurnsTheModelsRecapOnAndItAsksOnTheNextCallsContext(t *testing.T) {
 	model := recapModel()
-	agent := service.Agent{Name: "ops", Model: model, Instruction: "be brief", Compact: modelctx.Compactor{Recap: modelctx.ModelRecap{}}}
+	agent := profile.AgentProfile{Name: "ops", Model: model, Instruction: "be brief", Compact: modelctx.Compactor{Recap: modelctx.ModelRecap{}}}
 	runner, store := newRunner(t, agent)
 	ctx := context.Background()
 	id := runThree(t, runner)
@@ -572,7 +578,7 @@ func TestAFailedModelRecapKeepsTheSegmentWithoutOne(t *testing.T) {
 	model := testkit.NewFuncModel(func(context.Context, gotato.ModelRequest) (testkit.Script, error) {
 		return testkit.Text("Sure, here you go: nothing."), nil
 	})
-	runner, _ := newRunner(t, service.Agent{Name: "ops", Model: model, Compact: modelctx.Compactor{Recap: modelctx.ModelRecap{}}})
+	runner, _ := newRunner(t, profile.AgentProfile{Name: "ops", Model: model, Compact: modelctx.Compactor{Recap: modelctx.ModelRecap{}}})
 	id := runThree(t, runner)
 	result, err := runner.Compact(context.Background(), id, modelctx.CompactConfig{})
 	if err != nil || !result.Replaced || result.Compaction.Recap != "none" {
@@ -582,7 +588,7 @@ func TestAFailedModelRecapKeepsTheSegmentWithoutOne(t *testing.T) {
 
 func TestACompactionPastTheCeilingWritesTheRecapWithTheModelWhenTheAgentAsks(t *testing.T) {
 	model := recapModel()
-	agent := service.Agent{Name: "ops", Model: model, Compact: modelctx.Compactor{CompactPolicy: modelctx.CompactPolicy{CeilingTokens: 20000}, Recap: modelctx.ModelRecap{}}}
+	agent := profile.AgentProfile{Name: "ops", Model: model, Compact: modelctx.Compactor{CompactPolicy: modelctx.CompactPolicy{CeilingTokens: 20000}, Recap: modelctx.ModelRecap{}}}
 	runner, store := newRunner(t, agent)
 	ctx := context.Background()
 	var last service.RunResponse

@@ -11,6 +11,7 @@ import (
 
 	"github.com/jinhuang712/gotato/gotato"
 	"github.com/jinhuang712/gotato/modelctx"
+	"github.com/jinhuang712/gotato/profile"
 	"github.com/jinhuang712/gotato/service"
 	"github.com/jinhuang712/gotato/session"
 	"github.com/jinhuang712/gotato/testkit"
@@ -223,7 +224,7 @@ func TestCapacityAndDrain(t *testing.T) {
 	store := memStore()
 	runner, _ := service.New(service.Config{
 		Store:    store,
-		Agents:   []service.Agent{{Name: "slow", Model: model}},
+		Profiles: registry(t, profile.AgentProfile{Name: "slow", Model: model}), DefaultAgent: "slow",
 		Admitter: service.Limits{MaxActiveRuns: 1},
 	})
 	ctx := context.Background()
@@ -252,8 +253,8 @@ func TestDrainCancelsQueuedRun(t *testing.T) {
 	model := testkit.NewFakeModel(testkit.Text("slow"))
 	model.Block = block
 	runner, _ := service.New(service.Config{
-		Store:  memStore(),
-		Agents: []service.Agent{{Name: "slow", Model: model}},
+		Store:    memStore(),
+		Profiles: registry(t, profile.AgentProfile{Name: "slow", Model: model}), DefaultAgent: "slow",
 		Bounds: service.Bounds{Queue: service.QueuePolicyWait}, Admitter: service.Limits{MaxActiveRuns: 4},
 	})
 	ctx := context.Background()
@@ -298,7 +299,7 @@ func TestDrainCancelsQueuedRun(t *testing.T) {
 func TestDrainMustWaitForACompactionInFlight(t *testing.T) {
 	store := newKindGate(memStore(), gotato.EventKindCompactionEnded)
 	hold := store.holds[gotato.EventKindCompactionEnded]
-	runner := newRunnerOn(t, asStore(store), service.Agent{Name: "a", Model: testkit.EchoModel{}, Warm: service.WarmPolicy{TTL: -1}})
+	runner := newRunnerOn(t, asStore(store), profile.AgentProfile{Name: "a", Model: testkit.EchoModel{}}, noWarm)
 	ctx, cancel := context.WithTimeout(context.Background(), 20*time.Second)
 	defer cancel()
 	s, err := runner.CreateSession(ctx, service.CreateSessionRequest{Agent: "a"})
@@ -390,7 +391,7 @@ func TestDrainReturnsAfterItsContextEvenForAToolThatIgnoresIt(t *testing.T) {
 	model := testkit.NewFakeModel(testkit.ToolCalls(gotato.ToolCall{ID: "c1", ToolID: "stuck", Arguments: []byte(`{}`)}), testkit.Text("ok"))
 	a, err := service.New(service.Config{
 		Store: memStore(), Heartbeat: steadyLiveness,
-		Agents: []service.Agent{{Name: "echo", Model: model, Tools: []gotato.Tool{tool}}},
+		Profiles: registry(t, profile.AgentProfile{Name: "echo", Model: model, Tools: []gotato.Tool{tool}}), DefaultAgent: "echo",
 	})
 	if err != nil {
 		t.Fatal(err)
@@ -439,7 +440,7 @@ func TestDrainHasATimeoutOfItsOwn(t *testing.T) {
 	t.Cleanup(func() { close(block) })
 	a, err := service.New(service.Config{
 		Store: memStore(), Heartbeat: steadyLiveness, DrainTimeout: 200 * time.Millisecond,
-		Agents: []service.Agent{{Name: "echo", Model: model}},
+		Profiles: registry(t, profile.AgentProfile{Name: "echo", Model: model}), DefaultAgent: "echo",
 	})
 	if err != nil {
 		t.Fatal(err)
@@ -498,7 +499,7 @@ func TestDrainReturnsAfterTheStopWaitForAModelThatIgnoresItsContext(t *testing.T
 	model := &stubbornModel{started: make(chan struct{}), release: make(chan struct{})}
 	a, err := service.New(service.Config{
 		Store: memStore(), Heartbeat: steadyLiveness,
-		Agents: []service.Agent{{Name: "echo", Model: model}},
+		Profiles: registry(t, profile.AgentProfile{Name: "echo", Model: model}), DefaultAgent: "echo",
 	})
 	if err != nil {
 		t.Fatal(err)

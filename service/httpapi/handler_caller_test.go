@@ -14,6 +14,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/jinhuang712/gotato/profile"
 	"github.com/jinhuang712/gotato/service"
 	"github.com/jinhuang712/gotato/service/httpapi"
 	"github.com/jinhuang712/gotato/session"
@@ -100,10 +101,9 @@ func callAs(t *testing.T, server *httptest.Server, caller, method, path string, 
 func TestRequestContextReachesTheStoreAndARefusalAnswers404(t *testing.T) {
 	store := &ownerStore{parts: partsOf(memStore())}
 	newServer := func() (*httptest.Server, *service.Runner) {
-		runner, err := service.New(service.Config{
-			Store:  asStore(store),
-			Agents: []service.Agent{{Name: "echo", Model: testkit.EchoModel{}, ModelName: "echo"}},
-		})
+		runner, err := service.New(withAgents(service.Config{
+			Store: asStore(store),
+		}, []profile.AgentProfile{{Name: "echo", Model: testkit.EchoModel{}, ModelName: "echo"}}...))
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -182,10 +182,9 @@ func TestARefusalAlsoGuardsALiveRun(t *testing.T) {
 	block := make(chan struct{})
 	model := testkit.NewFakeModel(testkit.Text("slow"))
 	model.Block = block
-	runner, err := service.New(service.Config{
-		Store:  asStore(store),
-		Agents: []service.Agent{{Name: "slow", Model: model}},
-	})
+	runner, err := service.New(withAgents(service.Config{
+		Store: asStore(store),
+	}, []profile.AgentProfile{{Name: "slow", Model: model}}...))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -254,11 +253,10 @@ func (s *beatOutage) Beat(ctx context.Context, row session.InstanceRow, ttl time
 // /readyz answers 503 until it can.
 func TestReadyzReportsALapsedRow(t *testing.T) {
 	store := &beatOutage{parts: partsOf(memStore())}
-	runner, err := service.New(service.Config{
+	runner, err := service.New(withAgents(service.Config{
 		Store:     asStore(store),
 		Heartbeat: service.Heartbeat{TTL: 300 * time.Millisecond},
-		Agents:    []service.Agent{{Name: "echo", Model: testkit.EchoModel{}}},
-	})
+	}, []profile.AgentProfile{{Name: "echo", Model: testkit.EchoModel{}}}...))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -351,7 +349,7 @@ func TestWithMaxBodyRaisesAndLowersTheCap(t *testing.T) {
 		{"raised", httpapi.WithMaxBody(4 << 20), big, http.StatusCreated},
 		{"lowered", httpapi.WithMaxBody(10), small, http.StatusRequestEntityTooLarge},
 	} {
-		runner, err := service.New(service.Config{Store: memStore(), Agents: []service.Agent{{Name: "echo", Model: testkit.EchoModel{}}}})
+		runner, err := service.New(withAgents(service.Config{Store: memStore()}, []profile.AgentProfile{{Name: "echo", Model: testkit.EchoModel{}}}...))
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -378,7 +376,7 @@ func TestRunBodyAgentRepairsASessionWhoseAgentIsGone(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	other, err := service.New(service.Config{Store: store, Agents: []service.Agent{{Name: "else", Model: testkit.EchoModel{}}}})
+	other, err := service.New(withAgents(service.Config{Store: store}, []profile.AgentProfile{{Name: "else", Model: testkit.EchoModel{}}}...))
 	if err != nil {
 		t.Fatal(err)
 	}

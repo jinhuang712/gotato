@@ -4,7 +4,8 @@ A Session has to outlive its Instance: the process can stop between two Steps, a
 
 ## TL;DR
 - A Record is an append-only log of Entries. Facts rebuild the Session, Log entries only say what happened, and every Entry is also an Event.
-- The Store is two seams: `Records` makes one promise, a batch lands whole, at the position after the head the Writer read, or it is refused (the Record epoch refuses a Writer of a Record that was deleted), and `Liveness` keeps one row per Instance. Listing is an optional third, `Lister`.
+- The Store is two seams: `Records` makes one promise, a batch lands whole, at the position after the head the Writer read, or it is refused (the Record epoch refuses a Writer of a Record that was deleted), and `Liveness` keeps one row per Instance. Listing is an optional third, `Lister`. A service that keeps its Agent definitions in its own database implements a separate, optional contract, `session.Definitions`.
+- A Session opened for a TaskSpec keeps that TaskSpec in its metadata, so every Instance rebuilds the Session the same.
 - A Fork and a spilled result point into a log by position and epoch. They copy no body and never read another Record's future.
 
 ## Facts and log entries
@@ -50,6 +51,19 @@ A write passes a `Header` with its Entries, and the store keeps the last one wit
 ```
 
 `Info` holds what a service lists and a database may index, and nothing a rebuild needs. `State` is Gotato's own JSON, kept as an Entry's `Data` is, and no store reads it. So a store keeps the Header as it is and returns it from `Load`, and a later field of `Info` or `State` needs no change to an adapter that stores the whole value. Listing is the optional `Lister`, `List(ctx, ListQuery{Limit, Cursor})`, which a caller finds as `store.Records.(session.Lister)`: without it `Runner.Sessions` is `not_supported`, and a page may repeat or skip a Record updated while a caller pages.
+
+## A TaskSpec in the Record, and Definitions beside it
+
+A Run of a TaskSpec (`RunRequest.Task` or `RunRequest.TaskSpec`) opens a new Session, and the Record keeps the TaskSpec as it was.
+
+```text
+ session_created ─ metadata: gotato.agent     the TaskSpec's AgentProfile name
+                            gotato.task_spec   the TaskSpec as a JSON document (profile.TaskSpecDoc)
+```
+
+The document is a metadata value like any other, written with the Session's first Entry and read with its facts, so it needs nothing from the Store. Any Instance that loads the Session decodes it and narrows the AgentProfile it looks up by name, whatever the registered spec says by then; a registered spec that changes reaches only new Sessions. Both keys are the Runner's (`ErrReservedKey` for a caller).
+
+Where a service keeps its definitions is not the Record's business. `session.Definitions` is a store of documents by kind and name (`SaveDefinition`, `LoadDefinition`, which answers `ErrNotFound` when none), a contract of its own and not a part of `session.Store`: the Store has no field for it, and a service passes it to `RegisterAgentProfileWithStore` or `RegisterTaskSpecWithStore`. It keeps the bytes as written and copies them in and out, and every implementation refuses a kind or name that `session.CheckDefinitionKey` refuses (`ErrInvalidID`). `session.NewMemoryDefinitions` and `session.NewFileDefinitions(dir)` ship with it, and `storetest.RunDefinitions` is its conformance suite, so your own database store proves the contract the way a Store does ([write a store](../guides/write-a-store.md)).
 
 ## One write
 
@@ -128,4 +142,4 @@ The body is written before the Message, so the Message can name its position. A 
 - Large results and forks cost the Store one Entry each, not a copy.
 
 ## See also
-[FEATURES.md → G-F03](../FEATURES.md#g-f03--stores-) and [G-F35](../FEATURES.md#g-f35--large-tool-results-), decisions [002](../plan/decisions/002-the-store-is-the-truth-and-memory-is-a-cache.md), [013](../plan/decisions/013-a-conformance-suite-ships-with-the-store-contract.md), [017](../plan/decisions/017-the-record-is-an-append-only-log.md), [019](../plan/decisions/019-one-writer-per-session-claimed-in-the-store.md), [028](../plan/decisions/028-every-step-is-written-as-facts-and-a-log.md), [030](../plan/decisions/030-every-entry-is-an-event.md) and [040](../plan/decisions/040-a-large-tool-result-is-spilled-and-read-in-pages.md), [GLOSSARY.md](../GLOSSARY.md). Related specs: [events.md](events.md), [multi-instance.md](multi-instance.md) and [compaction.md](compaction.md).
+[FEATURES.md → G-F03](../FEATURES.md#g-f03--stores-), [G-F36](../FEATURES.md#g-f36--agent-profiles-and-task-specs-) and [G-F35](../FEATURES.md#g-f35--large-tool-results-), decisions [002](../plan/decisions/002-the-store-is-the-truth-and-memory-is-a-cache.md), [013](../plan/decisions/013-a-conformance-suite-ships-with-the-store-contract.md), [017](../plan/decisions/017-the-record-is-an-append-only-log.md), [019](../plan/decisions/019-one-writer-per-session-claimed-in-the-store.md), [028](../plan/decisions/028-every-step-is-written-as-facts-and-a-log.md), [030](../plan/decisions/030-every-entry-is-an-event.md) and [040](../plan/decisions/040-a-large-tool-result-is-spilled-and-read-in-pages.md), [GLOSSARY.md](../GLOSSARY.md). Related specs: [events.md](events.md), [multi-instance.md](multi-instance.md) and [compaction.md](compaction.md).

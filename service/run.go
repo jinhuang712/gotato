@@ -7,15 +7,30 @@ import (
 	"time"
 
 	"github.com/jinhuang712/gotato/gotato"
+	"github.com/jinhuang712/gotato/profile"
 )
 
 // RunRequest is one unit of work.
 type RunRequest struct {
 	// SessionID names the Session. Empty creates a new Session.
 	SessionID string
-	// Agent selects the Agent for a new Session; an existing Session
-	// keeps the Agent it was created with unless Agent is set.
+	// Agent selects the AgentProfile for a new Session; an existing Session
+	// keeps the one it was created with unless Agent is set (a Session opened
+	// for a TaskSpec keeps its own: it cannot be changed). Empty means the
+	// Session's, else Config.DefaultAgent.
 	Agent string
+	// Task names a registered TaskSpec (profile.Registry). The Run opens a NEW
+	// Session of the TaskSpec's AgentProfile, narrowed as the TaskSpec says,
+	// with the TaskSpec's Background after the instruction, and the Record
+	// keeps the TaskSpec as it was, so every Instance rebuilds the Session the
+	// same after the registered one changes. It takes no SessionID and no Agent,
+	// and excludes TaskSpec.
+	Task string
+	// TaskSpec is a TaskSpec the request carries, run as Task is. It excludes
+	// Task. It must only narrow its AgentProfile (profile.TaskSpec.Narrow).
+	TaskSpec *profile.TaskSpec
+	// task is the TaskSpec the Run found, from Task or TaskSpec.
+	task *taskRun
 	// Prompt is the user input. It is required unless Continue is set.
 	Prompt string
 	// Continue resumes the loop of a Session without a new Message. It takes
@@ -28,17 +43,17 @@ type RunRequest struct {
 	// Update sets metadata on the Session before the Run, under its Claim,
 	// as the Run's first write. An empty value deletes a key. A key under
 	// ReservedPrefix fails the request with ErrReservedKey before anything is
-	// written: the Agent changes by Agent, not by Update.
+	// written: the AgentProfile changes by Agent, not by Update.
 	Update map[string]string
 	// SkipSave runs without persisting the Session: a new Session lives only
 	// for this Run, and a changed existing Session, Update included, is left
 	// as it was.
 	SkipSave bool
 	// Timeout bounds this Run; the Run settles as deadline_exceeded. Zero
-	// keeps the Agent's RunTimeout; a negative value is refused as
-	// invalid_argument (only an Agent's RunTimeout may say "no deadline"). It is the caller's bound for this request
+	// keeps the AgentProfile's RunTimeout; a negative value is refused as
+	// invalid_argument (only a profile's RunTimeout may say "no deadline"). It is the caller's bound for this request
 	// only: a Run that follows with the messages this one left keeps the
-	// Agent's RunTimeout.
+	// profile's RunTimeout.
 	Timeout time.Duration
 	// RequestID is the caller's own identifier of this request, such as one
 	// it keeps for its retries. It is recorded in the Record, in the Run's
@@ -219,10 +234,20 @@ func (r *Runner) runWith(ctx context.Context, request RunRequest, stream *runStr
 	// The Run registers as it is admitted, in one step, so the limits count it
 	// at once and Drain and AbortSession reach it even while it is still
 	// loading its Session.
+	task, err := r.resolveTask(ctx, request)
+	if err != nil {
+		return RunResponse{}, err
+	}
+	request.task = task
+	// The AgentProfile the Run is for: the request's, or the TaskSpec's own.
+	agent := request.Agent
+	if task != nil {
+		agent = task.spec.Profile
+	}
 	runCtx, cancelRun := context.WithCancel(ctx)
 	defer cancelRun()
 	handle := &runHandle{sessionID: request.SessionID, cancel: cancelRun, ready: make(chan struct{}), wait: wait, over: make(chan struct{})}
-	release, err := r.admit(ctx, handle, request)
+	release, err := r.admit(ctx, handle, request, agent)
 	if err != nil {
 		why := "at_capacity"
 		switch {
@@ -231,10 +256,10 @@ func (r *Runner) runWith(ctx context.Context, request RunRequest, stream *runStr
 		case errors.Is(err, ErrOverloaded):
 			why = "activation_limit"
 		}
-		r.notice(RunRejected{Header: gotato.NewHeader(gotato.SessionID(request.SessionID), "", 0), Why: why}, request.Agent)
+		r.notice(RunRejected{Header: gotato.NewHeader(gotato.SessionID(request.SessionID), "", 0), Why: why}, agent)
 		return RunResponse{}, err
 	}
-	r.notice(RunRequested{Header: gotato.NewHeader(gotato.SessionID(request.SessionID), "", 0), Agent: request.Agent}, request.Agent)
+	r.notice(RunRequested{Header: gotato.NewHeader(gotato.SessionID(request.SessionID), "", 0), Agent: agent}, agent)
 	followed := false
 	defer func() {
 		if !followed {

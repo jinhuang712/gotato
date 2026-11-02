@@ -24,7 +24,7 @@ These documents are the single source of truth for Gotato's design. PROPOSAL to 
 
 - **Never introduce `sub-agent`, `ChildAgent`, `SupervisorAgent`, `WorkerAgent`, or any role as a Gotato runtime type.** There are only agents. Roles are application composition.
 - **Keep Agent identity flat.** Roles, hierarchy, and lineage belong to applications, stored in `Session.Metadata`.
-- **Keep Agent, Session, Transcript and Context separate.** An Agent is a definition; a Session runs it and commits to its Transcript; the model receives the output of a `ContextBuilder` (the Context). Model input is always a built value, separate from the full history. In code, the Agent is `service.Agent`, the live Session `gotato.Session` and its Record `session.Record`; GLOSSARY.md maps every term.
+- **Keep Agent, Session, Transcript and Context separate.** An Agent is a definition; a Session runs it and commits to its Transcript; the model receives the output of a `ContextBuilder` (the Context). Model input is always a built value, separate from the full history. In code, the Agent is `profile.AgentProfile`, the live Session `gotato.Session` and its Record `session.Record`; GLOSSARY.md maps every term.
 - **Keep Session generic.** Task graphs, project state, worktrees, and product workflow live in `Metadata`.
 - **Keep Context as model-view construction**, built from the Transcript on every Turn.
 - **Preserve library-first use.** A small `main` must be able to build an agent with a fake model and run it in-process, with server, daemon, and database all optional.
@@ -34,7 +34,7 @@ These documents are the single source of truth for Gotato's design. PROPOSAL to 
 - **Prefer ordinary Go** over framework machinery: options functions, interfaces, channels, `context.Context`.
 - **Preserve `context.Context` cancellation** through every model call, tool call, storage call, and stream.
 - **Keep the package layout** (guides/packages.md shows the tree). The module root holds no Go code: it holds the documents, `specs/` and `plan/` (with `plan/decisions/`), and the module files, and `gotato/layering_test.go` fails when a `.go` file appears there. A directory's name is its package's name, so no import needs an alias. A test-helper package sits next to what it tests, like `net/http/httptest`: `session/storetest` beside `session`.
-- **Keep dependencies layered** ([decision 010](plan/decisions/010-gotato-is-a-light-library-with-a-versioned-contract.md)). The core package imports only the standard library and the shared packages of `internal/`: it lives in `gotato/`, so code reads `gotato.NewSession`. `session`, `modelctx`, `testkit` import the core. Providers and the service layer import inward. `gotato/layering_test.go` enforces this; keep it passing.
+- **Keep dependencies layered** ([decision 010](plan/decisions/010-gotato-is-a-light-library-with-a-versioned-contract.md)). The core package imports only the standard library and the shared packages of `internal/`: it lives in `gotato/`, so code reads `gotato.NewSession`. `session`, `modelctx`, `testkit` import the core. `profile` (the AgentProfiles and TaskSpecs a host registers) imports `session` and `modelctx`, and sits between them and `service`: service -> profile -> session (and modelctx) -> gotato, and `profile` imports no `service`. Providers and the service layer import inward. `gotato/layering_test.go` enforces this; keep it passing.
 - **`internal/` holds two kinds of package.** Shared packages (today only `internal/text`) import the standard library only, and any shipped package, the core included, may import them; `gotato/layering_test.go` lists them. Our test tools (`internal/reftasks`, `internal/workload`, `internal/fakegateway`, `internal/cmd/...`) are imported by no shipped package.
 - **Prefer the standard library.** Add a dependency only after checking that the standard library or a smaller solution falls short. The root module depends only on `gopkg.in/yaml.v3` (used by `internal/cmd/gatewayconf`, the test tools' gateway file; no shipped package imports it).
 
@@ -70,7 +70,7 @@ Exported names follow one set of rules, so a reader can guess a name before look
    gofmt -l . && go vet ./... && go test -race ./...   # full, root module
    golangci-lint run ./...               # 0 issues; config in .golangci.yml
    (cd adapter/mcp && gofmt -l . && go vet ./... && go test -race ./... && golangci-lint run ./...)  # when you touched ToolSet, Tool or ToolResult
-   (cd examples/larkbot && gofmt -l . && go vet ./... && go test -race ./... && golangci-lint run ./...)  # when you touched the example, or a type it uses (service.Runner, service.Agent, ToolSet)
+   (cd examples/larkbot && gofmt -l . && go vet ./... && go test -race ./... && golangci-lint run ./...)  # when you touched the example, or a type it uses (service.Runner, profile.AgentProfile, ToolSet)
    ```
 3. **Add regression tests for behavior changes.** A bug fix ships with a test that fails before the fix.
 4. **Use fake/replay models** (`testkit.FakeModel`, `testkit.ReplayModel`) for deterministic tests. Never make a unit test depend on a network provider or a credential.
@@ -118,7 +118,7 @@ When writing or rewriting a project document:
 | a model that replays recorded `ModelEvent`s and fails when exhausted | `testkit.ReplayModel` |
 | a model that answers from the request (shared by agents, racy input order) | `testkit.FuncModel` with `testkit.ToolResults` / `testkit.UserText` |
 | a tool that returns a fixed result / records calls | `testkit.FakeTool` |
-| prove a `session.Records`, `session.Liveness` or `session.Lister` adapter keeps the store contract | `storetest.RunRecords`, `RunLiveness`, `RunLister` in `session/storetest` |
+| prove a `session.Records`, `session.Liveness`, `session.Lister` or `session.Definitions` adapter keeps its contract | `storetest.RunRecords`, `RunLiveness`, `RunLister`, `RunDefinitions` in `session/storetest` |
 | capture every Event of a live Session or a Subscription in order | `testkit.RecordEvents(session)` right after `gotato.NewSession`, or `testkit.RecordSubscription(sub)`; read `Events()`, `Kinds()`, `OfKind(kind)` |
 | a pre-populated Session Record | `testkit.NewRecord("q", "a", ...)` |
 | a provider's wire API and its quirks over HTTP: a refusal as too long (before output and mid-stream), a cut stream, cached tokens, a reasoning replay, a mid-conversation `system`/`developer` message, a slow reply | `fakegateway.New()` in `internal/fakegateway` behind `httptest.NewServer`; quirks by `[quirk:name]` in the last user text or the `X-Fake-Quirk` header; `g.Requests()` records every request; `go run ./internal/fakegateway/cmd/fakegateway` serves it on a port |

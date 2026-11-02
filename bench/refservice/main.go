@@ -19,6 +19,7 @@ import (
 
 	"github.com/jinhuang712/gotato/gateway"
 	"github.com/jinhuang712/gotato/gotato"
+	"github.com/jinhuang712/gotato/profile"
 	"github.com/jinhuang712/gotato/service"
 	"github.com/jinhuang712/gotato/service/httpapi"
 	"github.com/jinhuang712/gotato/session"
@@ -54,9 +55,13 @@ func run(addr, storeDir, endpoint, modelName string) error {
 	if err != nil {
 		return err
 	}
+	profiles := profile.NewRegistry(nil)
+	if err := profiles.RegisterAgentProfileInline(profile.AgentProfile{Name: "assistant", Model: model, ModelName: modelName}); err != nil {
+		return err
+	}
 	runner, err := service.New(service.Config{
-		Store:  session.Store{Records: store, Liveness: store},
-		Agents: []service.Agent{{Name: "assistant", Model: model, ModelName: modelName}},
+		Store:    session.Store{Records: store, Liveness: store},
+		Profiles: profiles, DefaultAgent: "assistant",
 	})
 	if err != nil {
 		return err

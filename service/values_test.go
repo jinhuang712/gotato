@@ -7,6 +7,7 @@ import (
 	"testing"
 
 	"github.com/jinhuang712/gotato/gotato"
+	"github.com/jinhuang712/gotato/profile"
 	"github.com/jinhuang712/gotato/service"
 	"github.com/jinhuang712/gotato/session"
 	"github.com/jinhuang712/gotato/testkit"
@@ -95,7 +96,7 @@ func TestCreateSessionIsOneRequestAndAnswersAValue(t *testing.T) {
 
 // Fork answers the child's listing columns; it keeps its parent's cache key.
 func TestForkAnswersAValue(t *testing.T) {
-	runner, store := newRunner(t, service.Agent{Name: "echo", Model: testkit.EchoModel{}})
+	runner, store := newRunner(t, profile.AgentProfile{Name: "echo", Model: testkit.EchoModel{}})
 	ctx := context.Background()
 	parent, err := runner.CreateSession(ctx, service.CreateSessionRequest{ID: "parent"})
 	if err != nil {

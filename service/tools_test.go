@@ -12,6 +12,7 @@ import (
 
 	"github.com/jinhuang712/gotato/gotato"
 	"github.com/jinhuang712/gotato/modelctx"
+	"github.com/jinhuang712/gotato/profile"
 	"github.com/jinhuang712/gotato/service"
 	"github.com/jinhuang712/gotato/session"
 	"github.com/jinhuang712/gotato/testkit"
@@ -44,8 +45,8 @@ func TestAGoneToolIsUnloadedInTheRecordForEveryInstance(t *testing.T) {
 	set := &shrinkingToolSet{names: []string{"read"}}
 	model := testkit.NewFakeModel(loadFiles(), testkit.Text("opened"), testkit.Text("second"))
 	runner, err := service.New(service.Config{
-		Store:  store,
-		Agents: []service.Agent{{Name: "a", Model: model, ToolSets: []service.ToolSet{{Set: set}}}},
+		Store:    store,
+		Profiles: registry(t, profile.AgentProfile{Name: "a", Model: model, ToolSets: []profile.ToolSet{{Set: set}}}), DefaultAgent: "a",
 	})
 	if err != nil {
 		t.Fatal(err)
@@ -92,13 +93,13 @@ func (hangingToolSet) Tools(ctx context.Context) ([]gotato.Tool, error) {
 
 func slowRunner(t *testing.T) (*service.Runner, string) {
 	t.Helper()
-	agent := service.Agent{
+	agent := profile.AgentProfile{
 		Name:     "a",
 		Model:    testkit.NewFakeModel(testkit.Text("ok")),
 		Tools:    []gotato.Tool{testkit.NewFakeTool("own", "x")},
-		ToolSets: []service.ToolSet{{Set: hangingToolSet{}}},
+		ToolSets: []profile.ToolSet{{Set: hangingToolSet{}}},
 	}
-	runner, err := service.New(service.Config{Store: memStore(), Agents: []service.Agent{agent}, ToolSetTimeout: 100 * time.Millisecond})
+	runner, err := service.New(service.Config{Store: memStore(), Profiles: registry(t, agent), DefaultAgent: agent.Name, ToolSetTimeout: 100 * time.Millisecond})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -158,8 +159,8 @@ func loadFiles() testkit.Script {
 func toolSetRunner(t *testing.T, store session.Store, model gotato.Model) *service.Runner {
 	t.Helper()
 	runner, err := service.New(service.Config{
-		Store:  store,
-		Agents: []service.Agent{{Name: "a", Model: model, ToolSets: []service.ToolSet{{Set: filesToolSet{}}}}},
+		Store:    store,
+		Profiles: registry(t, profile.AgentProfile{Name: "a", Model: model, ToolSets: []profile.ToolSet{{Set: filesToolSet{}}}}), DefaultAgent: "a",
 	})
 	if err != nil {
 		t.Fatal(err)
@@ -314,8 +315,8 @@ func TestAToolOfAToolSetIsListedAndSwitchedByID(t *testing.T) {
 	model := testkit.NewFakeModel(
 		testkit.ToolCalls(gotato.ToolCall{ID: "load-1", ToolID: gotato.SearchToolName, Arguments: []byte(arguments)}),
 		testkit.Text("loaded"))
-	agent := service.Agent{Name: "a", Model: model, ToolSets: []service.ToolSet{{Set: twoToolSet{}}, {Set: downToolSet{}}}}
-	runner, err := service.New(service.Config{Store: store, Agents: []service.Agent{agent}})
+	agent := profile.AgentProfile{Name: "a", Model: model, ToolSets: []profile.ToolSet{{Set: twoToolSet{}}, {Set: downToolSet{}}}}
+	runner, err := service.New(service.Config{Store: store, Profiles: registry(t, agent), DefaultAgent: agent.Name})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -381,7 +382,7 @@ func TestAToolOfAToolSetIsListedAndSwitchedByID(t *testing.T) {
 	}
 
 	// Another Runner on the same store reads the same facts.
-	other, err := service.New(service.Config{Store: store, Agents: []service.Agent{agent}})
+	other, err := service.New(service.Config{Store: store, Profiles: registry(t, agent), DefaultAgent: agent.Name})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -419,7 +420,7 @@ func TestAgentMaxEffectHidesToolsAboveIt(t *testing.T) {
 		),
 		testkit.Text("done"),
 	)
-	runner, _ := newRunner(t, service.Agent{
+	runner, _ := newRunner(t, profile.AgentProfile{
 		Name:        "capped",
 		Model:       model,
 		Tools:       []gotato.Tool{gotato.ToolWithEffect(lookup, gotato.ToolEffectRead), gotato.ToolWithEffect(refund, gotato.ToolEffectWriteExternal)},
@@ -458,13 +459,10 @@ func TestAgentMaxEffectHidesToolsAboveIt(t *testing.T) {
 	}
 }
 
-func TestNewRejectsAnUnknownMaxEffect(t *testing.T) {
-	_, err := service.New(service.Config{
-		Store:  memStore(),
-		Agents: []service.Agent{{Name: "a", Model: testkit.EchoModel{}, MaxEffect: "mutate"}},
-	})
+func TestAnUnknownMaxEffectIsRefusedAtRegistration(t *testing.T) {
+	err := profile.NewRegistry(nil).RegisterAgentProfileInline(profile.AgentProfile{Name: "a", Model: testkit.EchoModel{}, MaxEffect: "mutate"})
 	if err == nil {
-		t.Fatal("New accepted an unknown MaxEffect")
+		t.Fatal("registration accepted an unknown MaxEffect")
 	}
 }
 
@@ -474,7 +472,7 @@ func TestNewRejectsAnUnknownMaxEffect(t *testing.T) {
 // is kept in place of the other.
 func TestATwiceNamedToolFailsTheAgentsTools(t *testing.T) {
 	lookup := testkit.NewFakeTool("lookup", "found")
-	runner, _ := newRunner(t, service.Agent{
+	runner, _ := newRunner(t, profile.AgentProfile{
 		Name:        "twice",
 		Model:       testkit.NewFakeModel(testkit.Text("done")),
 		Tools:       []gotato.Tool{lookup},
@@ -523,7 +521,7 @@ func (panicSpecTool) Execute(context.Context, gotato.ToolUse, gotato.ToolProgres
 
 // A Tool of the Agent whose Spec panics fails the listing with a code.
 func TestAToolWhoseSpecPanicsFailsTheListing(t *testing.T) {
-	runner, _ := newRunner(t, service.Agent{
+	runner, _ := newRunner(t, profile.AgentProfile{
 		Name:  "boom",
 		Model: testkit.NewFakeModel(testkit.Text("done")),
 		Tools: []gotato.Tool{panicSpecTool{}},

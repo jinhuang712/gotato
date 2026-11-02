@@ -9,6 +9,7 @@ import (
 	"github.com/jinhuang712/gotato/gotato"
 	"github.com/jinhuang712/gotato/internal/reftasks"
 	"github.com/jinhuang712/gotato/modelctx"
+	"github.com/jinhuang712/gotato/profile"
 	"github.com/jinhuang712/gotato/service"
 	"github.com/jinhuang712/gotato/session"
 )
@@ -94,7 +95,7 @@ func RunRecapCheck(ctx context.Context, cfg RecapCheckConfig, check reftasks.Rec
 	for i, tool := range check.Tools {
 		switchedOff[i] = toolOff{tool}
 	}
-	conversation := service.Agent{
+	conversation := profile.AgentProfile{
 		Name: check.Name, Model: model, ModelName: cfg.ModelName, Instruction: check.Instruction, Tools: check.Tools,
 		Compact: modelctx.Compactor{Recap: modelctx.ModelRecap{MaxTokens: cfg.MaxTokens}},
 	}
@@ -102,7 +103,7 @@ func RunRecapCheck(ctx context.Context, cfg RecapCheckConfig, check reftasks.Rec
 	// conversation's prefix from the cache; only the tools' results differ.
 	questions := conversation
 	questions.Name, questions.Tools, questions.Compact = check.Name+"-questions", switchedOff, modelctx.Compactor{}
-	runner, err := service.New(service.Config{Store: store, Agents: []service.Agent{conversation, questions}})
+	runner, err := service.New(withAgents(service.Config{Store: store}, []profile.AgentProfile{conversation, questions}...))
 	if err != nil {
 		return RecapReport{}, err
 	}

@@ -36,10 +36,6 @@ func (r *Runner) SetDrainStopWait(d time.Duration) { r.hooks.drainStop = d }
 // WarmLimit returns the bound on warm Sessions in force.
 func (r *Runner) WarmLimit() int { return r.bounds.MaxWarmSessions }
 
-// RemoveAgent unregisters an Agent, as a deploy that drops it would. Call it
-// only while no Run reads the Agents.
-func (r *Runner) RemoveAgent(name string) { delete(r.agents, name) }
-
 // MarkUnreleased and RepairReleases expose the repair of release writes to a
 // test, which drives a pass itself instead of waiting for a tick.
 func (r *Runner) MarkUnreleased(id string) { r.markUnreleased(id) }

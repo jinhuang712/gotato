@@ -119,9 +119,9 @@ func (c *cli) contextCompact(args []string) int {
 			}
 			agent, _ = s.Get(agentKey)
 		}
-		spec, ok := rt.runner.Agent(agent)
-		if !ok {
-			return c.failErr(service.ErrUnknownAgent)
+		spec, err := rt.runner.AgentProfile(ctx, agent)
+		if err != nil {
+			return c.failErr(err)
 		}
 		writer = modelctx.ModelRecap{Model: spec.Model, MaxTokens: uint32(min(*recapMax, 1<<31)), Label: "model:" + spec.Name}
 	default:

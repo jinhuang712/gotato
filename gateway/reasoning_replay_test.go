@@ -15,6 +15,7 @@ import (
 
 	"github.com/jinhuang712/gotato/gotato"
 	"github.com/jinhuang712/gotato/internal/fakegateway"
+	"github.com/jinhuang712/gotato/profile"
 	"github.com/jinhuang712/gotato/service"
 	"github.com/jinhuang712/gotato/session"
 	"github.com/jinhuang712/gotato/testkit"
@@ -335,10 +336,13 @@ func TestTheRequestIsTheSameAfterAReload(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	agents := []service.Agent{{Name: "a", Model: client, Instruction: "sys", Tools: []gotato.Tool{testkit.NewFakeTool("echo", "echoed")}}}
+	agents := profile.NewRegistry(nil)
+	if err := agents.RegisterAgentProfileInline(profile.AgentProfile{Name: "a", Model: client, Instruction: "sys", Tools: []gotato.Tool{testkit.NewFakeTool("echo", "echoed")}}); err != nil {
+		t.Fatal(err)
+	}
 	mem := session.NewMemoryStore()
 	store := session.Store{Records: mem, Liveness: mem}
-	first, err := service.New(service.Config{Store: store, Agents: agents})
+	first, err := service.New(service.Config{Store: store, Profiles: agents, DefaultAgent: "a"})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -357,7 +361,7 @@ func TestTheRequestIsTheSameAfterAReload(t *testing.T) {
 	if strings.Contains(sent, "sig-r1") {
 		t.Fatalf("the second Round still sends the first Round's reasoning:\n%s", sent)
 	}
-	second, err := service.New(service.Config{Store: store, Agents: agents})
+	second, err := service.New(service.Config{Store: store, Profiles: agents, DefaultAgent: "a"})
 	if err != nil {
 		t.Fatal(err)
 	}

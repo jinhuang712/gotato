@@ -6,6 +6,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/jinhuang712/gotato/profile"
 	"github.com/jinhuang712/gotato/service"
 	"github.com/jinhuang712/gotato/session"
 	"github.com/jinhuang712/gotato/testkit"
@@ -50,7 +51,7 @@ func TestRepairKeepsTheMarkOfASessionWhoseRunStillHoldsTheLock(t *testing.T) {
 // attempt's success must not erase it.
 func TestRepairDoesNotEraseAMarkSetDuringTheAttempt(t *testing.T) {
 	store := &loadCountStore{parts: partsOf(memStore())}
-	runner, err := service.New(service.Config{Store: asStore(store), Agents: []service.Agent{{Name: "echo", Model: testkit.EchoModel{}}},
+	runner, err := service.New(service.Config{Store: asStore(store), Profiles: registry(t, profile.AgentProfile{Name: "echo", Model: testkit.EchoModel{}}), DefaultAgent: "echo",
 		Heartbeat: service.Heartbeat{TTL: time.Minute}})
 	if err != nil {
 		t.Fatal(err)

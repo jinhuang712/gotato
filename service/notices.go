@@ -2,11 +2,13 @@ package service
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"strings"
 	"time"
 
 	"github.com/jinhuang712/gotato/gotato"
+	"github.com/jinhuang712/gotato/profile"
 	"github.com/jinhuang712/gotato/session"
 )
 
@@ -124,7 +126,12 @@ func (r *Runner) noticeBetweenRuns(ctx context.Context, request NoticeRequest) (
 		}
 		agentName, _ := writer.Record().Get(metaAgent)
 		r.publishOpened(writer, early, agentName)
-		spec, known := r.Agent(agentName)
+		spec, err := r.agentOf(ctx, writer.Record())
+		known := err == nil
+		if err != nil && !errors.Is(err, ErrUnknownAgent) {
+			_ = r.releaseWriter(ctx, writer)
+			return err
+		}
 		limit := int(gotato.DefaultLimits().MaxNotices)
 		if known && spec.Limits != nil && spec.Limits.MaxNotices > 0 {
 			limit = int(spec.Limits.MaxNotices)
@@ -178,8 +185,8 @@ func splitNotices(left []gotato.Queued) (notices, rest []gotato.Queued) {
 // idle time is read from the Record: from the end of its last Run to now, so a
 // Session that was evicted, or loaded by another Instance, gets the notice the
 // same. A Session that has never finished a Run has none.
-func (r *Runner) queueTimeAway(ctx context.Context, spec Agent, record *session.Record, live *gotato.Session) {
-	threshold := spec.TimeAwayAfter
+func (r *Runner) queueTimeAway(ctx context.Context, spec profile.AgentProfile, record *session.Record, live *gotato.Session) {
+	threshold := r.timeAway
 	switch {
 	case threshold < 0:
 		return

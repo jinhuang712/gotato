@@ -24,10 +24,9 @@ func (r *Runner) Inspect(ctx context.Context, sessionID string, config InspectCo
 	if err != nil {
 		return modelctx.Report{}, storeFailureOf(ctx, err, true)
 	}
-	agentName, _ := s.Get(metaAgent)
-	spec, ok := r.Agent(agentName)
-	if !ok {
-		return modelctx.Report{}, ErrUnknownAgent
+	spec, err := r.agentOf(ctx, s)
+	if err != nil {
+		return modelctx.Report{}, err
 	}
 	live, auto, err := r.buildSession(ctx, spec, s, nil, config)
 	if err != nil {

@@ -30,6 +30,7 @@ const (
 var fileLayer = map[string]int{
 	// contract and values
 	"committed.go":   layerContract,
+	"definitions.go": layerContract,
 	"entry.go":       layerContract,
 	"errors.go":      layerContract,
 	"recordepoch.go": layerContract,
@@ -45,13 +46,15 @@ var fileLayer = map[string]int{
 	"segments.go":    layerRecord,
 	"spilled.go":     layerRecord,
 	// the Stores
-	"file.go":          layerStores,
-	"file_batch.go":    layerStores,
-	"file_instance.go": layerStores,
-	"file_name.go":     layerStores,
-	"file_sweep.go":    layerStores,
-	"memory.go":        layerStores,
-	"store_check.go":   layerStores,
+	"definitions_file.go":   layerStores,
+	"definitions_memory.go": layerStores,
+	"file.go":               layerStores,
+	"file_batch.go":         layerStores,
+	"file_instance.go":      layerStores,
+	"file_name.go":          layerStores,
+	"file_sweep.go":         layerStores,
+	"memory.go":             layerStores,
+	"store_check.go":        layerStores,
 	// the Writer
 	"writer.go": layerWriter,
 }

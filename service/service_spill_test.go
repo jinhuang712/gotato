@@ -9,6 +9,7 @@ import (
 
 	"github.com/jinhuang712/gotato/gotato"
 	"github.com/jinhuang712/gotato/modelctx"
+	"github.com/jinhuang712/gotato/profile"
 	"github.com/jinhuang712/gotato/service"
 	"github.com/jinhuang712/gotato/session"
 	"github.com/jinhuang712/gotato/testkit"
@@ -26,7 +27,7 @@ func TestForkKeepsSpilledResultsReadable(t *testing.T) {
 		t.Fatal(err)
 	}
 	model := testkit.NewFakeModel(testkit.ToolCalls(gotato.ToolCall{ID: "large-call", ToolID: "large", Arguments: []byte(`{}`)}), testkit.Text("done"))
-	r, err := service.New(service.Config{Store: store, Agents: []service.Agent{{Name: "large", Model: model, Tools: []gotato.Tool{tool}}}})
+	r, err := service.New(service.Config{Store: store, Profiles: registry(t, profile.AgentProfile{Name: "large", Model: model, Tools: []gotato.Tool{tool}}), DefaultAgent: "large"})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -86,8 +87,8 @@ func TestForkReadsASpilledResultInAnInheritedSegment(t *testing.T) {
 	)
 	store := memStore()
 	runner, err := service.New(service.Config{
-		Store:  store,
-		Agents: []service.Agent{{Name: "a", Model: model, Tools: []gotato.Tool{testkit.NewFakeTool("orders.export", body)}}},
+		Store:    store,
+		Profiles: registry(t, profile.AgentProfile{Name: "a", Model: model, Tools: []gotato.Tool{testkit.NewFakeTool("orders.export", body)}}), DefaultAgent: "a",
 	})
 	if err != nil {
 		t.Fatal(err)
@@ -134,8 +135,8 @@ func TestARunnerSpillsALargeResultAndReadsItBack(t *testing.T) {
 		testkit.ToolCalls(gotato.ToolCall{ID: "read-1", ToolID: "read_result", Arguments: []byte(`{"ref":"result:big-1","page":2}`)}), testkit.Text("read"), // Run 2
 	)
 	runner, err := service.New(service.Config{
-		Store:  store,
-		Agents: []service.Agent{{Name: "a", Model: model, Tools: []gotato.Tool{testkit.NewFakeTool("orders.export", body)}}},
+		Store:    store,
+		Profiles: registry(t, profile.AgentProfile{Name: "a", Model: model, Tools: []gotato.Tool{testkit.NewFakeTool("orders.export", body)}}), DefaultAgent: "a",
 	})
 	if err != nil {
 		t.Fatal(err)
@@ -158,7 +159,7 @@ func TestARunnerSpillsALargeResultAndReadsItBack(t *testing.T) {
 	}
 
 	// Another instance loads the Session and builds the request the first would.
-	other, err := service.New(service.Config{Store: store, Agents: []service.Agent{{Name: "a", Model: model, Tools: []gotato.Tool{testkit.NewFakeTool("orders.export", body)}}}})
+	other, err := service.New(service.Config{Store: store, Profiles: registry(t, profile.AgentProfile{Name: "a", Model: model, Tools: []gotato.Tool{testkit.NewFakeTool("orders.export", body)}}), DefaultAgent: "a"})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -181,7 +182,7 @@ func TestARunnerSpillsALargeResultAndReadsItBack(t *testing.T) {
 
 // An Agent with no tool is offered no read_result: there is nothing to spill.
 func TestAnAgentWithNoToolIsOfferedNoReadResult(t *testing.T) {
-	runner, err := service.New(service.Config{Store: memStore(), Agents: []service.Agent{{Name: "a", Model: testkit.NewFakeModel(testkit.Text("hi"))}}})
+	runner, err := service.New(service.Config{Store: memStore(), Profiles: registry(t, profile.AgentProfile{Name: "a", Model: testkit.NewFakeModel(testkit.Text("hi"))}), DefaultAgent: "a"})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -212,8 +213,8 @@ func TestAToolSetOnlyAgentIsOfferedReadResult(t *testing.T) {
 		testkit.ToolCalls(gotato.ToolCall{ID: "big-1", ToolID: "orders.export", Arguments: []byte(`{}`)}), testkit.Text("exported"),
 	)
 	runner, err := service.New(service.Config{
-		Store:  memStore(),
-		Agents: []service.Agent{{Name: "a", Model: model, ToolSets: []service.ToolSet{{Set: bigToolSet{body}, Mode: service.ToolSetActive}}}},
+		Store:    memStore(),
+		Profiles: registry(t, profile.AgentProfile{Name: "a", Model: model, ToolSets: []profile.ToolSet{{Set: bigToolSet{body}, Mode: profile.ToolSetActive}}}), DefaultAgent: "a",
 	})
 	if err != nil {
 		t.Fatal(err)
@@ -251,9 +252,9 @@ func segmentRunner(t *testing.T, store session.Store, model gotato.Model) *servi
 	t.Helper()
 	runner, err := service.New(service.Config{
 		Store: store,
-		Agents: []service.Agent{{Name: "a", Model: model, ToolSets: []service.ToolSet{
+		Profiles: registry(t, profile.AgentProfile{Name: "a", Model: model, ToolSets: []profile.ToolSet{
 			{Set: filesToolSet{}}, {Set: gitToolSet{}},
-		}}},
+		}}), DefaultAgent: "a",
 	})
 	if err != nil {
 		t.Fatal(err)
@@ -387,7 +388,7 @@ func TestReadSegmentIsOfferedAndEveryInstanceOffersTheSameTools(t *testing.T) {
 // that inspection only.
 func TestInspectConfigOverridesTheInstructionForOneInspection(t *testing.T) {
 	ctx := context.Background()
-	runner, _ := newRunner(t, service.Agent{Name: "a", Model: testkit.EchoModel{}, Instruction: "spec instruction"})
+	runner, _ := newRunner(t, profile.AgentProfile{Name: "a", Model: testkit.EchoModel{}, Instruction: "spec instruction"})
 	s, err := runner.CreateSession(ctx, service.CreateSessionRequest{Agent: "a"})
 	if err != nil {
 		t.Fatal(err)

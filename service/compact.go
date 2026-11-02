@@ -2,9 +2,11 @@ package service
 
 import (
 	"context"
+	"errors"
 
 	"github.com/jinhuang712/gotato/gotato"
 	"github.com/jinhuang712/gotato/modelctx"
+	"github.com/jinhuang712/gotato/profile"
 	"github.com/jinhuang712/gotato/session"
 )
 
@@ -34,7 +36,12 @@ func (r *Runner) Compact(ctx context.Context, sessionID string, opts modelctx.Co
 		}
 		agentName, _ := writer.Record().Get(metaAgent)
 		r.publishOpened(writer, early, agentName)
-		spec, known := r.Agent(agentName)
+		spec, err := r.agentOf(ctx, writer.Record())
+		known := err == nil
+		if err != nil && !errors.Is(err, ErrUnknownAgent) {
+			_ = r.releaseWriter(ctx, writer)
+			return err
+		}
 		var compactor modelctx.Compactor
 		var compactOpts []modelctx.CompactOption
 		if known {
@@ -79,7 +86,7 @@ func withAgentModel(writer modelctx.RecapWriter, model gotato.Model) (out modelc
 // recapContext returns what a Recap written by a model sends as its prefix:
 // the request the Agent's next model call would send for the Session now,
 // built by a live Session that is inspected and not run.
-func (r *Runner) recapContext(spec Agent, record *session.Record) func(context.Context) (gotato.ModelRequest, error) {
+func (r *Runner) recapContext(spec profile.AgentProfile, record *session.Record) func(context.Context) (gotato.ModelRequest, error) {
 	return func(ctx context.Context) (gotato.ModelRequest, error) {
 		live, _, err := r.buildSession(ctx, spec, record, nil, InspectConfig{})
 		if err != nil {
@@ -97,7 +104,7 @@ func (r *Runner) recapContext(spec Agent, record *session.Record) func(context.C
 // compactorFor is the Agent's Compactor with the Model's window applied, and its
 // Recap writer given the Agent's Model when it names none. The ceiling is the
 // Agent's alone.
-func compactorFor(spec Agent) modelctx.Compactor {
+func compactorFor(spec profile.AgentProfile) modelctx.Compactor {
 	compactor := spec.Compact
 	facts := spec.Model.Config().Facts
 	compactor.Recap = withAgentModel(compactor.Recap, spec.Model)

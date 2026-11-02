@@ -9,6 +9,7 @@ import (
 
 	"github.com/jinhuang712/gotato/gotato"
 	"github.com/jinhuang712/gotato/modelctx"
+	"github.com/jinhuang712/gotato/profile"
 	"github.com/jinhuang712/gotato/service"
 	"github.com/jinhuang712/gotato/session"
 	"github.com/jinhuang712/gotato/testkit"
@@ -69,8 +70,8 @@ func TestCodeStringsMatchTheirNames(t *testing.T) {
 func TestUnpersistedRunIsReported(t *testing.T) {
 	store := &failingSaveStore{parts: partsOf(memStore()), failFinal: true}
 	runner, err := service.New(service.Config{
-		Store:  asStore(store),
-		Agents: []service.Agent{{Name: "echo", Model: testkit.EchoModel{}}},
+		Store:    asStore(store),
+		Profiles: registry(t, profile.AgentProfile{Name: "echo", Model: testkit.EchoModel{}}), DefaultAgent: "echo",
 	})
 	if err != nil {
 		t.Fatal(err)
@@ -87,8 +88,8 @@ func TestUnpersistedRunIsReported(t *testing.T) {
 func TestLostReleaseKeepsTheRunCompletedAndWarns(t *testing.T) {
 	store := &failingSaveStore{parts: partsOf(memStore()), failRelease: true}
 	runner, err := service.New(service.Config{
-		Store:  asStore(store),
-		Agents: []service.Agent{{Name: "echo", Model: testkit.EchoModel{}}},
+		Store:    asStore(store),
+		Profiles: registry(t, profile.AgentProfile{Name: "echo", Model: testkit.EchoModel{}}), DefaultAgent: "echo",
 	})
 	if err != nil {
 		t.Fatal(err)
@@ -106,9 +107,9 @@ func TestLostReleaseKeepsTheRunCompletedAndWarns(t *testing.T) {
 
 // unbuildableSpec is an Agent whose live Session cannot be built: a Run creates
 // the Record, then fails before the live Session starts.
-func unbuildableSpec() service.Agent {
+func unbuildableSpec() profile.AgentProfile {
 	negative := -1.0
-	return service.Agent{Name: "echo", Model: testkit.EchoModel{}, Sampling: gotato.Sampling{Temperature: &negative}}
+	return profile.AgentProfile{Name: "echo", Model: testkit.EchoModel{}, Sampling: gotato.Sampling{Temperature: &negative}}
 }
 
 func TestFailedOneShotLeavesNoSession(t *testing.T) {
@@ -135,8 +136,8 @@ func (s *failingDeleteStore) Delete(context.Context, string) error { return s.er
 func TestFailedOneShotCleanupIsReported(t *testing.T) {
 	delErr := errors.New("store: delete denied")
 	runner, err := service.New(service.Config{
-		Store:  asStore(&failingDeleteStore{parts: partsOf(memStore()), err: delErr}),
-		Agents: []service.Agent{unbuildableSpec()},
+		Store:    asStore(&failingDeleteStore{parts: partsOf(memStore()), err: delErr}),
+		Profiles: registry(t, unbuildableSpec()), DefaultAgent: unbuildableSpec().Name,
 	})
 	if err != nil {
 		t.Fatal(err)
@@ -156,8 +157,8 @@ func TestUnpersistedFailedRunStillReportsSaveFailure(t *testing.T) {
 	modelErr := errors.New("model exploded")
 	model.Err = modelErr
 	runner, err := service.New(service.Config{
-		Store:  asStore(store),
-		Agents: []service.Agent{{Name: "boom", Model: model}},
+		Store:    asStore(store),
+		Profiles: registry(t, profile.AgentProfile{Name: "boom", Model: model}), DefaultAgent: "boom",
 	})
 	if err != nil {
 		t.Fatal(err)

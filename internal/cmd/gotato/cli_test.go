@@ -10,6 +10,7 @@ import (
 	"time"
 
 	"github.com/jinhuang712/gotato/gotato"
+	"github.com/jinhuang712/gotato/profile"
 	"github.com/jinhuang712/gotato/service"
 	"github.com/jinhuang712/gotato/testkit"
 )
@@ -299,7 +300,7 @@ func TestToolsListReportsTheEffectCap(t *testing.T) {
 	h := newHarness(t)
 	lookup := gotato.ToolWithEffect(testkit.NewFakeTool("lookup", "found"), gotato.ToolEffectRead)
 	push := testkit.NewFakeTool("push", "pushed") // declares no Effect, so it ranks as destructive
-	testAgents = []service.Agent{{Name: "reader", Model: testkit.EchoModel{}, Tools: []gotato.Tool{lookup, push}, MaxEffect: gotato.ToolEffectRead}}
+	testAgents = []profile.AgentProfile{{Name: "reader", Model: testkit.EchoModel{}, Tools: []gotato.Tool{lookup, push}, MaxEffect: gotato.ToolEffectRead}}
 	defer func() { testAgents = nil }()
 
 	var listing toolListing
@@ -464,7 +465,7 @@ func TestRunIncompleteExitCode(t *testing.T) {
 	defer close(block)
 	model := testkit.NewFakeModel(testkit.Text("unreachable"))
 	model.Block = block
-	testAgents = []service.Agent{{Name: "blocking", Model: model, ModelName: "blocking", Instruction: defaultInstruction}}
+	testAgents = []profile.AgentProfile{{Name: "blocking", Model: model, ModelName: "blocking", Instruction: defaultInstruction}}
 	defer func() { testAgents = nil }()
 
 	code, out, _ := h.run("run", "--model", "blocking", "--timeout", "20ms", "--json", "hello")
@@ -643,7 +644,7 @@ func TestBinaryScenario(t *testing.T) {
 	}
 }
 
-// --instruction selects another Agent, a variant of the built-in one: the run
+// --instruction selects another AgentProfile, a variant of the built-in one: the run
 // switches the session to it as its first write, a later run without the flag
 // keeps it, and --no-save keeps it to that run only.
 func TestRunInstructionSelectsAnAgentUnlessNoSave(t *testing.T) {
@@ -657,7 +658,8 @@ func TestRunInstructionSelectsAnAgentUnlessNoSave(t *testing.T) {
 		Messages []any             `json:"messages"`
 	}
 	h.mustJSON(h.ok("session", "show", created.SessionID, "--json"), &doc)
-	if agent := doc.Metadata[agentKey]; !strings.HasPrefix(agent, "echo+") {
+	agent := doc.Metadata[agentKey]
+	if !strings.HasPrefix(agent, "echo") || agent == "echo" {
 		t.Fatalf("agent = %q, want a variant of echo", agent)
 	}
 	if _, set := doc.Metadata[service.ReservedPrefix+"instruction"]; set {
@@ -667,7 +669,11 @@ func TestRunInstructionSelectsAnAgentUnlessNoSave(t *testing.T) {
 	if out := h.ok("context", "build", created.SessionID, "--json"); !strings.Contains(out, "kept") || strings.Contains(out, "dropped") {
 		t.Fatalf("the session's instruction is not the saved run's: %s", out)
 	}
-	h.ok("run", "--session", created.SessionID, "--json", "and again")
+	var again runOutcome
+	h.mustJSON(h.ok("run", "--session", created.SessionID, "--json", "and again"), &again)
+	if again.SessionID != created.SessionID || again.Agent != agent {
+		t.Fatalf("the second invocation ran agent %q on %s, want %q on %s", again.Agent, again.SessionID, agent, created.SessionID)
+	}
 	if len(doc.Messages) != 4 {
 		t.Fatalf("messages = %d, want 4: the --no-save run left nothing", len(doc.Messages))
 	}

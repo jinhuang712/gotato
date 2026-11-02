@@ -95,7 +95,7 @@ What the frame keeps, whatever a part returns:
 
 A ref is checked in the two shapes the default Builder writes: `[result:<call_id> ...]` ending a tool call line inside `<tool_calls>`, and a line `ref msg:<message_id>` inside `<segment>`. A Trigger that panics, or says "due" with no reason, drops that Turn's compaction and publishes an `extension_failed` Event (stage `compaction_trigger`).
 
-The line between the two is who can be trusted with what. The frame does what a mistake would turn into lost history or a cold cache: the write, the numbers, the escaping, the cut at a Turn boundary. A part does what a team has a view on: when, where, what to say. To run one, `modelctx.Compact(ctx, store, compactor, cfg)` compacts once and `modelctx.AutoCompact(store, compactor)` is the `TurnPreparer`; in a service, `service.Agent.Compact` is the `Compactor`. A `CompactConfig` changes the numbers, the kept tail (`KeepMessages`, as `TailBudget`) and the Recap writer for one call. Examples of each part: [Extension points](../guides/extension-points.md).
+The line between the two is who can be trusted with what. The frame does what a mistake would turn into lost history or a cold cache: the write, the numbers, the escaping, the cut at a Turn boundary. A part does what a team has a view on: when, where, what to say. To run one, `modelctx.Compact(ctx, store, compactor, cfg)` compacts once and `modelctx.AutoCompact(store, compactor)` is the `TurnPreparer`; in a service, `profile.AgentProfile.Compact` is the `Compactor`. A `CompactConfig` changes the numbers, the kept tail (`KeepMessages`, as `TailBudget`) and the Recap writer for one call. Examples of each part: [Extension points](../guides/extension-points.md).
 
 ## A merge
 

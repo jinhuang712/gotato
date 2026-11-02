@@ -57,7 +57,7 @@ func (c *cli) cmdDoctor(args []string) int {
 		add(doctorCheck{Name: "model.echo", OK: true, Detail: "deterministic, no credentials"})
 		add(doctorCheck{Name: "model.demo", OK: true, Detail: "deterministic tool loop, no credentials"})
 		if rt.gatewayErr == nil {
-			spec, _ := rt.runner.Agent("gateway")
+			spec, _ := rt.runner.AgentProfile(ctx, "gateway")
 			add(doctorCheck{Name: "model.gateway", OK: true, Detail: rt.gatewayCfg + " → " + spec.ModelName})
 		} else if fileExists(rt.gatewayCfg) {
 			add(doctorCheck{Name: "model.gateway", OK: false, Detail: rt.gatewayErr.Error()})

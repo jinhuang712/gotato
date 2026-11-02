@@ -25,6 +25,7 @@ import (
 	"time"
 
 	"github.com/jinhuang712/gotato/gotato"
+	"github.com/jinhuang712/gotato/profile"
 	"github.com/jinhuang712/gotato/service"
 	"github.com/jinhuang712/gotato/service/httpapi"
 	"github.com/jinhuang712/gotato/session"
@@ -44,14 +45,20 @@ func run() error {
 		return err
 	}
 
+	profiles := profile.NewRegistry(nil)
+	if err := profiles.RegisterAgentProfileInline(profile.AgentProfile{
+		Name:        "default",
+		Model:       testkit.DemoModel{}, // swap for a gateway model
+		Instruction: "You are a helpful assistant.",
+		Tools:       []gotato.Tool{testkit.DemoEchoTool()},
+	}); err != nil {
+		return err
+	}
+
 	runner, err := service.New(service.Config{
-		Store: session.Store{Records: store, Liveness: store},
-		Agents: []service.Agent{{
-			Name:        "default",
-			Model:       testkit.DemoModel{}, // swap for a gateway model
-			Instruction: "You are a helpful assistant.",
-			Tools:       []gotato.Tool{testkit.DemoEchoTool()},
-		}},
+		Store:        session.Store{Records: store, Liveness: store},
+		Profiles:     profiles,
+		DefaultAgent: "default",
 		DrainTimeout: 20 * time.Second, // how long Runs in flight may finish
 	})
 	if err != nil {

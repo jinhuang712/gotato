@@ -27,7 +27,7 @@
 
 An **Agent** is a definition: model, instruction, tools, limits. A **Session** is one conversation running it: a small loop, plus a runtime that saves every step to your store.
 
-Where the Agent lives depends on how you run it. With the Go API alone, the Agent is the options you pass to `gotato.NewSession` (a model, an instruction, tools). With a `service.Runner`, it is a `service.Agent` value you register once, and the Runner starts a Session from it for each conversation.
+Where the Agent lives depends on how you run it. With the Go API alone, the Agent is the options you pass to `gotato.NewSession` (a model, an instruction, tools). With a `service.Runner`, it is a `profile.AgentProfile` value you register once in a `profile.Registry`, and the Runner starts a Session from it for each conversation.
 
 A Session saves itself by writing its Record, an append-only log of everything that happened, to a Store. A Session built with `gotato.NewSession` alone keeps that Record in memory and is gone when the process exits; a Runner over a Store keeps it there.
 

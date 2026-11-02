@@ -77,7 +77,7 @@ A Notice is a Message of its own kind. It waits in a queue, and goes in right be
                                └─ appended at the end, never in the middle
 ```
 
-The queue is shared with Steers, so Notices and Steers go in the order they arrived. A Notice is stored once, as a Message, so every Instance that builds the Context writes the same bytes. It never starts a Round, which keeps the model's reasoning in flight, and it never starts or extends a Run. Gotato sends two of its own, `continue` after a reply hit the output limit and `time_away` after a long pause; a service names its own kinds.
+The queue is shared with Steers, so Notices and Steers go in the order they arrived. A Notice is stored once, as a Message, so every Instance that builds the Context writes the same bytes. It never starts a Round, which keeps the model's reasoning in flight, and it never starts or extends a Run. Gotato sends two of its own, `continue` after a reply hit the output limit and `time_away` after a long pause (a host sets how long with `Config.TimeAwayAfter`); a service names its own kinds.
 
 ## A big result stays out
 

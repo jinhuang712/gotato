@@ -5,6 +5,7 @@ import (
 	"time"
 
 	"github.com/jinhuang712/gotato/gotato"
+	"github.com/jinhuang712/gotato/profile"
 	"github.com/jinhuang712/gotato/service/internal/clock"
 	"github.com/jinhuang712/gotato/session"
 )
@@ -14,10 +15,11 @@ import (
 // session_created that the Run caused.
 func (st *runState) createSession(ctx, runCtx context.Context) error {
 	r := st.r
-	fresh, spec, err := r.newSession(st.request.Agent, st.request.Metadata)
+	fresh, spec, err := r.newSession(ctx, st.request.Agent, st.request.task, st.request.Metadata)
 	if err != nil {
 		return err
 	}
+	st.agent = &spec
 	st.acquired = feedKey{fresh.ID(), fresh.RecordEpoch()}
 	st.feed = r.acquireFeed(st.acquired, spec.Name)
 	if err := r.streamTo(ctx, st.feed, st.stream, st.track); err != nil {
@@ -89,20 +91,30 @@ func (st *runState) openSession(ctx, runCtx context.Context) (openedSession, err
 	return opened, nil
 }
 
-// resolveAgent finds the Agent of the Run: the request's, else the Session's.
-// It is resolved before the Update is applied, so a Run that is refused for its
-// Agent writes nothing.
-func (st *runState) resolveAgent() (Agent, bool) {
-	agentName := st.request.Agent
-	if agentName == "" {
-		agentName, _ = st.s.Get(metaAgent)
+// resolveAgent finds the AgentProfile of the Run: the one the Run built its new
+// Session from, else the request's, else the Session's (as its TaskSpec narrows
+// it). It is resolved before the Update is applied, so a Run that is refused for
+// its profile writes nothing.
+func (st *runState) resolveAgent(ctx context.Context) (profile.AgentProfile, error) {
+	r, request := st.r, st.request
+	switch {
+	case st.agent != nil:
+		return *st.agent, nil
+	case request.task != nil:
+		return r.resolveNarrowed(ctx, request.task)
+	case request.Agent != "":
+		if _, task := st.s.Get(metaTask); task {
+			// [CONTRACT] a Session opened for a TaskSpec keeps its AgentProfile: the snapshot narrows that one alone.
+			return profile.AgentProfile{}, notRunError(gotato.ErrorOf(gotato.CodeInvalidArgument, "service: a Session opened for a TaskSpec keeps its AgentProfile"))
+		}
+		return r.agentNamed(ctx, request.Agent)
 	}
-	return st.r.Agent(agentName)
+	return r.agentOf(ctx, st.s)
 }
 
-// applyUpdate writes the request's Update and the Agent's name into the
+// applyUpdate writes the request's Update and the AgentProfile's name into the
 // Session's metadata.
-func (st *runState) applyUpdate(spec Agent) {
+func (st *runState) applyUpdate(spec profile.AgentProfile) {
 	for key, value := range st.request.Update {
 		st.s.Set(key, value)
 	}
@@ -146,7 +158,7 @@ func (st *runState) joinFeed(ctx, runCtx context.Context) error {
 
 // announceOpen labels the Feed with the Agent's name and publishes the Events
 // the open wrote and the session_loaded Event.
-func (st *runState) announceOpen(spec Agent, known bool, early []gotato.Event, reused bool, loadTime time.Duration) {
+func (st *runState) announceOpen(spec profile.AgentProfile, known bool, early []gotato.Event, reused bool, loadTime time.Duration) {
 	label := spec.Name
 	if !known {
 		label = ""

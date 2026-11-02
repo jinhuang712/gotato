@@ -12,6 +12,7 @@ import (
 
 	"github.com/jinhuang712/gotato/gotato"
 	"github.com/jinhuang712/gotato/internal/reftasks"
+	"github.com/jinhuang712/gotato/profile"
 	"github.com/jinhuang712/gotato/service"
 	"github.com/jinhuang712/gotato/session"
 )
@@ -28,9 +29,9 @@ func memStore() session.Store {
 // removes the dead instance's row, so no short TTL is needed to wait it out.
 func taskRunner(t *testing.T, store session.Store, task reftasks.Task, instance string) *service.Runner {
 	t.Helper()
-	runner, err := service.New(service.Config{Store: store, Instance: instance, Heartbeat: service.Heartbeat{TTL: 5 * time.Second, Wait: 2 * time.Second}, Agents: []service.Agent{{
+	runner, err := service.New(withAgents(service.Config{Store: store, Instance: instance, Heartbeat: service.Heartbeat{TTL: 5 * time.Second, Wait: 2 * time.Second}}, []profile.AgentProfile{{
 		Name: task.Name, Model: task.Model, Instruction: task.Instruction, Tools: task.Tools, ToolSets: task.ToolSets, Limits: task.Limits,
-	}}})
+	}}...))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -155,4 +156,17 @@ func plantRecord(t *testing.T, store session.Store, agent, cacheKey string, mess
 		t.Fatal(err)
 	}
 	return record.ID()
+}
+
+// withAgents registers agents as the Config's AgentProfiles, the first the
+// default.
+func withAgents(cfg service.Config, agents ...profile.AgentProfile) service.Config {
+	registry := profile.NewRegistry(nil)
+	for _, agent := range agents {
+		if err := registry.RegisterAgentProfileInline(agent); err != nil {
+			panic(err)
+		}
+	}
+	cfg.Profiles, cfg.DefaultAgent = registry, agents[0].Name
+	return cfg
 }

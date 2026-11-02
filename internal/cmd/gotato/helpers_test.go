@@ -6,6 +6,9 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+
+	"github.com/jinhuang712/gotato/profile"
+	"github.com/jinhuang712/gotato/service"
 )
 
 // harness runs the CLI in-process against a temporary store.
@@ -49,4 +52,17 @@ func (h *harness) ok(args ...string) string {
 		h.t.Fatalf("%v exit %d\nstdout: %s\nstderr: %s", args, code, out, errOut)
 	}
 	return out
+}
+
+// withAgents registers agents as the Config's AgentProfiles, the first the
+// default.
+func withAgents(cfg service.Config, agents ...profile.AgentProfile) service.Config {
+	registry := profile.NewRegistry(nil)
+	for _, agent := range agents {
+		if err := registry.RegisterAgentProfileInline(agent); err != nil {
+			panic(err)
+		}
+	}
+	cfg.Profiles, cfg.DefaultAgent = registry, agents[0].Name
+	return cfg
 }
