@@ -272,52 +272,11 @@ func (st *runState) runToolBatch(turn TurnNumber, assistant Message) (toolOutcom
 	committed := 0
 	commitUpTo := func(end int) *RuntimeError {
 		for ; committed < end; committed++ {
-			call := plans[committed].call
-			toolResult := outcomes[committed]
-			// Post-Tool-Use sees executed, blocked, failed, and canceled
-			// outcomes alike, in reverse installation order.
-			finalized, postErr := a.def.extensions.afterTool(runCtx, toolResult)
-			if postErr != nil {
-				return postErr
-			}
-			toolResult = finalized
-			// The Tool already ran: a canceled Run still stores its body.
-			spillCtx, cancelSpill := finalContext(runCtx)
-			toolResult, spillErr := a.spill(spillCtx, runID, turn, call.ToolID, toolResult)
-			cancelSpill()
-			if spillErr != nil {
-				return spillErr
-			}
-			content := cloneParts(toolResult.Content)
-			resultMessage := Message{ID: MessageID(nextID("message")), RunID: runID, Role: RoleToolResult, Parts: content, ToolResult: cloneToolResultPtr(toolResult)}
-			// A Result too large for one Message is replaced by one that says
-			// why its output is missing, and the Run goes on.
-			resultMessage, toolResult, commitErr := a.history.commitToolResult(a.def.limits, resultMessage, toolResult)
-			if commitErr != nil {
-				return asRuntimeError(commitErr)
-			}
-			st.batch.next = committed + 1
-			a.stage(ToolResultCommitted{Header: hd(turn), Message: resultMessage.Clone(), CallID: call.ID, Status: toolResult.Status})
-			// A Tool loads as the Tool Result that lists it commits, and its
-			// ToolLoaded goes in the same write, so the Record never says
-			// "Loaded" for a Tool it does not hold as loaded. the tools lock
-			// serializes the visibility write with Session.Tools.
-			for _, id := range toolResult.LoadedTools {
-				a.tools.mu.Lock()
-				loadedNow := a.tools.registry.load(id)
-				a.tools.mu.Unlock()
-				if loadedNow {
-					a.stage(ToolLoaded{Header: hd(turn), ToolID: id, Why: loadWhy(call, id)})
-				}
-			}
-			// The result is committed in memory already: a canceled
-			// Run still stores it.
-			flushCtx, cancelFlush := finalContext(runCtx)
-			err := a.flush(flushCtx)
-			cancelFlush()
+			toolResult, err := st.commitResult(turn, committed, plans[committed].call, outcomes[committed])
 			if err != nil {
 				return err
 			}
+			call := plans[committed].call
 			settledResults = append(settledResults, toolResult.Clone())
 			toolOutcomes = append(toolOutcomes, ToolOutcome{ToolID: call.ToolID, CallID: call.ID, Status: toolResult.Status, Executed: toolResult.Executed})
 		}

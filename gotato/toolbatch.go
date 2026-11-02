@@ -504,3 +504,83 @@ func toolErrorText(err error) string {
 	}
 	return PublicText(err, fallback)
 }
+
+// commitResult commits the settled result of one call of a Turn's batch: the
+// call at position index, whose Tool outcome is outcome. A result is a chain of
+// stages, each its own call so that each can be read, and fails alone: what the
+// extensions make of it (afterToolUse), what is spilled (spillResult), its
+// Message in the history (commitResultMessage), its Events (stageResult) and
+// their write (flushResult). It returns the result as it was committed.
+func (st *runState) commitResult(turn TurnNumber, index int, call ToolCall, outcome ToolResult) (ToolResult, *RuntimeError) {
+	result, err := st.afterToolUse(outcome)
+	if err != nil {
+		return ToolResult{}, err
+	}
+	if result, err = st.spillResult(turn, call, result); err != nil {
+		return ToolResult{}, err
+	}
+	message, result, err := st.commitResultMessage(result)
+	if err != nil {
+		return ToolResult{}, err
+	}
+	st.batch.next = index + 1
+	st.stageResult(turn, call, message, result)
+	if err := st.flushResult(); err != nil {
+		return ToolResult{}, err
+	}
+	return result, nil
+}
+
+// afterToolUse runs the Post-Tool-Use extensions, which see executed, blocked,
+// failed and canceled outcomes alike, in reverse installation order.
+func (st *runState) afterToolUse(outcome ToolResult) (ToolResult, *RuntimeError) {
+	return st.a.def.extensions.afterTool(st.runCtx, outcome)
+}
+
+// spillResult moves a result too large for the Model's context out to the
+// Record (decision 040). The Tool already ran: a canceled Run still stores its
+// body.
+func (st *runState) spillResult(turn TurnNumber, call ToolCall, result ToolResult) (ToolResult, *RuntimeError) {
+	spillCtx, cancel := finalContext(st.runCtx)
+	defer cancel()
+	return st.a.spill(spillCtx, st.runID, turn, call.ToolID, result)
+}
+
+// commitResultMessage commits the Tool Result Message to the history. A result
+// too large for one Message is replaced by one that says why its output is
+// missing, and the Run goes on.
+func (st *runState) commitResultMessage(result ToolResult) (Message, ToolResult, *RuntimeError) {
+	a := st.a
+	message := Message{ID: MessageID(nextID("message")), RunID: st.runID, Role: RoleToolResult, Parts: cloneParts(result.Content), ToolResult: cloneToolResultPtr(result)}
+	message, result, err := a.history.commitToolResult(a.def.limits, message, result)
+	if err != nil {
+		return Message{}, ToolResult{}, asRuntimeError(err)
+	}
+	return message, result, nil
+}
+
+// stageResult stages the Events of a committed result: its ToolResultCommitted,
+// and a ToolLoaded for each Tool it lists. A Tool loads as the Tool Result that
+// lists it commits, and its ToolLoaded goes in the same write, so the Record
+// never says "Loaded" for a Tool it does not hold as loaded. The tools lock
+// serializes the visibility write with Session.Tools.
+func (st *runState) stageResult(turn TurnNumber, call ToolCall, message Message, result ToolResult) {
+	a, hd := st.a, st.header
+	a.stage(ToolResultCommitted{Header: hd(turn), Message: message.Clone(), CallID: call.ID, Status: result.Status})
+	for _, id := range result.LoadedTools {
+		a.tools.mu.Lock()
+		loadedNow := a.tools.registry.load(id)
+		a.tools.mu.Unlock()
+		if loadedNow {
+			a.stage(ToolLoaded{Header: hd(turn), ToolID: id, Why: loadWhy(call, id)})
+		}
+	}
+}
+
+// flushResult writes the Events of the result. It is committed in memory
+// already, so a canceled Run still stores it.
+func (st *runState) flushResult() *RuntimeError {
+	flushCtx, cancel := finalContext(st.runCtx)
+	defer cancel()
+	return st.a.flush(flushCtx)
+}
