@@ -1,0 +1,17 @@
+# The file `-model gateway` reads ($GOTATO_GATEWAY_CONFIG, default gateway.yaml).
+# Copy it to gateway.yaml, which is ignored by git, and fill it in.
+
+# The wire API of the endpoint: openai-chat-completions (the default),
+# openai-responses or anthropic-messages.
+api: openai-chat-completions
+endpoint: https://gateway.example.com/v1/chat/completions
+# ${NAME} reads an environment variable, so the key stays out of the file.
+api_key: ${GOTATO_GATEWAY_API_KEY}
+headers:
+  X-Client-Name: larkbot
+
+model: your-model
+# The context window in tokens, or "unknown". It must be stated.
+window: 200000
+# max_tokens: 4096
+# max_retries: 0   # unset keeps the default retry; 0 turns retries off

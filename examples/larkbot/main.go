@@ -19,7 +19,6 @@ import (
 	httpapi "github.com/jinhuang712/gotato/adapter/http"
 	"github.com/jinhuang712/gotato/gotato"
 	"github.com/jinhuang712/gotato/host"
-	"github.com/jinhuang712/gotato/internal/cmd/gatewayconf"
 	"github.com/jinhuang712/gotato/profile"
 	"github.com/jinhuang712/gotato/store"
 	"github.com/jinhuang712/gotato/testkit"
@@ -200,15 +199,11 @@ func buildAgent(model string) (profile.AgentProfile, error) {
 		if path == "" {
 			path = "gateway.yaml"
 		}
-		cfg, err := gatewayconf.Load(path)
+		client, cfg, err := loadModel(path)
 		if err != nil {
 			return profile.AgentProfile{}, fmt.Errorf("gateway config %s: %w", path, err)
 		}
-		client, err := cfg.New()
-		if err != nil {
-			return profile.AgentProfile{}, err
-		}
-		return profile.AgentProfile{Name: "gateway", Model: client, ModelName: cfg.Model.Name, Instruction: instruction, Limits: botLimits()}, nil
+		return profile.AgentProfile{Name: "gateway", Model: client, ModelName: cfg.Name, Instruction: instruction, Limits: botLimits()}, nil
 	}
 	return profile.AgentProfile{}, fmt.Errorf("unknown -model %q (echo, demo or gateway)", model)
 }

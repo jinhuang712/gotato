@@ -90,7 +90,7 @@ curl -s -X POST localhost:9000/reset
 4. Publish a version of the app and add the bot to a chat.
 5. `cp .env.example .env`, fill `LARK_APP_ID` and `LARK_APP_SECRET` (`.env` is git-ignored), then `./run.sh`.
 
-`./run.sh` reads `$MODEL` (default `echo`), `$ADDR`, `$STORE`, `$DELAY` and `$LABEL`. For a real model use `-model gateway` with a gateway config file (copy [gateway.example.yaml](../../internal/cmd/gatewayconf/gateway.example.yaml); `$GOTATO_GATEWAY_CONFIG`, default `gateway.yaml`). The file states the model's window and endpoint, and the example reads it through `internal/cmd/gatewayconf`.
+`./run.sh` reads `$MODEL` (default `echo`), `$ADDR`, `$STORE`, `$DELAY` and `$LABEL`. For a real model use `-model gateway` with a gateway config file (copy [gateway.example.yaml](gateway.example.yaml); `$GOTATO_GATEWAY_CONFIG`, default `gateway.yaml`). The file states the model's window and endpoint, and the example reads it in [modelconf.go](modelconf.go), a small copy of what Gotato's own tools read, so the example imports nothing from the Gotato repository's `internal/`.
 
 ## Flags
 
