@@ -1,6 +1,8 @@
 # Write a Store
 
-By the end of this page you have a `store.Store` of your own that passes the conformance suite, `storetest.RunRecords` and `storetest.RunLiveness`. You need the [Embed Gotato in a service](embed-in-a-service.md) page, and a database in mind. The adapter below keeps its rows in a map shaped like two SQL tables, so each line says which statement it stands for; the adapter's snippets were compiled and the suite was run against it; the CI and MongoDB sections further down are illustrations that were not compiled or run here.
+> [Wiki](../README.md) › [How-to](../README.md#how-to) › Write a Store
+
+By the end of this page you have a `store.Store` of your own that passes the conformance suite, `storetest.RunRecords` and `storetest.RunLiveness`. You need the [Embed Gotato in a service](run-sessions-on-many-pods.md) page, and a database in mind. The adapter below keeps its rows in a map shaped like two SQL tables, so each line says which statement it stands for; the adapter's snippets were compiled and the suite was run against it; the CI and MongoDB sections further down are illustrations that were not compiled or run here.
 
 **What is here**
 
@@ -31,7 +33,7 @@ A `store.Store` is a struct of two seams, `Store{Records: …, Liveness: …}`, 
 
 The contract is in two packages, and the line between them is "does it exist without being saved?". Package `store` holds the contract (`Store`, `Records`, `Liveness`, `Lister`, `Definitions`), the checks every store makes (`CheckID`, `CheckBatch`), the errors `ErrExists`, `ErrConflict`, `ErrExpired` and `ErrInvalidID`, `InstanceRow` and `InstanceState`, and the suite, `store/storetest`. Package `record` holds what an adapter keeps and returns: `Entry`, `Header`, `Info`, `Loaded`, and `ErrNotFound`, which a store returns for a Record that is not there. An adapter imports both; `store` imports `record`, never the reverse.
 
-- **`Records`** keeps Records: a Record is a Session's append-only log of Entries (see [GLOSSARY.md](../GLOSSARY.md#core)). An Entry is one line: a `Seq` (its position, from 1, with no gap), a `Kind` (the Event kind), a `Layer` (`fact` or `log`), the time, the Instance that wrote it, and its `Data` as JSON. Next to the log the store keeps the `Header` of the last write: the Record's `Epoch`, an `Info` of listing columns (ID, counts, times, metadata), a `State` that is Gotato's own bytes, and `LogFrom`. It has five methods: `Create`, `Append`, `Load`, `Log` and `Delete`. Every write is one conditional write: a batch of Entries goes in all or nothing, and only to positions that are still free. An adapter maps that to an insert on a unique `(session, seq)` key.
+- **`Records`** keeps Records: a Record is a Session's append-only log of Entries (see [GLOSSARY.md](../../GLOSSARY.md#core)). An Entry is one line: a `Seq` (its position, from 1, with no gap), a `Kind` (the Event kind), a `Layer` (`fact` or `log`), the time, the Instance that wrote it, and its `Data` as JSON. Next to the log the store keeps the `Header` of the last write: the Record's `Epoch`, an `Info` of listing columns (ID, counts, times, metadata), a `State` that is Gotato's own bytes, and `LogFrom`. It has five methods: `Create`, `Append`, `Load`, `Log` and `Delete`. Every write is one conditional write: a batch of Entries goes in all or nothing, and only to positions that are still free. An adapter maps that to an insert on a unique `(session, seq)` key.
 - **`Liveness`** keeps one row per running Instance, renewed on a heartbeat and timed by the store's clock. When a row expires, every Claim of that Instance ends at once. This is how another Instance knows it may take a Session over. It has two methods: `Beat` and `Instance`.
 - **`Lister`** is optional, on `Records`: `List(ctx, ListQuery{Limit, Cursor}) (ListPage{Infos, Next}, error)`. The runtime never lists, so an adapter that does not implement it still runs every Session; only `Runner.Sessions` (and `GET /v1/sessions`) then answers `not_supported`. Write it when your service lists Sessions.
 
@@ -499,7 +501,7 @@ func TestLiveness(t *testing.T) {
 
 ### No database at hand
 
-The suite needs no external service and no transaction. `store.NewMemoryStore`, `store.NewFileStore` and the `mystore` above all pass it ([`TestMemoryStoreConformance` and `TestFileStoreConformance`](../store/file_test.go) run it on the first two), so you can write the adapter's tests against a map or a directory first and point the same function at a real database later. To check a store outside `go test`, for example at startup, call `storetest.CheckRecords`.
+The suite needs no external service and no transaction. `store.NewMemoryStore`, `store.NewFileStore` and the `mystore` above all pass it ([`TestMemoryStoreConformance` and `TestFileStoreConformance`](../../store/file_test.go) run it on the first two), so you can write the adapter's tests against a map or a directory first and point the same function at a real database later. To check a store outside `go test`, for example at startup, call `storetest.CheckRecords`.
 
 What the contract asks of a backing store is one conditional write: a single-document atomic write, plus a unique `(id, seq)` key, is enough. A multi-document transaction is a cost of one design (entries and head in separate documents or rows), not a Gotato rule. If your database cannot take a transaction, choose a layout that does not need one; `Load` is the one read that must not tear, so a layout with the Header apart from the Entries reads both in one snapshot.
 
@@ -599,6 +601,6 @@ type Definitions interface {
 
 ## Next
 
-- Run it in a service: [Embed Gotato in a service](embed-in-a-service.md).
-- The reference stores are `store.NewMemoryStore` ([memory.go](../store/memory.go)) and `store.NewFileStore` ([file.go](../store/file.go)); read them next to yours.
+- Run it in a service: [Embed Gotato in a service](run-sessions-on-many-pods.md).
+- The reference stores are `store.NewMemoryStore` ([memory.go](../../store/memory.go)) and `store.NewFileStore` ([file.go](../../store/file.go)); read them next to yours.
 - Test a Tool or a Model the same way: [Write a Tool, a ToolSet and a Model](write-a-tool-and-model.md).

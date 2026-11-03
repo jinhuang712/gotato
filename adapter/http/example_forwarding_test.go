@@ -6,7 +6,7 @@ import (
 	"testing"
 )
 
-// allowClusterAddress is the allow check shown in wiki/http-in-five-minutes.md:
+// allowClusterAddress is the allow check shown in wiki/tutorials/http-in-five-minutes.md:
 // an http or https URL whose host is an IP literal inside the cluster's CIDR.
 // A host name is refused, so "http://10.0.evil.com" never passes.
 func allowClusterAddress(address string) bool {

@@ -1,6 +1,8 @@
 # Getting started
 
-By the end of this page you have run an agent in your own program, with a tool it can call. You need the Go version of [Install](install.md) and the root module (`go get github.com/jinhuang712/gotato@v0.2.0`). No provider key is needed: the examples run on a fake model, so they behave the same every time.
+> [Wiki](../README.md) › [Tutorials](../README.md#tutorials) › Getting started
+
+By the end of this page you have run an agent in your own program, with a tool it can call. You need the Go version of [Install](../how-to/install.md) and the root module (`go get github.com/jinhuang712/gotato@v0.2.0`). No provider key is needed: the examples run on a fake model, so they behave the same every time.
 
 ## 1. A Session and a prompt
 
@@ -26,10 +28,10 @@ fmt.Println(gotato.TextOf(*result.FinalMessage)) // echo: hello
 ```
 
 - `ctx` carries cancellation and the deadline through every model call and tool call.
-- A Session keeps its conversation in memory unless you give it a place to write ([Embed Gotato in a service](embed-in-a-service.md)).
+- A Session keeps its conversation in memory unless you give it a place to write ([Embed Gotato in a service](../how-to/run-sessions-on-many-pods.md)).
 - To talk to a real model, build a Client with `model.New(wire, connection, config)`: a wire API from the `model` package (`ChatCompletions{}`, `Responses{}` or `AnthropicMessages{}`), a `model.Connection` with the complete endpoint URL and a key, and a `gotato.ModelConfig` that names the model and states its window. A team can point it at an endpoint of its own, such as a proxy in front of its providers.
 
-This example is run as a test: `Example` in [example_test.go](../gotato/example_test.go).
+This example is run as a test: `Example` in [example_test.go](../../gotato/example_test.go).
 
 ## 2. A tool
 
@@ -50,7 +52,7 @@ s, err := gotato.NewSession(ctx,
 
 The model asks for the tool, the Session runs it, gives the result back, and the loop goes on until the model answers. Gotato checks the model's arguments against the schema first; arguments that do not fit go back to the model as a failed Tool Result, and it corrects them.
 
-This example is run as a test: `ExampleNewFuncTool` in [example_test.go](../gotato/example_test.go).
+This example is run as a test: `ExampleNewFuncTool` in [example_test.go](../../gotato/example_test.go).
 
 ## 3. Watch what happens
 
@@ -76,11 +78,11 @@ go func() {
 
 A Session never waits for a subscriber: a slow reader does not slow the Run.
 
-This example is run as a test: `ExampleSession_SubscribeRun` in [example_test.go](../gotato/example_test.go).
+This example is run as a test: `ExampleSession_SubscribeRun` in [example_test.go](../../gotato/example_test.go).
 
 ## Next
 
-- Keep conversations in a store, and run them on many pods: [Embed Gotato in a service](embed-in-a-service.md).
-- Write your own Tool or Model: [write-a-tool-and-model.md](write-a-tool-and-model.md). Test without a provider: [test-with-fakes.md](test-with-fakes.md). Pick a seam: [extension-points.md](extension-points.md).
-- What each term means: [GLOSSARY.md](../GLOSSARY.md).
-- What is built, and what is not planned: [FEATURES.md](../FEATURES.md).
+- Keep conversations in a store, and run them on many pods: [Embed Gotato in a service](../how-to/run-sessions-on-many-pods.md).
+- Write your own Tool or Model: [write-a-tool-and-model.md](../how-to/write-a-tool-and-model.md). Test without a provider: [test-with-fakes.md](../how-to/test-with-fakes.md). Pick a seam: [extension-points.md](../reference/extension-points.md).
+- What each term means: [GLOSSARY.md](../../GLOSSARY.md).
+- What is built, and what is not planned: [FEATURES.md](../../FEATURES.md).

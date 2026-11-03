@@ -12,7 +12,7 @@ A change passes one test first: would a Go service that embeds an agent want thi
 
 ## Set up
 
-You need the Go versions in [wiki/install.md](wiki/install.md), and the newest of them to run the checks in every module. The repository holds six Go modules: the root, `adapter/http`, `adapter/mcp`, `internal/cmd/gotato`, `examples/larkbot` and `bench/refservice`. Nothing else is needed: the tests run with no network and no model provider.
+You need the Go versions in [wiki/how-to/install.md](wiki/how-to/install.md), and the newest of them to run the checks in every module. The repository holds six Go modules: the root, `adapter/http`, `adapter/mcp`, `internal/cmd/gotato`, `examples/larkbot` and `bench/refservice`. Nothing else is needed: the tests run with no network and no model provider.
 
 ## Make a change
 

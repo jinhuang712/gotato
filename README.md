@@ -38,7 +38,7 @@ Gotato is not a coding agent, a workflow language, a platform or infrastructure.
 go get github.com/jinhuang712/gotato@v0.2.0
 ```
 
-The MCP adapter and the HTTP adapter are modules of their own, so a service that uses neither carries none of them. [wiki/install.md](wiki/install.md) has their commands and the Go version each needs, and says what was never checked against a real provider.
+The MCP adapter and the HTTP adapter are modules of their own, so a service that uses neither carries none of them. [wiki/how-to/install.md](wiki/how-to/install.md) has their commands and the Go version each needs, and says what was never checked against a real provider.
 
 ## How to use
 
@@ -49,7 +49,7 @@ The first task is one agent with one tool, answering a question.
 3. Open a Session with `gotato.NewSession`, giving it the model, an instruction and the tool.
 4. Call `Prompt` with a user message. It runs the loop, asking the model, running the tool it calls and asking again, and returns when the Run settles with the final reply.
 
-To run on many pods, build a `host.Runner` over a Store with an AgentProfile registered, and give each request a Session ID. [Getting started](wiki/getting-started.md) walks through the first task with code that runs as a test, and [Embed Gotato in a service](wiki/embed-in-a-service.md) goes on to pods. The chat bot in `examples/larkbot` runs on your machine with a fake chat platform and no secrets, and on a local cluster through a rolling deploy, a killed writer and a scale-down.
+To run on many pods, build a `host.Runner` over a Store with an AgentProfile registered, and give each request a Session ID. [Getting started](wiki/tutorials/getting-started.md) walks through the first task with code that runs as a test, and [Embed Gotato in a service](wiki/how-to/run-sessions-on-many-pods.md) goes on to pods. The chat bot in `examples/larkbot` runs on your machine with a fake chat platform and no secrets, and on a local cluster through a rolling deploy, a killed writer and a scale-down.
 
 ## Architecture
 
@@ -105,17 +105,6 @@ Start with the proposal to see why Gotato exists, and with the architecture to s
 | [RUNBOOK.md](RUNBOOK.md) | keeping a service built on Gotato running |
 | [CONTRIBUTING.md](CONTRIBUTING.md) | changing Gotato itself, the checks, and cutting a release |
 | [wiki/README.md](wiki/README.md) | the wiki: where to start, by what you want to do |
-| [wiki/install.md](wiki/install.md) | adding Gotato to your `go.mod` |
-| [wiki/packages.md](wiki/packages.md) | which packages to import, and what leaving one out costs |
-| [wiki/getting-started.md](wiki/getting-started.md) | a Session, a tool and the Events of a Run |
-| [wiki/embed-in-a-service.md](wiki/embed-in-a-service.md) | the Runner, many pods and shutting down |
-| [wiki/http-in-five-minutes.md](wiki/http-in-five-minutes.md) | a service you can `curl` |
-| [wiki/minimal-main.md](wiki/minimal-main.md) | a complete program, and the order to shut it down in |
-| [wiki/write-a-tool-and-model.md](wiki/write-a-tool-and-model.md) | a Tool, a ToolSet and a Model wrapper |
-| [wiki/write-a-store.md](wiki/write-a-store.md) | the Store contract and the suite that checks an adapter |
-| [wiki/test-with-fakes.md](wiki/test-with-fakes.md) | scripted models and tools, no network |
-| [wiki/extension-points.md](wiki/extension-points.md) | which seam changes what |
-| [wiki/example-chat-bot.md](wiki/example-chat-bot.md) | several instances behind a chat platform |
 | [examples/larkbot/README.md](examples/larkbot/README.md) | a Lark chat bot on several instances, and a local cluster to try it on |
 | [bench/refservice/README.md](bench/refservice/README.md) | the reference service that GOALS measures |
 | [internal/cmd/gotato/README.md](internal/cmd/gotato/README.md) | the maintainers' test tool |

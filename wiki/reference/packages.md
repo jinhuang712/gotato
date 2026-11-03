@@ -1,6 +1,8 @@
 # Which packages do I import?
 
-By the end of this page you know which Gotato packages your program needs, and what you give up by leaving one out. Install them as in [Install](install.md).
+> [Wiki](../README.md) › [Reference](../README.md#reference) › Which packages do I import?
+
+By the end of this page you know which Gotato packages your program needs, and what you give up by leaving one out. Install them as in [Install](../how-to/install.md).
 
 ## The core is complete on its own
 
@@ -104,7 +106,7 @@ The order is `host`, `profile`, `store`, `record`, `gotato`, `ref`: a package im
 
 ## Next
 
-- [Getting started](getting-started.md) uses the core and a model.
-- [Embed Gotato in a service](embed-in-a-service.md) adds `host`, `profile` and `store`.
-- [Write a Tool or a Model](write-a-tool-and-model.md), [write a Store](write-a-store.md), and [pick an extension point](extension-points.md).
-- [HTTP in five minutes](http-in-five-minutes.md), a [minimal `main.go`](minimal-main.md), and [tests with fakes](test-with-fakes.md).
+- [Getting started](../tutorials/getting-started.md) uses the core and a model.
+- [Embed Gotato in a service](../how-to/run-sessions-on-many-pods.md) adds `host`, `profile` and `store`.
+- [Write a Tool or a Model](../how-to/write-a-tool-and-model.md), [write a Store](../how-to/write-a-store-adapter.md), and [pick an extension point](extension-points.md).
+- [HTTP in five minutes](http-in-five-minutes.md), a [minimal `main.go`](../tutorials/a-minimal-main.md), and [tests with fakes](../how-to/test-with-fakes.md).

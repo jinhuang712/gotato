@@ -1,6 +1,8 @@
 # A minimal main
 
-By the end of this page you have a complete `main.go` that serves an agent over HTTP and stops without losing a Run when it gets SIGTERM, as a rolling deploy sends it. You need [HTTP in five minutes](http-in-five-minutes.md) first, and `adapter/http` in your `go.mod` (`go get github.com/jinhuang712/gotato/adapter/http`, a module of its own; see [Install](install.md)).
+> [Wiki](../README.md) › [Tutorials](../README.md#tutorials) › A minimal main
+
+By the end of this page you have a complete `main.go` that serves an agent over HTTP and stops without losing a Run when it gets SIGTERM, as a rolling deploy sends it. You need [HTTP in five minutes](http-in-five-minutes.md) first, and `adapter/http` in your `go.mod` (`go get github.com/jinhuang712/gotato/adapter/http`, a module of its own; see [Install](../how-to/install.md)).
 
 - [The program](#the-program)
 - [The shutdown order](#the-shutdown-order)
@@ -117,7 +119,7 @@ Three steps, in this order. Each one makes the next safe.
 | 2. Stop the server | `server.Shutdown(ctx)` | Closes the listener and the idle connections, and waits for the rest. After step 1 nothing is left to wait for but streams. |
 | 3. Remove the Instance | `runner.Close(ctx)` | Removes the Liveness row, so other Instances take its Sessions over at once instead of waiting for the row to expire. |
 
-- Why `Drain` is first: it is the step that keeps a Run safe, and it turns new work away at the Runner, before the listener closes. The package comment of [`adapter/http`](../adapter/http/handler.go) gives the same order: `Drain`, then `Shutdown`, then `Close`.
+- Why `Drain` is first: it is the step that keeps a Run safe, and it turns new work away at the Runner, before the listener closes. The package comment of [`adapter/http`](../../adapter/http/handler.go) gives the same order: `Drain`, then `Shutdown`, then `Close`.
 - Why `Close` is last: a closed Runner writes nothing more. Closing before the Runs end would end them unsaved.
 - After `Drain` returns an error, still go on to step 2 and 3. The error is `context.DeadlineExceeded` when the timeout ended the wait; the Runs left were stopped, saved and released, and a client that streamed one gets a `reconnect` event.
 
@@ -146,9 +148,9 @@ The log of the process reads `serving on :8080`, then `shutting down`. The Run t
 
 If the Store is a database, close its connection pool last of all, after `runner.Close` has returned: `Close` and the last saves of the Runs write to it. With Go's `database/sql`, that is a `defer db.Close()` placed before the Runner is built, because deferred calls run after `run` returns.
 
-Gotato's own stores need no closing. To write your own, see [Write a Store](write-a-store.md).
+Gotato's own stores need no closing. To write your own, see [Write a Store](../how-to/write-a-store-adapter.md).
 
 ## Next
 
-- Test this wiring without a provider: [Test with fakes](test-with-fakes.md).
-- Run it on several Instances: [Embed Gotato in a service](embed-in-a-service.md).
+- Test this wiring without a provider: [Test with fakes](../how-to/test-with-fakes.md).
+- Run it on several Instances: [Embed Gotato in a service](../how-to/run-sessions-on-many-pods.md).

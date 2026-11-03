@@ -12,7 +12,7 @@ The terms come in three tiers. Read the first tier and you can use Gotato; read 
 | **2. Running a service** | you keep Sessions in a store and run many Instances | Host, Runner, AgentProfile, TaskSpec, Registry, Name catalog, Store, Definitions, Record, Instance, Writer, Claim, Drain, Admission, Admitter, Not writer, Not run, Retryable, Warm Session, TTL |
 | **3. Inside and extending** | you tune long Sessions, write an adapter, or add your own seam | Layer, Seam, Part, Adapter, Context, Context builder, Context block, Compaction, Segment, Recap, Checkpoint, Entry, Fact, Log entry, Journal, Feed, Event source, Extension, ToolSet, Tool catalog, Tool search, Model config, Model facts, Model bridge, Epoch, Record epoch, Liveness row |
 
-[wiki/extension-points.md](wiki/extension-points.md) says which seam does what.
+[wiki/reference/extension-points.md](wiki/reference/extension-points.md) says which seam does what.
 
 ## Core
 

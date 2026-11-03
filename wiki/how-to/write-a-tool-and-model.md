@@ -1,6 +1,8 @@
 # Write a Tool, a ToolSet and a Model
 
-By the end of this page you have given an agent a tool of your own, grouped tools into a ToolSet, wrapped a Model, and tested all of it without a network. You need the [first page](getting-started.md). Every snippet here was compiled and run as a test against the root module.
+> [Wiki](../README.md) › [How-to](../README.md#how-to) › Write a Tool, a ToolSet and a Model
+
+By the end of this page you have given an agent a tool of your own, grouped tools into a ToolSet, wrapped a Model, and tested all of it without a network. You need the [first page](../tutorials/getting-started.md). Every snippet here was compiled and run as a test against the root module.
 
 **What is here**
 
@@ -67,7 +69,7 @@ s, err := gotato.NewSession(ctx,
 // s.Tools() is empty: the model is never offered close_ticket.
 ```
 
-On the service side, `profile.AgentProfile` has a `MaxEffect` field with the same cap, so one Agent can be read-only and another not. A `PreToolUse` Extension can gate a single call by its Effect; see [the extension points](extension-points.md).
+On the service side, `profile.AgentProfile` has a `MaxEffect` field with the same cap, so one Agent can be read-only and another not. A `PreToolUse` Extension can gate a single call by its Effect; see [the extension points](../reference/extension-points.md).
 
 ### A Tool type
 
@@ -175,7 +177,7 @@ func (s TicketTools) Tools(context.Context) ([]gotato.Tool, error) {
 
 - **`search_tools` with `toolset` is the dear form.** It lists every tool of a folded set with its description. The list is not capped, and a result under one page is not spilled, so it stays in every later request. `queries` and `names` are the cheap forms. `loaded_tools` in the result is for the wires with native deferred loading and is only stored in the Record on the chat wire.
 - **`Tools` runs on `ctx`,** may fail, and must be deterministic. A failure marks the set unavailable and does not stop the Session.
-- **A set whose Tools change between Turns** is a `ToolSource`, installed with `gotato.WithToolSource`; see [the extension points](extension-points.md).
+- **A set whose Tools change between Turns** is a `ToolSource`, installed with `gotato.WithToolSource`; see [the extension points](../reference/extension-points.md).
 - **For an MCP server** you do not write the set: `adapter/mcp` supplies it. See [Install](install.md).
 
 ## Models
@@ -460,6 +462,6 @@ func TestFailuresKeepTheirMeaning(t *testing.T) {
 
 ## Next
 
-- Where to put more behavior around a Run: [the extension points](extension-points.md).
-- Keep Sessions somewhere of your own: [Write a Store](write-a-store.md).
+- Where to put more behavior around a Run: [the extension points](../reference/extension-points.md).
+- Keep Sessions somewhere of your own: [Write a Store](write-a-store-adapter.md).
 - Everything `testkit` offers: [Test with fakes](test-with-fakes.md).

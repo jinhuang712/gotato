@@ -11,14 +11,14 @@ Gotato is a minimal, synchronous Go library. An **Agent** is a definition (model
 
 | You want | Read |
 |---|---|
-| add the module | `wiki/install.md` (pin `@v0.2.0`, never `@main`) |
-| one in-process agent, a tool, Events | `wiki/getting-started.md` |
-| many pods, a Store, shutdown | `wiki/embed-in-a-service.md`, `wiki/minimal-main.md` |
-| an HTTP API you can curl | `wiki/http-in-five-minutes.md` (`adapter/http`, a module of its own) |
-| your own Tool, ToolSet or Model | `wiki/write-a-tool-and-model.md` |
-| your own database as the Store | `wiki/write-a-store.md` |
-| tests with no network | `wiki/test-with-fakes.md` |
-| change what the model sees, or hook a Turn | `wiki/extension-points.md` |
+| add the module | `wiki/how-to/install.md` (pin `@v0.2.0`, never `@main`) |
+| one in-process agent, a tool, Events | `wiki/tutorials/getting-started.md` |
+| many pods, a Store, shutdown | `wiki/how-to/run-sessions-on-many-pods.md`, `wiki/tutorials/a-minimal-main.md` |
+| an HTTP API you can curl | `wiki/tutorials/http-in-five-minutes.md` (`adapter/http`, a module of its own) |
+| your own Tool, ToolSet or Model | `wiki/how-to/write-a-tool-and-model.md` |
+| your own database as the Store | `wiki/how-to/write-a-store-adapter.md` |
+| tests with no network | `wiki/how-to/test-with-fakes.md` |
+| change what the model sees, or hook a Turn | `wiki/reference/extension-points.md` |
 | MCP server tools | `adapter/mcp` (a module of its own, Go 1.25) |
 | a term you do not know | `GLOSSARY.md` |
 

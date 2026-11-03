@@ -1,6 +1,8 @@
 # Test with fakes
 
-By the end of this page you can test an agent, its tools and its HTTP endpoint with no provider and no credential, and every run gives the same result. The fakes live in the `testkit` package, which is part of the root module. You need the [first page](getting-started.md).
+> [Wiki](../README.md) › [How-to](../README.md#how-to) › Test with fakes
+
+By the end of this page you can test an agent, its tools and its HTTP endpoint with no provider and no credential, and every run gives the same result. The fakes live in the `testkit` package, which is part of the root module. You need the [first page](../tutorials/getting-started.md).
 
 - [Which fake do I use?](#which-fake-do-i-use)
 - [A model that calls a tool, then answers](#a-model-that-calls-a-tool-then-answers)
@@ -29,7 +31,7 @@ Pick by what the test needs to show. A `Script` is the sequence of events one mo
 | a tool that returns a fixed result, and records its calls | `testkit.NewFakeTool(id, text)`; read `Calls()` and `Uses()` |
 | every Event of a Session, in order | `testkit.RecordEvents(s)`, or `testkit.RecordSubscription(sub)` |
 | a Session Record that already holds a conversation | `testkit.NewRecord("question", "answer", ...)` |
-| a Store of your own that keeps the contract | `storetest.RunRecords`, `RunLiveness` and `RunLister` in `store/storetest` ([Write a Store](write-a-store.md)) |
+| a Store of your own that keeps the contract | `storetest.RunRecords`, `RunLiveness` and `RunLister` in `store/storetest` ([Write a Store](write-a-store-adapter.md)) |
 
 - A `FakeModel` repeats its last Script once the list ends, so a loop always finishes. A `ReplayModel` fails instead.
 - A fake never touches the network. A test that needs a provider's wire quirks (a refusal as too long, a cut stream) belongs to the Gotato repository, which has a fake model endpoint for it under `internal/`; your own tests do not need it.
@@ -290,9 +292,9 @@ func TestARunOverHTTP(t *testing.T) {
 
 - `go test -race ./...` is the check to run: a handler is concurrent by nature.
 - A test of the HTTP wire itself, such as an error table, asserts on the JSON and the `Gotato-Not-Run` and `Gotato-Retryable` headers, not on prose. See [HTTP in five minutes](http-in-five-minutes.md).
-- A test of a graceful shutdown starts a Run on a slow model, calls `runner.Drain`, and checks the Run `completed`: [A minimal main](minimal-main.md).
+- A test of a graceful shutdown starts a Run on a slow model, calls `runner.Drain`, and checks the Run `completed`: [A minimal main](../tutorials/a-minimal-main.md).
 
 ## Next
 
 - Write the tool and the model you test: [Write a tool and a model](write-a-tool-and-model.md).
-- What each Event means: [GLOSSARY.md](../GLOSSARY.md).
+- What each Event means: [GLOSSARY.md](../../GLOSSARY.md).

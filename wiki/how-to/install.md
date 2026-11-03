@@ -1,5 +1,7 @@
 # Install
 
+> [Wiki](../README.md) › [How-to](../README.md#how-to) › Install
+
 By the end of this page you have Gotato in your `go.mod`. Pin a release: `v0.2.0` is the first. Gotato needs Go 1.24 (1.25 with `adapter/mcp`).
 
 ## The runtime
@@ -19,7 +21,7 @@ import (
 )
 ```
 
-Do not use `@main` in a service: it moves each time you run it. From 0.2.0 on, a break has an entry in [CHANGELOG.md](../CHANGELOG.md), with the before and after; read it when you move to a new version.
+Do not use `@main` in a service: it moves each time you run it. From 0.2.0 on, a break has an entry in [CHANGELOG.md](../../CHANGELOG.md), with the before and after; read it when you move to a new version.
 
 ## The MCP adapter
 
@@ -50,4 +52,4 @@ ctx := context.Background()
 s, err := gotato.NewSession(ctx, gotato.WithModel(myModel))
 ```
 
-If this builds, you are ready for [Getting started](getting-started.md).
+If this builds, you are ready for [Getting started](../tutorials/getting-started.md).

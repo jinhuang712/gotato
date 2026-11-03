@@ -1,10 +1,12 @@
 # Example: a chat bot on several pods
 
-By the end of this page you have run the chat bot in [`examples/larkbot`](../examples/larkbot/README.md) on your machine, with two instances, a fake chat platform and no secrets, and you know where to look for each Gotato behavior it uses. You need Go and the root module checked out (see [Install](install.md)). The cluster step also needs Docker, `kind` and `kubectl`.
+> [Wiki](../README.md) › [Tutorials](../README.md#tutorials) › Example: a chat bot on several pods
+
+By the end of this page you have run the chat bot in [`examples/larkbot`](../../examples/larkbot/README.md) on your machine, with two instances, a fake chat platform and no secrets, and you know where to look for each Gotato behavior it uses. You need Go and the root module checked out (see [Install](../how-to/install.md)). The cluster step also needs Docker, `kind` and `kubectl`.
 
 ## What the bot shows
 
-A chat platform delivers each event to one random instance. A message for a thread can land on an instance that does not run that thread's Run, so the bot does what [Embed Gotato in a service](embed-in-a-service.md) says a caller that cannot route by Session does:
+A chat platform delivers each event to one random instance. A message for a thread can land on an instance that does not run that thread's Run, so the bot does what [Embed Gotato in a service](../how-to/run-sessions-on-many-pods.md) says a caller that cannot route by Session does:
 
 - one Session per message thread, kept in a store every instance shares;
 - a `not_writer` answer forwards the message to the writer's address;
@@ -56,7 +58,7 @@ resp, err := runner.StreamRun(ctx, req, func(e gotato.Event) error {
 
 Four limits:
 
-- **A queued message has no deltas.** A message sent with `runner.Send` into a Run that is going is queued in that Run, and its caller gets no sink. [`examples/larkbot`](../examples/larkbot/README.md) streams only a Run it starts itself (with `StreamRun`); a queued message is answered by the final text of the Run it joined, read from `SubscribeInstance`.
+- **A queued message has no deltas.** A message sent with `runner.Send` into a Run that is going is queued in that Run, and its caller gets no sink. [`examples/larkbot`](../../examples/larkbot/README.md) streams only a Run it starts itself (with `StreamRun`); a queued message is answered by the final text of the Run it joined, read from `SubscribeInstance`.
 - **Deltas are sent, not stored.** A subscriber that reads too slowly skips only deltas, and the final text is in the `reply_ended` Event, which is stored.
 - **Deltas are visible only on the writer Instance.** `StreamSession` on another instance sees the stored Events at its next look and no deltas.
 - **A writer switch needs the card's own id.** If another pod takes the Session over, it must edit the same card, so store the id of the card (not the id of the user's message) in the Session's metadata. `examples/larkbot` stores the card's id in `lark.card` next to the thread root, but does not read it back after a takeover: a Run another pod finishes is answered with a new card.
@@ -78,4 +80,4 @@ cd examples/larkbot
 cluster/run.sh up && cluster/run.sh s1 && cluster/run.sh down
 ```
 
-The example's [README](../examples/larkbot/README.md) lists the scenarios and what each proves. The bot is an application, not a client Gotato ships: copy what you need, and replace the persona in `main.go`.
+The example's [README](../../examples/larkbot/README.md) lists the scenarios and what each proves. The bot is an application, not a client Gotato ships: copy what you need, and replace the persona in `main.go`.

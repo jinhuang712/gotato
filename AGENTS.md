@@ -26,7 +26,7 @@ Read these in order when the window is new or was compacted. Each answers one qu
 
 ## Layout
 
-The module root holds the documents and the module files, and no Go code. The tree of packages and what each import costs is in `wiki/packages.md`.
+The module root holds the documents and the module files, and no Go code. The tree of packages and what each import costs is in `wiki/reference/packages.md`.
 
 | Path | Holds |
 |---|---|

@@ -1,6 +1,8 @@
 # HTTP in five minutes
 
-By the end of this page you have a Gotato agent behind an HTTP endpoint, and you have started a Run with `curl`, watched its Events stream, and seen what a second Instance answers when a Session is busy elsewhere. You need the [first page](getting-started.md) and the Go version of [Install](install.md). No provider key is needed.
+> [Wiki](../README.md) › [Tutorials](../README.md#tutorials) › HTTP in five minutes
+
+By the end of this page you have a Gotato agent behind an HTTP endpoint, and you have started a Run with `curl`, watched its Events stream, and seen what a second Instance answers when a Session is busy elsewhere. You need the [first page](getting-started.md) and the Go version of [Install](../how-to/install.md). No provider key is needed.
 
 - [1. Serve a Runner](#1-serve-a-runner)
 - [2. Create a Session and run a prompt](#2-create-a-session-and-run-a-prompt)
@@ -15,7 +17,7 @@ By the end of this page you have a Gotato agent behind an HTTP endpoint, and you
 
 `httpapi.New` takes a `host.Runner` and returns an `http.Handler`. The whole program is a Store, a Runner and one line of `net/http`.
 
-The HTTP API is a module of its own, so add it to your module first (see [Install](install.md)): `go get github.com/jinhuang712/gotato/adapter/http`. Its package is named `http`, like `net/http`, so the program imports it as `httpapi`.
+The HTTP API is a module of its own, so add it to your module first (see [Install](../how-to/install.md)): `go get github.com/jinhuang712/gotato/adapter/http`. Its package is named `http`, like `net/http`, so the program imports it as `httpapi`.
 
 ```go
 package main
@@ -59,7 +61,7 @@ func main() {
 ```
 
 - The Agent is a definition (a `profile.AgentProfile`, registered by name); every Session you create runs one, the `DefaultAgent` when a request names none. Swap `testkit.DemoModel` for a model from the `model` package when you have a provider.
-- This program has no graceful shutdown. [A minimal main](minimal-main.md) adds it.
+- This program has no graceful shutdown. [A minimal main](a-minimal-main.md) adds it.
 - Authentication, rate limiting and logging are yours: wrap the handler in your own middleware. The handler has none.
 
 ## 2. Create a Session and run a prompt
@@ -141,7 +143,7 @@ curl -s -XPOST localhost:8080/v1/sessions/s1/abort
 
 - 202 means the message is queued for the Run in flight.
 - With no Run going, a message starts one and the answer waits for it, like `/runs` (200 with the Run).
-- `/notices` queues a notice (a runtime fact for the model, not a user message). It starts no Run. [FEATURES.md → F4.4: Notices](../FEATURES.md#f44-notices) has the rules.
+- `/notices` queues a notice (a runtime fact for the model, not a user message). It starts no Run. [FEATURES.md → F4.4: Notices](../../FEATURES.md#f44-notices) has the rules.
 
 ## 6. Not writer and forwarding
 
@@ -202,7 +204,7 @@ curl -s -w ' %{http_code}\n' localhost:8080/readyz
 
 - `/healthz` is liveness. It stays 200 while the Instance drains, so the orchestrator does not restart an Instance that is finishing its Runs.
 - `/readyz` is readiness. While the Runner drains it answers 503 with `"draining":true`, so the load balancer sends traffic elsewhere. It also answers 503 with `"lapsed":true` when the Instance lost its Liveness row (the Store did not answer in time), until it registers a new one.
-- Point your probes at them, and send SIGTERM for a rolling deploy: [A minimal main](minimal-main.md) shows the shutdown order.
+- Point your probes at them, and send SIGTERM for a rolling deploy: [A minimal main](a-minimal-main.md) shows the shutdown order.
 
 ## 8. Telling an error apart
 
@@ -221,10 +223,10 @@ POST /v1/sessions/ID/runs  {"prompt":"again"}
 {"code":"draining","message":"draining: host: draining","not_run":true,"retryable":true}
 ```
 
-[RUNBOOK.md](../RUNBOOK.md) has the table of every code with its status.
+[RUNBOOK.md](../../RUNBOOK.md) has the table of every code with its status.
 
 ## Next
 
-- Shut down in order, and keep a Run safe through a deploy: [A minimal main](minimal-main.md).
-- Test a handler and a Runner without a provider: [Test with fakes](test-with-fakes.md).
-- The route table and the rules of a stream: the package comment of [`adapter/http`](../adapter/http/handler.go).
+- Shut down in order, and keep a Run safe through a deploy: [A minimal main](a-minimal-main.md).
+- Test a handler and a Runner without a provider: [Test with fakes](../how-to/test-with-fakes.md).
+- The route table and the rules of a stream: the package comment of [`adapter/http`](../../adapter/http/handler.go).
