@@ -1,6 +1,6 @@
 # Gotato — Goals
 
-GOALS.md turns the wants in [PROPOSAL.md](../PROPOSAL.md) into checks, and keeps the last result of each with its date. Every goal serves a want of the proposal and a guideline of [DESIGNS.md](../DESIGNS.md); ⭐ marks a core goal, one that serves a guarantee of the design. A goal stands all the time, and its check runs at the end of a checkpoint or before a release, never for a small change. [ROADMAP.md](ROADMAP.md) says when each goal first runs, and [TODO.md](TODO.md) holds what is open about a check.
+GOALS.md turns the wants in [PROPOSAL.md](../PROPOSAL.md) into checks, and keeps the last result of each with its date. Every goal serves a want of the proposal and a guideline of [DESIGNS.md](../DESIGNS.md); ⭐ marks a core goal, one that serves a guarantee of the design. A goal stands all the time, and its check runs at the end of a checkpoint or before a release, never for a small change. [ROADMAP.md](ROADMAP.md) says when each goal first runs, and [TODO.md](TODO.md) holds what is open about a check. Four wants of the proposal have no goal on purpose: "Your storage and your telemetry", "Any model provider", "One loop and no workflow language" and "Tools that check themselves". Each is a feature or a refusal in [FEATURES.md](../FEATURES.md), and none is checked by a goal.
 
 An ID never changes, and its letter names its kind: O an objective, M a measure, B a benchmark, C a comparison and R a constraint. A new goal takes the next number of its kind.
 
@@ -18,7 +18,7 @@ Every number is measured on this repository's own workloads.
 
 - A benchmark is tracked against the previous release, and its 0.2.0 value is the reference.
 - Every number about a Run can also be computed from Events and `Usage` alone ([DESIGNS.md → 9](../DESIGNS.md#9-a-session-can-be-stopped-and-seen)), so a team gets the same numbers from its own telemetry.
-- All numbers come from an Apple M3 with 8 cores and Go 1.27.2; those dated 2026-11-03 were taken while other work ran on it (load average about 5), so their times are noisy.
+- All numbers come from an Apple [M3: Cost of a compaction](#m3-cost-of-a-compaction) with 8 cores and Go 1.27.2; those dated 2026-11-03 were taken while other work ran on it (load average about 5), so their times are noisy.
 - The numbers dated 2026-10-16 and 2026-10-17 come from the live run, which played every task five times (`support_case` ten) against `gpt-6.1-sol`, with the model bridge sending each Session's cache key.
 - The live run's cost uses the list price of $2 input, $10 output and $0.10 cached input per million tokens.
 
@@ -39,9 +39,9 @@ Goals
 │   ├── ✅ O10: Effect cap holds — no tool above the cap reaches the model
 │   └── ⬜ O11: Breaking changes are written down — each has a before and after entry
 ├── Measures
-│   ├── ✅ M1: Context size and cost per Turn by the Session's age ⭐ — size measured, cost not
+│   ├── ⬜ M1: Context size and cost per Turn by the Session's age ⭐ — size measured, cost not
 │   ├── ⬜ M2: The first request after an idle return ⭐ — not measured
-│   ├── ✅ M3: Cost of a compaction — tokens measured, time and cost not
+│   ├── ⬜ M3: Cost of a compaction — tokens measured, time and cost not
 │   └── ⬜ M4: Time to a first agent — not measured
 ├── Benchmarks
 │   ├── ✅ B1: Cache hit rate ⭐ — 0.93 to 0.99 on long Sessions
@@ -79,7 +79,7 @@ After a crash, another instance rebuilds what the dead one had written.
 
 #### O2: The same Record gives the same request ⭐
 
-**Want:** [Any pod answers like the only one](../PROPOSAL.md#it-runs-on-many-pods), under [The store is the only truth](../DESIGNS.md#1-the-store-is-the-only-truth).
+**Want:** [Any pod answers like the only one](../PROPOSAL.md#it-runs-on-many-pods), under [No instance is special](../DESIGNS.md#8-no-instance-is-special).
 
 **Acceptance:** each reference task is played as several Runs on one Session, moving between instances and reloads (`TestSameRecordSameRequest`). For every request the model got, the Record as it stood at that Turn is copied to a new Session and the request is built again on instance a, on instance b and on a new Runner of instance a. The JSON of the whole `ModelRequest` (instruction, Messages, tools, options, cache breakpoints and cache key) is the same in 100% of Turns. The check is on the `ModelRequest`, not on a provider's wire bytes. It also runs on `tool_search`, with a compaction that unloads a tool and a Run that loads it again, and on `long_session` with and without the model's Recap.
 
@@ -87,7 +87,7 @@ After a crash, another instance rebuilds what the dead one had written.
 
 #### O3: No unplanned change to the prefix ⭐
 
-**Want:** [Idle costs almost nothing](../PROPOSAL.md#it-runs-on-many-pods), under [A request only grows at its end](../DESIGNS.md#2-a-request-only-grows-at-its-end).
+**Want:** [A lower token bill](../PROPOSAL.md#it-runs-on-many-pods), under [A request only grows at its end](../DESIGNS.md#2-a-request-only-grows-at-its-end).
 
 **Acceptance:** every request starts with the bytes of the request before it in the same Session, across Turns, across Runs, after a reload and on another instance, in 100% of request pairs. The exceptions are the moments the design names: a new Round leaving out the last Round's reasoning, a compaction, and a merge of the oldest Segments. A tool the model loads is no exception where the wire API has a native form of deferred tools: the tool list keeps its bytes and the load appears as a reference at the end. Where it has none (the list form, which `openai-chat-completions` always uses), a load may add tools to the tool list, and only that. Four checks run:
 
@@ -115,13 +115,13 @@ After a crash, another instance rebuilds what the dead one had written.
 
 **Want:** [No lost conversations](../PROPOSAL.md#it-runs-on-many-pods), under [A failure stays local](../DESIGNS.md#4-a-failure-stays-local).
 
-**Acceptance:** each fault is injected through a Runner into a Run of a Session that already holds a finished Run (`TestFailureLeavesTheSessionUsable`). After it, every step committed before it is still in the Record, the failed Run's status and cause are right, and the next Run succeeds with the history a load from the store gives, in 100% of fault points. The faults are a provider error (a refused call and a stream cut mid-reply, each on the first call and after a tool step), a Tool that panics, a Tool that hangs (ended by the Run's deadline and by an abort), a store write that fails once, a subscriber that stops reading, and a stream sink that stops reading. An instance that dies is O1 and a client that disconnects is O7. A failed write settles the Run as failed or returns the store error, and is never reported as a success.
+**Acceptance:** each fault is injected through a Runner into a Run of a Session that already holds a finished Run (`TestFailureLeavesTheSessionUsable`). After it, every step committed before it is still in the Record, the failed Run's status and cause are right, and the next Run succeeds with the history a load from the store gives, in 100% of fault points. The faults are a provider error (a refused call and a stream cut mid-reply, each on the first call and after a tool step), a Tool that panics, a Tool that hangs (ended by the Run's deadline and by an abort), a store write that fails once, a subscriber that stops reading, and a stream sink that stops reading. An instance that dies is [O1: Session reconstructable](#o1-session-reconstructable-) and a client that disconnects is [O7: No silent stream cutoffs](#o7-no-silent-stream-cutoffs). A failed write settles the Run as failed or returns the store error, and is never reported as a success.
 
 **Status:** ✅ 2026-11-03. Every fault passes. Not covered: the faults are not injected over the reference tasks.
 
 #### O6: One owner across instances
 
-**Want:** [One pod at a time](../PROPOSAL.md#it-runs-on-many-pods), under [No instance is special](../DESIGNS.md#8-no-instance-is-special).
+**Want:** [One pod at a time](../PROPOSAL.md#it-runs-on-many-pods), under [A Session has one writer at a time](../DESIGNS.md#11-a-session-has-one-writer-at-a-time).
 
 **Acceptance:** three instances over one memory store, and over one file store, take concurrent prompts and messages (Steers, FollowUps and Interrupts that arrive mid-Run) sent to random instances, with one instance killed partway (`TestManyInstancesOneWriter` and `TestManyInstancesOneWriterWithMessages` in `host`). Every message lands in exactly one Turn: 0 lost, duplicated or reordered, and 0 model calls by an instance that does not hold the Session. A Run refused with 409 writes nothing, and a message sent to a non-writer is refused `not_writer` with the writer's address.
 
@@ -137,7 +137,7 @@ After a crash, another instance rebuilds what the dead one had written.
 
 #### O8: No failures caused by Gotato
 
-**Want:** [A library, not a new stack](../PROPOSAL.md#it-fits-into-your-service), under [A failure stays local](../DESIGNS.md#4-a-failure-stays-local).
+**Want:** [No lost conversations](../PROPOSAL.md#it-runs-on-many-pods), under [A failure stays local](../DESIGNS.md#4-a-failure-stays-local).
 
 **Acceptance:** the reference workload and the live run attribute every failure to its cause: the model, the provider after retries, a tool, the store, a limit, an extension, an abort or Gotato. 0 Runs fail because of Gotato or the store, 0 tool calls fail because of Gotato, and every failed tool call returns its reason to the model. `gotato-workload` exits 3 when this fails.
 
@@ -153,7 +153,7 @@ After a crash, another instance rebuilds what the dead one had written.
 
 #### O10: Effect cap holds
 
-**Want:** [Safe tools without a sandbox](../PROPOSAL.md#it-stays-simple), under [Serve purpose-built agents](../DESIGNS.md#7-serve-purpose-built-agents).
+**Want:** [Safe tools without a sandbox](../PROPOSAL.md#it-stays-simple), under [What an Agent may do is read from its definition](../DESIGNS.md#7-what-an-agent-may-do-is-read-from-its-definition).
 
 **Acceptance:** Agents with every cap are given tools of every Effect, and the model is made to call each one by name (`TestEffectCapHidesToolsAboveIt`). 0 tools above an Agent's Effect cap reach the model, and 0 calls to them run.
 
@@ -161,7 +161,7 @@ After a crash, another instance rebuilds what the dead one had written.
 
 #### O11: Breaking changes are written down
 
-**Want:** [Stable contracts](../PROPOSAL.md#it-stays-stable), under [Stay inside the boundary](../DESIGNS.md#6-stay-inside-the-boundary).
+**Want:** [Stable contracts](../PROPOSAL.md#it-stays-stable), under [The contract is versioned, and a break is written down](../DESIGNS.md#12-the-contract-is-versioned-and-a-break-is-written-down).
 
 **Acceptance:** at each release, 100% of the breaking changes since the first release have a before-and-after entry in CHANGELOG.md, and each one that touches HTTP raises the contract version. The review runs `apidiff` on the shipped packages against the previous tag, and compares the HTTP routes and bodies, the Event kinds and fields, and the stored shapes.
 
@@ -222,7 +222,7 @@ taken out       = tokens removed from the Context / compactions  tokens
 
 #### M4: Time to a first agent
 
-**Want:** [A library, not a new stack](../PROPOSAL.md#it-fits-into-your-service), under [Keep subtracting](../DESIGNS.md#5-keep-subtracting).
+**Want:** [One build and one deploy](../PROPOSAL.md#it-fits-into-your-service), under [Keep subtracting](../DESIGNS.md#5-keep-subtracting).
 
 **How:** timed sessions with developers new to Gotato, each from `go get` to an agent answering over HTTP in an existing Go service.
 
@@ -238,7 +238,7 @@ M4 = the time from `go get` to the first answer over HTTP    minutes, per develo
 
 #### B1: Cache hit rate ⭐
 
-**Want:** [Idle costs almost nothing](../PROPOSAL.md#it-runs-on-many-pods), under [A request only grows at its end](../DESIGNS.md#2-a-request-only-grows-at-its-end).
+**Want:** [A lower token bill](../PROPOSAL.md#it-runs-on-many-pods), under [A request only grows at its end](../DESIGNS.md#2-a-request-only-grows-at-its-end).
 
 **Problem set:** the live run of the reference tasks. A provider charges cached input at a fraction of the base price; Anthropic's is 0.1× or less ([Prompt caching](https://platform.claude.com/docs/en/build-with-claude/prompt-caching)).
 
@@ -252,7 +252,7 @@ B1 = cache read tokens / input tokens, from Turn 2 on        a ratio per task
 
 #### B2: Token cost per task
 
-**Want:** [Idle costs almost nothing](../PROPOSAL.md#it-runs-on-many-pods), under [A request only grows at its end](../DESIGNS.md#2-a-request-only-grows-at-its-end).
+**Want:** [A lower token bill](../PROPOSAL.md#it-runs-on-many-pods), under [A request only grows at its end](../DESIGNS.md#2-a-request-only-grows-at-its-end).
 
 **Problem set:** the live run of the reference tasks, with the same model and price from one release to the next.
 
@@ -266,7 +266,7 @@ B2 = uncached input × input price + cache read × read price + cache write × w
 
 #### B3: Tool-call success rate, split by cause
 
-The causes are the model's arguments, the tool and Gotato. Only Gotato's share is a goal (O8); the rest belongs to the model and the tools.
+The causes are the model's arguments, the tool and Gotato. Only Gotato's share is a goal ([O8: No failures caused by Gotato](#o8-no-failures-caused-by-gotato)); the rest belongs to the model and the tools.
 
 **Want:** [Safe tools without a sandbox](../PROPOSAL.md#it-stays-simple), under [A failure stays local](../DESIGNS.md#4-a-failure-stays-local).
 
@@ -282,7 +282,7 @@ B3 = tool calls that succeeded / tool calls, with each failure counted under its
 
 #### B4: Error rate, split by cause
 
-The causes are the model, the provider after retries, the store and Gotato. Only Gotato's and the store's share is a goal (O8).
+The causes are the model, the provider after retries, the store and Gotato. Only Gotato's and the store's share is a goal ([O8: No failures caused by Gotato](#o8-no-failures-caused-by-gotato)).
 
 **Want:** [No lost conversations](../PROPOSAL.md#it-runs-on-many-pods), under [A failure stays local](../DESIGNS.md#4-a-failure-stays-local).
 
@@ -302,7 +302,7 @@ Building the Context, assembling the request, the Loop and saving, against the m
 
 **Want:** [A small footprint](../PROPOSAL.md#it-fits-into-your-service), under [Keep subtracting](../DESIGNS.md#5-keep-subtracting).
 
-**Problem set:** the reference workload with a fake model for Gotato's time (`BenchmarkReferenceTasks`, and 30 plays of `gotato-workload`), and the live run for the model's. B9 holds the same time at three sizes.
+**Problem set:** the reference workload with a fake model for Gotato's time (`BenchmarkReferenceTasks`, and 30 plays of `gotato-workload`), and the live run for the model's. [B9: CPU per Turn, at 10, 100 and 1,000 messages](#b9-cpu-per-turn-at-10-100-and-1000-messages) holds the same time at three sizes.
 
 **Formula:**
 
@@ -358,7 +358,7 @@ heap per Session   = (heap with N Sessions − heap with none) / N        bytes
 resident memory    = the `ps` RSS of the stripped binary                KB
 ```
 
-**Last score:** on 2026-11-03, heap per live Session 4 to 9 KB idle and 253 to 264 KB after 25 tool calls (190 to 210 KB on 2026-10-16). A warm Session holds its Record and Writer between Runs: 8 to 15 KB with 10 Messages, 49 to 73 KB with 100 and 575 to 586 KB with 1,000, about 570 bytes a Message, nearly three times the Message's own size; what the Record keeps beyond the Messages is the first thing to look at if this needs to come down. The reference service holds 12.1 MB resident when idle and 19.7 MB after 200 health checks and 200 new Sessions (12 MB and 16 MB on 2026-10-16); that run was made by hand, since no script plays it ([TODO.md](TODO.md)).
+**Last score:** on 2026-11-03, heap per live Session 4 to 9 KB idle and 253 to 264 KB after 25 tool calls (190 to 210 KB on 2026-10-16). A warm Session holds its Record and Writer between Runs: 8 to 15 KB with 10 Messages, 49 to 73 KB with 100 and 575 to 586 KB with 1,000, about 570 bytes a Message, nearly three times the Message's own size. The reference service holds 12.1 MB resident when idle and 19.7 MB after 200 health checks and 200 new Sessions (12 MB and 16 MB on 2026-10-16); that run was made by hand, since no script plays it ([TODO.md](TODO.md)).
 
 #### B9: CPU per Turn, at 10, 100 and 1,000 messages
 
@@ -424,7 +424,7 @@ B12 = questions answered correctly after the compaction / 5        a share, set 
 
 #### C1: Footprint
 
-Modules and stripped binary of a program that imports the agent, the Runner, a store and the HTTP handler.
+Modules and stripped binary of a program that imports the agent, the Runner, a store and the HTTP handler. It is watched and never fails: the footprint has no limit.
 
 **Want:** [A small footprint](../PROPOSAL.md#it-fits-into-your-service), under [Keep subtracting](../DESIGNS.md#5-keep-subtracting).
 
@@ -448,7 +448,7 @@ binary, stripped                   9.0 MB        14.8 MB
 minimum Go version                 1.24          1.26.6
 ```
 
-On 2026-11-03, Gotato 3 modules linked (the service, Gotato and its HTTP adapter; `go list -m all` also lists `yaml.v3`, which the binary does not link), 15 packages and 9.0 MB (9,030,338 bytes), with Go 1.27.2 on darwin/arm64 (Apple M3). ADK for Go 128 modules, 370 packages and 14.8 MB, on 2026-10-15 on the same machine. So 0.02 of the modules, 0.04 of the packages and 0.61 of the size. The binary was 10.6 MB before a fix of 2026-11-03 that stopped the linker keeping every exported method.
+On 2026-11-03, Gotato 3 modules linked (the service, Gotato and its HTTP adapter; `go list -m all` also lists `yaml.v3`, which the binary does not link), 15 packages and 9.0 MB (9,030,338 bytes), with Go 1.27.2 on darwin/arm64 (Apple [M3: Cost of a compaction](#m3-cost-of-a-compaction)). ADK for Go 128 modules, 370 packages and 14.8 MB, on 2026-10-15 on the same machine. So 0.02 of the modules, 0.04 of the packages and 0.61 of the size. The binary was 10.6 MB before a fix of 2026-11-03 that stopped the linker keeping every exported method.
 
 ### Constraints
 
@@ -464,7 +464,7 @@ On 2026-11-03, Gotato 3 modules linked (the service, Gotato and its HTTP adapter
 
 #### R2: A Session runs in a small main with no server or database
 
-**Want:** [A library, not a new stack](../PROPOSAL.md#it-fits-into-your-service), under [Stay inside the boundary](../DESIGNS.md#6-stay-inside-the-boundary).
+**Want:** [One build and one deploy](../PROPOSAL.md#it-fits-into-your-service), under [Stay inside the boundary](../DESIGNS.md#6-stay-inside-the-boundary).
 
 **Condition:** `gotato.NewSession` with a model and nothing else runs a Prompt to a settled result in the same process, with the conversation in memory; no server, daemon, store or network is needed.
 
