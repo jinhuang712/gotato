@@ -2,7 +2,7 @@
 
 A message goes into a Session, and a settled result and a stream of Events come out. Between the two a Session is a Loop that calls the model and the tools it asks for, and every step counts only once the store holds it. Six terms carry this page. A **Run** is one request to a Session, from its input to its settled result. A **Turn** is one model call plus the tools it asked for. The **Record** is what the store keeps of a Session: an append-only log of everything that happened. The **Context** is what the model sees on one Turn. An **Event** is something that happened to a Session, stored in the Record and streamed to clients. An **Instance** is one running copy of your service.
 
-Gotato is designed around ten guidelines, in four groups. A guideline is a question to ask of every new requirement. It is kept here without the forks that follow from it: each fork someone could reasonably reverse is a decision with its problem, its choice, what we did not choose and what it costs. Each guideline below lists its decisions and the specs that show how it works.
+Gotato is designed around twelve guidelines, in five groups. A guideline is a question to ask of every new requirement. It is kept here without the forks that follow from it: each fork someone could reasonably reverse is a decision with its problem, its choice, what we did not choose and what it costs. Each guideline below lists its decisions and the specs that show how it works.
 
 **What Gotato guarantees**
 
@@ -15,7 +15,7 @@ Gotato is designed around ten guidelines, in four groups. A guideline is a quest
 
 5. **Keep subtracting:** Gotato does the least it takes to run Sessions in the cloud.
 6. **Stay inside the boundary:** what the service around Gotato already does is left to it.
-7. **Serve purpose-built agents:** Gotato is for agents whose tools and jobs the team knows.
+7. **What an Agent may do is read from its definition:** its tools and its Effect cap are its bounds, and nothing in a conversation widens them.
 
 **How Gotato runs**
 
@@ -25,6 +25,11 @@ Gotato is designed around ten guidelines, in four groups. A guideline is a quest
 **How Gotato is built**
 
 10. **Each layer does one job, and each default can be replaced:** a user changes a behavior Gotato chose without forking it.
+
+**What users can rely on**
+
+11. **A Session has one writer at a time:** two Instances never run or write the same Session at once.
+12. **The contract is versioned, and a break is written down:** what a service depends on changes only in a versioned break with a before-and-after note.
 
 The four guarantees are asked of every decision, whatever its guideline: a decision about tools or Instances can still lose a step, change a byte already sent, or let the Context grow without bound. This page states the design we intend. Whether it is built is for FEATURES.md and ROADMAP.md to say.
 
@@ -37,7 +42,7 @@ It costs a write before each step counts, and a store that keeps the contract of
 **Ask:** if this Instance stopped right now, would anything be lost, and would another Instance derive the same thing from the Record?
 
 - **Decisions:** [002](plan/decisions/002-the-store-is-the-truth-and-memory-is-a-cache.md) the store is the truth; [017](plan/decisions/017-the-record-is-an-append-only-log.md) an append-only Record; [028](plan/decisions/028-every-step-is-written-as-facts-and-a-log.md) facts and a log; [030](plan/decisions/030-every-entry-is-an-event.md) every Entry is an Event; [018](plan/decisions/018-events-are-typed-written-before-sent-and-never-awaited.md) typed Events, written before sent; [022](plan/decisions/022-a-session-is-a-goroutine-over-its-record.md) a Session is a goroutine; [034](plan/decisions/034-a-segment-is-written-once.md) a Segment is written once; [036](plan/decisions/036-a-warm-copy-is-a-cache-not-a-lock.md) a warm copy is a cache; [016](plan/decisions/016-gotato-session-is-the-live-unit-and-session-record-is-what-the-store-keeps.md) Session and Record types; [013](plan/decisions/013-a-conformance-suite-ships-with-the-store-contract.md) a conformance suite; [049](plan/decisions/049-the-store-contract-holds-only-what-every-store-must-do.md) the store contract.
-- **How it works:** [the Record](specs/record.md), [a Session](specs/session.md), [Events](specs/events.md).
+- **How it works:** [the Record](specs/record.md), [saving](specs/store.md), [a Session](specs/session.md), [Events](specs/events.md).
 
 ## 2. A request only grows at its end
 
@@ -80,7 +85,7 @@ It costs the features a team would have liked: what a Go service can do without 
 
 **Ask:** can a Go service that embeds an agent work without it? If it can, it stays out.
 
-- **Decisions:** [008](plan/decisions/008-agents-are-flat-and-the-application-composes-them.md) flat Agents; [009](plan/decisions/009-one-loop-extended-at-fixed-stages.md) one Loop; [010](plan/decisions/010-gotato-is-a-light-library-with-a-versioned-contract.md) a light library; [038](plan/decisions/038-a-limit-guards-a-real-failure.md) a limit guards a real failure; [001](plan/decisions/001-one-implementation-per-wire-api.md) one implementation per wire API; [041](plan/decisions/041-a-read-only-bash-for-large-results-is-another-project.md) a bash is another project.
+- **Decisions:** [008](plan/decisions/008-agents-are-flat-and-the-application-composes-them.md) flat Agents; [009](plan/decisions/009-one-loop-extended-at-fixed-stages.md) one Loop; [010](plan/decisions/010-gotato-is-a-light-library-with-a-versioned-contract.md) a light library; [038](plan/decisions/038-a-limit-guards-a-real-failure.md) a limit guards a real failure; [001](plan/decisions/001-one-implementation-per-wire-api.md) one implementation per wire API; [041](plan/decisions/041-a-read-only-bash-for-large-results-is-another-project.md) a bash is another project; [052](plan/decisions/052-the-footprint-is-a-measure-and-has-no-limit.md) the footprint has no limit.
 - **How it works:** [a Session and its Loop](specs/session.md), [the model seam](specs/model.md).
 
 ## 6. Stay inside the boundary
@@ -92,18 +97,18 @@ It costs the batteries: a team supplies its own store, telemetry, authentication
 **Ask:** is this a job only an agent runtime has, or one the service around it already does?
 
 - **Decisions:** [024](plan/decisions/024-gotato-builds-no-infrastructure.md) no infrastructure; [003](plan/decisions/003-gotato-owns-the-shapes-and-adapters-own-storage.md) shapes and adapters; [025](plan/decisions/025-callers-credentials-and-quotas-belong-to-the-service.md) callers, credentials, quotas; [037](plan/decisions/037-when-the-hash-missed-the-answer-names-the-writer.md) the answer names the writer; [010](plan/decisions/010-gotato-is-a-light-library-with-a-versioned-contract.md) a light library; [001](plan/decisions/001-one-implementation-per-wire-api.md) one implementation per wire API; [026](plan/decisions/026-gotato-ships-no-machine-no-client-and-no-tool-catalog.md) no machine, client or catalog; [050](plan/decisions/050-each-package-is-one-layer-named-for-its-job.md) a transport is an adapter.
-- **How it works:** [many instances](specs/host.md), [the model seam](specs/model.md), [tools and MCP](specs/tools.md).
+- **How it works:** [the map](specs/ARCHITECTURE.md), [hosting](specs/host.md), [the model seam](specs/model.md), [MCP tools](specs/mcp.md), [the HTTP API](specs/http.md).
 
-## 7. Serve purpose-built agents
+## 7. What an Agent may do is read from its definition
 
-Gotato is built for agents whose tools the team chooses and writes, and whose jobs it can predict ([PHILOSOPHY.md → 3](PHILOSOPHY.md#3-how-is-a-cloud-session-different-from-a-local-one)). A general assistant or a coding agent in the cloud needs a machine and a person standing by, and Gotato provides neither. An Agent's bounds are in its definition, and its defaults err on the safe side: a tool whose Effect (how much it can change) is not declared counts as destructive, and an Agent never runs a tool above its Effect cap, the highest Effect its tools may have.
+What an Agent may do is written in one place, its definition, where a reviewer reads it: its named tools and the highest Effect its tools may have, the Effect cap. Nobody watches each step of a Session, so nothing in a conversation can widen these bounds. A Session can switch off a tool of its Agent and never add one or lift the cap. A Tool Result reaches the model as data and never as the system's instruction. A tool whose Effect (how much it can change) is not declared counts as destructive. A job that runs again may only narrow its Agent. Why Gotato is for agents whose tools and jobs the team knows is in [PHILOSOPHY.md → 3](PHILOSOPHY.md#3-how-is-a-cloud-session-different-from-a-local-one).
 
 It costs reach: Gotato does less than a general agent, and a team writes careful tools because the tools are the bounds.
 
-**Ask:** does a purpose-built agent need this, or only a general assistant?
+**Ask:** can a conversation, a Tool Result or a caller widen what this Agent may do?
 
-- **Decisions:** [004](plan/decisions/004-an-agent-is-a-definition-and-a-session-is-the-live-unit.md) Agent and Session; [016](plan/decisions/016-gotato-session-is-the-live-unit-and-session-record-is-what-the-store-keeps.md) Session and Record types; [005](plan/decisions/005-no-approval-system.md) no approval system; [011](plan/decisions/011-an-agents-bounds-are-its-tools-and-its-effect-cap.md) bounds and tool output; [014](plan/decisions/014-the-effect-cap-hides-tools-above-it.md) the cap hides tools; [015](plan/decisions/015-only-the-agent-sets-the-effect-cap.md) only the Agent sets the cap; [026](plan/decisions/026-gotato-ships-no-machine-no-client-and-no-tool-catalog.md) no machine, client or catalog; [041](plan/decisions/041-a-read-only-bash-for-large-results-is-another-project.md) a bash is another project; [044](plan/decisions/044-an-agent-profile-and-a-task-spec-are-registered-inline-or-from-a-store.md) a job only narrows its Agent.
-- **How it works:** [tools](specs/tools.md), [a Session](specs/session.md).
+- **Decisions:** [004](plan/decisions/004-an-agent-is-a-definition-and-a-session-is-the-live-unit.md) Agent and Session; [005](plan/decisions/005-no-approval-system.md) no approval system; [011](plan/decisions/011-an-agents-bounds-are-its-tools-and-its-effect-cap.md) bounds and tool output; [014](plan/decisions/014-the-effect-cap-hides-tools-above-it.md) the cap hides tools; [015](plan/decisions/015-only-the-agent-sets-the-effect-cap.md) only the Agent sets the cap; [026](plan/decisions/026-gotato-ships-no-machine-no-client-and-no-tool-catalog.md) no machine, client or catalog; [044](plan/decisions/044-an-agent-profile-and-a-task-spec-are-registered-inline-or-from-a-store.md) a job only narrows its Agent.
+- **How it works:** [tools](specs/tools.md), [definitions](specs/profile.md), [a Session](specs/session.md).
 
 ## 8. No instance is special
 
@@ -113,8 +118,8 @@ It costs machinery that a single Instance would not need: a claim on each Sessio
 
 **Ask:** is this still right when a request reaches any Instance?
 
-- **Decisions:** [019](plan/decisions/019-one-writer-per-session-claimed-in-the-store.md) one writer per Session; [027](plan/decisions/027-instances-coordinate-through-the-stores-conditional-writes.md) conditional writes and liveness; [020](plan/decisions/020-no-session-is-bound-to-an-instance.md) no Session bound to an Instance; [021](plan/decisions/021-messages-reach-the-writer-and-take-effect-in-its-process.md) messages reach the writer; [036](plan/decisions/036-a-warm-copy-is-a-cache-not-a-lock.md) a warm copy is a cache; [024](plan/decisions/024-gotato-builds-no-infrastructure.md) no infrastructure; [037](plan/decisions/037-when-the-hash-missed-the-answer-names-the-writer.md) the answer names the writer; [049](plan/decisions/049-the-store-contract-holds-only-what-every-store-must-do.md) the store contract; [050](plan/decisions/050-each-package-is-one-layer-named-for-its-job.md) a host needs a definition in code.
-- **How it works:** [many instances](specs/host.md), [the Record](specs/record.md).
+- **Decisions:** [020](plan/decisions/020-no-session-is-bound-to-an-instance.md) no Session bound to an Instance; [036](plan/decisions/036-a-warm-copy-is-a-cache-not-a-lock.md) a warm copy is a cache; [024](plan/decisions/024-gotato-builds-no-infrastructure.md) no infrastructure; [049](plan/decisions/049-the-store-contract-holds-only-what-every-store-must-do.md) the store contract; [050](plan/decisions/050-each-package-is-one-layer-named-for-its-job.md) a host needs a definition in code.
+- **How it works:** [hosting](specs/host.md), [saving](specs/store.md), [the Record](specs/record.md).
 
 ## 9. A Session can be stopped and seen
 
@@ -140,14 +145,26 @@ It costs a contract for every seam: each interface stays stable once it ships, a
 **Ask:** can a user replace this default without copying the code around it, and does this type hold one layer's concerns?
 
 - **Decisions:** [003](plan/decisions/003-gotato-owns-the-shapes-and-adapters-own-storage.md) shapes and adapters; [009](plan/decisions/009-one-loop-extended-at-fixed-stages.md) one Loop, extended at fixed stages; [013](plan/decisions/013-a-conformance-suite-ships-with-the-store-contract.md) a conformance suite; [044](plan/decisions/044-an-agent-profile-and-a-task-spec-are-registered-inline-or-from-a-store.md) profiles inline or from a store; [045](plan/decisions/045-the-gateway-is-layered-and-each-layer-can-be-replaced.md) a model bridge in layers; [046](plan/decisions/046-compaction-is-a-fixed-frame-around-parts-a-user-can-replace.md) compaction as a frame with parts; [047](plan/decisions/047-a-value-a-layer-owns-is-set-only-through-that-layer.md) a value set only through its layer, any other way refused; [048](plan/decisions/048-the-runner-and-the-session-are-built-from-parts-and-host-plumbing-is-internal.md) parts with one job; [049](plan/decisions/049-the-store-contract-holds-only-what-every-store-must-do.md) the store contract; [050](plan/decisions/050-each-package-is-one-layer-named-for-its-job.md) one package per layer; [051](plan/decisions/051-a-session-is-opened-for-a-task-spec-when-it-is-created.md) a TaskSpec Session opened at create.
-- **How it works:** [who may set what](specs/session.md#who-may-set-what), [a Session's parts](specs/session.md#a-session-is-built-from-parts), [a Runner's parts](specs/host.md#a-runner-is-built-from-parts), [the model bridge](specs/model.md#the-model-bridge-is-four-layers), [the compaction frame](specs/compaction.md#the-frame-and-its-parts).
+- **How it works:** [the map](specs/ARCHITECTURE.md), [definitions](specs/profile.md), [who may set what](specs/session.md#who-may-set-what), [a Session's parts](specs/session.md#a-session-is-built-from-parts), [a Runner's parts](specs/host.md#a-runner-is-built-from-parts), [the model bridge](specs/model.md#the-model-bridge-is-four-layers), [the compaction frame](specs/compaction.md#the-frame-and-its-parts).
 
-## When guidelines collide
+## 11. A Session has one writer at a time
 
-When two guidelines pull apart, this order decides:
+However many Instances serve requests, one Instance writes a Session at any moment. The writer holds a Claim in the Record, and the store refuses a write from an Instance that lost it, so two Instances never run or write the same Session at once. A message that reaches another Instance is not run there: the answer names the writer. Gotato gets this from the store's conditional write alone. *No instance is special* says any Instance may serve a request, and this guideline says only one of them writes.
 
-1. **The store is the only truth.** A lost conversation breaks trust in the service.
-2. **A request only grows at its end.** What the model reads is most of what a Session costs, and a byte changed in the prefix makes the provider read everything after it again.
-3. **Keep subtracting.** Weight is paid by every service that embeds Gotato, for as long as it does.
+It costs a wait after a crash: another Instance takes over only when the dead writer's liveness row has expired, and the step in flight is lost.
 
-The Effect cap is not part of the trade: an Agent never runs a tool above its cap to save a Turn or a write.
+**Ask:** can two Instances write or run this Session at the same time?
+
+- **Decisions:** [019](plan/decisions/019-one-writer-per-session-claimed-in-the-store.md) one writer per Session; [027](plan/decisions/027-instances-coordinate-through-the-stores-conditional-writes.md) conditional writes and liveness; [021](plan/decisions/021-messages-reach-the-writer-and-take-effect-in-its-process.md) messages reach the writer; [037](plan/decisions/037-when-the-hash-missed-the-answer-names-the-writer.md) the answer names the writer.
+- **How it works:** [hosting](specs/host.md), [saving](specs/store.md).
+
+## 12. The contract is versioned, and a break is written down
+
+Services embed Gotato and upgrade on their own schedule, so what they depend on is named and versioned: the exported names of the core and standard runtime packages, the Event types and their fields, the HTTP contract with its own version, the store contract, and the places where many Instances behave differently from one. An addition is free. A break is rare, raises the version it touches, and comes with a before-and-after entry in the changelog.
+
+It costs speed and surface: a change that suits Gotato may wait for a release, and every exported name is a promise, so Gotato exports little.
+
+**Ask:** does this change something a user depends on, and if so, does it carry a version and a before-and-after note?
+
+- **Decisions:** [010](plan/decisions/010-gotato-is-a-light-library-with-a-versioned-contract.md) a light library with a versioned contract; [048](plan/decisions/048-the-runner-and-the-session-are-built-from-parts-and-host-plumbing-is-internal.md) host plumbing leaves the public API.
+- **How it works:** [the map](specs/ARCHITECTURE.md), [the HTTP API](specs/http.md).
