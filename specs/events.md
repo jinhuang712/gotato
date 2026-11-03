@@ -106,28 +106,9 @@ Only deltas may be dropped; a stored Event is read again from the Record by numb
 
 A full queue drops its oldest queued delta first, and a new delta is itself dropped when none is queued. A stored Event that finds no room sends the subscriber out of live mode: it reads by number from the EventSource, which is the Record, in batches of 128, then rejoins when it has read as far as the Feed has published. The same path covers a gap: a number that jumps means another Instance wrote the Session, and the missing Events are read. Watch for the last arrow. A store that is slow to show its last write is given a moment (100 tries, 5 milliseconds apart), and then the subscriber ends. A Session over a Record that is not stored can read back only a recent window of Events, the last 4,096.
 
-## Resume with Last-Event-ID
+## Resuming from a number
 
-A client reconnects to any Instance with the last number and epoch it saw, and gets everything after, with no gap and no repeat. The endpoint below is served by the optional HTTP API, module `adapter/http`.
-
-```text
- Client                          Instance B                      Store
-   │ GET /v1/sessions/s1/stream
-   │ Last-Event-ID: 40, Record-Epoch: E1
-   │ ───────────────────────────▶ │ Load ───────────────────────▶ │
-   │                              │ ◀──── epoch E1, head 58 ───── │  E1 is E1, and 40 <= 58
-   │ ◀── event: stream {E1, after 40, head 58}
-   │ ◀── id: 41 ... id: 58        │ Log(after 40) ──────────────▶ │  from the Record
-   │ ◀── id: 59, deltas ...       │ live; or polls the Store when the writer is elsewhere
-   │ ◀── event: reconnect         │ this Instance is draining: come back, after a random wait
-   │ epoch differs, or 40 > head: 409 cannot_resume, with the current epoch and head
-```
-
-The `after` parameter wins over the header, which a browser's EventSource sends by itself, and the epoch comes from the `record_epoch` parameter or the `Record-Epoch` header. The Instance checks the epoch and the position before it streams, then reads the Record first and goes live. It does not need to be the writer: an idle stream looks in the Store at intervals, which is the cost of binding no Session to an Instance. The stream follows one epoch, and ends with an error if the Record is deleted or created again. An Instance keeps a Feed for each Record, named by its Session ID and its epoch, so a stream is never handed another Record's Events; it learns of a delete at once when its own Instance deletes the Session, and elsewhere at its next read of the Store. A client that sends no epoch is checked by position only, so it should send one. The first frame, `stream`, carries the epoch, the position and the head, and sets the wait a browser uses after a lost connection, spread at random for each client. A comment line keeps an idle stream open through a proxy, and a failure after the status ends the stream with an `error` frame.
-
-## A Run lives as long as its request
-
-Watching and running are two different requests. A client that drops a request that started a Run (`POST .../runs`, `.../runs/stream`, or a message that started one) ends the Run: it settles as canceled, so a client cannot start a Run and walk away. The `GET .../stream` request only watches. It may drop at any time and resume without touching a Run, so a front end holds one POST open for the whole Run and watches through a separate stream. A delta is sent live and not replayed on resume, and the stored `reply_ended` Event holds the whole text, which a client puts in place of its partial text. A spilled Tool Result's body is left out of every Event that is sent.
+A client that lost its connection resumes on any instance with the last number and the epoch it saw, and gets everything after, with no gap and no repeat. The instance checks the epoch and the position first, then reads the stored Events after the number from the Record and goes live; it does not need to be the writer, and an idle stream looks in the store at intervals for what another instance wrote. A stream follows one epoch and ends if the Record is deleted or created again, so it is never handed another Record's Events. Deltas are not replayed: the stored reply holds the whole text, and a client puts it in place of its partial text. A spilled Tool Result's body is left out of every Event that is sent. How the HTTP API carries this, its parameters, frames and refusals, and why a Run lives only as long as the request that started it, are in `http.md`.
 
 ## What this buys you
 - A client can drop its connection, or lose its Instance, and resume on any other one without gaps.
@@ -135,4 +116,4 @@ Watching and running are two different requests. A client that drops a request t
 - One name and one number for each thing: the log, the stream and the telemetry say the same.
 
 ## See also
-[ARCHITECTURE.md](ARCHITECTURE.md), the principles [the store is the only truth](../DESIGNS.md#1-the-store-is-the-only-truth) and [a Session can be stopped and seen](../DESIGNS.md#9-a-session-can-be-stopped-and-seen), [FEATURES.md](../FEATURES.md) (F10: Events, F12: HTTP API), decisions [018](../plan/decisions/018-events-are-typed-written-before-sent-and-never-awaited.md), [028](../plan/decisions/028-every-step-is-written-as-facts-and-a-log.md), [030](../plan/decisions/030-every-entry-is-an-event.md), [026](../plan/decisions/026-gotato-ships-no-machine-no-client-and-no-tool-catalog.md) and [048](../plan/decisions/048-the-runner-and-the-session-are-built-from-parts-and-host-plumbing-is-internal.md).
+[ARCHITECTURE.md](ARCHITECTURE.md), the principles [the store is the only truth](../DESIGNS.md#1-the-store-is-the-only-truth) and [a Session can be stopped and seen](../DESIGNS.md#9-a-session-can-be-stopped-and-seen), [FEATURES.md](../FEATURES.md) (F10: Events), decisions [018](../plan/decisions/018-events-are-typed-written-before-sent-and-never-awaited.md), [028](../plan/decisions/028-every-step-is-written-as-facts-and-a-log.md), [030](../plan/decisions/030-every-entry-is-an-event.md), [026](../plan/decisions/026-gotato-ships-no-machine-no-client-and-no-tool-catalog.md) and [048](../plan/decisions/048-the-runner-and-the-session-are-built-from-parts-and-host-plumbing-is-internal.md).
