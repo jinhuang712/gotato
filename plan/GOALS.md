@@ -18,7 +18,7 @@ Every number is measured on this repository's own workloads.
 
 - A benchmark is tracked against the previous release, and its 0.2.0 value is the reference.
 - Every number about a Run can also be computed from Events and `Usage` alone ([DESIGNS.md → 9](../DESIGNS.md#9-a-session-can-be-stopped-and-seen)), so a team gets the same numbers from its own telemetry.
-- All numbers come from an Apple [M3: Cost of a compaction](#m3-cost-of-a-compaction) with 8 cores and Go 1.27.2; those dated 2026-11-03 were taken while other work ran on it (load average about 5), so their times are noisy.
+- All numbers come from an Apple M3 with 8 cores and Go 1.27.2; those dated 2026-11-03 were taken while other work ran on it (load average about 5), so their times are noisy.
 - The numbers dated 2026-10-16 and 2026-10-17 come from the live run, which played every task five times (`support_case` ten) against `gpt-6.1-sol`, with the model bridge sending each Session's cache key.
 - The live run's cost uses the list price of $2 input, $10 output and $0.10 cached input per million tokens.
 
@@ -55,7 +55,8 @@ Goals
 │   ├── ✅ B9: CPU per Turn at 10, 100 and 1,000 messages — 0.13, 0.46 and 3.4 ms
 │   ├── ✅ B10: Startup time — 30 ms
 │   ├── ✅ B11: Concurrent Runs per instance — between 4 and 8
-│   └── ⬜ B12: The Recap keeps the facts ⭐ — not measured
+│   ├── ⬜ B12: The Recap keeps the facts ⭐ — not measured
+│   └── ✅ B13: What a user learns — 1,055 exported names against 880 in 0.2.0
 ├── Comparisons
 │   └── ✅ C1: Footprint — 9.0 MB against 14.8 MB
 └── Constraints
@@ -420,6 +421,24 @@ B12 = questions answered correctly after the compaction / 5        a share, set 
 
 **Last score:** not measured. No endpoint has run the check yet, and the model's Recap stays off by default until one has.
 
+#### B13: What a user learns
+
+The terms, the exported names and the settings a user meets, which is how [Keep subtracting](../DESIGNS.md#5-keep-subtracting) measures weight. It is watched and never fails, and a rise is a reason to review with the questions of *Keeping it small* in AGENTS.md.
+
+**Want:** [A small footprint](../PROPOSAL.md#it-fits-into-your-service), under [Keep subtracting](../DESIGNS.md#5-keep-subtracting).
+
+**Problem set:** GLOSSARY.md and the shipped packages, which are every package of the root module and the two adapters outside `internal/`, `examples/` and `bench/`. The count is `go run ./internal/cmd/gotato-weight`, which takes a checkout's root to count an older release.
+
+**Formula:**
+
+```
+terms    = rows of the tables in GLOSSARY.md
+names    = exported package-level names + exported methods of exported types
+settings = exported fields of a struct named …Config or …Policy + exported functions that return an …Option
+```
+
+**Last score:** on 2026-11-03, 122 terms, 1,055 exported names and 83 settings, against 76, 880 and 102 in 0.2.0. The core package `gotato` holds 484 of the names (490 in 0.2.0), and the rise comes from the layers that replaced `session`, `service` and `gateway`: `record` 156, `host` 127, `store` 79 and `profile` 52. The terms of 0.2.0 were counted in its own glossary, whose tables had another form, so they compare only roughly.
+
 ### Comparisons
 
 #### C1: Footprint
@@ -448,7 +467,7 @@ binary, stripped                   9.0 MB        14.8 MB
 minimum Go version                 1.24          1.26.6
 ```
 
-On 2026-11-03, Gotato 3 modules linked (the service, Gotato and its HTTP adapter; `go list -m all` also lists `yaml.v3`, which the binary does not link), 15 packages and 9.0 MB (9,030,338 bytes), with Go 1.27.2 on darwin/arm64 (Apple [M3: Cost of a compaction](#m3-cost-of-a-compaction)). ADK for Go 128 modules, 370 packages and 14.8 MB, on 2026-10-15 on the same machine. So 0.02 of the modules, 0.04 of the packages and 0.61 of the size. The binary was 10.6 MB before a fix of 2026-11-03 that stopped the linker keeping every exported method.
+On 2026-11-03, Gotato 3 modules linked (the service, Gotato and its HTTP adapter; `go list -m all` also lists `yaml.v3`, which the binary does not link), 15 packages and 9.0 MB (9,030,338 bytes), with Go 1.27.2 on darwin/arm64 (Apple M3). ADK for Go 128 modules, 370 packages and 14.8 MB, on 2026-10-15 on the same machine. So 0.02 of the modules, 0.04 of the packages and 0.61 of the size. The binary was 10.6 MB before a fix of 2026-11-03 that stopped the linker keeping every exported method.
 
 ### Constraints
 

@@ -170,6 +170,7 @@ Run on 2026-11-03 on a machine with other work running. They are run again on a 
   - [B9: CPU per Turn, at 10, 100 and 1,000 messages](GOALS.md#b9-cpu-per-turn-at-10-100-and-1000-messages)
   - [B10: Startup time](GOALS.md#b10-startup-time)
   - [B11: Concurrent Runs per instance before Gotato's time per Turn doubles](GOALS.md#b11-concurrent-runs-per-instance-before-gotatos-time-per-turn-doubles)
+  - [B13: What a user learns](GOALS.md#b13-what-a-user-learns)
 - **Comparisons**
   - [C1: Footprint](GOALS.md#c1-footprint) is measured again and set against its reference.
 - **Measures**

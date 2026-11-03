@@ -39,7 +39,7 @@ The module root holds the documents and the module files, and no Go code. The tr
 | `gotato/`, `ref/`, `record/`, `store/`, `profile/`, `host/` | The layers of the runtime, from the core down to the host (see *Hard architectural rules*) |
 | `store/storetest/` | The Store contract suite |
 | `model/`, `testkit/` | The bridge to a model over HTTP, and the fakes for tests |
-| `internal/` | Shared packages (`text`, `hostlink`), and our own test tools (`reftasks`, `workload`, `fakemodel`, and `cmd/` with the test CLI `gotato`, `gotato-workload` and `gatewayconf`) |
+| `internal/` | Shared packages (`text`, `hostlink`), and our own test tools (`reftasks`, `workload`, `fakemodel`, and `cmd/` with the test CLI `gotato`, `gotato-workload`, `gotato-weight` and `gatewayconf`) |
 | `adapter/http/`, `adapter/mcp/` | Adapters, each a Go module of its own |
 | `examples/larkbot/` | An application, a Go module of its own |
 | `bench/refservice/` | The reference service that GOALS measures, a Go module of its own |
