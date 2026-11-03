@@ -283,6 +283,7 @@ A body is optional but welcome when the why is not obvious from the diff. Name t
 - Land a branch by rebasing it on `main` and fast-forwarding `main` to it, so `main` stays a straight line with no merge commits.
 - Rebase only a branch of your own that nobody else has pulled, and never rewrite shared history.
 - Resolve conflicts locally and run `scripts/check.sh` again after the resolution.
+- Landing runs `scripts/check.sh` on every module through `.claude/wt.json`, so a red check lands nothing.
 - Squash only your own noise commits ("wip", "fix typo") before opening a PR, and keep the meaningful history.
 
 ### Breaking changes
