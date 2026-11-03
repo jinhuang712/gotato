@@ -176,7 +176,7 @@ The footprint follows from that choice. A program that imports each library's ag
                                    Gotato        Google ADK for Go
 modules in the build graph         3 (4 listed)  128
 non-standard-library packages      15            370
-binary, stripped                   10.6 MB       14.8 MB
+binary, stripped                   9.0 MB        14.8 MB
 minimum Go version                 1.24          1.26.6
 ```
 

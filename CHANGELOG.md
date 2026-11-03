@@ -202,6 +202,7 @@ What changed in Gotato, from the user's side. Newest first. A breaking change ca
 
 ### Fixed
 
+- `gotato`: the binary is 1.6 MB smaller. The hook-signature check of `WithExtension` looked each hook name up by a variable, so the linker kept every exported method of every reachable type for reflection. It now names each hook as a constant; the check is the same. The reference service builds at 9.0 MB, from 10.6 MB.
 - `gotato` and `modelctx`: one page size. Before, a Tool Result was spilled at a fixed 32 KiB while `read_result` and `read_segment` could be built with another page, so a result could be spilled and then read at a different size. Now the `ReadBack`'s `PageBytes` is the spill threshold, the pages a preview counts and the page of both read tools (D-046).
 - `modelctx`: the default Builder escapes tags in the `kind` attribute of a service's notice.
 - `service`: an Agent whose `Compact.Recap` is a `*modelctx.ModelRecap` with no Model now gets the Agent's Model, like the value form. Before, only `modelctx.ModelRecap{}` was filled, so `&modelctx.ModelRecap{}` passed `Validate` and then failed with `ErrNoRecapModel`.

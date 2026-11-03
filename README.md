@@ -62,7 +62,7 @@ A pod is one running copy of your service; the glossary calls it an Instance. A 
 - 🧩 **Stays simple.** One loop, no workflow language, and you see what the model sees.
 - 🔒 **Stays stable.** Breaks are versioned and come with before-and-after notes, from the first release on.
 
-📏 A program with the agent, runner, store and HTTP server pulls 3 modules and builds a 10.6 MB binary ([measured](PROPOSAL.md#where-gotato-fits)).
+📏 A program with the agent, runner, store and HTTP server pulls 3 modules and builds a 9.0 MB binary ([measured](PROPOSAL.md#where-gotato-fits)).
 
 ## 🚫 What it is not
 

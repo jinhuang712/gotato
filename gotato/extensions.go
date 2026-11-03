@@ -84,28 +84,41 @@ type AdvisoryExtension interface {
 	Advisory() bool
 }
 
-// hookMethods maps the name of each hook method to the interface it belongs
-// to.
-var hookMethods = map[string]reflect.Type{
-	"Transform":   reflect.TypeFor[ContextTransformer](),
-	"Convert":     reflect.TypeFor[MessageConverter](),
-	"Before":      reflect.TypeFor[PreToolUse](),
-	"After":       reflect.TypeFor[PostToolUse](),
-	"Stop":        reflect.TypeFor[TurnStopper](),
-	"PrepareTurn": reflect.TypeFor[TurnPreparer](),
-	"Advisory":    reflect.TypeFor[AdvisoryExtension](),
-}
-
 // checkExtensionMethods fails when the value has a method named like a hook
 // but the value does not satisfy that hook's interface, such as a Before with
 // the wrong signature. Without the check the value installs for the other
 // stages it does satisfy, and a safety hook fails open on a spelling mistake.
+//
+// Each name is a constant at its call: the linker then keeps only methods of
+// that name for reflection. A name from a variable makes it keep every
+// exported method of every reachable type, about 1.6 MB of binary.
 func checkExtensionMethods(extension any) *RuntimeError {
 	value := reflect.TypeOf(extension)
-	for name, iface := range hookMethods {
-		if _, has := value.MethodByName(name); has && !value.Implements(iface) {
-			return runtimeError(CodeInvalidArgument, "WithExtension",
-				fmt.Sprintf("%s has a method %s that does not match %s, so the hook would not run", value, name, iface.Name()), nil)
+	mismatch := func(name string, has bool, iface reflect.Type) *RuntimeError {
+		if !has || value.Implements(iface) {
+			return nil
+		}
+		return runtimeError(CodeInvalidArgument, "WithExtension",
+			fmt.Sprintf("%s has a method %s that does not match %s, so the hook would not run", value, name, iface.Name()), nil)
+	}
+	_, transform := value.MethodByName("Transform")
+	_, convert := value.MethodByName("Convert")
+	_, before := value.MethodByName("Before")
+	_, after := value.MethodByName("After")
+	_, stop := value.MethodByName("Stop")
+	_, prepare := value.MethodByName("PrepareTurn")
+	_, advisory := value.MethodByName("Advisory")
+	for _, err := range []*RuntimeError{
+		mismatch("Transform", transform, reflect.TypeFor[ContextTransformer]()),
+		mismatch("Convert", convert, reflect.TypeFor[MessageConverter]()),
+		mismatch("Before", before, reflect.TypeFor[PreToolUse]()),
+		mismatch("After", after, reflect.TypeFor[PostToolUse]()),
+		mismatch("Stop", stop, reflect.TypeFor[TurnStopper]()),
+		mismatch("PrepareTurn", prepare, reflect.TypeFor[TurnPreparer]()),
+		mismatch("Advisory", advisory, reflect.TypeFor[AdvisoryExtension]()),
+	} {
+		if err != nil {
+			return err
 		}
 	}
 	return nil
