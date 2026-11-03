@@ -1,4 +1,3 @@
-<!-- what-we-build: drafted 2026-11-03 -->
 # Gotato — Proposal
 
 > **Agent-as-a-Service for Go.**

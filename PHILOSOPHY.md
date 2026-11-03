@@ -1,4 +1,3 @@
-<!-- what-we-build: drafted 2026-11-03 -->
 # Philosophy
 
 Agents are moving off developers' machines and into the systems they serve. The work they do there is not new. What is new is how little it takes: a loop around a capable model now does work that used to need a graph framework, and most of that work needs tools and data, not a machine.

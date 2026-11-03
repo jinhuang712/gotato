@@ -1,4 +1,3 @@
-<!-- what-we-build: drafted 2026-11-03 -->
 # Designs
 
 A message goes into a Session, and a settled result and a stream of Events come out. Between the two a Session is a Loop that calls the model and the tools it asks for, and every step counts only once the store holds it. Six terms carry this page. A **Run** is one request to a Session, from its input to its settled result. A **Turn** is one model call plus the tools it asked for. The **Record** is what the store keeps of a Session: an append-only log of everything that happened. The **Context** is what the model sees on one Turn. An **Event** is something that happened to a Session, stored in the Record and streamed to clients. An **Instance** is one running copy of your service.

@@ -410,7 +410,7 @@ A real model answers questions whose answers appeared only in Tool Results befor
 
 **Want:** [No lost conversations](../PROPOSAL.md#it-runs-on-many-pods), under [The Context is a bounded view](../DESIGNS.md#3-the-context-is-a-bounded-view).
 
-**Problem set:** the payments check, which Gotato ships and a team runs on demand against its own model endpoint ([FEATURES.md → G-F06](../FEATURES.md#g-f06--compaction-)): three prompts on one Session, a compaction with the model's Recap, and five questions asked before and after it (unsaved, with the tools switched off). The command is `go run ./internal/cmd/gotato-workload -recap-check -live -gateway-config gateway.yaml`, with [internal/cmd/gatewayconf/gateway.example.yaml](../internal/cmd/gatewayconf/gateway.example.yaml) as the file to copy. Its scoring is tested on a fake model. Gotato runs no checks against real providers itself.
+**Problem set:** the payments check, which Gotato ships and a team runs on demand against its own model endpoint ([FEATURES.md → G-F06](../FEATURES.md#g-f06--compaction)): three prompts on one Session, a compaction with the model's Recap, and five questions asked before and after it (unsaved, with the tools switched off). The command is `go run ./internal/cmd/gotato-workload -recap-check -live -gateway-config gateway.yaml`, with [internal/cmd/gatewayconf/gateway.example.yaml](../internal/cmd/gatewayconf/gateway.example.yaml) as the file to copy. Its scoring is tested on a fake model. Gotato runs no checks against real providers itself.
 
 **Formula:**
 
