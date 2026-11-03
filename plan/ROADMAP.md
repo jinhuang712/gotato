@@ -62,6 +62,6 @@ Each has a reason; one is picked up again only when someone names a real failure
 - whether a user who comes back after a compaction finds the conversation they left (G-E01 checks that the Recap keeps the facts, not that the conversation carries on): no way to measure it is designed, and it needs a real model;
 - whether `tool_choice: none` keeps the prompt cache on Anthropic: Gotato runs no check against a live provider, and the Recap request is a default per wire API that the configuration can change;
 - how long a model-written Recap takes, against `ModelCallDeadline`: a team sees it on its own endpoint, and `ModelRecap.Timeout` sets the call's own deadline;
-- whether each provider words a refusal as too long as the fake gateway does: a team that finds another wording adds it by wrapping `model.DefaultClassifier` (`overflow_phrases` in the test tools' file);
+- whether each provider words a refusal as too long as the fake model endpoint does: a team that finds another wording adds it by wrapping `model.DefaultClassifier` (`overflow_phrases` in the test tools' file);
 - **D-025** `arguments` on `tool_started`: the base64 form is documented in round 1 and that is enough for now;
 - the other items in [TODO.md](TODO.md), which are fixed or settled outside any release.

@@ -1,4 +1,4 @@
-package fakegateway
+package fakemodel
 
 import (
 	"fmt"
@@ -36,20 +36,20 @@ func extractQuirks(p *parsed, h http.Header, api string) (*quirks, string, error
 	q := &quirks{byName: map[string]string{}}
 	add := func(name, value string) error {
 		if !knownQuirks[name] {
-			return fmt.Errorf("fakegateway: unknown quirk %q", name)
+			return fmt.Errorf("fakemodel: unknown quirk %q", name)
 		}
 		switch name {
 		case "delay":
 			if _, err := time.ParseDuration(value); err != nil {
-				return fmt.Errorf("fakegateway: quirk delay=%q is not a duration", value)
+				return fmt.Errorf("fakemodel: quirk delay=%q is not a duration", value)
 			}
 		case "cached", "cut-after-text", "cut-in-args":
 			if value != "" {
 				if n, err := strconv.Atoi(value); err != nil || n < 0 {
-					return fmt.Errorf("fakegateway: quirk %s=%q is not a count", name, value)
+					return fmt.Errorf("fakemodel: quirk %s=%q is not a count", name, value)
 				}
 			} else if name == "cached" {
-				return fmt.Errorf("fakegateway: quirk cached needs a count, as cached=1200")
+				return fmt.Errorf("fakemodel: quirk cached needs a count, as cached=1200")
 			}
 		}
 		q.byName[name] = value
@@ -81,7 +81,7 @@ func extractQuirks(p *parsed, h http.Header, api string) (*quirks, string, error
 
 // times reports whether a quirk that plays a limited number of times plays
 // now, and counts it.
-func (g *Gateway) times(q *quirks, name string, limit int) bool {
+func (g *Server) times(q *quirks, name string, limit int) bool {
 	g.mu.Lock()
 	defer g.mu.Unlock()
 	key := q.key + "|" + name

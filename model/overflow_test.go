@@ -51,15 +51,15 @@ func TestRefusedRequestIsContextOverflowOnEveryWireAPI(t *testing.T) {
 			defer server.Close()
 			client := newClientFor(t, wireOf(tc.api), server.URL, modelOf(gotato.ModelFacts{}), WithRetry(Retry{}))
 			_, err := client.Stream(context.Background(), gotato.ModelRequest{Messages: []gotato.Message{gotato.UserMessage("hi")}})
-			var gatewayErr *Error
-			if !errors.As(err, &gatewayErr) {
+			var modelErr *Error
+			if !errors.As(err, &modelErr) {
 				t.Fatalf("err = %v", err)
 			}
-			if gatewayErr.Overflow != tc.want || gatewayErr.ContextOverflow() != tc.want {
-				t.Fatalf("Overflow = %v, want %v (%+v)", gatewayErr.Overflow, tc.want, gatewayErr)
+			if modelErr.Overflow != tc.want || modelErr.ContextOverflow() != tc.want {
+				t.Fatalf("Overflow = %v, want %v (%+v)", modelErr.Overflow, tc.want, modelErr)
 			}
-			if tc.want && gatewayErr.Retryable() {
-				t.Fatalf("an overflow must not be retried: %+v", gatewayErr)
+			if tc.want && modelErr.Retryable() {
+				t.Fatalf("an overflow must not be retried: %+v", modelErr)
 			}
 			if calls.Load() != 1 {
 				t.Fatalf("HTTP attempts = %d, want 1", calls.Load())
@@ -94,12 +94,12 @@ func TestAWrappedClassifierAddsTheTeamsOwnOverflowWording(t *testing.T) {
 		client := newClientFor(t, ChatCompletions{}, server.URL, modelOf(gotato.ModelFacts{}), WithRetry(Retry{}), WithClassifier(phraseClassifier(phrases...)))
 		_, err := client.Stream(context.Background(), gotato.ModelRequest{Messages: []gotato.Message{gotato.UserMessage("hi")}})
 		server.Close()
-		var gatewayErr *Error
-		if !errors.As(err, &gatewayErr) {
+		var modelErr *Error
+		if !errors.As(err, &modelErr) {
 			t.Fatalf("%s: err = %v", name, err)
 		}
-		if want := name != "none"; gatewayErr.Overflow != want {
-			t.Errorf("%s: Overflow = %v, want %v", name, gatewayErr.Overflow, want)
+		if want := name != "none"; modelErr.Overflow != want {
+			t.Errorf("%s: Overflow = %v, want %v", name, modelErr.Overflow, want)
 		}
 	}
 	// The defaults still apply next to a team's own phrases.
@@ -108,8 +108,8 @@ func TestAWrappedClassifierAddsTheTeamsOwnOverflowWording(t *testing.T) {
 	defer server.Close()
 	client := newClientFor(t, ChatCompletions{}, server.URL, modelOf(gotato.ModelFacts{}), WithRetry(Retry{}), WithClassifier(phraseClassifier("x")))
 	_, err := client.Stream(context.Background(), gotato.ModelRequest{Messages: []gotato.Message{gotato.UserMessage("hi")}})
-	var gatewayErr *Error
-	if !errors.As(err, &gatewayErr) || !gatewayErr.Overflow {
+	var modelErr *Error
+	if !errors.As(err, &modelErr) || !modelErr.Overflow {
 		t.Fatalf("err = %v", err)
 	}
 }
@@ -127,8 +127,8 @@ func TestAWrappedClassifierReachesStreamErrors(t *testing.T) {
 	}
 	defer func() { _ = stream.Close() }()
 	_, err = collectEvents(t, stream)
-	var gatewayErr *Error
-	if !errors.As(err, &gatewayErr) || !gatewayErr.ContextOverflow() {
+	var modelErr *Error
+	if !errors.As(err, &modelErr) || !modelErr.ContextOverflow() {
 		t.Fatalf("err = %v", err)
 	}
 }
@@ -180,8 +180,8 @@ func TestResponsesStreamErrorNamesOverflow(t *testing.T) {
 		_, err = collectEvents(t, stream)
 		_ = stream.Close()
 		server.Close()
-		var gatewayErr *Error
-		if !errors.As(err, &gatewayErr) || !gatewayErr.ContextOverflow() {
+		var modelErr *Error
+		if !errors.As(err, &modelErr) || !modelErr.ContextOverflow() {
 			t.Fatalf("%s: err = %v", event, err)
 		}
 	}
@@ -200,8 +200,8 @@ func TestAnthropicStreamErrorNamesOverflow(t *testing.T) {
 	}
 	defer func() { _ = stream.Close() }()
 	_, err = collectEvents(t, stream)
-	var gatewayErr *Error
-	if !errors.As(err, &gatewayErr) || !gatewayErr.ContextOverflow() {
+	var modelErr *Error
+	if !errors.As(err, &modelErr) || !modelErr.ContextOverflow() {
 		t.Fatalf("err = %v", err)
 	}
 }

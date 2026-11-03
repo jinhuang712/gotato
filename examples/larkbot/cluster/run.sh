@@ -1,5 +1,5 @@
 #!/bin/sh
-# A local kind cluster with three bot replicas, a fake Lark in front and Gotato's fake model endpoint (internal/fakegateway) as the model.
+# A local kind cluster with three bot replicas, a fake Lark in front and Gotato's fake model endpoint (internal/fakemodel) as the model.
 #   cluster/run.sh up       create the cluster (if missing), build and load the images, apply, wait ready
 #   cluster/run.sh smoke    one message, one card, one Transcript
 #   cluster/run.sh s1       rolling deploy with Runs in flight
@@ -14,7 +14,7 @@
 #   cluster/run.sh s8       tool search: is a tool the model loaded still loaded on the pod that takes the Session over?
 #   cluster/run.sh tools LIST   restart the bot with -tools LIST (export,mcp,mcp-search) and the scripted model; no list = the defaults
 #   (s7 and s8 restart the bot with their own -tools and -script flags; `up` again restores the defaults for smoke and s1-s5)
-#   cluster/run.sh status | logs [larkbot|fakelark|fakemcp|fakegateway] | down
+#   cluster/run.sh status | logs [larkbot|fakelark|fakemcp|fakemodel] | down
 # Run it from a clean clone of Gotato: the image build takes the repo root as its context, because go.mod replaces Gotato
 # and its adapters with the local checkout. Nothing connects to the real Lark. Your own kubectl context is never touched: the cluster has its own
 # kubeconfig file (cluster/.state/kubeconfig), and every kubectl call here names it and the context kind-gotato.
@@ -61,12 +61,12 @@ cmd_up() {
 
 	t=$(tag)
 	say "building images, tag $t"
-	for img in larkbot fakelark fakemcp fakegateway; do
+	for img in larkbot fakelark fakemcp fakemodel; do
 		docker build -q -f "$here/Dockerfile" --target "$img" -t "$img:$t" "$root" >/dev/null
 		echo "built $img:$t ($(docker image inspect "$img:$t" --format '{{.Size}}' | awk '{printf "%.1f MB", $1/1e6}'))"
 	done
 	say "loading images into kind"
-	kind load docker-image --name "$name" "larkbot:$t" "fakelark:$t" "fakemcp:$t" "fakegateway:$t"
+	kind load docker-image --name "$name" "larkbot:$t" "fakelark:$t" "fakemcp:$t" "fakemodel:$t"
 
 	echo "$t" >"$state/tag"
 	apply_all "$t" "${TOOLS:-}"
@@ -79,12 +79,12 @@ apply_all() {
 	script=false; [ -n "$tools" ] && script=true
 	say "applying manifests (bot -tools='$tools')"
 	k apply -f "$here/namespace.yaml" >/dev/null
-	for f in fakegateway fakelark fakemcp larkbot; do
+	for f in fakemodel fakelark fakemcp larkbot; do
 		sed -e "s/__TAG__/$t/g" -e "s/__RETRY_BUDGET__/${RETRY_BUDGET:-20s}/g" -e "s/__ACK_DELAY__/${ACK_DELAY:-0s}/g" \
 			-e "s/__TOOLS__/$tools/g" -e "s/__SCRIPT__/$script/g" -e "s/__MCP_STATELESS__/${MCP_STATELESS:-false}/g" -e "s/__MCP_TRACE__/${MCP_TRACE:-false}/g" -e "s/__MCP_DRAIN__/${MCP_DRAIN:-0s}/g" "$here/$f.yaml" | kn apply -f -
 	done
 	say "waiting for rollouts"
-	for d in fakegateway fakelark fakemcp larkbot; do kn rollout status "deployment/$d" --timeout=180s; done
+	for d in fakemodel fakelark fakemcp larkbot; do kn rollout status "deployment/$d" --timeout=180s; done
 }
 
 # with_tools re-applies the manifests with the bot's -tools set to $1, for the scenarios that need them.

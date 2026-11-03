@@ -1,4 +1,4 @@
-package fakegateway_test
+package fakemodel_test
 
 import (
 	"bufio"
@@ -13,7 +13,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/jinhuang712/gotato/internal/fakegateway"
+	"github.com/jinhuang712/gotato/internal/fakemodel"
 )
 
 // The tests here speak raw HTTP, so they check the fake against the wire
@@ -97,17 +97,17 @@ var apis = []struct {
 	name, path string
 	body       func(text string, extra map[string]any) map[string]any
 }{
-	{fakegateway.APIAnthropic, "/v1/messages", func(text string, extra map[string]any) map[string]any {
+	{fakemodel.APIAnthropic, "/v1/messages", func(text string, extra map[string]any) map[string]any {
 		b := map[string]any{"model": "claude-sonnet-5-5", "max_tokens": 1000, "stream": true, "messages": []any{user(text)}}
 		maps.Copy(b, extra)
 		return b
 	}},
-	{fakegateway.APIResponses, "/v1/responses", func(text string, extra map[string]any) map[string]any {
+	{fakemodel.APIResponses, "/v1/responses", func(text string, extra map[string]any) map[string]any {
 		b := map[string]any{"model": "gpt-6", "stream": true, "store": false, "input": []any{user(text)}}
 		maps.Copy(b, extra)
 		return b
 	}},
-	{fakegateway.APIChat, "/v1/chat/completions", func(text string, extra map[string]any) map[string]any {
+	{fakemodel.APIChat, "/v1/chat/completions", func(text string, extra map[string]any) map[string]any {
 		b := map[string]any{"model": "gpt-6", "stream": true, "stream_options": map[string]any{"include_usage": true}, "messages": []any{user(text)}}
 		maps.Copy(b, extra)
 		return b
@@ -116,13 +116,13 @@ var apis = []struct {
 
 func TestPlainReplyOnEachWireAPI(t *testing.T) {
 	finals := map[string][]string{
-		fakegateway.APIAnthropic: {"message_stop", "text_delta", `"stop_reason":"end_turn"`},
-		fakegateway.APIResponses: {"response.completed", "response.output_text.delta", `"cached_tokens":0`},
-		fakegateway.APIChat:      {"[DONE]", `"finish_reason":"stop"`, `"prompt_tokens"`},
+		fakemodel.APIAnthropic: {"message_stop", "text_delta", `"stop_reason":"end_turn"`},
+		fakemodel.APIResponses: {"response.completed", "response.output_text.delta", `"cached_tokens":0`},
+		fakemodel.APIChat:      {"[DONE]", `"finish_reason":"stop"`, `"prompt_tokens"`},
 	}
 	for _, api := range apis {
 		t.Run(api.name, func(t *testing.T) {
-			srv := httptest.NewServer(fakegateway.New())
+			srv := httptest.NewServer(fakemodel.New())
 			defer srv.Close()
 			r := post(t, srv, api.path, nil, api.body("hello there", nil))
 			if r.status != 200 || r.err != nil {
@@ -143,15 +143,15 @@ func TestPlainReplyOnEachWireAPI(t *testing.T) {
 func TestUnknownDirectiveAndBadValuesAreA400(t *testing.T) {
 	for _, api := range apis {
 		for _, text := range []string{"hi [quirk:overflw]", "hi [quirk:delay=soon]", "hi [quirk:cached]", "hi [quirk:cut-after-text=x]"} {
-			srv := httptest.NewServer(fakegateway.New())
+			srv := httptest.NewServer(fakemodel.New())
 			r := post(t, srv, api.path, nil, api.body(text, nil))
 			srv.Close()
-			if r.status != 400 || !strings.Contains(r.body, "fakegateway:") {
+			if r.status != 400 || !strings.Contains(r.body, "fakemodel:") {
 				t.Errorf("%s %q: %d %s", api.name, text, r.status, r.body)
 			}
 		}
-		srv := httptest.NewServer(fakegateway.New())
-		r := post(t, srv, api.path, map[string]string{fakegateway.QuirkHeader: "nonsense"}, api.body("hi", nil))
+		srv := httptest.NewServer(fakemodel.New())
+		r := post(t, srv, api.path, map[string]string{fakemodel.QuirkHeader: "nonsense"}, api.body("hi", nil))
 		srv.Close()
 		if r.status != 400 {
 			t.Errorf("%s header typo: %d %s", api.name, r.status, r.body)
@@ -161,13 +161,13 @@ func TestUnknownDirectiveAndBadValuesAreA400(t *testing.T) {
 
 func TestOverflowIsRefusedInEachProvidersWords(t *testing.T) {
 	want := map[string][]string{
-		fakegateway.APIAnthropic: {`"type":"invalid_request_error"`, "prompt is too long: 210001 tokens > 200000 maximum"},
-		fakegateway.APIResponses: {`"code":"context_length_exceeded"`, "Your input exceeds the context window of this model."},
-		fakegateway.APIChat:      {`"code":"context_length_exceeded"`, "This model's maximum context length is 200000 tokens. However, your messages resulted in 210001 tokens."},
+		fakemodel.APIAnthropic: {`"type":"invalid_request_error"`, "prompt is too long: 210001 tokens > 200000 maximum"},
+		fakemodel.APIResponses: {`"code":"context_length_exceeded"`, "Your input exceeds the context window of this model."},
+		fakemodel.APIChat:      {`"code":"context_length_exceeded"`, "This model's maximum context length is 200000 tokens. However, your messages resulted in 210001 tokens."},
 	}
 	for _, api := range apis {
 		t.Run(api.name, func(t *testing.T) {
-			g := fakegateway.New()
+			g := fakemodel.New()
 			srv := httptest.NewServer(g)
 			defer srv.Close()
 			r := post(t, srv, api.path, nil, api.body("hi [quirk:overflow]", nil))
@@ -180,7 +180,7 @@ func TestOverflowIsRefusedInEachProvidersWords(t *testing.T) {
 				}
 			}
 			// The header does the same.
-			if r := post(t, srv, api.path, map[string]string{fakegateway.QuirkHeader: "overflow"}, api.body("hi", nil)); r.status != 400 {
+			if r := post(t, srv, api.path, map[string]string{fakemodel.QuirkHeader: "overflow"}, api.body("hi", nil)); r.status != 400 {
 				t.Errorf("header: %d", r.status)
 			}
 			if got := g.Requests(); got[0].Outcome != "refused" || got[0].UserText != "hi" || got[0].Quirks["overflow"] != "" {
@@ -192,7 +192,7 @@ func TestOverflowIsRefusedInEachProvidersWords(t *testing.T) {
 
 func TestOverflowOnceThenAnswers(t *testing.T) {
 	for _, api := range apis {
-		srv := httptest.NewServer(fakegateway.New())
+		srv := httptest.NewServer(fakemodel.New())
 		first := post(t, srv, api.path, nil, api.body("hi [quirk:overflow=once]", nil))
 		second := post(t, srv, api.path, nil, api.body("hi [quirk:overflow=once]", nil))
 		srv.Close()
@@ -204,13 +204,13 @@ func TestOverflowOnceThenAnswers(t *testing.T) {
 
 func TestARequestPastTheWindowIsRefusedAndAMaxTokensPastTheLimitIsNotAnOverflow(t *testing.T) {
 	for _, api := range apis {
-		srv := httptest.NewServer(fakegateway.New(fakegateway.WithWindow(300), fakegateway.WithMaxOutput(500)))
+		srv := httptest.NewServer(fakemodel.New(fakemodel.WithWindow(300), fakemodel.WithMaxOutput(500)))
 		long := post(t, srv, api.path, nil, api.body(strings.Repeat("word ", 400), map[string]any{"max_tokens": 100}))
 		if long.status != 400 || !strings.Contains(long.body, "too long") && !strings.Contains(long.body, "context") {
 			t.Errorf("%s long: %d %s", api.name, long.status, long.body)
 		}
 		extra := map[string]any{"max_tokens": 99999, "max_output_tokens": 99999}
-		if api.name == fakegateway.APIAnthropic {
+		if api.name == fakemodel.APIAnthropic {
 			delete(extra, "max_output_tokens")
 		}
 		big := post(t, srv, api.path, nil, api.body("hi", extra))
@@ -224,12 +224,12 @@ func TestARequestPastTheWindowIsRefusedAndAMaxTokensPastTheLimitIsNotAnOverflow(
 
 func TestMidstreamOverflow(t *testing.T) {
 	want := map[string]string{
-		fakegateway.APIAnthropic: `"stop_reason":"model_context_window_exceeded"`,
-		fakegateway.APIResponses: `"type":"error"`,
-		fakegateway.APIChat:      `"code":"context_length_exceeded"`,
+		fakemodel.APIAnthropic: `"stop_reason":"model_context_window_exceeded"`,
+		fakemodel.APIResponses: `"type":"error"`,
+		fakemodel.APIChat:      `"code":"context_length_exceeded"`,
 	}
 	for _, api := range apis {
-		srv := httptest.NewServer(fakegateway.New())
+		srv := httptest.NewServer(fakemodel.New())
 		r := post(t, srv, api.path, nil, api.body("hi [quirk:overflow-midstream]", nil))
 		failed := post(t, srv, "/v1/responses", nil, apis[1].body("hi [quirk:overflow-midstream=failed]", nil))
 		srv.Close()
@@ -247,12 +247,12 @@ func TestMidstreamOverflow(t *testing.T) {
 
 func TestCutAfterTextAndInArgumentsThenAnswers(t *testing.T) {
 	tools := map[string]any{
-		fakegateway.APIAnthropic: []any{map[string]any{"name": "echo", "input_schema": map[string]any{"type": "object", "properties": map[string]any{"value": map[string]any{"type": "string"}}}}},
-		fakegateway.APIResponses: []any{map[string]any{"type": "function", "name": "echo", "parameters": map[string]any{"type": "object", "properties": map[string]any{"value": map[string]any{"type": "string"}}}}},
-		fakegateway.APIChat:      []any{map[string]any{"type": "function", "function": map[string]any{"name": "echo", "parameters": map[string]any{"type": "object", "properties": map[string]any{"value": map[string]any{"type": "string"}}}}}},
+		fakemodel.APIAnthropic: []any{map[string]any{"name": "echo", "input_schema": map[string]any{"type": "object", "properties": map[string]any{"value": map[string]any{"type": "string"}}}}},
+		fakemodel.APIResponses: []any{map[string]any{"type": "function", "name": "echo", "parameters": map[string]any{"type": "object", "properties": map[string]any{"value": map[string]any{"type": "string"}}}}},
+		fakemodel.APIChat:      []any{map[string]any{"type": "function", "function": map[string]any{"name": "echo", "parameters": map[string]any{"type": "object", "properties": map[string]any{"value": map[string]any{"type": "string"}}}}}},
 	}
 	for _, api := range apis {
-		srv := httptest.NewServer(fakegateway.New())
+		srv := httptest.NewServer(fakemodel.New())
 		for _, text := range []string{"a long enough question [quirk:cut-after-text]", "use-tool [quirk:cut-in-args]"} {
 			body := api.body(text, map[string]any{"tools": tools[api.name]})
 			cut := post(t, srv, api.path, nil, body)
@@ -273,12 +273,12 @@ func TestCutAfterTextAndInArgumentsThenAnswers(t *testing.T) {
 
 func TestCachedTokensInEachProvidersField(t *testing.T) {
 	want := map[string]string{
-		fakegateway.APIAnthropic: `"cache_read_input_tokens":1200`,
-		fakegateway.APIResponses: `"input_tokens_details":{"cached_tokens":1200}`,
-		fakegateway.APIChat:      `"prompt_tokens_details":{"audio_tokens":0,"cached_tokens":1200}`,
+		fakemodel.APIAnthropic: `"cache_read_input_tokens":1200`,
+		fakemodel.APIResponses: `"input_tokens_details":{"cached_tokens":1200}`,
+		fakemodel.APIChat:      `"prompt_tokens_details":{"audio_tokens":0,"cached_tokens":1200}`,
 	}
 	for _, api := range apis {
-		srv := httptest.NewServer(fakegateway.New())
+		srv := httptest.NewServer(fakemodel.New())
 		r := post(t, srv, api.path, nil, api.body(strings.Repeat("filler text ", 400)+"[quirk:cached=1200]", nil))
 		srv.Close()
 		if !strings.Contains(r.body, want[api.name]) {
@@ -288,7 +288,7 @@ func TestCachedTokensInEachProvidersField(t *testing.T) {
 }
 
 func TestChatSendsNoUsageUnlessAsked(t *testing.T) {
-	srv := httptest.NewServer(fakegateway.New())
+	srv := httptest.NewServer(fakemodel.New())
 	defer srv.Close()
 	r := post(t, srv, "/v1/chat/completions", nil, map[string]any{"model": "m", "stream": true, "messages": []any{user("hi")}})
 	if strings.Contains(r.body, "prompt_tokens") {
@@ -297,7 +297,7 @@ func TestChatSendsNoUsageUnlessAsked(t *testing.T) {
 }
 
 func TestDelayHonorsCancellation(t *testing.T) {
-	srv := httptest.NewServer(fakegateway.New())
+	srv := httptest.NewServer(fakemodel.New())
 	defer srv.Close()
 	for _, api := range apis {
 		ctx, cancel := context.WithTimeout(context.Background(), 150*time.Millisecond)
@@ -325,7 +325,7 @@ func TestDelayHonorsCancellation(t *testing.T) {
 }
 
 func TestRequestsAreRecorded(t *testing.T) {
-	g := fakegateway.New()
+	g := fakemodel.New()
 	srv := httptest.NewServer(g)
 	defer srv.Close()
 	post(t, srv, "/v1/responses", map[string]string{"session-id": "s1"}, apis[1].body("record me", map[string]any{"prompt_cache_key": "k1"}))
@@ -334,7 +334,7 @@ func TestRequestsAreRecorded(t *testing.T) {
 		t.Fatalf("%d requests", len(got))
 	}
 	r := got[0]
-	if r.API != fakegateway.APIResponses || r.Method != "POST" || r.Path != "/v1/responses" || r.Header.Get("session-id") != "s1" ||
+	if r.API != fakemodel.APIResponses || r.Method != "POST" || r.Path != "/v1/responses" || r.Header.Get("session-id") != "s1" ||
 		r.JSON["prompt_cache_key"] != "k1" || r.UserText != "record me" || r.Status != 200 || r.Outcome != "ok" || len(r.Body) == 0 {
 		t.Fatalf("recorded %+v", r)
 	}
@@ -345,7 +345,7 @@ func TestRequestsAreRecorded(t *testing.T) {
 }
 
 func TestAuthAndMalformedToolLoopsAreRefused(t *testing.T) {
-	srv := httptest.NewServer(fakegateway.New())
+	srv := httptest.NewServer(fakemodel.New())
 	defer srv.Close()
 	for _, api := range apis {
 		req, _ := http.NewRequest(http.MethodPost, srv.URL+api.path, strings.NewReader("{}"))
@@ -359,9 +359,9 @@ func TestAuthAndMalformedToolLoopsAreRefused(t *testing.T) {
 		}
 	}
 	orphan := map[string]map[string]any{
-		fakegateway.APIAnthropic: {"messages": []any{user("q"), map[string]any{"role": "user", "content": []any{map[string]any{"type": "tool_result", "tool_use_id": "t1", "content": "x"}}}}},
-		fakegateway.APIResponses: {"input": []any{user("q"), map[string]any{"type": "function_call_output", "call_id": "c1", "output": "x"}}},
-		fakegateway.APIChat:      {"messages": []any{user("q"), map[string]any{"role": "tool", "tool_call_id": "c1", "content": "x"}}},
+		fakemodel.APIAnthropic: {"messages": []any{user("q"), map[string]any{"role": "user", "content": []any{map[string]any{"type": "tool_result", "tool_use_id": "t1", "content": "x"}}}}},
+		fakemodel.APIResponses: {"input": []any{user("q"), map[string]any{"type": "function_call_output", "call_id": "c1", "output": "x"}}},
+		fakemodel.APIChat:      {"messages": []any{user("q"), map[string]any{"role": "tool", "tool_call_id": "c1", "content": "x"}}},
 	}
 	for _, api := range apis {
 		r := post(t, srv, api.path, nil, api.body("q", orphan[api.name]))
@@ -374,7 +374,7 @@ func TestAuthAndMalformedToolLoopsAreRefused(t *testing.T) {
 // reasoningTurn runs the first request of a tool loop that reasons, and
 // returns the assistant side the next request must replay.
 func TestAnthropicThinkingMustBeReplayedAsReceived(t *testing.T) {
-	srv := httptest.NewServer(fakegateway.New())
+	srv := httptest.NewServer(fakemodel.New())
 	defer srv.Close()
 	tool := []any{map[string]any{"name": "echo", "input_schema": map[string]any{"type": "object", "properties": map[string]any{"value": map[string]any{"type": "string"}}}}}
 	first := post(t, srv, "/v1/messages", nil, apis[0].body("use-tool [quirk:reasoning]", map[string]any{"tools": tool}))
@@ -452,7 +452,7 @@ func TestAnthropicThinkingMustBeReplayedAsReceived(t *testing.T) {
 }
 
 func TestResponsesReasoningItemsMustBeReplayed(t *testing.T) {
-	srv := httptest.NewServer(fakegateway.New())
+	srv := httptest.NewServer(fakemodel.New())
 	defer srv.Close()
 	tool := []any{map[string]any{"type": "function", "name": "echo", "parameters": map[string]any{"type": "object", "properties": map[string]any{"value": map[string]any{"type": "string"}}}}}
 	body := apis[1].body("use-tool [quirk:reasoning]", map[string]any{"tools": tool, "include": []string{"reasoning.encrypted_content"}})
@@ -503,7 +503,7 @@ func TestResponsesReasoningItemsMustBeReplayed(t *testing.T) {
 }
 
 func TestChatReasoningContentMustBePassedBackInTheToolLoop(t *testing.T) {
-	srv := httptest.NewServer(fakegateway.New())
+	srv := httptest.NewServer(fakemodel.New())
 	defer srv.Close()
 	tool := []any{map[string]any{"type": "function", "function": map[string]any{"name": "echo", "parameters": map[string]any{"type": "object", "properties": map[string]any{"value": map[string]any{"type": "string"}}}}}}
 	first := post(t, srv, "/v1/chat/completions", nil, apis[2].body("use-tool [quirk:reasoning]", map[string]any{"tools": tool}))
@@ -527,7 +527,7 @@ func TestChatReasoningContentMustBePassedBackInTheToolLoop(t *testing.T) {
 }
 
 func TestMidConversationSystemMessages(t *testing.T) {
-	g := fakegateway.New()
+	g := fakemodel.New()
 	srv := httptest.NewServer(g)
 	defer srv.Close()
 	system := func(text string) map[string]any { return map[string]any{"role": "system", "content": text} }

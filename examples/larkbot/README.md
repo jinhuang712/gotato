@@ -90,7 +90,7 @@ curl -s -X POST localhost:9000/reset
 4. Publish a version of the app and add the bot to a chat.
 5. `cp .env.example .env`, fill `LARK_APP_ID` and `LARK_APP_SECRET` (`.env` is git-ignored), then `./run.sh`.
 
-`./run.sh` reads `$MODEL` (default `echo`), `$ADDR`, `$STORE`, `$DELAY` and `$LABEL`. For a real model use `-model gateway` with a gateway config file (copy [gateway.example.yaml](../../internal/cmd/gatewayconf/gateway.example.yaml); `$GOTATO_GATEWAY_CONFIG`, default `gateway.yaml`). The file states the model's window and endpoint, and the example reads it through `internal/cmd/gatewayconf`.
+`./run.sh` reads `$MODEL` (default `echo`), `$ADDR`, `$STORE`, `$DELAY` and `$LABEL`. For a real model use `-model gateway` with a gateway config file (copy [gateway.example.yaml](gateway.example.yaml); `$GOTATO_GATEWAY_CONFIG`, default `gateway.yaml`). The file states the model's window and endpoint, and the example reads it in [modelconf.go](modelconf.go), a small copy of what Gotato's own tools read, so the example imports nothing from the Gotato repository's `internal/`.
 
 ## Flags
 
@@ -139,7 +139,7 @@ For tests, `-script` plays `[script:NAME]` directives in a message with a script
 
 ## Run it on a local cluster
 
-Three bot replicas on a local [kind](https://kind.sigs.k8s.io/) cluster, one shared file store, a fake Lark in front (random delivery and redelivery) and Gotato's fake model endpoint (`internal/fakegateway`) as the model. Nothing connects to the real Lark or to a real model, and your own kubectl context is not touched: the cluster has its own kubeconfig in `cluster/.state/`, and every command names the context `kind-gotato`.
+Three bot replicas on a local [kind](https://kind.sigs.k8s.io/) cluster, one shared file store, a fake Lark in front (random delivery and redelivery) and Gotato's fake model endpoint (`internal/fakemodel`) as the model. Nothing connects to the real Lark or to a real model, and your own kubectl context is not touched: the cluster has its own kubeconfig in `cluster/.state/`, and every command names the context `kind-gotato`.
 
 You need Docker, `kind`, `kubectl` and Go. Any Docker works. From a clean clone of Gotato:
 
@@ -151,7 +151,7 @@ cluster/run.sh s1       # a scenario (below)
 cluster/run.sh down     # delete the cluster
 ```
 
-The image build takes the repository root as its context, because `go.mod` replaces Gotato and its adapters with the local checkout. The manifests are plain kubectl files in `cluster/*.yaml`. Image tags are `dev-<git sha>`, with `-dirty<hash>` for uncommitted changes. `cluster/run.sh status` shows the pods and `cluster/run.sh logs [larkbot|fakelark|fakemcp|fakegateway]` the logs.
+The image build takes the repository root as its context, because `go.mod` replaces Gotato and its adapters with the local checkout. The manifests are plain kubectl files in `cluster/*.yaml`. Image tags are `dev-<git sha>`, with `-dirty<hash>` for uncommitted changes. `cluster/run.sh status` shows the pods and `cluster/run.sh logs [larkbot|fakelark|fakemcp|fakemodel]` the logs.
 
 ### Scenarios
 

@@ -173,14 +173,14 @@ Several good options exist for building agents, and each makes a different choic
 The footprint follows from that choice. A program that imports each library's agent, runner, session store and HTTP server, and does nothing else, measures:
 
 ```text
-                                   Gotato    Google ADK for Go
-modules in the build graph         3         128
-non-standard-library packages      8         370
-binary, stripped                   8.7 MB    14.8 MB
-minimum Go version                 1.24      1.26.6
+                                   Gotato        Google ADK for Go
+modules in the build graph         3 (4 listed)  128
+non-standard-library packages      15            370
+binary, stripped                   10.6 MB       14.8 MB
+minimum Go version                 1.24          1.26.6
 ```
 
-Gotato measured 2026-10-28 with `bench/refservice/footprint.sh` (Go 1.27.1, Apple M5 Pro), on the reference service, which also imports the model bridge; ADK for Go v2.6.0 measured 2026-10-15 on an Apple M3.
+Gotato measured 2026-11-03 with `bench/refservice/footprint.sh` (Go 1.27.2, Apple M3), on the reference service, which also imports the model bridge; ADK for Go v2.6.0 measured 2026-10-15 on an Apple M3.
 
 ## What we don't want
 

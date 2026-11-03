@@ -1,4 +1,4 @@
-package fakegateway
+package fakemodel
 
 import (
 	"encoding/json"
@@ -81,7 +81,7 @@ func chatContentText(raw json.RawMessage) string {
 	return ""
 }
 
-func (c chatWire) parse(_ *Gateway, body []byte, h http.Header) (*parsed, *apiError) {
+func (c chatWire) parse(_ *Server, body []byte, h http.Header) (*parsed, *apiError) {
 	var req chatRequest
 	if err := json.Unmarshal(body, &req); err != nil {
 		return nil, c.invalid("We could not parse the JSON body of your request.")
@@ -117,7 +117,7 @@ func (c chatWire) parse(_ *Gateway, body []byte, h http.Header) (*parsed, *apiEr
 			}
 		case "tool":
 			if !pending[m.ToolCallID] {
-				return nil, openAIErr(http.StatusBadRequest, "Invalid parameter: messages with role 'tool' must be a response to a preceeding message with 'tool_calls'.", "messages.["+fmt.Sprint(i)+"].role", "") //nolint:misspell // the provider spells it so
+				return nil, openAIErr(http.StatusBadRequest, "Invalid parameter: messages with role 'tool' must be a response to a preceding message with 'tool_calls'.", "messages.["+fmt.Sprint(i)+"].role", "") //nolint:misspell // the provider spells it so
 			}
 			delete(pending, m.ToolCallID)
 			p.events = append(p.events, event{toolResult: true, text: chatContentText(m.Content)})

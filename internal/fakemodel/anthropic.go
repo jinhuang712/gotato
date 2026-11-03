@@ -1,4 +1,4 @@
-package fakegateway
+package fakemodel
 
 import (
 	"crypto/sha256"
@@ -118,7 +118,7 @@ func contentBlocks(raw json.RawMessage) ([]map[string]any, error) {
 	return blocks, nil
 }
 
-func (a anthropicWire) parse(_ *Gateway, body []byte, h http.Header) (*parsed, *apiError) {
+func (a anthropicWire) parse(_ *Server, body []byte, h http.Header) (*parsed, *apiError) {
 	var req anthropicRequest
 	if err := json.Unmarshal(body, &req); err != nil {
 		return nil, a.invalid("Request body is not valid JSON: " + err.Error())
@@ -414,7 +414,7 @@ func (a anthropicWire) validateReasoning(p *parsed) *apiError {
 		}
 	}
 	if hasUse && !dropped && (len(blocks) == 0 || (blocks[0]["type"] != "thinking" && blocks[0]["type"] != "redacted_thinking")) {
-		return a.invalid(fmt.Sprintf("messages.%d.content.0.type: Expected `thinking` or `redacted_thinking`, but found `%v`. When `thinking` is enabled, a final `assistant` message must start with a thinking block (preceeding the lastmost set of `tool_use` and `tool_result` blocks). We recommend you include thinking blocks from previous turns. To avoid this requirement, disable `thinking`. Please consult our documentation at https://docs.claude.com/en/docs/build-with-claude/extended-thinking", last, firstType(blocks))) //nolint:misspell // the provider spells it so
+		return a.invalid(fmt.Sprintf("messages.%d.content.0.type: Expected `thinking` or `redacted_thinking`, but found `%v`. When `thinking` is enabled, a final `assistant` message must start with a thinking block (preceding the lastmost set of `tool_use` and `tool_result` blocks). We recommend you include thinking blocks from previous turns. To avoid this requirement, disable `thinking`. Please consult our documentation at https://docs.claude.com/en/docs/build-with-claude/extended-thinking", last, firstType(blocks))) //nolint:misspell // the provider spells it so
 	}
 	return nil
 }

@@ -80,12 +80,12 @@ func TestStreamErrorsAreClassifiedAlikeOnEveryWire(t *testing.T) {
 			}
 			defer func() { _ = stream.Close() }()
 			_, err = collectEvents(t, stream)
-			var gatewayErr *Error
-			if !errors.As(err, &gatewayErr) {
+			var modelErr *Error
+			if !errors.As(err, &modelErr) {
 				t.Fatalf("err = %v, want *Error", err)
 			}
-			if gatewayErr.Retryable() != tc.retryable {
-				t.Fatalf("Retryable() = %v, want %v (%v)", gatewayErr.Retryable(), tc.retryable, err)
+			if modelErr.Retryable() != tc.retryable {
+				t.Fatalf("Retryable() = %v, want %v (%v)", modelErr.Retryable(), tc.retryable, err)
 			}
 			if got := requests.Load(); got != 1 {
 				t.Fatalf("requests = %d, want 1: a stream that started is never sent again by the Client", got)
@@ -131,12 +131,12 @@ func TestTransportErrorsRetryOnlyWhatCanPass(t *testing.T) {
 				t.Fatal(err)
 			}
 			_, err = client.Stream(context.Background(), gotato.ModelRequest{Messages: []gotato.Message{gotato.UserMessage("hi")}})
-			var gatewayErr *Error
-			if !errors.As(err, &gatewayErr) {
+			var modelErr *Error
+			if !errors.As(err, &modelErr) {
 				t.Fatalf("err = %v, want *Error", err)
 			}
-			if gatewayErr.Retryable() != tc.retryable {
-				t.Fatalf("Retryable() = %v, want %v", gatewayErr.Retryable(), tc.retryable)
+			if modelErr.Retryable() != tc.retryable {
+				t.Fatalf("Retryable() = %v, want %v", modelErr.Retryable(), tc.retryable)
 			}
 			want := int32(1)
 			if tc.retryable {

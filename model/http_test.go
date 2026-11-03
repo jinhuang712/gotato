@@ -14,7 +14,7 @@ import (
 	"github.com/jinhuang712/gotato/testkit"
 )
 
-func TestGatewayHonorsRetryAfter(t *testing.T) {
+func TestClientHonorsRetryAfter(t *testing.T) {
 	var calls atomic.Int32
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if calls.Add(1) == 1 {
@@ -47,7 +47,7 @@ func TestGatewayHonorsRetryAfter(t *testing.T) {
 	}
 }
 
-func TestGatewayDoesNotRetryTerminalQuota(t *testing.T) {
+func TestClientDoesNotRetryTerminalQuota(t *testing.T) {
 	var calls atomic.Int32
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		calls.Add(1)
@@ -60,19 +60,19 @@ func TestGatewayDoesNotRetryTerminalQuota(t *testing.T) {
 		t.Fatal(err)
 	}
 	_, err = client.Stream(context.Background(), gotato.ModelRequest{})
-	var gatewayErr *Error
-	if !errors.As(err, &gatewayErr) {
+	var modelErr *Error
+	if !errors.As(err, &modelErr) {
 		t.Fatalf("err = %v", err)
 	}
-	if gatewayErr.Retryable() {
-		t.Fatalf("terminal quota 429 marked retryable: %+v", gatewayErr)
+	if modelErr.Retryable() {
+		t.Fatalf("terminal quota 429 marked retryable: %+v", modelErr)
 	}
 	if calls.Load() != 1 {
 		t.Fatalf("HTTP attempts = %d, want 1", calls.Load())
 	}
 }
 
-func TestGatewayRetriesBeforeStreamStarts(t *testing.T) {
+func TestClientRetriesBeforeStreamStarts(t *testing.T) {
 	var calls atomic.Int32
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if calls.Add(1) == 1 {
@@ -175,7 +175,7 @@ func TestA200WithAJSONErrorBodySurfacesTheProvidersError(t *testing.T) {
 // A Client that calls the model again says so: the Session stores a
 // model_retried Event with the attempt, the wait, and why, without the
 // provider's own text.
-func TestGatewayRetryIsAnEvent(t *testing.T) {
+func TestClientRetryIsAnEvent(t *testing.T) {
 	var calls atomic.Int32
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if calls.Add(1) == 1 {

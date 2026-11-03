@@ -192,7 +192,7 @@ func transientTransport(err error) bool {
 // body says the request was longer than the model's context window. They are
 // the only place this package reads that out of prose: providers publish no
 // stable code for it on every wire API. They are matched against an error's
-// message, code and type. The list is short on purpose. internal/fakegateway
+// message, code and type. The list is short on purpose. internal/fakemodel
 // plays each provider's wording, which is the providers' documentation and
 // wording reports, not a live provider; a provider that words it differently
 // is reported as an ordinary failure, unless the team wraps DefaultClassifier

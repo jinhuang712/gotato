@@ -1,4 +1,4 @@
-package fakegateway
+package fakemodel
 
 import (
 	"crypto/sha256"
@@ -72,7 +72,7 @@ func (responsesWire) tooLong(_, _ int) *apiError {
 	return openAIErr(http.StatusBadRequest, "Your input exceeds the context window of this model. Please adjust your input and try again.", "input", "context_length_exceeded")
 }
 
-func (r responsesWire) parse(_ *Gateway, body []byte, h http.Header) (*parsed, *apiError) {
+func (r responsesWire) parse(_ *Server, body []byte, h http.Header) (*parsed, *apiError) {
 	var req responsesRequest
 	if err := json.Unmarshal(body, &req); err != nil {
 		return nil, r.invalid("We could not parse the JSON body of your request.")

@@ -1,4 +1,4 @@
-// Command fakegateway serves internal/fakegateway on a port, for a test that runs
+// Command fakemodel serves internal/fakemodel on a port, for a test that runs
 // outside the Go process, such as the local cluster. See the package
 // documentation for the endpoints and the quirks.
 package main
@@ -13,7 +13,7 @@ import (
 	"os/signal"
 	"time"
 
-	"github.com/jinhuang712/gotato/internal/fakegateway"
+	"github.com/jinhuang712/gotato/internal/fakemodel"
 )
 
 func main() {
@@ -24,7 +24,7 @@ func main() {
 
 	server := &http.Server{
 		Addr:              *addr,
-		Handler:           fakegateway.New(fakegateway.WithWindow(*window), fakegateway.WithMaxOutput(*maxOutput)),
+		Handler:           fakemodel.New(fakemodel.WithWindow(*window), fakemodel.WithMaxOutput(*maxOutput)),
 		ReadHeaderTimeout: 10 * time.Second,
 	}
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt)
@@ -35,9 +35,9 @@ func main() {
 		defer cancel()
 		_ = server.Shutdown(shutdown)
 	}()
-	fmt.Fprintln(os.Stderr, "fakegateway: listening on", *addr)
+	fmt.Fprintln(os.Stderr, "fakemodel: listening on", *addr)
 	if err := server.ListenAndServe(); err != nil && !errors.Is(err, http.ErrServerClosed) {
-		fmt.Fprintln(os.Stderr, "fakegateway:", err)
+		fmt.Fprintln(os.Stderr, "fakemodel:", err)
 		os.Exit(1)
 	}
 }

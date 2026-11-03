@@ -289,7 +289,7 @@ A writer of your own has four methods: `Name`, `WriteRecap`, `WithAgentModel(got
 type loggedRecap struct{ record.RecapWriter }
 
 func (l loggedRecap) WriteRecap(ctx context.Context, req record.RecapRequest) (gotato.Message, error) {
-	log.Printf("recap for segment %d", req.Number)
+	log.Printf("recap for segment %d", req.Segment)
 	return l.RecapWriter.WriteRecap(ctx, req)
 }
 

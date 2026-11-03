@@ -1,4 +1,4 @@
-package fakegateway_test
+package fakemodel_test
 
 import (
 	"encoding/json"
@@ -6,7 +6,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/jinhuang712/gotato/internal/fakegateway"
+	"github.com/jinhuang712/gotato/internal/fakemodel"
 )
 
 // The native form of deferred tools, from the documented shapes of each wire
@@ -36,7 +36,7 @@ func anthropicSearched(content any) []any {
 }
 
 func TestAnthropicDeferredToolsLoadByToolReference(t *testing.T) {
-	srv := httptest.NewServer(fakegateway.New())
+	srv := httptest.NewServer(fakemodel.New())
 	defer srv.Close()
 	path := "/v1/messages"
 	body := func(messages []any, tools []any) map[string]any {
@@ -87,7 +87,7 @@ func responsesDeferredTools() []any {
 }
 
 func TestResponsesDeferredToolsLoadByToolSearchOutput(t *testing.T) {
-	srv := httptest.NewServer(fakegateway.New())
+	srv := httptest.NewServer(fakemodel.New())
 	defer srv.Close()
 	path := "/v1/responses"
 	body := func(input []any, tools []any) map[string]any {

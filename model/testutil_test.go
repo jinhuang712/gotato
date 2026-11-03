@@ -13,7 +13,7 @@ import (
 	"time"
 
 	"github.com/jinhuang712/gotato/gotato"
-	"github.com/jinhuang712/gotato/internal/fakegateway"
+	"github.com/jinhuang712/gotato/internal/fakemodel"
 	"github.com/jinhuang712/gotato/testkit"
 )
 
@@ -62,7 +62,7 @@ func modelOf(facts gotato.ModelFacts) gotato.ModelConfig {
 	return gotato.ModelConfig{Name: "m", Facts: facts}
 }
 
-// endpointPaths are the paths the fake gateway serves each wire on.
+// endpointPaths are the paths the fake model endpoint serves each wire on.
 var endpointPaths = map[API]string{
 	APIChatCompletions:   "/v1/chat/completions",
 	APIResponses:         "/v1/responses",
@@ -110,18 +110,18 @@ func writeReply(t *testing.T, w http.ResponseWriter, lines []string) {
 	}
 }
 
-// fakeWires are the three wires as the fake gateway serves them. The Anthropic
+// fakeWires are the three wires as the fake model endpoint serves them. The Anthropic
 // and Responses models take back only the current Round's reasoning; the chat
 // model takes all of it.
 var fakeWires = []fakeWire{
-	{fakegateway.APIAnthropic, AnthropicMessages{}, gotato.ModelConfig{Name: "claude-sonnet-5-5", Facts: gotato.ModelFacts{Window: gotato.WindowTokens(200_000), RoundReasoning: true}}, endpointPaths[APIAnthropicMessages]},
-	{fakegateway.APIResponses, Responses{}, gotato.ModelConfig{Name: "gpt-6.1-sol", Facts: gotato.ModelFacts{Window: gotato.WindowTokens(200_000), RoundReasoning: true}}, endpointPaths[APIResponses]},
-	{fakegateway.APIChat, ChatCompletions{}, gotato.ModelConfig{Name: "deepseek-reasoner", Facts: gotato.ModelFacts{Window: gotato.WindowTokens(200_000)}}, endpointPaths[APIChatCompletions]},
+	{fakemodel.APIAnthropic, AnthropicMessages{}, gotato.ModelConfig{Name: "claude-sonnet-5-5", Facts: gotato.ModelFacts{Window: gotato.WindowTokens(200_000), RoundReasoning: true}}, endpointPaths[APIAnthropicMessages]},
+	{fakemodel.APIResponses, Responses{}, gotato.ModelConfig{Name: "gpt-6.1-sol", Facts: gotato.ModelFacts{Window: gotato.WindowTokens(200_000), RoundReasoning: true}}, endpointPaths[APIResponses]},
+	{fakemodel.APIChat, ChatCompletions{}, gotato.ModelConfig{Name: "deepseek-reasoner", Facts: gotato.ModelFacts{Window: gotato.WindowTokens(200_000)}}, endpointPaths[APIChatCompletions]},
 }
 
-func newFake(t *testing.T, wire fakeWire, opts ...fakegateway.Option) (*fakegateway.Gateway, *Client) {
+func newFake(t *testing.T, wire fakeWire, opts ...fakemodel.Option) (*fakemodel.Server, *Client) {
 	t.Helper()
-	fake := fakegateway.New(opts...)
+	fake := fakemodel.New(opts...)
 	server := httptest.NewServer(fake)
 	t.Cleanup(server.Close)
 	return fake, newClientFor(t, wire.wire, server.URL+wire.path, wire.model)

@@ -7,7 +7,7 @@ import (
 	"strings"
 
 	"github.com/jinhuang712/gotato/gotato"
-	"github.com/jinhuang712/gotato/internal/fakegateway"
+	"github.com/jinhuang712/gotato/internal/fakemodel"
 	"github.com/jinhuang712/gotato/model"
 	"github.com/jinhuang712/gotato/testkit"
 )
@@ -100,7 +100,7 @@ func ExampleSession_SubscribeRun() {
 // an Anthropic key; here the endpoint is a fake endpoint that speaks the same
 // wire API, so the test needs no key and no network.
 func Example_modelAndTool() {
-	fake := httptest.NewServer(fakegateway.New())
+	fake := httptest.NewServer(fakemodel.New())
 	defer fake.Close()
 
 	// 1. A model: a wire API, where to send it, and what the model is.

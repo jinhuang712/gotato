@@ -15,7 +15,7 @@ import (
 	"github.com/jinhuang712/gotato/testkit"
 )
 
-// scriptModel is for the cluster scenarios (-script, test only). The fake gateway calls only the first tool,
+// scriptModel is for the cluster scenarios (-script, test only). The fake model endpoint calls only the first tool,
 // with one string argument, so it cannot load one tool of a catalog. A user message
 // that carries [script:NAME] is played here, from the request alone (the Messages of the Run say what it has
 // done, so any instance continues a Run the same way); every other message goes to the wrapped model.
@@ -27,7 +27,7 @@ import (
 //	[script:loaded]       say whether crm.get_invoice is loaded now
 //	[script:readseg]      read Segment 1 back with read_segment and report what came back
 //
-// [quirk:delay=D] holds every model call of the message D, as the fake gateway does for the others.
+// [quirk:delay=D] holds every model call of the message D, as the fake model endpoint does for the others.
 type scriptModel struct {
 	gotato.Model
 }

@@ -161,7 +161,7 @@ func TestChatStreamErrorIsSticky(t *testing.T) {
 	}
 }
 
-func TestGatewayStreamNormalizesTextAndUsage(t *testing.T) {
+func TestClientStreamNormalizesTextAndUsage(t *testing.T) {
 	var received chatRequest
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if got := r.Header.Get("Authorization"); got != "Bearer secret" {
@@ -214,7 +214,7 @@ func TestGatewayStreamNormalizesTextAndUsage(t *testing.T) {
 	}
 }
 
-func TestGatewayStreamReassemblesToolCall(t *testing.T) {
+func TestClientStreamReassemblesToolCall(t *testing.T) {
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Content-Type", "text/event-stream")
 		name := providerFunctionName("demo.echo")
@@ -254,7 +254,7 @@ func TestGatewayStreamReassemblesToolCall(t *testing.T) {
 // A call to a Tool that takes no arguments may stream with empty arguments.
 // It must reach Core as {}, or Core fails it as invalid JSON and the Tool can
 // never run.
-func TestGatewayStreamDefaultsEmptyToolArguments(t *testing.T) {
+func TestClientStreamDefaultsEmptyToolArguments(t *testing.T) {
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Content-Type", "text/event-stream")
 		_, _ = w.Write([]byte(`data: {"choices":[{"delta":{"tool_calls":[{"index":0,"id":"call-1","function":{"name":"now","arguments":""}}]},"finish_reason":"tool_calls"}]}` + "\n\n"))
