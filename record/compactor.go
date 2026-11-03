@@ -29,7 +29,7 @@ import (
 //   - Writes: one batch per store call. A part that fails, panics or breaks a
 //     rule below drops the compaction (ErrBadPart, a compaction_failed Event),
 //     not the Run. A part's argument is a copy.
-//   - Principle 2: the store lists every Segment in the Context, so none is
+//   - Guideline 2: the store lists every Segment in the Context, so none is
 //     dropped or moved; the tail is stretch[cut:] as committed, less
 //     reasoning (DropReasoning) and usage; the cut moves to a Turn boundary and
 //     keeps a Run's last Turn; a merge replaces two or more of the first

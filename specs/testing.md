@@ -78,4 +78,4 @@ Three tests break what a deploy breaks, and check that nothing is lost.
 - A release is measured on the same tasks as the last one, with the same numbers.
 
 ## See also
-[ARCHITECTURE.md](ARCHITECTURE.md), the principle [a Session can be stopped and seen](../DESIGNS.md#9-a-session-can-be-stopped-and-seen), [FEATURES.md](../FEATURES.md) (F14.6: Test kit), decisions [010](../plan/decisions/010-gotato-is-a-light-library-with-a-versioned-contract.md) and [013](../plan/decisions/013-a-conformance-suite-ships-with-the-store-contract.md).
+[ARCHITECTURE.md](ARCHITECTURE.md), the guideline [a Session can be stopped and seen](../DESIGNS.md#9-a-session-can-be-stopped-and-seen), [FEATURES.md](../FEATURES.md) (F14.6: Test kit), decisions [010](../plan/decisions/010-gotato-is-a-light-library-with-a-versioned-contract.md) and [013](../plan/decisions/013-a-conformance-suite-ships-with-the-store-contract.md).

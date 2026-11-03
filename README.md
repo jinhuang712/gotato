@@ -82,7 +82,7 @@ Start with the proposal to see why Gotato exists, and with the architecture to s
 |---|---|
 | [PROPOSAL.md](PROPOSAL.md) | why Gotato exists, and what it refuses to become |
 | [PHILOSOPHY.md](PHILOSOPHY.md) | the beliefs behind it |
-| [DESIGNS.md](DESIGNS.md) | the principles every change must satisfy |
+| [DESIGNS.md](DESIGNS.md) | the guidelines every change must satisfy |
 | [plan/GOALS.md](plan/GOALS.md) | what is checked, and when |
 | [FEATURES.md](FEATURES.md) | what it does, and what it will do |
 | [plan/ROADMAP.md](plan/ROADMAP.md) | when, and how far along |

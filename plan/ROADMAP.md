@@ -2,7 +2,7 @@
 
 **Current checkpoint:** [CP4: The 0.3.0 release](#cp4-the-030-release). The code of 0.3.0 is built and every objective but O11 was met again on 2026-11-03; what is left is the benchmarks, the live run, the check of O11 and the tags.
 
-The roadmap schedules what [GOALS.md](GOALS.md) checks and what [FEATURES.md](../FEATURES.md) marks as planned. It adds no feature. The principles are in [DESIGNS.md](../DESIGNS.md), and what is open is in [TODO.md](TODO.md).
+The roadmap schedules what [GOALS.md](GOALS.md) checks and what [FEATURES.md](../FEATURES.md) marks as planned. It adds no feature. The guidelines are in [DESIGNS.md](../DESIGNS.md), and what is open is in [TODO.md](TODO.md).
 
 ## Summary
 

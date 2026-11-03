@@ -2,7 +2,7 @@
 
 A message goes into a Session, and a settled result and a stream of Events come out. Between the two a Session is a Loop that calls the model and the tools it asks for, and every step counts only once the store holds it. Six terms carry this page. A **Run** is one request to a Session, from its input to its settled result. A **Turn** is one model call plus the tools it asked for. The **Record** is what the store keeps of a Session: an append-only log of everything that happened. The **Context** is what the model sees on one Turn. An **Event** is something that happened to a Session, stored in the Record and streamed to clients. An **Instance** is one running copy of your service.
 
-Gotato is designed around ten principles, in four groups. A principle is a question to ask of every new requirement. It is kept here without the forks that follow from it: each fork someone could reasonably reverse is a decision with its problem, its choice, what we did not choose and what it costs. Each principle below lists its decisions and the specs that show how it works.
+Gotato is designed around ten guidelines, in four groups. A guideline is a question to ask of every new requirement. It is kept here without the forks that follow from it: each fork someone could reasonably reverse is a decision with its problem, its choice, what we did not choose and what it costs. Each guideline below lists its decisions and the specs that show how it works.
 
 **What Gotato guarantees**
 
@@ -26,7 +26,7 @@ Gotato is designed around ten principles, in four groups. A principle is a quest
 
 10. **Each layer does one job, and each default can be replaced:** a user changes a behavior Gotato chose without forking it.
 
-The four guarantees are asked of every decision, whatever its principle: a decision about tools or Instances can still lose a step, change a byte already sent, or let the Context grow without bound. This page states the design we intend. Whether it is built is for FEATURES.md and ROADMAP.md to say.
+The four guarantees are asked of every decision, whatever its guideline: a decision about tools or Instances can still lose a step, change a byte already sent, or let the Context grow without bound. This page states the design we intend. Whether it is built is for FEATURES.md and ROADMAP.md to say.
 
 ## 1. The store is the only truth
 
@@ -85,7 +85,7 @@ It costs the features a team would have liked: what a Go service can do without 
 
 ## 6. Stay inside the boundary
 
-Gotato is a library inside your service. Routing, authentication, databases, telemetry and user interfaces are all needed, and your service already has them. Gotato does its own job well and leaves seams for theirs, and a transport such as HTTP is an optional adapter beside the layers and not part of them. Where *Keep subtracting* asks whether something is needed at all, this principle asks whose job it is: routing is needed, it is just not Gotato's.
+Gotato is a library inside your service. Routing, authentication, databases, telemetry and user interfaces are all needed, and your service already has them. Gotato does its own job well and leaves seams for theirs, and a transport such as HTTP is an optional adapter beside the layers and not part of them. Where *Keep subtracting* asks whether something is needed at all, this guideline asks whose job it is: routing is needed, it is just not Gotato's.
 
 It costs the batteries: a team supplies its own store, telemetry, authentication and clients, and Gotato keeps the seams for them stable.
 
@@ -107,7 +107,7 @@ It costs reach: Gotato does less than a general agent, and a team writes careful
 
 ## 8. No instance is special
 
-Gotato is designed for many Instances behind your load balancer. One Instance is the simplest case of that design, and a caller cannot tell which Instance served it. Instances coordinate only through the store, so no Instance holds anything another lacks. This principle adds the most machinery, so *Keep subtracting* applies inside it: Gotato picks the least machinery that is still correct on many Instances.
+Gotato is designed for many Instances behind your load balancer. One Instance is the simplest case of that design, and a caller cannot tell which Instance served it. Instances coordinate only through the store, so no Instance holds anything another lacks. This guideline adds the most machinery, so *Keep subtracting* applies inside it: Gotato picks the least machinery that is still correct on many Instances.
 
 It costs machinery that a single Instance would not need: a claim on each Session, a liveness record for each Instance and conditional writes in the store.
 
@@ -133,7 +133,7 @@ Gotato is a library, and a library is used in ways its authors did not foresee. 
 
 Wherever Gotato decides something for its user, such as where a definition comes from, when to compact, which wire API to speak or how to authenticate, the decision is a default behind a small interface. The user can replace it without forking Gotato or reimplementing the layer around it. A default may be held in code or loaded from a store, and both go through the same seam.
 
-Nothing a user plugs in can bypass a layer that owns a guarantee: an option cannot replace the part that writes the Record, and a value read from a store cannot raise an Agent above its cap. Each value has one owner and one typed way in, and any other way in is refused before anything is written, never dropped or overridden. *Keep subtracting* decides whether a behavior exists at all, and this principle decides how a behavior that exists is built.
+Nothing a user plugs in can bypass a layer that owns a guarantee: an option cannot replace the part that writes the Record, and a value read from a store cannot raise an Agent above its cap. Each value has one owner and one typed way in, and any other way in is refused before anything is written, never dropped or overridden. *Keep subtracting* decides whether a behavior exists at all, and this guideline decides how a behavior that exists is built.
 
 It costs a contract for every seam: each interface stays stable once it ships, and a replaceable part needs a frame that keeps the guarantees whatever it returns.
 
@@ -142,9 +142,9 @@ It costs a contract for every seam: each interface stays stable once it ships, a
 - **Decisions:** [003](plan/decisions/003-gotato-owns-the-shapes-and-adapters-own-storage.md) shapes and adapters; [009](plan/decisions/009-one-loop-extended-at-fixed-stages.md) one Loop, extended at fixed stages; [013](plan/decisions/013-a-conformance-suite-ships-with-the-store-contract.md) a conformance suite; [044](plan/decisions/044-an-agent-profile-and-a-task-spec-are-registered-inline-or-from-a-store.md) profiles inline or from a store; [045](plan/decisions/045-the-gateway-is-layered-and-each-layer-can-be-replaced.md) a model bridge in layers; [046](plan/decisions/046-compaction-is-a-fixed-frame-around-parts-a-user-can-replace.md) compaction as a frame with parts; [047](plan/decisions/047-a-value-a-layer-owns-is-set-only-through-that-layer.md) a value set only through its layer, any other way refused; [048](plan/decisions/048-the-runner-and-the-session-are-built-from-parts-and-host-plumbing-is-internal.md) parts with one job; [049](plan/decisions/049-the-store-contract-holds-only-what-every-store-must-do.md) the store contract; [050](plan/decisions/050-each-package-is-one-layer-named-for-its-job.md) one package per layer; [051](plan/decisions/051-a-session-is-opened-for-a-task-spec-when-it-is-created.md) a TaskSpec Session opened at create.
 - **How it works:** [who may set what](specs/session.md#who-may-set-what), [a Session's parts](specs/session.md#a-session-is-built-from-parts), [a Runner's parts](specs/host.md#a-runner-is-built-from-parts), [the model bridge](specs/model.md#the-model-bridge-is-four-layers), [the compaction frame](specs/compaction.md#the-frame-and-its-parts).
 
-## When principles collide
+## When guidelines collide
 
-When two principles pull apart, this order decides:
+When two guidelines pull apart, this order decides:
 
 1. **The store is the only truth.** A lost conversation breaks trust in the service.
 2. **A request only grows at its end.** What the model reads is most of what a Session costs, and a byte changed in the prefix makes the provider read everything after it again.

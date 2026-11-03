@@ -134,6 +134,7 @@ The terms come in three tiers. Read the first tier and you can use Gotato; read 
 
 | Term | Meaning | Not | In code |
 |---|---|---|---|
+| **Guideline** | One of the ten hard commitments in DESIGNS.md that the whole design must meet, each with the question it asks of a new requirement. A design breaks one guideline or none. | principle (the word decisions written before 2026-11-03 use) | no type |
 | **Layer** | A package that does one job and imports only the layers below it: `host`, then `profile`, then `store`, then `record`, then `gotato`, then `ref`. The model bridge, `testkit` and the Adapters sit beside the layers and import down. | tier | `gotato/layering_test.go` enforces the order. |
 | **Seam** | A small interface where Gotato ships a default and a user can plug in their own, without forking Gotato: the Store, a Model, a Wire API, a Part, a ToolSource. | hook, plugin | no type |
 | **Part** | One replaceable piece behind a Seam, with a default, inside a frame that keeps the guarantees whatever the Part returns. Compaction has Trigger, Cutter, Builder, RecapWriter and Picker. | module, stage (a stage is an Extension's place in the Loop) | |

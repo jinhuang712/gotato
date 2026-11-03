@@ -12,7 +12,7 @@ Read these in order when the window is new or was compacted. Each answers one qu
 |---|---|---|
 | 1 | [PROPOSAL.md](PROPOSAL.md) | Why Gotato exists, and what it refuses to become |
 | 2 | [PHILOSOPHY.md](PHILOSOPHY.md) | The beliefs every change follows |
-| 3 | [DESIGNS.md](DESIGNS.md) | The principles the design must always satisfy |
+| 3 | [DESIGNS.md](DESIGNS.md) | The guidelines the design must always satisfy |
 | 4 | [GLOSSARY.md](GLOSSARY.md) | One name per thing, and its name in today's code |
 | 5 | [plan/GOALS.md](plan/GOALS.md) | The goals that pass or fail, and the benchmarks tracked against a reference |
 | 6 | [FEATURES.md](FEATURES.md) | What it does and will do, with status marks, and what is not planned |
@@ -229,7 +229,7 @@ The status marks mean the same in every document:
 
 A lightweight Git policy for human contributors and coding agents. It is deliberately not an enterprise process.
 
-### Principles
+### Guidelines
 
 1. **Preserve history.** Never reinitialize the repository, rewrite shared history or force-push `main`.
 2. **Never destroy user work.** No `git reset --hard`, `git checkout -- .`, `git clean -f` or stash drop on a working tree you did not create. If the tree holds changes you did not make, leave them alone and mention the collision in your report.

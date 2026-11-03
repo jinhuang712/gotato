@@ -1,6 +1,6 @@
 # Gotato — Goals
 
-GOALS.md turns the wants in [PROPOSAL.md](../PROPOSAL.md) into checks, and keeps the last result of each with its date. Every goal serves a want of the proposal and a principle of [DESIGNS.md](../DESIGNS.md); ⭐ marks a core goal, one that serves a guarantee of the design. A goal stands all the time, and its check runs at the end of a checkpoint or before a release, never for a small change. [ROADMAP.md](ROADMAP.md) says when each goal first runs, and [TODO.md](TODO.md) holds what is open about a check.
+GOALS.md turns the wants in [PROPOSAL.md](../PROPOSAL.md) into checks, and keeps the last result of each with its date. Every goal serves a want of the proposal and a guideline of [DESIGNS.md](../DESIGNS.md); ⭐ marks a core goal, one that serves a guarantee of the design. A goal stands all the time, and its check runs at the end of a checkpoint or before a release, never for a small change. [ROADMAP.md](ROADMAP.md) says when each goal first runs, and [TODO.md](TODO.md) holds what is open about a check.
 
 An ID never changes, and its letter names its kind: O an objective, M a measure, B a benchmark, C a comparison and R a constraint. A new goal takes the next number of its kind.
 

@@ -10,7 +10,7 @@ import (
 // written on the wire. It holds the shape of one protocol and nothing else: a
 // wire never sends, retries or classifies, and nothing under it reads its
 // bytes, so the rule that a request only grows at its end (DESIGNS.md,
-// principle 2) is the wire's own to keep.
+// guideline 2) is the wire's own to keep.
 //
 // ChatCompletions, Responses and AnthropicMessages are the shipped wires. A
 // new protocol is one type outside Gotato, passed to New like these; it
