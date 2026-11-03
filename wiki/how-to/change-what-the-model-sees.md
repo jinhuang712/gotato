@@ -4,7 +4,7 @@
 
 By the end of this page you have chosen what the model reads on each Turn: your own builder, a transformer, a block of the system prompt, or a rewrite before the call. You need the [first page](../tutorials/getting-started.md).
 
-## ContextBuilder
+## Choose what the model sees
 
 A builder turns the Transcript into the Context of one Turn. The default, `gotato.FullHistoryContext()`, sends everything, which keeps the request prefix identical from Turn to Turn so the provider's prompt cache hits. Write your own only when you can say what the model should see instead. A function is enough:
 
@@ -27,15 +27,15 @@ func lastTen() gotato.ContextBuilder {
 
 Cutting history like this breaks the prompt cache. For a long Session, prefer Compaction, which closes a stretch into a Segment the model can read back.
 
-## ContextTransformer and MessageConverter
+## Reshape the Messages after the builder
 
 Both are Extension stages that run after the builder. A transformer selects, adds or prunes Messages; a converter adapts their shape for one provider. They change what the model sees on this Turn only, never the Transcript.
 
-## ContextBlock
+## Add a tagged block to the system prompt
 
 A tagged piece of the system prompt, rendered as `<tag attr="value">text</tag>`. A `ContextBuilder` fills `ModelContext.System` with them. The tag marks a boundary or where the text came from.
 
-## TurnPreparer
+## Rewrite the Transcript before a call
 
 An Extension stage before every model call, with no tool open. It may rewrite the Transcript and say so. The Runner's own compaction works this way.
 

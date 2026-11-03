@@ -4,7 +4,7 @@
 
 By the end of this page the model reads spilled results and old Segments from your store, at the page size you choose. You need [Tune compaction](tune-compaction.md).
 
-## ReadBack and Originals
+## Read originals from your own store
 
 A `gotato.ReadBack` is a `ToolSource` that also says `PageBytes() int`. It gives a Session its tools for reading back what left the Context, and the one page size that the spill threshold, the pages of a preview and both read tools share. Install it with `gotato.WithReadBack`; a Session spills a large Tool Result only with one installed (and a Transcript that keeps Entries). `record.ReadBack{Originals, PageSize, Location}` is the default and offers `read_result` and, once the Context holds a Segment, `read_segment`. A service installs it over its store, so most teams write nothing; one Agent that needs another sets `profile.AgentProfile.ReadBack`, and nil keeps the default. To read from your own store, supply `record.Originals`, and set the page size if 32 KiB (`record.DefaultPageBytes`) is not right:
 

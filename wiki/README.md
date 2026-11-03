@@ -8,8 +8,8 @@ How-to pages for people who use Gotato in a Go service. The wiki lives in the re
 |---|---|
 | try Gotato in ten minutes | [Getting started](tutorials/getting-started.md) |
 | keep conversations when a pod dies | [Run Sessions on many pods](how-to/run-sessions-on-many-pods.md) |
-| give the agent a tool | [Write a tool and a model](how-to/write-a-tool-and-model.md) |
-| call a model of my own | [Write a tool and a model](how-to/write-a-tool-and-model.md), [State what your model is](how-to/state-what-your-model-is.md) |
+| give the agent a tool | [Write a tool](how-to/write-a-tool.md) |
+| call a model of my own | [Wrap a model](how-to/wrap-a-model.md), [State what your model is](how-to/state-what-your-model-is.md) |
 | test my agent without a provider | [Test with fakes](how-to/test-with-fakes.md) |
 | serve the agent over HTTP | [Serve over HTTP](how-to/serve-over-http.md) |
 | stop a pod without losing a Run | [Shut down without losing a Run](how-to/shut-down-without-losing-a-run.md) |
@@ -35,20 +35,27 @@ One task on each page. Each assumes you have done [Getting started](tutorials/ge
 ### Build an agent
 
 - [Install](how-to/install.md): adding Gotato to your `go.mod`.
-- [Write a tool and a model](how-to/write-a-tool-and-model.md): a Tool, a ToolSet and a Model wrapper.
+- [Write a tool](how-to/write-a-tool.md): a function, an Effect, a type, an error the model reads.
+- [Group tools and supply them per Turn](how-to/group-and-supply-tools.md): a ToolSet, a ToolSource, your own search.
+- [Wrap a model](how-to/wrap-a-model.md): log, count or rewrite a call, and make a failure say what to do.
 - [State what your model is](how-to/state-what-your-model-is.md): its window, cache retention and reasoning rule.
-- [Add tools that change between Turns](how-to/add-tools-that-change-between-turns.md): sources, groups and your own search.
 - [Change what the model sees](how-to/change-what-the-model-sees.md): a builder, a transformer, a block, a rewrite.
 - [Get a structured answer](how-to/get-a-structured-answer.md): a value of a shape you choose.
+
+### Test it
+
 - [Test with fakes](how-to/test-with-fakes.md): scripted models and tools, no network.
+- [Test a tool and a model](how-to/test-a-tool-and-a-model.md): the tool and the wrapper you wrote, against a real Session.
+- [Test a Runner and its endpoint](how-to/test-a-runner-and-its-endpoint.md): in process and behind `httptest`.
 
 ### Run it in a service
 
 - [Run Sessions on many pods](how-to/run-sessions-on-many-pods.md): the Runner, a store and any pod.
 - [Register Agents and jobs](how-to/register-agents-and-jobs.md): in code or from your database.
 - [Serve over HTTP](how-to/serve-over-http.md): mount the handler.
+- [Forward messages to the writer](how-to/forward-messages-to-the-writer.md): name the writer, or forward to it.
+- [Tell an error apart](how-to/tell-an-error-apart.md): two headers decide a resend.
 - [Shut down without losing a Run](how-to/shut-down-without-losing-a-run.md): drain, then close.
-- [Write a store adapter](how-to/write-a-store-adapter.md): the Store contract and the suite that checks it.
 
 ### Keep it under control
 
@@ -57,6 +64,13 @@ One task on each page. Each assumes you have done [Getting started](tutorials/ge
 - [Limit Runs per tenant](how-to/limit-runs-per-tenant.md): decide whether a Run may start.
 - [Know who asked](how-to/know-who-asked.md): the caller in the `ctx`.
 - [Control who may touch a Session](how-to/control-who-may-touch-a-session.md): a wrapper around your store.
+
+### Write your own store
+
+- [Write a store adapter](how-to/write-a-store-adapter.md): the contract and a walk-through of an adapter.
+- [Prove a store adapter](how-to/prove-a-store-adapter.md): the conformance suite.
+- [Test a store on a real database](how-to/test-a-store-on-a-real-database.md): in CI, and on MongoDB.
+- [Write a definitions store](how-to/write-a-definitions-store.md): Agent and task definitions in your database.
 
 ### Go deeper
 

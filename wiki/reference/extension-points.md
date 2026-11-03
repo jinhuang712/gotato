@@ -87,15 +87,15 @@ Each row says what you want, the seam that does it, and where it lives. "Tier" t
 
 | Seam | Page |
 |---|---|
-| `gotato.Model` and its `Config` | [Write a tool and a model](../how-to/write-a-tool-and-model.md), [State what your model is](../how-to/state-what-your-model-is.md) |
-| `gotato.Tool` | [Write a tool and a model](../how-to/write-a-tool-and-model.md) |
-| `store.Records`, `store.Liveness`, `store.Lister` | [Write a store adapter](../how-to/write-a-store-adapter.md) |
+| `gotato.Model` and its `Config` | [Wrap a model](../how-to/wrap-a-model.md), [State what your model is](../how-to/state-what-your-model-is.md) |
+| `gotato.Tool` | [Write a tool](../how-to/write-a-tool.md) |
+| `store.Records`, `store.Liveness`, `store.Lister` | [Write a store adapter](../how-to/write-a-store-adapter.md), [Prove a store adapter](../how-to/prove-a-store-adapter.md) |
 | `gotato.ContextBuilder`, `ContextTransformer`, `MessageConverter`, `ContextBlock`, `TurnPreparer` | [Change what the model sees](../how-to/change-what-the-model-sees.md) |
 | `PreToolUse`, `PostToolUse`, `TurnStopper` | [Add checks and stops to the Loop](../how-to/add-checks-and-stops.md) |
 | a person before a step | [Ask a person before a step](../how-to/ask-a-person-before-a-step.md) |
 | `host.Bounds`, `host.Admitter` | [Limit Runs per tenant](../how-to/limit-runs-per-tenant.md) |
 | the caller's identity in `ctx` | [Know who asked](../how-to/know-who-asked.md) |
-| `gotato.ToolSet`, `ToolSource`, `ToolSearcher` | [Add tools that change between Turns](../how-to/add-tools-that-change-between-turns.md) |
+| `gotato.ToolSet`, `ToolSource`, `ToolSearcher` | [Group tools and supply them per Turn](../how-to/group-and-supply-tools.md) |
 | `profile.Registry`, `store.Definitions`, `profile.Catalog` | [Register Agents and jobs](../how-to/register-agents-and-jobs.md) |
 | `record.RecapWriter`, `MergeRecapWriter`, `Trigger`, `Cutter`, `Builder`, `Picker` | [Tune compaction](../how-to/tune-compaction.md) |
 | `record.SegmentStore`, `Transcript`, `Journal`, `EventSource` | [Compact your own Transcript](../how-to/compact-your-own-transcript.md) |

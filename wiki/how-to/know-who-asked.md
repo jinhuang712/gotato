@@ -4,7 +4,7 @@
 
 By the end of this page a tool or an extension knows which caller started the Run. You need [Run Sessions on many pods](run-sessions-on-many-pods.md).
 
-## Knowing who asked
+## Put the asker in the ctx
 
 A Tool cannot learn who asked from the request: `ToolUse` has no field for it, and nothing in `RunRequest` reaches it. `Metadata` applies when a Session is created, `Update` writes Session metadata, and `RequestID` goes only into `run_started`. What reaches `Before` and `Execute` is the caller's `ctx`. Put the asker into it before `Runner.Run`:
 

@@ -4,7 +4,7 @@
 
 By the end of this page the runtime knows your model's window, cache retention and reasoning rule, because you said so. You need the [first page](../tutorials/getting-started.md).
 
-## Model config
+## State the model's facts
 
 `Model.Config()` returns the facts the runtime reads, so compaction knows its limits. Gotato keeps no table of windows, and it guesses nothing from a model's name or address: the team states them.
 

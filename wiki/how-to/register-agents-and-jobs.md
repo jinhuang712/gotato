@@ -52,9 +52,9 @@ err = profiles.RegisterAgentProfileWithStore("support", defs)  // defs is a stor
 err = profiles.RegisterTaskSpecWithStore("nightly", defs)
 ```
 
-The stored document is data only (a model name, Tool names, numbers and text); it selects from the Catalog and never adds to it. Each name is registered once, and a row whose name is not registered is not a definition. [Write a store](write-a-store-adapter.md) says how to build `defs`.
+The stored document is data only (a model name, Tool names, numbers and text); it selects from the Catalog and never adds to it. Each name is registered once, and a row whose name is not registered is not a definition. `store.Definitions` is a store of documents by kind and name with two methods, `SaveDefinition` and `LoadDefinition` (`ErrNotFound` when none); it keeps bytes and is not a part of `store.Store`. `store.NewMemoryDefinitions` and `store.NewFileDefinitions(dir)` ship, and [Write a definitions store](write-a-definitions-store.md) says how to build your own.
 
-## The four registrations
+## The four ways to register
 
 A service registers the Agents it runs in a `profile.Registry`, which it gives to `host.Config.Profiles` ([decision 044](../../plan/decisions/044-an-agent-profile-and-a-task-spec-are-registered-inline-or-from-a-store.md)). There are four registrations, two for each kind of definition: inline, as a Go value, or from a store, by name. Each name is registered once, and a later registration replaces the earlier.
 
@@ -75,18 +75,9 @@ out, err := runner.Run(ctx, host.RunRequest{Task: "morning-report", Prompt: "Go.
 
 A TaskSpec only narrows its profile (a subset of the Tools, a lower Effect cap, a shorter timeout, a lower `MaxTokens`); one that widens is refused with `profile.ErrWidens`. A Session looks its AgentProfile up by name each time it is built, so a replaced profile reaches new Sessions and never a Run in flight.
 
-## Definitions and the Catalog
-
-`store.Definitions` is a store of documents by kind and name, which a service implements over its own database so that an AgentProfile or a TaskSpec lives there and not in code. It has two methods, `SaveDefinition` and `LoadDefinition` (`ErrNotFound` when none), keeps bytes, and is not a part of `store.Store`. The stored document is data only: a model name, Tool and ToolSet names, numbers and text. The `profile.Catalog`, built with `profile.NewCatalog(models, tools, toolSets)`, holds what those names can point to, so a stored definition selects what your code offers and never adds to it. A row whose name is not registered is not a definition. `store.NewMemoryDefinitions` and `store.NewFileDefinitions(dir)` ship, and `storetest.RunDefinitions` proves your own ([write a store](write-a-store-adapter.md)).
-
-```go
-catalog, err := profile.NewCatalog(map[string]gotato.Model{"main": m}, tools, toolSets)
-profiles := profile.NewRegistry(catalog)
-err = profiles.RegisterAgentProfileWithStore("support", defs) // defs is your store.Definitions
-```
 
 ## See also
 
 - [How profiles and tasks work](../../specs/profile.md)
 - [Agent profiles and tasks, as the user sees them](../../FEATURES.md#f3-agent-profiles-and-tasks)
-- [Write a store adapter, for the definitions seam](write-a-store-adapter.md)
+- [Write a definitions store](write-a-definitions-store.md)

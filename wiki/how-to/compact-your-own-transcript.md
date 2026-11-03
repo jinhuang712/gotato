@@ -4,9 +4,9 @@
 
 By the end of this page a Transcript that is not a `record.Record` can be compacted, and says what else it can do. You need [Tune compaction](tune-compaction.md).
 
-## SegmentStore
+## Implement a SegmentStore
 
-A `record.SegmentStore` is what a compaction reads and writes. `*record.Record` is one, so a Session over a `store.Store` compacts with no work. Implement it for a Transcript of your own (see [Transcript and its Capabilities](#transcript-and-its-capabilities)) that keeps the originals a Segment refers to:
+A `record.SegmentStore` is what a compaction reads and writes. `*record.Record` is one, so a Session over a `store.Store` compacts with no work. Implement it for a Transcript of your own (see [Transcript and its Capabilities](#declare-what-a-transcript-can-do)) that keeps the originals a Segment refers to:
 
 ```go
 type myStore struct{ /* your Transcript's state */ }
@@ -32,7 +32,7 @@ func (s *myStore) MergeSegments(why gotato.CompactionWhy, merged gotato.Segment,
 
 What the frame still guarantees: only it calls the two writes, one batch per call. `CloseSegment` lists every Segment of the Context itself (a caller cannot drop or move one) and sets the loaded Tools from `Compaction.LoadedTools` in the same step. A panic in your store is a dropped compaction, not a dead Run, and an error you return keeps its own code (a conflict stays a conflict).
 
-## Transcript and its Capabilities
+## Declare what a Transcript can do
 
 A `Transcript` is what `gotato.WithTranscript` takes, and it says what else it can do in one method, `Capabilities() gotato.Capabilities`:
 

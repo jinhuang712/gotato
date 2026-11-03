@@ -4,7 +4,7 @@
 
 By the end of this page a step that needs a person waits for one, or is handed over as a ticket. You need [Add checks and stops to the Loop](add-checks-and-stops.md).
 
-## Needs a person
+## Ask a person, or hand the step over
 
 Gotato has no built-in approval and no waiting state in the Loop ([decision 005](../../plan/decisions/005-no-approval-system.md)). Two ways to ask a person before a step:
 

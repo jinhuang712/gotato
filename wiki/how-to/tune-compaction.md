@@ -4,7 +4,7 @@
 
 By the end of this page you have changed when a Session compacts, where the kept tail starts, how a Segment reads, or who writes the Recap, and left the rest as it was.
 
-## RecapWriter
+## Have the model write the Recap
 
 A Recap is the end of a Segment, written when a Session compacts. With no writer, a Segment has none. `record.ModelRecap` has the Agent's own model write it on the cached prefix; `TruncateRecap` is the deterministic one for tests. Set it on the Agent's `Compactor`:
 
@@ -33,7 +33,7 @@ func (l loggedRecap) WithAgentModel(m gotato.Model) record.RecapWriter {
 
 Embedding the interface hides `WriteMergeRecap`, so merges of this writer get the digest built by code; add the method to write them too. The frame still appends your Recap escaped, so it cannot end its tag early, and a writer that fails leaves the Segment without a Recap, not without a compaction.
 
-## Compactor, Trigger and Cutter
+## Choose when to compact and where to cut
 
 Compaction is a frame, `record.Compactor`, around parts. You replace a part and keep the rest; a nil part is its default, so `record.Compactor{}` is how compaction behaved before the parts were named. `CompactPolicy` (embedded) holds only numbers: `CeilingTokens`, `WindowTokens`, `DropReasoning`, `SegmentBudgetTokens` and `Location`. [How the frame works](../../specs/compaction.md).
 
@@ -77,7 +77,7 @@ What the frame still guarantees: a Turn compacts at most once, whatever the Trig
 
 For one call, `record.CompactConfig` changes the numbers, `KeepMessages` (the Cutter becomes `TailBudget{KeepMessages}`) and the Recap writer; it does not need a part of its own.
 
-## Builder and Picker
+## Change how a Segment reads and how many merge
 
 A `Builder` renders the closed Messages as a Segment. Its settings live with it: `CodeSegments{SegmentSettings{MessageTokens, ToolLines, ArgChars}}`, so most teams change a number and write no code:
 
@@ -118,7 +118,7 @@ func (allButTwo) Pick(segments []gotato.Segment, _ int) int {
 
 The frame replaces two or more of the first Segments, never a later one. An answer of 1, or of more than there are, fails the merge with the reason `pick_failed` and nothing is merged; 0 merges nothing.
 
-## MergeRecapWriter
+## Write the Recap of merged Segments
 
 When the oldest Segments pass their budget they are merged into one (the Picker says how many). A `RecapWriter` that also has `WriteMergeRecap` writes the Recap of the merge (`ModelRecap` does). Any other writer leaves the merged Segment with a digest built by code.
 

@@ -11,7 +11,6 @@ By the end of this page you can test an agent, its tools and its HTTP endpoint w
 - [A model that must not be called too often](#a-model-that-must-not-be-called-too-often)
 - [A model that decides from the request](#a-model-that-decides-from-the-request)
 - [A model that fails](#a-model-that-fails)
-- [A Runner and its HTTP endpoint](#a-runner-and-its-http-endpoint)
 
 ## Which fake do I use?
 
@@ -225,76 +224,9 @@ func TestAModelThatFails(t *testing.T) {
 
 The Run settles as `failed` with the code `model_failure`, and the error is returned with it. The result is a value, so a test reads the status before the error.
 
-## A Runner and its HTTP endpoint
-
-A `host.Runner` takes the same fakes as an AgentProfile's `Model`, registered in a `profile.Registry`. Test the Runner in process, or put its handler behind `httptest.NewServer` and call it as a client would. The handler is `adapter/http`, a module of its own, imported as `httpapi` because the test imports `net/http` too (`go get github.com/jinhuang712/gotato/adapter/http`).
-
-```go
-func TestRunnerWithoutHTTP(t *testing.T) {
-	memory := store.NewMemoryStore()
-	profiles := profile.NewRegistry(nil)
-	_ = profiles.RegisterAgentProfileInline(profile.AgentProfile{Name: "default", Model: testkit.EchoModel{}})
-	runner, _ := host.New(host.Config{
-		Store:        store.Store{Records: memory, Liveness: memory},
-		Profiles:     profiles,
-		DefaultAgent: "default",
-	})
-	defer runner.Close(context.Background())
-	out, err := runner.Run(context.Background(), host.RunRequest{Prompt: "hi"})
-	if err != nil || out.FinalText != "echo: hi" {
-		t.Fatal(out, err)
-	}
-}
-```
-
-```go
-func TestARunOverHTTP(t *testing.T) {
-	memory := store.NewMemoryStore()
-	profiles := profile.NewRegistry(nil)
-	if err := profiles.RegisterAgentProfileInline(profile.AgentProfile{Name: "default", Model: testkit.NewFakeModel(testkit.Text("pong"))}); err != nil {
-		t.Fatal(err)
-	}
-	runner, err := host.New(host.Config{
-		Store:        store.Store{Records: memory, Liveness: memory},
-		Profiles:     profiles,
-		DefaultAgent: "default",
-	})
-	if err != nil {
-		t.Fatal(err)
-	}
-	t.Cleanup(func() { _ = runner.Close(context.Background()) })
-	server := httptest.NewServer(httpapi.New(runner))
-	defer server.Close()
-
-	// Create a Session, then run a prompt in it.
-	resp, err := http.Post(server.URL+"/v1/sessions", "application/json", strings.NewReader(`{}`))
-	if err != nil {
-		t.Fatal(err)
-	}
-	var created struct{ ID string }
-	_ = json.NewDecoder(resp.Body).Decode(&created)
-	resp.Body.Close()
-
-	resp, err = http.Post(server.URL+"/v1/sessions/"+created.ID+"/runs", "application/json", strings.NewReader(`{"prompt":"ping"}`))
-	if err != nil {
-		t.Fatal(err)
-	}
-	defer resp.Body.Close()
-	var out struct {
-		FinalText string `json:"final_text"`
-	}
-	_ = json.NewDecoder(resp.Body).Decode(&out)
-	if resp.StatusCode != 200 || out.FinalText != "pong" {
-		t.Fatalf("%d %q", resp.StatusCode, out.FinalText)
-	}
-}
-```
-
-- `go test -race ./...` is the check to run: a handler is concurrent by nature.
-- A test of the HTTP wire itself, such as an error table, asserts on the JSON and the `Gotato-Not-Run` and `Gotato-Retryable` headers, not on prose. See [HTTP in five minutes](http-in-five-minutes.md).
-- A test of a graceful shutdown starts a Run on a slow model, calls `runner.Drain`, and checks the Run `completed`: [A minimal main](../tutorials/a-minimal-main.md).
 
 ## Next
 
-- Write the tool and the model you test: [Write a tool and a model](write-a-tool-and-model.md).
+- Test a Runner and its HTTP handler: [Test a Runner and its endpoint](test-a-runner-and-its-endpoint.md).
+- Test the tool and the model you wrote: [Test a tool and a model](test-a-tool-and-a-model.md). Write them: [Write a tool](write-a-tool.md) and [Wrap a model](wrap-a-model.md).
 - What each Event means: [GLOSSARY.md](../../GLOSSARY.md).

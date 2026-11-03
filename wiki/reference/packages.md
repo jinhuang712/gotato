@@ -108,5 +108,5 @@ The order is `host`, `profile`, `store`, `record`, `gotato`, `ref`: a package im
 
 - [Getting started](../tutorials/getting-started.md) uses the core and a model.
 - [Embed Gotato in a service](../how-to/run-sessions-on-many-pods.md) adds `host`, `profile` and `store`.
-- [Write a Tool or a Model](../how-to/write-a-tool-and-model.md), [write a Store](../how-to/write-a-store-adapter.md), and [pick an extension point](extension-points.md).
+- [Write a tool](../how-to/write-a-tool.md), [wrap a model](../how-to/wrap-a-model.md), [write a Store](../how-to/write-a-store-adapter.md), and [pick an extension point](extension-points.md).
 - [HTTP in five minutes](http-in-five-minutes.md), a [minimal `main.go`](../tutorials/a-minimal-main.md), and [tests with fakes](../how-to/test-with-fakes.md).

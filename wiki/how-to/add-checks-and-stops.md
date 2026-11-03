@@ -4,7 +4,7 @@
 
 By the end of this page you have refused a tool call, changed its result, or ended a Run after a number of Turns, with an Extension. You need the [first page](../tutorials/getting-started.md).
 
-## Extension stages
+## Add behavior at the six stages
 
 An Extension is a value with one or more stage methods, installed with `gotato.WithExtension`. One value may implement several stages. The stages, in the order a Turn meets them:
 

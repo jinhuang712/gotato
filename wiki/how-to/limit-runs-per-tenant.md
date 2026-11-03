@@ -4,7 +4,7 @@
 
 By the end of this page your service decides whether a Run may start, for example with a limit for each tenant. You need [Run Sessions on many pods](run-sessions-on-many-pods.md).
 
-## Admission
+## Decide whether a Run may start
 
 Two things decide whether a Run starts on a pod, in this order ([decision 048](../../plan/decisions/048-the-runner-and-the-session-are-built-from-parts-and-host-plumbing-is-internal.md)).
 

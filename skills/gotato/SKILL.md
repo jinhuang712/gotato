@@ -15,7 +15,7 @@ Gotato is a minimal, synchronous Go library. An **Agent** is a definition (model
 | one in-process agent, a tool, Events | `wiki/tutorials/getting-started.md` |
 | many pods, a Store, shutdown | `wiki/how-to/run-sessions-on-many-pods.md`, `wiki/tutorials/a-minimal-main.md` |
 | an HTTP API you can curl | `wiki/tutorials/http-in-five-minutes.md` (`adapter/http`, a module of its own) |
-| your own Tool, ToolSet or Model | `wiki/how-to/write-a-tool-and-model.md` |
+| your own Tool, ToolSet or Model | `wiki/how-to/write-a-tool.md`, `wiki/how-to/group-and-supply-tools.md`, `wiki/how-to/wrap-a-model.md` |
 | your own database as the Store | `wiki/how-to/write-a-store-adapter.md` |
 | tests with no network | `wiki/how-to/test-with-fakes.md` |
 | change what the model sees, or hook a Turn | `wiki/reference/extension-points.md` |
