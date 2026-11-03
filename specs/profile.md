@@ -20,9 +20,9 @@ An AgentProfile is like a process and a TaskSpec like a thread of it. The first 
                 a subset of its Tools and ToolSets, a cap no higher, a timeout no longer, MaxTokens no higher
 ```
 
-- **Typed fields only.** A profile holds values, not options that run after the Runner's own, and the Runner builds every `SessionOption` from it. So nothing a profile or a stored row carries can replace the Writer or raise the Effect cap ([who may set what](session.md#who-may-set-what)).
+- **Typed fields only.** A profile holds values, not options that run after the Runner's own, and the Runner builds every `SessionOption` from it. So nothing a profile or a stored row carries can replace the Writer or raise the Effect cap (`session.md`, *Who may set what*).
 - **No Session state.** A profile is shared by every Session of its kind and holds no Run state. How the host keeps Sessions (`Config.Warm`, `Config.TimeAwayAfter`) is the host's setting, the same for every profile.
-- **Sampling, never Facts.** A profile or a TaskSpec sets Sampling hints only. What a model is, its window and its cache retention, belongs to the Model's own `ModelConfig` ([model.md](model.md)).
+- **Sampling, never Facts.** A profile or a TaskSpec sets Sampling hints only. What a model is, its window and its cache retention, belongs to the Model's own `ModelConfig` (`model.md`).
 
 ## Registering a definition
 
@@ -64,7 +64,7 @@ A TaskSpec may say less than its profile and never more. The check runs once the
 | Run timeout | no longer than the profile's, which is 30 minutes when it sets none |
 | `MaxTokens` | no higher; the other Sampling fields may differ |
 
-A TaskSpec that widens fails with `ErrWidens` (code `invalid_argument`) naming the bound, and a name neither the profile nor the Catalog knows fails with `ErrUnknownName`. Once it passes, the TaskSpec is applied: its Background goes after the instruction, after a blank line, its Tools and ToolSets replace the profile's, and its cap, timeout and Sampling go over it. A TaskSpec that names Tools drops the profile's ToolSources, whose Tools cannot be named. This is what keeps the Effect cap safe: whoever writes a row can only lower it ([tools.md](tools.md)).
+A TaskSpec that widens fails with `ErrWidens` (code `invalid_argument`) naming the bound, and a name neither the profile nor the Catalog knows fails with `ErrUnknownName`. Once it passes, the TaskSpec is applied: its Background goes after the instruction, after a blank line, its Tools and ToolSets replace the profile's, and its cap, timeout and Sampling go over it. A TaskSpec that names Tools drops the profile's ToolSources, whose Tools cannot be named. This is what keeps the Effect cap safe: whoever writes a row can only lower it (`tools.md`).
 
 ## A lookup for every build
 
