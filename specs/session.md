@@ -126,6 +126,39 @@ After every Turn the Loop decides whether to go on; the Run ends in one of five 
 
 The five endings are the final reply, the `ctx`, a `TurnStopper`, the compaction ceiling and a failure. The normal one is the first: the model answers with no Tool call and nothing waits, so the Run is `completed`. A reply cut at the output limit settles the Run as it stands unless `CoreLimits.MaxTruncatedContinuations` is set, which is off by default. The core counts no Turns and no Tool calls; a team that wants a cap writes a `TurnStopper`. The bottom lines can happen at any point, and `context.Context` is the only way to stop a Run, so an Abort reaches the model call, the Tool and the Store call together. A canceled Run still writes what it had committed, and an Abort writes `abort_requested` before `run_ended`. A Run whose last write fails is `failed` with `store_failure`, never `completed`.
 
+## Limits
+
+Each limit guards one failure that a real Session can hit, and a team sets them on the Agent ([decision 038](../plan/decisions/038-a-limit-guards-a-real-failure.md)). A zero field means its default, so a team sets only the ones it changes.
+
+```text
+ what could go wrong                      the limit that stops it           default
+ a load reads a history too big to hold   MaxMessages, MaxTranscriptBytes   10,000, 32 MiB
+ one reply fills memory while it streams  MaxMessageBytes                   4 MiB
+ messages pile up faster than Turns end   MaxSteerMessages, MaxFollowUp…,   8, 4, 16
+                                          MaxNotices
+ tools run together that never should     MaxParallelTools                  1
+ one call hangs and holds the Run         ModelCallDeadline,                2 min each
+                                          ToolCallDeadline
+ a tool floods its progress               1 MiB and 1,000 reports per call  fixed
+```
+
+The history limits count what a load reads and what the model is sent, so a Session past them fails to load rather than sending a request no provider takes. A reply is held to `MaxMessageBytes` while it streams: the call stops with `limit_exceeded` before the reply grows past it. A queue one past its bound refuses the message with `limit_exceeded`, and the message is never queued. A deadline ends one model call or one tool call, even a tool that ignores its context: the call fails with `deadline_exceeded`, and the Run goes on. A negative deadline means none, so only the Run's own context ends the call. Progress past its caps is dropped and the call goes on. `MaxTruncatedContinuations` is not a guard but a choice, and it is off by default.
+
+## When your code panics
+
+The Session calls code it does not own: the model, the Transcript and its Journal, every tool, tool set and tool source, every extension, and the host's own calls. Each of these calls goes through one guard that turns a panic into an error, so no call into your code can end the process or leave a lock held. A test walks the package's syntax and fails when a call into host code is not guarded.
+
+What the error costs depends on what panicked:
+
+| What panicked | What fails | Code |
+|---|---|---|
+| a tool's run | that call; the model reads a failed result, and the Run goes on | `tool_execution_failure` |
+| a tool set or a tool source | that source: a tool set is skipped for this Run, a tool source keeps its last tools | `tool_resolution_failure`, stored as a warning |
+| an extension | the Run, unless the extension is advisory | `extension_failure` |
+| the model, the Transcript, the Journal, the host's call at the start of a Run, the tool filter | the Run | the code of the call, or `internal_invariant` |
+
+The error's message is fixed text, such as "tool panic", because it reaches clients. What the code panicked with, and the stack, are on the error's cause, for logs. The Journal and the store are called under the Session's write lock, so they must not call back into the Session.
+
 ## Steer, FollowUp and Interrupt
 
 Three ways to reach a Run in flight; they differ in where the Message lands.
@@ -141,6 +174,34 @@ Three ways to reach a Run in flight; they differ in where the Message lands.
 ```
 
 A Steer lands after the Tool Results of the Turn that is running, or at settlement, where it keeps the Run going for one more Turn. An Interrupt cuts a model call short; a Tool in flight finishes first, and then it lands like a Steer. A FollowUp is used only where the Run would end, so it never changes a Run that is making progress. The queues are bounded, and each message is written as queued before it can be committed, so the Record never shows a commit with no queueing. A message the Run took and could not commit goes back to its queue, in its place by the order it was accepted, except the one whose commit failed, which is dropped (`commit_failed`). In the core, a message that reaches a Run already writing its end is refused with `invalid_state`; a Runner keeps it for the following Run instead.
+
+A message ends in one of three ways, each with its Event: committed, refused before it was queued, or dropped after it was queued. Every drop names why:
+
+| Why | When |
+|---|---|
+| `queue_full` | the queue was at its bound, so the message was refused and never queued |
+| `commit_failed` | the Run took it, and its commit failed |
+| `session_closed` | the live Session closed with it still queued |
+| `run_ended` | its Run was stopped or past its deadline, so no following Run starts |
+| `draining` | the instance drains, so no following Run starts here |
+| `writer_failed` | the Writer failed, so nothing more can be written |
+
+## Extensions at fixed stages
+
+The Loop is one loop, and an extension adds behavior at one of six fixed stages instead of forking it ([decision 009](../plan/decisions/009-one-loop-extended-at-fixed-stages.md)).
+
+```text
+ Turn ─▶ TurnPreparer ─▶ build the request ─▶ ContextTransformer ─▶ MessageConverter ─▶ model call
+           may rewrite                          may change the        converts Messages
+           the Transcript                       built request         for the model
+                                                                                  │
+ ◀─ TurnStopper ◀── commit ◀── PostToolUse ◀── run the tool ◀── PreToolUse ◀──────┘
+    may stop the Run              sees the result                 may refuse the call
+```
+
+A `TurnPreparer` runs before every model call with no tool call open, so it may rewrite the Transcript; automatic compaction is one. A `PreToolUse` that refuses a call answers it with a failed result the model reads. A `TurnStopper` ends the Run as `completed` and records why.
+
+Every stage runs on the Run's goroutine, so a slow extension slows the Run, and there is no observer stage: a reader of the Session subscribes to its Events. An error from a stage ends the Run: a Gotato error keeps its code, and any other is `extension_failure`. An extension that says it is advisory may fail without ending the Run, and its failure is stored as `extension_failed` with the stage. An extension whose `Advisory` method panics counts as blocking, so a failure is never swallowed by mistake. `WithExtension` refuses a value with a method named like a hook but the wrong signature, so a typo cannot leave a safety check switched off.
 
 ## What a Session holds, and what a crash loses
 

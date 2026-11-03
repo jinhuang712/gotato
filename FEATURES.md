@@ -1719,7 +1719,7 @@ At the end of a Turn an extension may stop the Run, and records why.
 
 **Status:** ✅
 
-An extension marked advisory may fail without failing the Run; its failure is stored with the stage. A panic counts as blocking.
+An extension marked advisory may fail without failing the Run; its failure is stored with the stage. One whose own advisory check panics counts as blocking.
 
 - **Design:** [4 A failure stays local](DESIGNS.md#4-a-failure-stays-local)
 - **How it works:** [specs/session.md](specs/session.md)
