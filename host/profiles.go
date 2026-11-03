@@ -40,6 +40,9 @@ func (r *Runner) resolveTask(ctx context.Context, name string, value *profile.Ta
 	} else {
 		var err error
 		if spec, err = r.profiles.TaskSpec(ctx, name); err != nil {
+			if errors.Is(err, profile.ErrNotRegistered) {
+				return nil, ErrUnknownTask
+			}
 			return nil, profileError(err)
 		}
 	}

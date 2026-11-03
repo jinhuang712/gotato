@@ -114,6 +114,9 @@ func TestCreateSessionForATaskRefusesWhatDoesNotFitAndItsIDIsTheRetryPoint(t *te
 		if !errors.As(err, &typed) || !typed.NotRun || typed.Code != gotato.CodeInvalidArgument {
 			t.Errorf("%s: %v", name, err)
 		}
+		if name == "unknown" && !errors.Is(err, host.ErrUnknownTask) {
+			t.Errorf("unknown task = %v, want ErrUnknownTask", err)
+		}
 	}
 	if page, err := runner.Sessions(ctx, store.ListQuery{}); err != nil || len(page.Infos) != 0 {
 		t.Fatalf("a refused create left Sessions: %+v, %v", page, err)

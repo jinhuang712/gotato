@@ -30,6 +30,10 @@ var (
 	// The Run is refused before it starts, so it is not run.
 	ErrUnknownAgent = notRunError(gotato.ErrorOf(gotato.CodeInvalidArgument, "host: unknown agent"))
 
+	// ErrUnknownTask is returned when a request names a TaskSpec nothing is
+	// registered under. It is refused before anything is written, so it is not run.
+	ErrUnknownTask = notRunError(gotato.ErrorOf(gotato.CodeInvalidArgument, "host: unknown task"))
+
 	// ErrReservedKey is returned when a caller sets a Session metadata key under
 	// ReservedPrefix ("gotato."): CreateSession, RunRequest.Metadata and
 	// RunRequest.Update refuse it before anything is written, as invalid_argument
