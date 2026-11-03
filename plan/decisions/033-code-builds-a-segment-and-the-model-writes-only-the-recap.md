@@ -14,4 +14,4 @@ Code builds the Segment: the user's messages and each Run's final reply stay wor
 - A notice that carries a summary of the history, or history and notices as untagged text: a notice tells the model a fact of the moment, and a compacted stretch of history is something else.
 
 ## Consequences
-A mistake by the model costs a Recap and never the conversation, and the Recap request reads the cache. The detail of what is kept and how it fails is in [FEATURES.md → G-F06](../../FEATURES.md#g-f06--compaction-).
+A mistake by the model costs a Recap and never the conversation, and the Recap request reads the cache. The detail of what is kept and how it fails is in [FEATURES.md → F5: Compaction](../../FEATURES.md#f5-compaction).

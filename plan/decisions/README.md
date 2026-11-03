@@ -1,6 +1,6 @@
 # Decisions
 
-A decision is a fork in the road that someone could reasonably reverse: we chose one way, and at least one other way was open. Each lives in its own file, numbered in the order the decisions were made. A file may hold a family of related forks that share one reason, as a themed decision: each fork keeps its own line under *Not chosen*. Mechanism with no fork behind it, such as how a state machine moves, belongs in a spec, not here. The principles that the decisions follow are in [DESIGNS.md](../../DESIGNS.md).
+A decision is a fork in the road that someone could reasonably reverse: we chose one way, and at least one other way was open. Each lives in its own file, numbered in the order the decisions were made. A file may hold a family of related forks that share one reason, as a themed decision: each fork keeps its own line under *Not chosen*. Mechanism with no fork behind it, such as how a state machine moves, belongs in a spec, not here. The guidelines that the decisions follow are in [DESIGNS.md](../../DESIGNS.md).
 
 ## The format
 
@@ -17,6 +17,7 @@ Decided: YYYY-MM-DD    Status: current | superseded by NNN
 
 - **Numbers are never reused.** They are three digits, zero padded, in the order of the Decided date; decisions of one day are ordered by when they were first written.
 - **A decision is not rewritten.** When a later decision replaces it, the old file stays and its status says `superseded by NNN`.
+- **A link may be repaired.** A decision's links to other documents follow those documents when they move, and the decision's own words stay as they are.
 - **The date is the decision's identity,** not a story. A file says what we chose and why, and leaves the history to git.
 
 ## The index
@@ -74,3 +75,4 @@ Decided: YYYY-MM-DD    Status: current | superseded by NNN
 | [049](049-the-store-contract-holds-only-what-every-store-must-do.md) | 2026-11-02 | The store contract holds only what every store must do |
 | [050](050-each-package-is-one-layer-named-for-its-job.md) | 2026-11-02 | Each package is one layer, named for its job |
 | [051](051-a-session-is-opened-for-a-task-spec-when-it-is-created.md) | 2026-11-03 | A Session is opened for a TaskSpec when it is created |
+| [052](052-the-footprint-is-a-measure-and-has-no-limit.md) | 2026-11-03 | The footprint is a measure, with no limit |
