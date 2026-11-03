@@ -415,6 +415,34 @@ func (r *Runner) AgentProfile(ctx context.Context, name string) (profile.AgentPr
 	return r.agentNamed(ctx, name)
 }
 
+// TaskInfo is one registered TaskSpec as Tasks lists it.
+type TaskInfo struct {
+	// Name is the name the TaskSpec is registered under.
+	Name string `json:"name"`
+	// Agent is the name of the AgentProfile the TaskSpec runs. It is empty when
+	// the TaskSpec could not be read now (its store failed, its row is gone or
+	// invalid): the name is still listed, since it is registered.
+	Agent string `json:"agent,omitempty"`
+}
+
+// Tasks lists the registered TaskSpecs, sorted by name, each with the
+// AgentProfile it runs. A TaskSpec registered from a store is read for its
+// profile; one that cannot be read is listed without it rather than failing the
+// whole list, so one bad row does not hide the others. Opening a Session for
+// it reports the cause (CreateSessionRequest.Task, RunRequest.Task).
+func (r *Runner) Tasks(ctx context.Context) []TaskInfo {
+	names := r.profiles.TaskSpecs()
+	tasks := make([]TaskInfo, 0, len(names))
+	for _, name := range names {
+		info := TaskInfo{Name: name}
+		if spec, err := r.profiles.TaskSpec(ctx, name); err == nil {
+			info.Agent = spec.Profile
+		}
+		tasks = append(tasks, info)
+	}
+	return tasks
+}
+
 // ActiveRuns reports Runs in flight.
 func (r *Runner) ActiveRuns() int { return r.runs.ActiveRuns() }
 

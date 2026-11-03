@@ -129,3 +129,28 @@ func TestCreateSessionForATaskRefusesWhatDoesNotFitAndItsIDIsTheRetryPoint(t *te
 		t.Fatalf("a retried create left %+v, %v", page, err)
 	}
 }
+
+// Tasks lists the registered TaskSpecs by name with the AgentProfile each runs,
+// and lists a stored one whose row cannot be read without its profile.
+func TestTasksListsTheRegisteredTaskSpecsWithTheirAgents(t *testing.T) {
+	ctx := context.Background()
+	reg := taskRegistry(t, testkit.NewFakeModel(testkit.Text("x")))
+	defs := store.NewMemoryDefinitions()
+	if err := defs.SaveDefinition(ctx, profile.KindTaskSpec, "stored", []byte(`{"profile":"writer"}`)); err != nil {
+		t.Fatal(err)
+	}
+	for _, register := range []error{
+		reg.RegisterTaskSpecInline(profile.TaskSpec{Name: "morning", Profile: "writer"}),
+		reg.RegisterTaskSpecWithStore("stored", defs),
+		reg.RegisterTaskSpecWithStore("missing", defs),
+	} {
+		if register != nil {
+			t.Fatal(register)
+		}
+	}
+	runner := taskRunner(t, memStore(), "a", reg)
+	want := []host.TaskInfo{{Name: "missing"}, {Name: "morning", Agent: "writer"}, {Name: "stored", Agent: "writer"}}
+	if got := runner.Tasks(ctx); !slices.Equal(got, want) {
+		t.Fatalf("Tasks = %+v, want %+v", got, want)
+	}
+}
