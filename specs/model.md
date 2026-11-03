@@ -1,6 +1,6 @@
 # Model
 
-An agent is only as steady as the call to its model, and that call crosses a network Gotato does not control. Providers shed load, cut streams, refuse long requests and word the same failure in different ways. The Model seam keeps all of that outside the core. The core sees one small interface and one kind of error answer, whichever provider is behind it.
+An agent is only as steady as the call to its model, and that call crosses a network Gotato does not control. Providers shed load, cut streams, refuse long requests and word the same failure in different ways. The Model seam keeps all of that outside the core. The core sees one small interface and one kind of error answer, whichever provider is behind it. This spec is the `model` part of the [map](ARCHITECTURE.md): a package that sits beside the layers and imports the core only.
 
 ## TL;DR
 - A Model is two methods: `Stream` returns a stream of events, and `Config` says what the model is. The core reads the stream and builds the reply from it.
@@ -48,7 +48,7 @@ The request is the built Context plus the tools to offer. The reply is a Message
 
 ## The model bridge is four layers
 
-`model.New(wire, connection, config, opts...)` joins four layers, and each has a default a team can replace without copying the code around it ([DESIGNS → 10](../DESIGNS.md#10-each-layer-does-one-job-and-each-default-can-be-replaced)).
+`model.New(wire, connection, config, opts...)` joins four layers, and each has a default a team can replace without copying the code around it (the principle of replaceable defaults).
 
 ```text
  model.New( wire,                connection,           config,                 opts... )
@@ -89,6 +89,7 @@ How the facts steer a shipped wire:
 | `RoundReasoning` | earlier Rounds' reasoning left out | earlier Rounds' reasoning left out | earlier Rounds' reasoning left out, and a cache marker where the last Round started |
 | `CacheRetention` | not used | `prompt_cache_options` with ttl 30m, only when exactly 30m | `cache_control` ttl 1h on every marker, only when 1h or more |
 | `ThinkingBinding` | not used | not used | `thinking` block_binding `drop_block`, with its beta header |
+| `Sampling.ReasoningEffort`, `ReasoningSummary` | refused as `not_supported` | sent | refused as `not_supported` |
 
 ### The connection
 
@@ -96,7 +97,7 @@ How the facts steer a shipped wire:
 
 - `Endpoint` is the complete URL, path included. Gotato keeps no table of providers' addresses or paths.
 - `APIKey` goes where the wire's protocol wants a credential; empty sends none. `Headers` go with every request, under the wire's own headers, so none can replace the credential. `CacheKeyHeader` sends the cache key in a header for a provider that routes its cache by one.
-- `HTTPClient` sends the requests. Nil means `model.NewHTTPClient(10s, 60s)`: 10 seconds to open a connection, 60 to wait for the response headers. Any other authentication, a signed request or a token that expires, goes in the client's `RoundTripper`, as for MCP ([decision 025](../plan/decisions/025-callers-credentials-and-quotas-belong-to-the-service.md)).
+- `HTTPClient` sends the requests. Nil means `model.NewHTTPClient(10s, 60s)`: 10 seconds to open a connection, 60 to wait for the response headers. Any other authentication, a signed request or a token that expires, goes in the client's `RoundTripper`, as for MCP (decision 025).
 
 ### The retry and the meaning of an error
 
@@ -104,12 +105,13 @@ Retry says how often, and the Classifier says what a failure means. Both are bel
 
 ## Retries live in three places
 
-Each layer repairs the failure it can see, and no layer repairs another's. The bridge's two layers act within its `Retry`: `Max` repeats after the first attempt, a first wait of `Backoff` that grows with the attempt and carries up to 25% of jitter, and `MaxWait` as the cap. `DefaultRetry` is 2, 200 milliseconds and 60 seconds; `model.WithRetry(model.Retry{...})` sets another, and `Retry{}` turns retries off. Whether a failure is worth repeating is the Classifier's answer, not the Retry's.
+Each layer repairs the failure it can see, and no layer repairs another's. The bridge's two layers act within its `Retry`: `Max` repeats after the first attempt, a first wait of `Backoff` that grows with the attempt and carries up to 25% of jitter, and `MaxWait` as the cap on a provider's `Retry-After` and on every wait after a response. The wait after a transport error is the backoff alone, with no cap. `DefaultRetry` is 2, 200 milliseconds and 60 seconds; `model.WithRetry(model.Retry{...})` sets another, and `Retry{}` turns retries off. Whether a failure is worth repeating is the Classifier's answer, not the Retry's.
 
 ```text
  layer              sees                          does
  model, send        no response yet               send again: transport error, 429 (not a hard
-                                                  quota), 500 to 504, 529, "overloaded"
+                                                  quota), 500, 502, 503, 504, 529, or words
+                                                  that say rate limit, overloaded, unavailable
  model, stream      a stream cut                  open the stream again with the same request
  Session, Turn      "request too long", before    ask the TurnPreparer to shorten it,
                     any output                    then call once more (once per Turn)
@@ -161,7 +163,7 @@ The model bridge answers two questions by method, and the core reads only those.
 - **A `Failure` goes in, a `Verdict` comes out.** A Failure is what one attempt showed: the HTTP status, the provider's message, code and type, the headers, and the error under it. `Verdict{Retryable, Overflow, Limit}` is what it means: may a retry pass, was the request longer than the window, and what limit in tokens the text names. Every error path of the bridge goes through the Classifier, the refusals and the errors told in a stream alike.
 - **`DefaultClassifier` holds the bridge's own tables.** It reads a short list of phrases for "too long", because providers publish no stable code for it, and it names no provider's address or model. An Overflow verdict is never Retryable. A request whose `max_tokens` alone is too large is not an overflow, since compaction cannot shorten it.
 - **A team adds to it by wrapping it.** `model.WithClassifier(f)` where `f` calls `model.DefaultClassifier(failure)` and then changes the Verdict, for example to add its own wording for "too long". A nil Classifier is the default.
-- **What the core sees.** The Message of the error is the public text only; the provider's own words and any host name stay on the Cause. The Model was called, so the error is never "not run".
+- **What the core sees.** The Message of the error is the provider's own reply, cut on a rune boundary, or a fixed text of the bridge, so a caller can read why a provider refused. The transport error, which may name a host, stays on the Cause. The Model was called, so the error is not "not run", except a request a wire refuses before it sends anything (a sampling field it cannot carry).
 
 ## What this buys you
 - A new vendor is a few lines of Go, and a vendor SDK never enters your service. A new protocol is one type that reuses the other layers.
@@ -170,4 +172,4 @@ The model bridge answers two questions by method, and the core reads only those.
 - A Model of your own plugs in by two methods, and says what it is by returning a `ModelConfig`; the core never finds a fact through a wrapper that forgot to pass it on.
 
 ## See also
-[FEATURES.md → G-F07](../FEATURES.md#g-f07--models-and-providers-) for the settings and defaults, [G-F31](../FEATURES.md#g-f31--recovering-a-cut-stream-), decisions [001](../plan/decisions/001-one-implementation-per-wire-api.md), [045](../plan/decisions/045-the-gateway-is-layered-and-each-layer-can-be-replaced.md), [029](../plan/decisions/029-reasoning-goes-back-for-the-current-round.md) and [035](../plan/decisions/035-the-runtime-says-whether-an-error-ran-and-whether-to-retry.md), [GLOSSARY.md](../GLOSSARY.md). The specs [errors.md](errors.md) and [context.md](context.md) cover codes and the Context in full.
+[ARCHITECTURE.md](ARCHITECTURE.md), the principles [a failure stays local](../DESIGNS.md#4-a-failure-stays-local), [stay inside the boundary](../DESIGNS.md#6-stay-inside-the-boundary) and [each layer does one job, and each default can be replaced](../DESIGNS.md#10-each-layer-does-one-job-and-each-default-can-be-replaced), [FEATURES.md](../FEATURES.md) (G-F07: Models and providers, G-F31: Recovering a cut stream), decisions [001](../plan/decisions/001-one-implementation-per-wire-api.md), [025](../plan/decisions/025-callers-credentials-and-quotas-belong-to-the-service.md), [029](../plan/decisions/029-reasoning-goes-back-for-the-current-round.md), [035](../plan/decisions/035-the-runtime-says-whether-an-error-ran-and-whether-to-retry.md) and [045](../plan/decisions/045-the-gateway-is-layered-and-each-layer-can-be-replaced.md).

@@ -1,6 +1,6 @@
 # Errors
 
-A caller that gets an error has questions before it reads the code: what happened, did anything run, and may I try again. In a service with many Instances the second one matters most, because it decides whether the same request can go to another Instance without running twice. Gotato answers all three in the error itself, where the error is made, and every surface only translates.
+A caller that gets an error has questions before it reads the code: what happened, did anything run, and may I try again. In a service with many Instances the second one matters most, because it decides whether the same request can go to another Instance without running twice. Gotato answers all three in the error itself, where the error is made, and every surface only translates. This spec follows one thread through the layers of the [map](ARCHITECTURE.md): the core defines the codes, the host adds five, and the adapters translate them.
 
 ## TL;DR
 - Every error a Gotato layer returns is a `RuntimeError`: a `Code`, plus two facts set by the place that made it, `NotRun` and `Retryable`.
@@ -19,6 +19,7 @@ RuntimeError
 │ NotRun     nothing with effects happened            │
 │ Retryable  the same request, later, may succeed     │
 │ Details    small extras: writer, retry_after_ms     │
+│ Operation  where it was made, shown in Error()       │
 │ Cause      the foreign error, for logs only         │
 └─────────────────────────────────────────────────────┘
 ```
@@ -90,8 +91,9 @@ Each surface keeps one table from code to its own form, and a test fails when a 
  RuntimeError ──▶ HTTP   status from the code (one table)
                          header  Gotato-Not-Run: true     when NotRun
                          header  Gotato-Retryable: true   when Retryable
-                         header  Gotato-Writer, Retry-After   when Details has them
-                         body    {code, message, not_run, retryable, writer?}
+                         header  Gotato-Writer (not_writer only), Retry-After (from retry_after_ms,
+                                 rounded up to seconds)
+                         body    {code, message, not_run, retryable, writer?, record_epoch?}
               ──▶ CLI    exit code from the code (one table)
                          with --json: {error, exit_code, code, not_run, retryable}
 ```
@@ -113,7 +115,7 @@ An error from outside Gotato may carry a host, a query or a secret, so its text 
  HTTP 5xx, not run:       Message is kept; it is a refusal, written to be read
 ```
 
-The rule has one door: an error is public only if its maker says so by implementing `Public()`. A tool that wants the model to read why it failed returns such an error; any other becomes `tool_execution_failure: tool failed`. The same holds for a model's error, a store's and a panic, whose stack stays in `Error()` on the Cause. Logs keep the detail, so nothing is lost for those who run the service.
+The rule has one door: an error is public only if its maker says so by implementing `Public()`. A tool that wants the model to read why it failed returns such an error, or a `RuntimeError`, whose Message is written to be read and whose code the failed result keeps; any other error becomes `tool_execution_failure: tool failed`. The same holds for a model's error, a store's and a panic, whose stack stays in `Error()` on the Cause. Logs keep the detail, so nothing is lost for those who run the service.
 
 ## What this buys you
 - A new code is classified once, where it is made, and every surface follows.
@@ -121,4 +123,4 @@ The rule has one door: an error is public only if its maker says so by implement
 - A secret in a foreign error cannot leak to a client, the model or a subscriber by accident.
 
 ## See also
-[FEATURES.md → G-F01](../FEATURES.md#g-f01--agents-and-runs-) (the errors section and the table of codes), [G-F14](../FEATURES.md#g-f14--http-and-streaming-), decisions [035](../plan/decisions/035-the-runtime-says-whether-an-error-ran-and-whether-to-retry.md), [037](../plan/decisions/037-when-the-hash-missed-the-answer-names-the-writer.md) and [038](../plan/decisions/038-a-limit-guards-a-real-failure.md), [RUNBOOK.md](../RUNBOOK.md), [GLOSSARY.md](../GLOSSARY.md). Related specs: [model.md](model.md) and [multi-instance.md](multi-instance.md).
+[ARCHITECTURE.md](ARCHITECTURE.md), the principle [a failure stays local](../DESIGNS.md#4-a-failure-stays-local), [FEATURES.md](../FEATURES.md) (G-F01: Agents and Runs, with the table of codes, and G-F14: HTTP and streaming), decisions [035](../plan/decisions/035-the-runtime-says-whether-an-error-ran-and-whether-to-retry.md), [037](../plan/decisions/037-when-the-hash-missed-the-answer-names-the-writer.md), [038](../plan/decisions/038-a-limit-guards-a-real-failure.md) and [048](../plan/decisions/048-the-runner-and-the-session-are-built-from-parts-and-host-plumbing-is-internal.md).

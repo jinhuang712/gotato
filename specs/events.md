@@ -1,6 +1,6 @@
 # Events
 
-A Run does many things, and a caller wants to watch them: a UI that shows the reply, a bot that waits for the answer, a service that measures itself. Gotato reports every Step as an Event, one Go type for each kind. A stored Event is also an Entry of the Record, so a client that leaves and comes back can read exactly what it missed. This spec shows how Events are sealed, written, numbered, delivered and resumed.
+A Run does many things, and a caller wants to watch them: a UI that shows the reply, a bot that waits for the answer, a service that measures itself. Gotato reports every Step as an Event, one Go type for each kind. A stored Event is also an Entry of the Record, so a client that leaves and comes back can read exactly what it missed. This spec shows how Events are sealed, written, numbered, delivered and resumed. It follows one thread through the layers of the [map](ARCHITECTURE.md): the core makes and sends Events, the Writer in `store` writes them, the host adds the Instance's own, and the HTTP adapter streams them.
 
 ## TL;DR
 - Every Event embeds a Header, and lives in one of three places: stored in the Record, sent only (a delta), or on the Instance.
@@ -33,7 +33,7 @@ An Event type says where it lives with its own `Class()`, beside `Kind()`, and n
  UnknownEvent                keeps the JSON; MarshalEvent writes the same bytes back; its class is empty
 ```
 
-The core defines the Events a Session makes: every stored Event, the deltas, and the two Instance Events it publishes itself, `session_unloaded` and `events_skipped`. The nine that only a Runner publishes (`run_requested`, `run_waiting`, `run_rejected`, `session_fenced`, `liveness_lapsed`, `session_deleted`, `session_loaded`, `session_saved`, `store_write_failed`) are types of `host` with the same kinds and fields, so a client of the HTTP API sees no difference. A Go program that reads the Instance stream switches on `host.RunRejected` and the others; `gotato.UnmarshalEvent` reads them as an `UnknownEvent`, because Gotato ships no Go client that needs more ([decision 026](../plan/decisions/026-gotato-ships-no-machine-no-client-and-no-tool-catalog.md)). `adapter/http` writes every Event with `MarshalEvent`.
+The core defines the Events a Session makes: every stored Event, the deltas, and the two Instance Events it publishes itself, `session_unloaded` (on Close, and the Runner publishes the same type when it evicts a warm Session) and `events_skipped`. The nine that only a Runner publishes (`run_requested`, `run_waiting`, `run_rejected`, `session_fenced`, `liveness_lapsed`, `session_deleted`, `session_loaded`, `session_saved`, `store_write_failed`) are types of `host` with the same kinds and fields, so a client of the HTTP API sees no difference. A Go program that reads the Instance stream switches on `host.RunRejected` and the others; `gotato.UnmarshalEvent` reads them as an `UnknownEvent`, because Gotato ships no Go client that needs more ([decision 026](../plan/decisions/026-gotato-ships-no-machine-no-client-and-no-tool-catalog.md)). `adapter/http` writes every Event with `MarshalEvent`.
 
 ## An Event's Run is stamped when it is numbered
 
@@ -72,7 +72,7 @@ A stored Event's number is its position in the Record, and a delta carries the n
  SSE id:       20                                          21                 22      (a delta has none)
 ```
 
-The number counts the whole Record, not one Run, so two Instances give the same Event the same number. Events are sent in the order of their numbers. A delta's number only says where it sits, so a client resumes from the last `id`, and the deltas before it are not sent again. A number means the same Event only within one Record epoch, so the number goes with the epoch ([record.md](record.md)). A Run that is not saved has no Record, so its Events are numbered from 1 on its own stream, and those numbers are not positions.
+The number counts the whole Record, not one Run, so two Instances give the same Event the same number. Events are sent in the order of their numbers. A delta's number only says where it sits, so a client resumes from the last `id`, and the deltas before it are not sent again. A number means the same Event only within one Record epoch, so the number goes with the epoch (`store.md`). A Run that is not saved has no Record, so its Events are numbered from 1 on its own stream, and those numbers are not positions.
 
 ## Feed and Subscription
 
@@ -82,7 +82,7 @@ A Feed fans each Event out to Subscriptions, and publishing never blocks.
  Session ── Publish ──▶ Session's Feed ──▶ Run's stream        one Run, first to last Event
                             │          └──▶ Session's stream    across Runs, from any number
                             └── mirror ──▶ Instance's Feed ──▶ Instance's stream
- Instance Events ───────────────────────────▶ Instance's Feed    every Session, plus these
+ Instance Events ───────────────────────────▶ Instance's Feed    every saved Session, plus these
                       each Subscription has its own queue and one goroutine, in order
 ```
 
@@ -104,7 +104,7 @@ Only deltas may be dropped; a stored Event is read again from the Record by numb
                                         ended: ErrEventsLost (code cannot_resume)
 ```
 
-A full queue drops its oldest delta first. With none to drop, the subscriber leaves live mode and reads by number from the EventSource, which is the Record, then rejoins when it has read as far as the Feed has published. The same path covers a gap: a number that jumps means another Instance wrote the Session, and the missing Events are read. Watch for the last arrow. A store that is slow to show its last write is given a moment, and then the subscriber ends. A Session over a Record that is not stored can read back only a recent window of Events.
+A full queue drops its oldest queued delta first, and a new delta is itself dropped when none is queued. A stored Event that finds no room sends the subscriber out of live mode: it reads by number from the EventSource, which is the Record, in batches of 128, then rejoins when it has read as far as the Feed has published. The same path covers a gap: a number that jumps means another Instance wrote the Session, and the missing Events are read. Watch for the last arrow. A store that is slow to show its last write is given a moment (100 tries, 5 milliseconds apart), and then the subscriber ends. A Session over a Record that is not stored can read back only a recent window of Events, the last 4,096.
 
 ## Resume with Last-Event-ID
 
@@ -123,7 +123,11 @@ A client reconnects to any Instance with the last number and epoch it saw, and g
    │ epoch differs, or 40 > head: 409 cannot_resume, with the current epoch and head
 ```
 
-The `after` parameter wins over the header, which a browser's EventSource sends by itself. The Instance checks the epoch and the position before it streams, then reads the Record first and goes live. It does not need to be the writer: an idle stream looks in the Store at intervals, which is the cost of binding no Session to an Instance. The stream follows one epoch, and ends with an error if the Record is deleted or created again. An Instance keeps a Feed for each Record, named by its Session ID and its epoch, so a stream is never handed another Record's Events; it learns of a delete at once when its own Instance deletes the Session, and elsewhere at its next read of the Store. A client that sends no epoch is checked by position only, so it should send one.
+The `after` parameter wins over the header, which a browser's EventSource sends by itself, and the epoch comes from the `record_epoch` parameter or the `Record-Epoch` header. The Instance checks the epoch and the position before it streams, then reads the Record first and goes live. It does not need to be the writer: an idle stream looks in the Store at intervals, which is the cost of binding no Session to an Instance. The stream follows one epoch, and ends with an error if the Record is deleted or created again. An Instance keeps a Feed for each Record, named by its Session ID and its epoch, so a stream is never handed another Record's Events; it learns of a delete at once when its own Instance deletes the Session, and elsewhere at its next read of the Store. A client that sends no epoch is checked by position only, so it should send one. The first frame, `stream`, carries the epoch, the position and the head, and sets the wait a browser uses after a lost connection, spread at random for each client. A comment line keeps an idle stream open through a proxy, and a failure after the status ends the stream with an `error` frame.
+
+## A Run lives as long as its request
+
+Watching and running are two different requests. A client that drops a request that started a Run (`POST .../runs`, `.../runs/stream`, or a message that started one) ends the Run: it settles as canceled, so a client cannot start a Run and walk away. The `GET .../stream` request only watches. It may drop at any time and resume without touching a Run, so a front end holds one POST open for the whole Run and watches through a separate stream. A delta is sent live and not replayed on resume, and the stored `reply_ended` Event holds the whole text, which a client puts in place of its partial text. A spilled Tool Result's body is left out of every Event that is sent.
 
 ## What this buys you
 - A client can drop its connection, or lose its Instance, and resume on any other one without gaps.
@@ -131,4 +135,4 @@ The `after` parameter wins over the header, which a browser's EventSource sends 
 - One name and one number for each thing: the log, the stream and the telemetry say the same.
 
 ## See also
-[FEATURES.md → G-F13](../FEATURES.md#g-f13--events-) and [G-F14](../FEATURES.md#g-f14--http-and-streaming-), decisions [030](../plan/decisions/030-every-entry-is-an-event.md) and [028](../plan/decisions/028-every-step-is-written-as-facts-and-a-log.md), [GLOSSARY.md](../GLOSSARY.md). Related specs: [session.md](session.md), [record.md](record.md) and [multi-instance.md](multi-instance.md).
+[ARCHITECTURE.md](ARCHITECTURE.md), the principles [the store is the only truth](../DESIGNS.md#1-the-store-is-the-only-truth) and [a Session can be stopped and seen](../DESIGNS.md#9-a-session-can-be-stopped-and-seen), [FEATURES.md](../FEATURES.md) (G-F13: Events, G-F14: HTTP and streaming), decisions [018](../plan/decisions/018-events-are-typed-written-before-sent-and-never-awaited.md), [028](../plan/decisions/028-every-step-is-written-as-facts-and-a-log.md), [030](../plan/decisions/030-every-entry-is-an-event.md), [026](../plan/decisions/026-gotato-ships-no-machine-no-client-and-no-tool-catalog.md) and [048](../plan/decisions/048-the-runner-and-the-session-are-built-from-parts-and-host-plumbing-is-internal.md).

@@ -1,6 +1,6 @@
 # Many Instances
 
-A service runs as many Instances behind a Load balancer, and any of them may get any request. Two of them must never write the same Session at once, an Instance may die in the middle of a Run, and a deploy should lose no work. Gotato solves this with the Store alone: no Instance is special, and no Instance holds anything the others cannot read.
+A service runs as many Instances behind a Load balancer, and any of them may get any request. Two of them must never write the same Session at once, an Instance may die in the middle of a Run, and a deploy should lose no work. Gotato solves this with the Store alone: no Instance is special, and no Instance holds anything the others cannot read. This is the spec of the host, the `host` layer of the [map](ARCHITECTURE.md): the Runner that claims Sessions, keeps the Instance's row, holds warm copies and drains. The log and the conditional write it relies on are in `store.md`, and the live Session it builds for each Run is in `session.md`.
 
 ## TL;DR
 - The Store is the only place Instances meet. A Claim, written into the Record at a free position, makes one Instance the Writer, and the Store refuses any later write from another.
@@ -54,7 +54,7 @@ Instance B   ·──·──·──✕                 crash or pause
                        └ row expires ─▶ every Claim of B is dead at once ─▶ others may take over
 ```
 
-One write per Instance per beat, and one expiry ends every Claim, so the cost does not grow with the Sessions. Before each write the Writer checks that its row was renewed in time, a little before the Store would expire it, so a paused Instance stops itself first. A row that has expired never comes back: the Instance registers a new name, its old Writers are refused for good, and its warm copies are dropped. An Instance paused longer than its row lives may still send one model request when it wakes, but its result can never be written. A Drain waits for Runs; one that passes its deadline is stopped, saved and released, and the caller is told to reconnect.
+The TTL is `Heartbeat.TTL`, 10 seconds by default. The memory and file stores time rows by the clock of the machine, so a file store shared by several machines needs synced clocks, while a database adapter uses its own. One write per Instance per beat, and one expiry ends every Claim, so the cost does not grow with the Sessions. Before each write the Writer checks that its last renewal is no older than 80% of the TTL (8 of 10 seconds by default, counted from when the beat was sent), so a paused Instance stops itself first. A row that has expired never comes back: the Instance registers a new name, its old Writers are refused for good, and its warm copies are dropped. While its row is in doubt the Instance refuses to claim: the refusal is `conflict`, marked not run and not retryable, and `/readyz` answers 503 with `lapsed` so the load balancer moves traffic away. It heals by itself when the Store answers again. An Instance paused longer than its row lives may still send one model request when it wakes, but its result can never be written. A Drain waits for Runs; one that passes its deadline is stopped, saved and released, and the caller is told to reconnect.
 
 ## Taking a Session over
 
@@ -95,7 +95,7 @@ The copy holds no Claim, so another Instance can take the Session over at any ti
 
 ## A Runner is built from parts
 
-A Runner does eight jobs, and each is a part with its own lock and file, called in order ([decision 048](../plan/decisions/048-the-runner-and-the-session-are-built-from-parts-and-host-plumbing-is-internal.md)). The parts that guard the Instance are under `host/internal/`, so no part reaches into another.
+A Runner does seven jobs, and each is a part with its own lock and file, called in order ([decision 048](../plan/decisions/048-the-runner-and-the-session-are-built-from-parts-and-host-plumbing-is-internal.md)). The parts that guard the Instance are under `host/internal/`, so no part reaches into another.
 
 ```text
  Runner
@@ -120,9 +120,9 @@ Whether a Run may start is decided in a fixed order, and only the last step is a
      ─▶ registered, counted; release is called once when the Run ends
 ```
 
-The drain and the memory bound guard the Instance, not a policy, so a policy cannot hold more Sessions than memory allows; they run before `Admit`. The default `Admitter` is `host.Limits{MaxActiveRuns}`, and a service writes its own to give one tenant ten Runs and another fifty ([extension points](../guides/extension-points.md#admission)). The `Admission` it is given names the Session, the AgentProfile (`Agent`) and, for a Run of a TaskSpec, the TaskSpec (`Task`), so a policy may treat a nightly job apart from a chat.
+The drain and the memory bound guard the Instance, not a policy, so a policy cannot hold more Sessions than memory allows; they run before `Admit`. With no `Admitter` set, every Run is admitted. `host.Limits{MaxActiveRuns: n}` bounds the Runs in flight, and a service writes its own to give one tenant ten Runs and another fifty. The `Admission` it is given names the Session, the AgentProfile (`Agent`) and, for a Run of a TaskSpec, the TaskSpec (`Task`), so a policy may treat a nightly job apart from a chat.
 
-Every Instance of a service registers the same definitions, and each looks them up by name when it builds a Session, so a profile replaced in a shared store reaches the Sessions that are built after it, on any Instance, and never a Run in flight. A Session opened for a TaskSpec carries the spec in its Record, so an Instance that loads it later builds it as the first one did ([the Record](record.md)).
+Every Instance of a service registers the same definitions, and each looks them up by name when it builds a Session, so a profile replaced in a shared store reaches the Sessions that are built after it, on any Instance, and never a Run in flight. A Session opened for a TaskSpec carries the spec in its Record, so an Instance that loads it later builds it as the first one did (`record.md`).
 
 ## A message that misses the Writer
 
@@ -139,7 +139,7 @@ A message for a Run goes to the Writer; an Instance that is not the Writer says 
    │ ◀──────────────────────────── A's answer, relayed ────────────────────│
 ```
 
-`not_writer` is the answer for a Steer, a FollowUp, an Interrupt, a Notice or an Abort, because each takes effect in the Writer's own process. It says Not run, so the caller can send it again, to the address or through the Load balancer. Forwarding is an option of the HTTP layer: it goes only to an address the team allows, never follows a redirect, and never forwards a request that was forwarded already. A new Run on a Session another Instance is running is not answered `not_writer`: it waits for the Writer, up to a bound, then gets `busy`.
+`not_writer` is the answer for a Steer, a FollowUp, an Interrupt, a Notice, an Abort or a delete, because each takes effect in the Writer's own process. It says Not run, so the caller can send it again, to the address or through the Load balancer. Forwarding is an option of the HTTP layer: it goes only to an address the team allows, never follows a redirect, and never forwards a request that was forwarded already. A new Run on a Session another Instance is running is not answered `not_writer`: it waits for the Writer, up to `Heartbeat.Wait` (5 seconds by default, looking again after 20 milliseconds and then at doubling pauses up to 500), then gets `busy` with `retry_after_ms`. A second Run on a Session this Instance is already running fails with `busy` at once, or waits when `Bounds.Queue` says so.
 
 ## What this buys you
 - A deploy or a crash loses at most the Step in flight and the messages that were only queued; every committed Step is in the Store.
@@ -147,4 +147,4 @@ A message for a Run goes to the Writer; an Instance that is not the Writer says 
 - A Session never has two Writers: a paused or cut-off Instance cannot write, and a caller can tell a safe retry from a risky one.
 
 ## See also
-[FEATURES.md → G-F27](../FEATURES.md#g-f27--service-many-instances-), decisions [002](../plan/decisions/002-the-store-is-the-truth-and-memory-is-a-cache.md), [019](../plan/decisions/019-one-writer-per-session-claimed-in-the-store.md), [024](../plan/decisions/024-gotato-builds-no-infrastructure.md), [036](../plan/decisions/036-a-warm-copy-is-a-cache-not-a-lock.md) and [037](../plan/decisions/037-when-the-hash-missed-the-answer-names-the-writer.md), [GLOSSARY.md](../GLOSSARY.md). The Record, the Store contract and the errors have specs of their own: [record.md](record.md) and [errors.md](errors.md).
+[ARCHITECTURE.md](ARCHITECTURE.md), the principles [the store is the only truth](../DESIGNS.md#1-the-store-is-the-only-truth), [stay inside the boundary](../DESIGNS.md#6-stay-inside-the-boundary) and [no instance is special](../DESIGNS.md#8-no-instance-is-special), [FEATURES.md](../FEATURES.md) (G-F27: Service, many instances), decisions [002](../plan/decisions/002-the-store-is-the-truth-and-memory-is-a-cache.md), [019](../plan/decisions/019-one-writer-per-session-claimed-in-the-store.md), [020](../plan/decisions/020-no-session-is-bound-to-an-instance.md), [024](../plan/decisions/024-gotato-builds-no-infrastructure.md), [027](../plan/decisions/027-instances-coordinate-through-the-stores-conditional-writes.md), [036](../plan/decisions/036-a-warm-copy-is-a-cache-not-a-lock.md), [037](../plan/decisions/037-when-the-hash-missed-the-answer-names-the-writer.md) and [048](../plan/decisions/048-the-runner-and-the-session-are-built-from-parts-and-host-plumbing-is-internal.md).

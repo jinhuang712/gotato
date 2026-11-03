@@ -15,188 +15,107 @@
 
 </div>
 
-## 🤔 Why Gotato?
+Gotato is a Go library that runs agents inside your own service, on many copies of it at once. What sets it apart is one constraint: a conversation lives in your store and not in any process. Every step is saved as it happens, so any copy of your service can load the conversation and carry on, and a killed or replaced pod ends nothing. A Session is a small loop over a log, a few kilobytes while it idles, with no process, no shell and no sandbox.
 
-- **☁️ Why agents as a cloud service?** A machine per conversation does not scale: a million is about a petabyte, and at a few kilobytes idle it is a few gigabytes.
-- **🐹 Why Go?** Your services already are. No second language, no second deployment: the agent is a package, not a system beside yours.
-- **🕸️ Why not a graph?** Models plan on their own now. One loop does what the nodes did, with less to run and debug.
-- **📦 Why not an existing SDK?** Each brings a subprocess per session, a conversation held elsewhere, or a whole toolkit. None is the [smallest thing that runs on many pods](PROPOSAL.md#where-gotato-fits).
-- **🪶 Why minimalistic?** The model keeps taking over the harness, so the harness stays thin: a standard-library core, with your store, tools and telemetry plugged in.
+An **Agent** is a definition: model, instruction, tools, limits. A **Session** is one conversation running it. Only one pod writes a Session at a time, claimed in the store, and a request may reach any pod. The core needs only the standard library, so the agent is a package of your service and not a system beside it.
 
-## 💡 The idea
+## What it does
 
-An **Agent** is a definition: model, instruction, tools, limits. A **Session** is one conversation running it: a small loop, plus a runtime that saves every step to your store.
+- 🔁 **One loop:** `Prompt`, `Continue` and `Abort`, and steer, follow up or interrupt a Run in flight.
+- 🧠 **A bounded context:** built fresh every Turn and laid out for the provider's prompt cache. Long Sessions compact into Segments the model can read back.
+- 🛠️ **Tools:** Go functions with an Effect that caps what an Agent may do. Tool search, MCP tool sets and paged results come with them.
+- 🔌 **Models:** three wire APIs ship and a fourth is one type of your own, in four layers a team can replace.
+- 🗄️ **Your store:** memory, files, or your database behind a small contract with a conformance suite.
+- 🌐 **Many pods:** one writer per Session, with takeover when a pod dies and a drain on shutdown. A message that misses the writer is told where to go.
+- 📡 **Events:** every step is a Go type, written before it is sent and resumable on any pod.
+- 🧪 **Testing:** fake models and tools, a fake endpoint for each wire API and a reference workload.
 
-Where the Agent lives depends on how you run it. With the Go API alone, the Agent is the options you pass to `gotato.NewSession` (a model, an instruction, tools). With a `host.Runner`, it is a `profile.AgentProfile` value you register once in a `profile.Registry`, and the Runner starts a Session from it for each conversation.
+Gotato is not a coding agent, a workflow language, a platform or infrastructure. It runs purpose-built agents inside your service, and your service owns routing, credentials, databases and screens. A program with the agent, runner, store and HTTP server links 3 modules and builds a 9.0 MB stripped binary, measured 2026-11-03 with `bench/refservice/footprint.sh`.
 
-A Session saves itself by writing its Record, an append-only log of everything that happened, to a Store. A Session built with `gotato.NewSession` alone keeps that Record in memory and is gone when the process exits; a Runner over a Store keeps it there.
+## Install
 
-Between messages a Session is only a record in your store. Any pod can load it and carry on, and one writer per Session keeps two pods apart. No process, no shell, no sandbox, and a few kilobytes while idle.
-
-A pod is one running copy of your service; the glossary calls it an Instance. A request can reach any pod. Only one of them runs a given Session at a time, and the Session itself lives in your store:
-
-```text
-                request
-                   │
-      ┌────────────▼────────────┐
-      │      load balancer      │   the one you already run
-      └───┬───────────┬───────┬─┘
-          │           │       │
-      ┌───▼───┐   ┌───▼───┐ ┌─▼─────┐
-      │ pod A │   │ pod B │ │ pod C │   each pod: a Runner hosting Sessions
-      └───┬───┘   └───┬───┘ └─┬─────┘
-          └───────────┼───────┘
-      ┌───────────────▼─────────────┐
-      │         your store          │   Session S = its record, a log that only grows
-      └─────────────────────────────┘
-
-  pod A runs S ──► pod A goes away ──► the next message reaches pod B, which loads S and goes on
-```
-
-[PROPOSAL.md](PROPOSAL.md) tells the longer story.
-
-## ✨ What you get
-
-- 🔌 **Fits your service.** A library, not a stack, with a standard-library core.
-- 🌐 **Runs on many pods.** Every step is saved, and one pod runs a Session at a time.
-- 🧩 **Stays simple.** One loop, no workflow language, and you see what the model sees.
-- 🔒 **Stays stable.** Breaks are versioned and come with before-and-after notes, from the first release on.
-
-📏 A program with the agent, runner, store and HTTP server pulls 3 modules and builds a 9.0 MB binary ([measured](PROPOSAL.md#where-gotato-fits)).
-
-## 🚫 What it is not
-
-Not a coding agent, a workflow language, a platform or infrastructure. Gotato runs purpose-built agents inside your service, and your service owns the rest ([the full list](PROPOSAL.md#what-we-dont-want)).
-
-## 🧰 Capabilities
-
-| Capability | What you get | |
-|---|---|---|
-| **Agent loop** | `Prompt`, `Continue` and `Abort`; steer, follow up and interrupt a Run in flight | ✅ |
-| **Context management** | built every Turn, your own builder, inspection; automatic compaction into Segments the model can read back | ✅ |
-| **Tools** | Go functions with an Effect; tool search; large results spilled and read back in pages | ✅ |
-| **MCP** | MCP servers as tool sets, over streamable HTTP or stdio | ✅ |
-| **Extensions** | six stages around the loop, from `TurnPreparer` to `TurnStopper` | ✅ |
-| **Models** | OpenAI Chat Completions, OpenAI Responses, Anthropic Messages, or your own; four layers (wire API, connection, retry, error meaning) a team can replace | ✅ |
-| **Storage** | memory, file, or your own database behind eight calls, with a conformance suite | ✅ |
-| **Many instances** | one writer per Session, takeover, drain, `not_writer` forwarding | ✅ |
-| **Events** | every step as a Go type, streamed, resumable on any instance | ✅ |
-| **Endpoints** | Go API and HTTP | ✅ |
-| **Testing** | fake models, a fake model endpoint for each wire API, a reference workload | ✅ |
-| **Telemetry** | OpenTelemetry mapping of Events | later |
-
-✅ built, 🚧 built with a gap named, and later. [FEATURES.md](FEATURES.md) lists every feature and its status.
-
-## ⚡ How Simple is Gotato?
-
-A real model, one tool, one question:
-
-```go
-import (
-    "github.com/jinhuang712/gotato/gotato"
-    "github.com/jinhuang712/gotato/model"
-)
-
-// 1. A model: a wire API, a connection, and what the model is (its facts).
-m, _ := model.New(
-    model.AnthropicMessages{}, // or model.ChatCompletions{}, or model.Responses{}
-    model.Connection{
-        Endpoint: "https://llm.example.com/v1/messages",
-        APIKey:   os.Getenv("LLM_API_KEY"),
-    },
-    gotato.ModelConfig{
-        Name:  "a-model",
-        Facts: gotato.ModelFacts{Window: gotato.WindowTokens(200_000)},
-    },
-)
-
-// 2. A tool is a Go function. Its input type becomes the schema the model sees.
-weather, _ := gotato.NewFuncTool("weather", "Returns the weather of a city.", func(_ context.Context, in struct {
-    City string `json:"city" description:"the city to look up"`
-}) (string, error) {
-    return "sunny in " + in.City, nil
-})
-
-// 3. A Session is one conversation: the model, an instruction and the tools.
-s, _ := gotato.NewSession(ctx,
-    gotato.WithModel(m),
-    gotato.WithInstruction("You are a helpful assistant."),
-    gotato.WithTools(weather),
-)
-defer s.Close(ctx)
-
-// 4. Ask. Prompt runs the loop (model, tools, model, ...) and returns the final reply.
-result, _ := s.Prompt(ctx, gotato.UserMessage("Do I need an umbrella in Paris?"))
-fmt.Println(gotato.TextOf(*result.FinalMessage))
-```
-
-`Prompt` returns when the Run settles, and `ctx` carries its cancellation and deadline. The model asks for the tool, Gotato runs it and goes on until the model answers. Errors are left out here. This code is run as a test, against a fake model endpoint that speaks the same wire API: [Example_modelAndTool](gotato/example_test.go).
-
-### Tools from an MCP server
-
-A server you already run as MCP becomes a ToolSet. Its tools are named `<server>.<tool>`, and the adapter connects at the first Run. `WithActiveToolSet` shows the model every tool of the server; `WithToolSet` and `WithFoldedToolSet` leave them to `search_tools` when a server has many:
-
-```go
-import "github.com/jinhuang712/gotato/adapter/mcp"
-
-crm, _ := mcp.NewToolSet("crm", mcp.StreamableHTTP("https://crm.internal/mcp"))
-defer crm.Close() // the service closes it, never a Session
-
-s, _ := gotato.NewSession(ctx, gotato.WithModel(m), gotato.WithActiveToolSet(crm))
-```
-
-[The MCP adapter](FEATURES.md#g-f12--the-mcp-adapter-) lists the transports (streamable HTTP and stdio), how a tool's annotations become its Effect, and how to authenticate.
-
-## 🧪 Example
-
-**A chat bot on several pods.** A Lark bot built on Gotato: one Session per thread, any pod can answer, and a killed or replaced pod does not end a conversation. It runs on your machine with a fake chat platform and no secrets, and on a local Kubernetes cluster through a rolling deploy, a killed writer and a scale-down. See [`examples/larkbot`](examples/larkbot) and its [guide](guides/example-chat-bot.md).
-
-## 📖 Guides
-
-| Guide | You learn |
-|---|---|
-| [Install](guides/install.md) | how to add Gotato and the MCP adapter to your `go.mod` |
-| [Which packages do I import?](guides/packages.md) | what each package is for, and what leaving one out costs |
-| [Getting started](guides/getting-started.md) | a Session, a tool and the Events of a Run |
-| [Embed Gotato in a service](guides/embed-in-a-service.md) | the Runner, many pods and shutting down |
-| [HTTP in five minutes](guides/http-in-five-minutes.md) | a service you can `curl`, with streaming and health checks |
-| [A minimal `main.go`](guides/minimal-main.md) | a complete program, and the order to shut it down in |
-| [Write a Tool or a Model](guides/write-a-tool-and-model.md) | a function Tool, your own Tool type, a ToolSet, a Model wrapper |
-| [Write a Store](guides/write-a-store.md) | the Store contract and the suite that checks your adapter |
-| [Test with fakes](guides/test-with-fakes.md) | scripted models and tools, no network |
-| [Extension points](guides/extension-points.md) | which seam to use to change a model, a tool, a store or what the model sees |
-| [Example: a chat bot](guides/example-chat-bot.md) | several instances behind a chat platform |
-
-Each feature, with its status, is in [FEATURES.md](FEATURES.md).
-
-## 🚀 Install
-
-Gotato needs Go 1.24. The runtime is one module; the MCP adapter and the HTTP adapter are modules of their own, so a service that uses neither carries none of them:
+Gotato needs Go 1.24.
 
 ```sh
 go get github.com/jinhuang712/gotato@v0.2.0
-go get github.com/jinhuang712/gotato/adapter/mcp@v0.2.0   # only for MCP servers
-go get github.com/jinhuang712/gotato/adapter/http         # only for the HTTP API
 ```
 
-From 0.2.0 on, a break is written in [CHANGELOG.md](CHANGELOG.md). [Install](guides/install.md) has the details, and the 0.2.0 notes say what was never checked against a real provider.
+The MCP adapter and the HTTP adapter are modules of their own, so a service that uses neither carries none of them. [guides/install.md](guides/install.md) has their commands and says what was never checked against a real provider.
 
-## 📚 Documents
+## How to use
 
-| Document | Role |
+The first task is one agent with one tool, answering a question.
+
+1. Build a model with `model.New`: a wire API, a connection with an endpoint and a key, and a `gotato.ModelConfig` that names the model and states its window. For a first run, `testkit.EchoModel` needs no key.
+2. Write a tool as a Go function with `gotato.NewFuncTool`. Its input type becomes the schema the model sees.
+3. Open a Session with `gotato.NewSession`, giving it the model, an instruction and the tool.
+4. Call `Prompt` with a user message. It runs the loop, asking the model, running the tool it calls and asking again, and returns when the Run settles with the final reply.
+
+To run on many pods, build a `host.Runner` over a Store with an AgentProfile registered, and give each request a Session ID. [Getting started](guides/getting-started.md) walks through the first task with code that runs as a test, and [Embed Gotato in a service](guides/embed-in-a-service.md) goes on to pods. The chat bot in `examples/larkbot` runs on your machine with a fake chat platform and no secrets, and on a local cluster through a rolling deploy, a killed writer and a scale-down.
+
+## Architecture
+
+A request reaches any Instance, which is one copy of your service. The Instances never talk to each other: they meet only in your Store, and each layer imports only the layers below it.
+
+```text
+ callers ──▶ your load balancer ──▶ Instance A │ Instance B │ Instance C     no arrows between Instances
+                                          │
+ inside one Instance (a layer imports only the layers below it)
+
+   adapter/http   routes over the Runner                      ┐ beside the layers, import down:
+   host           the Runner: admit, claim, warm, drain       │   model        calls a model over HTTP ──▶ model providers
+   profile        AgentProfiles, TaskSpecs, the Registry      │   adapter/mcp  tool servers ──▶ MCP servers
+   store          the Store contract, the Writer, two stores  │   testkit      fakes for tests
+   record         the Record, compaction, read-back           ┘
+   gotato         the Session, the Loop, Model, Tool, Event
+   ref            the form of a reference
+                                          │ Records, Liveness rows, Definitions
+                                          ▼
+                 your Store: a database, files, or memory for tests
+```
+
+## Docs
+
+Start with the proposal to see why Gotato exists, and with the architecture to see how it fits together.
+
+| Doc | Answers |
 |---|---|
 | [PROPOSAL.md](PROPOSAL.md) | why Gotato exists, and what it refuses to become |
 | [PHILOSOPHY.md](PHILOSOPHY.md) | the beliefs behind it |
-| [DESIGNS.md](DESIGNS.md) | design principles, and the decisions that follow from them |
-| [GLOSSARY.md](GLOSSARY.md) | one name per thing, and its name in today's code |
-| [FEATURES.md](FEATURES.md) | what is built, with status markers, and what is not planned |
-| [RUNBOOK.md](RUNBOOK.md) | what to do when a service built on Gotato misbehaves |
-| [plan/GOALS.md](plan/GOALS.md) | goals that pass or fail, and benchmarks tracked against a reference |
-| [plan/ROADMAP.md](plan/ROADMAP.md) | what gets built next, and how each step is known to be done |
+| [DESIGNS.md](DESIGNS.md) | the principles every change must satisfy |
+| [plan/GOALS.md](plan/GOALS.md) | what is checked, and when |
+| [FEATURES.md](FEATURES.md) | what it does, and what it will do |
+| [plan/ROADMAP.md](plan/ROADMAP.md) | when, and how far along |
 | [plan/TODO.md](plan/TODO.md) | open defects and decisions |
-| [AGENTS.md](AGENTS.md) | how to work in this repository, and the Git policy |
+| [GLOSSARY.md](GLOSSARY.md) | one name per thing, and its name in code |
+| [specs/ARCHITECTURE.md](specs/ARCHITECTURE.md) | how the parts fit together |
+| [specs/session.md](specs/session.md) | the Session, the Run and its ending |
+| [specs/events.md](specs/events.md) | Events: written, numbered, streamed, resumed |
+| [specs/context.md](specs/context.md) | what the model sees each Turn |
+| [specs/compaction.md](specs/compaction.md) | closing old history into Segments |
+| [specs/record.md](specs/record.md) | the Record: facts, log, forks, spilled results |
+| [specs/store.md](specs/store.md) | the Store contract, the Writer, the shipped stores |
+| [specs/profile.md](specs/profile.md) | AgentProfiles, TaskSpecs and the Registry |
+| [specs/multi-instance.md](specs/multi-instance.md) | the host: Claims, takeover, warm copies, drain |
+| [specs/tools.md](specs/tools.md) | Effects, tool search, calls, MCP, large results |
+| [specs/model.md](specs/model.md) | the model bridge, its four layers and retries |
+| [specs/errors.md](specs/errors.md) | what ran, and whether to retry |
+| [plan/decisions/README.md](plan/decisions/README.md) | the choices made, with the ways not taken |
+| [RUNBOOK.md](RUNBOOK.md) | keeping a service built on Gotato running |
+| [guides/install.md](guides/install.md) | adding Gotato to your `go.mod` |
+| [guides/packages.md](guides/packages.md) | which packages to import, and what leaving one out costs |
+| [guides/getting-started.md](guides/getting-started.md) | a Session, a tool and the Events of a Run |
+| [guides/embed-in-a-service.md](guides/embed-in-a-service.md) | the Runner, many pods and shutting down |
+| [guides/http-in-five-minutes.md](guides/http-in-five-minutes.md) | a service you can `curl` |
+| [guides/minimal-main.md](guides/minimal-main.md) | a complete program, and the order to shut it down in |
+| [guides/write-a-tool-and-model.md](guides/write-a-tool-and-model.md) | a Tool, a ToolSet and a Model wrapper |
+| [guides/write-a-store.md](guides/write-a-store.md) | the Store contract and the suite that checks an adapter |
+| [guides/test-with-fakes.md](guides/test-with-fakes.md) | scripted models and tools, no network |
+| [guides/extension-points.md](guides/extension-points.md) | which seam changes what |
+| [guides/example-chat-bot.md](guides/example-chat-bot.md) | several instances behind a chat platform |
+| [AGENTS.md](AGENTS.md) | how to work in this repository |
 | [CHANGELOG.md](CHANGELOG.md) | what changed, newest first |
 
-## 📄 License
+## License
 
 Gotato is licensed under the [Apache License 2.0](LICENSE).

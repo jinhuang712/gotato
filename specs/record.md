@@ -1,14 +1,16 @@
 # The Record
 
-A Session has to outlive its Instance: the process can stop between two Steps, and any other Instance must be able to pick the Session up. So Gotato keeps what happened in a Record in the Store, one Entry at a time, and never rewrites an Entry. The Session in memory is rebuilt from the Record, and nothing else holds the truth. This spec shows how the Record is laid out, what the Store promises, and what keeps two writers, or two lives of one ID, apart.
-
-The Record, its Entries and the Context built from it live in package `record`, and the Store's contract, the Writer and the memory and file stores live in package `store`, which imports `record` and never the reverse: the Record does not know how it is saved ([decision 050](../plan/decisions/050-each-package-is-one-layer-named-for-its-job.md)). The Context is in [context.md](context.md) and compaction in [compaction.md](compaction.md), and both are `record` too.
+A Session has to outlive its Instance, so Gotato keeps what happened in a Record, one Entry at a time, and never rewrites an Entry. The Session in memory is rebuilt from the Record, and nothing else holds the truth. This spec is the Record half of the `record` layer of the [map](ARCHITECTURE.md): how the log is laid out, what a rebuild reads, and how a Fork, a TaskSpec and a large Tool Result sit in it. Where the log is saved, and what keeps two writers apart, is in `store.md`. Compaction and the read-back tools, which are in the same package, are in `compaction.md`, and the Context the model sees is in `context.md`. The package `record` does not know where a Record is saved: `store` imports it, never the reverse.
 
 ## TL;DR
 - A Record is an append-only log of Entries. Facts rebuild the Session, Log entries only say what happened, and every Entry is also an Event.
-- The Store is two seams: `Records` makes one promise, a batch lands whole, at the position after the head the Writer read, or it is refused (the Record epoch refuses a Writer of a Record that was deleted), and `Liveness` keeps one row per Instance. Listing is an optional third, `Lister`. A service that keeps its Agent definitions in its own database implements a separate, optional contract, `store.Definitions`.
+- A load starts at the last Checkpoint. A Checkpoint holds the Facts at one point and lists the Segments the Context uses, so a long Session opens as fast as a new one.
 - A Session opened for a TaskSpec keeps that TaskSpec in its metadata, so every Instance rebuilds the Session the same.
 - A Fork and a spilled result point into a log by position and epoch. They copy no body and never read another Record's future.
+
+## The Record in memory
+
+`record.Record` is the in-memory form of one Session's log, and the one a live Session commits to. It is a `gotato.Transcript` and a `gotato.Journal`: it holds the committed Messages, the Segments, the loaded Tools, the metadata and the Events, and every change queues an Entry. A Writer (in `store.md`) takes the queued Entries and writes them as one batch. `FromLoaded` rebuilds a Record from what a store returned, `View` from a whole log, and `Fork` from another Record. `Snapshot` gives a `Document`, a copy with no way to write, for export and tests. A Record also has an identity as a log, its Record epoch, chosen when it is created, so a number means the same Event only within one epoch.
 
 ## Facts and log entries
 
@@ -22,39 +24,26 @@ The Record is one line of Entries numbered from 1, and each Entry is a Fact or a
          └ Checkpoint
 ```
 
-Facts are what a rebuild reads: Messages, Tool calls that started, metadata changes, loaded tools, Segments, Claims and Checkpoints. Log entries tell what happened, for people and telemetry: a Run's start and end, usage, model calls, the parts of a streaming reply. Splitting them keeps a load cheap, because its cost follows the state of the Session and not how chatty its Runs were. One exception: while a Run is in flight the Writer sets `Header.LogFrom` to the last Checkpoint's position, so a load also returns the Log entries from there, to rebuild the reply that was streaming as a Cut-off reply if the Run never ended.
+Facts are what a rebuild reads: Messages, Tool calls that started, metadata changes, loaded tools, Segments, Claims and Checkpoints. Log entries tell what happened, for people and telemetry: a Run's start and end, usage, model calls, the parts of a streaming reply. Splitting them keeps a load cheap, because its cost follows the state of the Session and not how chatty its Runs were. One exception: while a Run is in flight a load also returns the Log entries since the last Checkpoint, to rebuild the reply that was streaming as a Cut-off reply if the Run never ended. An Entry has a position, a kind (the Event's kind), a layer, a time, the Instance that wrote it and its data. A store reads nothing in it but the position, the kind and the layer.
 
-## What a load reads
+## What a rebuild does
 
-A load starts at the last Checkpoint and skips every Entry before it, except the Segments that Checkpoint lists.
+A Checkpoint stands in for everything before it, so a load starts at the last one.
 
 ```text
  Record   1 ... [seg 3][seg 4][CP 5: lists 3, 4 + tail] 6 ... 71 (head)
-                   │      │            └── Facts from here on ──┘
-                   └──────┴── segment_closed Entries before the Checkpoint
-
- Records.Load  ─▶  Entries   the Facts from the last Checkpoint on, and every Entry from Header.LogFrom
-                   Segments  the segment_closed Entries before it
-                   Seq       the position of the last Entry
-                   Header    the Header of the last write: Epoch, Info, State, LogFrom
+                                    └── Facts from here on ──┘
+ rebuild  the Messages and metadata from the Checkpoint, then each later Fact
+          the Segments the Checkpoint lists, by number, from their segment_closed Entries
+          a Claim: the Instance and its Epoch; busy or released
+          a Run that started and never ended: ended as failed, cause `interrupted`
+          a Tool call that started and has no result: answered "outcome unknown";
+          one that never started was not run
 ```
 
-A Checkpoint holds the state of the Facts at one point, so it stands in for everything before it. It names its Segments by number and does not copy them, which is why `Load` hands them back apart. A load is one read of the Record, so its Entries and its Header always belong together, and a rebuild never has to read the log a second time and settle a disagreement. How a compaction writes a Checkpoint is in [compaction.md](compaction.md).
+The Checkpoint names its Segments by number and does not copy them, which is why a load hands them back apart. How a compaction writes a Checkpoint is in `compaction.md`. A Claim is a Fact: the Instance that writes a Record names itself and its Epoch in an Entry at the position after the head it read, and the multi-instance spec covers how that makes one Writer.
 
-## The Header
-
-A write passes a `Header` with its Entries, and the store keeps the last one with the Record.
-
-```text
- Header   Epoch    the Record epoch; the only field a store reads (the fence below)
-          Info     listing columns: ID, parent, times, Messages, Runs, Usage, metadata
-          State    Gotato's bytes: the Run in flight, busy, notices, the last Run end, the base counts
-          LogFrom  from where Load also returns the log Entries; 0 for none
-```
-
-`Info` holds what a service lists and a database may index, and nothing a rebuild needs. `State` is Gotato's own JSON, kept as an Entry's `Data` is, and no store reads it. So a store keeps the Header as it is and returns it from `Load`, and a later field of `Info` or `State` needs no change to an adapter that stores the whole value. Listing is the optional `Lister`, `List(ctx, ListQuery{Limit, Cursor})`, which a caller finds as `records.(store.Lister)`: without it `Runner.Sessions` is `not_supported`, and a page may repeat or skip a Record updated while a caller pages.
-
-## A TaskSpec in the Record, and Definitions beside it
+## A TaskSpec in the Record
 
 A Run of a TaskSpec (`RunRequest.Task` or `RunRequest.TaskSpec`), or a create of one (`CreateSessionRequest.Task` or `.TaskSpec`), opens a new Session, and the Record keeps the TaskSpec as it was.
 
@@ -63,52 +52,7 @@ A Run of a TaskSpec (`RunRequest.Task` or `RunRequest.TaskSpec`), or a create of
                             gotato.task_spec   the TaskSpec as a JSON document (profile.TaskSpecDoc)
 ```
 
-The document is a metadata value like any other, written with the Session's first Entry and read with its facts, so it needs nothing from the Store. Any Instance that loads the Session decodes it and narrows the AgentProfile it looks up by name, whatever the registered spec says by then; a registered spec that changes reaches only new Sessions. Both keys are the Runner's (`ErrReservedKey` for a caller).
-
-Where a service keeps its definitions is not the Record's business. `store.Definitions` is a store of documents by kind and name (`SaveDefinition`, `LoadDefinition`, which answers `record.ErrNotFound` when none), a contract of its own and not a part of `store.Records`: the Store has no field for it, and a service passes it to `RegisterAgentProfileWithStore` or `RegisterTaskSpecWithStore`. It keeps the bytes as written and copies them in and out, and every implementation refuses a kind or name that `store.CheckDefinitionKey` refuses (`ErrInvalidID`). `store.NewMemoryDefinitions` and `store.NewFileDefinitions(dir)` ship with it, and `storetest.RunDefinitions` (package `store/storetest`) is its conformance suite, so your own database store proves the contract the way a Store does ([write a store](../guides/write-a-store.md)).
-
-## One write
-
-Every write is one conditional write, so a plain SQL or document database can keep the contract.
-
-```text
- Writer A (holds the Claim)               Store               Writer B (stale)
-   │ Append(after=41, Entries 42-44) ───▶  │
-   │                                       │ last position is 41: write all three
-   │ ◀─────────────────── ok ───────────── │
-   │                                       │ ◀── Append(after=41, Entry 42) ──────│
-   │                                       │ last position is 44, not 41
-   │                                       │ ──────── ErrConflict ───────────────▶│
-```
-
-An Append writes its batch all or nothing, at `after+1` onward, so an adapter maps it to an insert on a unique (session, seq) key. A Step is one batch, so a crash loses at most the Step in flight. Create is the same write for a new Record: its first Entry is a Checkpoint at Seq 1, and a taken ID is `ErrExists`. A Writer stops at its first failed write. A conflict means another writer took the Record; any other failure leaves the outcome unknown, so the Record is opened again from the Store to see whether the write landed.
-
-## Two fences on every write
-
-An Append is checked in this order, and the epoch comes before the position.
-
-```text
- Append(id, after, Entries, Header)
-   0  Header names a Record epoch?         no ─▶ invalid_argument
-   1  the Record exists?                   no ─▶ ErrNotFound
-   2  the Record epoch is the stored one?  no ─▶ ErrNotFound  (deleted and created again)
-   3  `after` is the last position?        no ─▶ ErrConflict  (another writer wrote first)
-   4  write the batch, replace the Header
-```
-
-Fence 3 is the position. A Claim is an Entry written at the position after the head its Instance read, so a Writer that lost its Claim always writes to a taken position. Fence 2 is the Record epoch, an identity chosen when the Record is created. Without it, a writer of a deleted Record could land at a position that is free again in the new one. The Epoch inside a Claim is another number, and the multi-instance spec covers it. The Record is also the trace of a Session, and this is a promise about Gotato's code and not about the Store: only the Session's Writer appends, and a Tool or the model has no way to write to the Record, but whoever operates the Store can still change or delete a Record, and Entries are not signed.
-
-## Delete and create again
-
-A number means the same Event only within one Record epoch, so an ID that is reused starts a new epoch.
-
-```text
- Record "s1"   epoch E1: 1 2 3 ... 40 41 │ deleted │ epoch E2: 1 2 3 ...
- Writer W1 (E1)                    Append(E1) ────────────▶ ErrNotFound
- Client C (saw E1, up to 40)                resume(E1, 40) ─▶ cannot_resume, with E2 and the head
-```
-
-The old Writer is refused even when the new log is as long as its own, because the epoch is compared first. The file store goes further: the epoch is in the path, so the old Writer finds no directory to write into. A client that sends the epoch it saw is refused instead of being handed another conversation's 41st Event. A delete claims the Session first, so it never removes a Record from under a Run on another Instance.
+The document is a metadata value like any other, written with the Session's first Entry and read with its facts, so it needs nothing from the Store. Any Instance that loads the Session decodes it and narrows the AgentProfile it looks up by name, whatever the registered spec says by then. A registered spec that changes reaches only new Sessions. Both keys are the Runner's (`ErrReservedKey` for a caller). How a TaskSpec is registered and narrowed is in `profile.md`.
 
 ## A Fork
 
@@ -122,7 +66,7 @@ A Fork is a new Record that starts from a point in another Record's log, and it 
               … session_claimed, session_released        ← one Create; the fork starts idle
 ```
 
-The first Entry is a Checkpoint with the parent's tail, metadata and loaded tools, and the Entries after it carry the Segments the parent's Context used. A Segment keeps its number and names the parent as its Source, with the parent's epoch, so the original Messages are read from the parent's log. Nothing of the parent written after position 58 reaches the fork. No Instance activates anything: whoever receives the fork's first request loads it.
+The first Entry is a Checkpoint with the parent's tail, metadata and loaded tools, and the Entries after it carry the Segments the parent's Context used. A Segment keeps its number and names the parent as its Source, with the parent's epoch, so the original Messages are read from the parent's log. Nothing of the parent written after position 58 reaches the fork. No Instance activates anything: whoever receives the fork's first request loads it. A Tool call of the parent's Run that had no result yet is answered in the fork as not finished at the time of the fork, since the parent's writer may be alive and about to answer it.
 
 ## A spilled result
 
@@ -136,12 +80,12 @@ A Tool Result over one page is stored whole as an Entry of its own, and the Mess
  read_result(ref, page) ─▶ Records.Log(after=11, limit=1) ─▶ the body, one page at a time
 ```
 
-The body is written before the Message, so the Message can name its position. A crash between the two leaves a Log entry nobody points to, and nothing else. It is a Log entry, so a load never reads it, and a Session with many large results loads as fast as one with none. The Message is written once and stays small, so the bytes already sent do not change. A fork keeps the parent's Session and epoch in the pointer, so a parent that was deleted and created again reads as pruned and not as another body.
+The body is written before the Message, so the Message can name its position. A crash between the two leaves a Log entry nobody points to, and nothing else. It is a Log entry, so a load does not read it, except while a Run is in flight, when the load also returns the Log entries since the last Checkpoint. A Session with many large results therefore loads as fast as one with none. The Message is written once and stays small, so the bytes already sent do not change. A fork keeps the parent's Session and epoch in the pointer, so a parent that was deleted and created again reads as pruned and not as another body. The body is left out of the Events a subscriber gets and is read only by `read_result`.
 
 ## What this buys you
 - Any Instance rebuilds the same Session from the Store, at the cost of the part since the last Checkpoint.
-- A stale Writer, or the Writer of a deleted Record, cannot corrupt a Record. It is refused before it writes.
 - Large results and forks cost the Store one Entry each, not a copy.
+- A Session knows what a crash left: a Run that never ended, and a Tool call whose outcome is unknown.
 
 ## See also
-[FEATURES.md → G-F03](../FEATURES.md#g-f03--stores-), [G-F36](../FEATURES.md#g-f36--agent-profiles-and-task-specs-) and [G-F35](../FEATURES.md#g-f35--large-tool-results-), decisions [002](../plan/decisions/002-the-store-is-the-truth-and-memory-is-a-cache.md), [013](../plan/decisions/013-a-conformance-suite-ships-with-the-store-contract.md), [017](../plan/decisions/017-the-record-is-an-append-only-log.md), [019](../plan/decisions/019-one-writer-per-session-claimed-in-the-store.md), [028](../plan/decisions/028-every-step-is-written-as-facts-and-a-log.md), [030](../plan/decisions/030-every-entry-is-an-event.md) and [040](../plan/decisions/040-a-large-tool-result-is-spilled-and-read-in-pages.md), [GLOSSARY.md](../GLOSSARY.md). Related specs: [events.md](events.md), [multi-instance.md](multi-instance.md) and [compaction.md](compaction.md).
+[ARCHITECTURE.md](ARCHITECTURE.md), the principles [the store is the only truth](../DESIGNS.md#1-the-store-is-the-only-truth) and [no instance is special](../DESIGNS.md#8-no-instance-is-special), [FEATURES.md](../FEATURES.md) (G-F03: Stores, G-F36: Agent profiles and task specs, G-F35: Large tool results), decisions [002](../plan/decisions/002-the-store-is-the-truth-and-memory-is-a-cache.md), [017](../plan/decisions/017-the-record-is-an-append-only-log.md), [028](../plan/decisions/028-every-step-is-written-as-facts-and-a-log.md), [030](../plan/decisions/030-every-entry-is-an-event.md), [040](../plan/decisions/040-a-large-tool-result-is-spilled-and-read-in-pages.md), [044](../plan/decisions/044-an-agent-profile-and-a-task-spec-are-registered-inline-or-from-a-store.md) and [050](../plan/decisions/050-each-package-is-one-layer-named-for-its-job.md).
