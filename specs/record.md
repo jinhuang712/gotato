@@ -56,7 +56,7 @@ A write passes a `Header` with its Entries, and the store keeps the last one wit
 
 ## A TaskSpec in the Record, and Definitions beside it
 
-A Run of a TaskSpec (`RunRequest.Task` or `RunRequest.TaskSpec`) opens a new Session, and the Record keeps the TaskSpec as it was.
+A Run of a TaskSpec (`RunRequest.Task` or `RunRequest.TaskSpec`), or a create of one (`CreateSessionRequest.Task` or `.TaskSpec`), opens a new Session, and the Record keeps the TaskSpec as it was.
 
 ```text
  session_created ─ metadata: gotato.agent     the TaskSpec's AgentProfile name

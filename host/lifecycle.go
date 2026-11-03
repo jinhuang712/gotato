@@ -12,12 +12,24 @@ import (
 )
 
 // CreateSessionRequest is the one way to make a Session. The Session starts
-// with the history in Messages and the Agent it names, and nothing else of it is
-// set by the caller: its instruction, its ceiling and its Tools are its Agent's.
+// with the history in Messages and the Agent it names (or the TaskSpec it is
+// opened for), and nothing else of it is set by the caller: its instruction, its
+// ceiling and its Tools are its Agent's, as a TaskSpec narrows them.
 type CreateSessionRequest struct {
 	// Agent names the AgentProfile the Session runs. Empty means the default
-	// (Config.DefaultAgent).
+	// (Config.DefaultAgent). It excludes Task and TaskSpec.
 	Agent string
+	// Task names a registered TaskSpec (profile.Registry). The Session is of
+	// the TaskSpec's AgentProfile, narrowed as the TaskSpec says, with the
+	// TaskSpec's Background after the instruction, and the Record keeps the
+	// TaskSpec as it was: exactly the Session RunRequest.Task opens. Run it by
+	// its ID like any other; a caller-chosen ID makes this call the point to
+	// retry by. It excludes TaskSpec and Agent.
+	Task string
+	// TaskSpec is a TaskSpec the request carries, opened as Task is. It excludes
+	// Task and Agent. It must only narrow its AgentProfile
+	// (profile.TaskSpec.Narrow).
+	TaskSpec *profile.TaskSpec
 	// ID is the new Session's ID. Empty generates one. An ID that is taken fails
 	// with ErrSessionExists: the store's Create is the check, so two concurrent
 	// creates of the same ID cannot both succeed, also on two Instances.
@@ -36,6 +48,10 @@ func (r *Runner) CreateSession(ctx context.Context, request CreateSessionRequest
 	if err := refuseReserved(request.Metadata); err != nil {
 		return record.Info{}, err
 	}
+	task, err := r.resolveTask(ctx, request.Task, request.TaskSpec, request.Agent)
+	if err != nil {
+		return record.Info{}, err
+	}
 	var options []record.Option
 	if request.ID != "" {
 		if strings.TrimSpace(request.ID) == "" {
@@ -46,7 +62,7 @@ func (r *Runner) CreateSession(ctx context.Context, request CreateSessionRequest
 	if len(request.Messages) > 0 {
 		options = append(options, record.WithMessages(request.Messages...))
 	}
-	s, spec, err := r.newSession(ctx, request.Agent, nil, request.Metadata, options...)
+	s, spec, err := r.newSession(ctx, request.Agent, task, request.Metadata, options...)
 	if err != nil {
 		return record.Info{}, err
 	}

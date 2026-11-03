@@ -12,7 +12,11 @@ import (
 )
 
 type createSessionRequest struct {
-	Agent    string            `json:"agent,omitempty"`
+	Agent string `json:"agent,omitempty"`
+	// Task is the name of a registered TaskSpec, never a TaskSpec value: a
+	// definition reaches a service through its code or its store. It excludes
+	// Agent.
+	Task     string            `json:"task,omitempty"`
 	ID       string            `json:"id,omitempty"`
 	Metadata map[string]string `json:"metadata,omitempty"`
 }
@@ -35,9 +39,10 @@ func (h *Handler) createSession(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusBadRequest, err)
 		return
 	}
-	// A key under "gotato." in the metadata is the Runner's: CreateSession
-	// refuses it, and writeFailure answers it 400 invalid_argument.
-	info, err := h.runner.CreateSession(r.Context(), host.CreateSessionRequest{Agent: in.Agent, ID: in.ID, Metadata: in.Metadata})
+	// A key under "gotato." in the metadata is the Runner's, and a task with an
+	// agent is no request: CreateSession refuses both, and writeFailure answers
+	// them 400 invalid_argument.
+	info, err := h.runner.CreateSession(r.Context(), host.CreateSessionRequest{Agent: in.Agent, Task: in.Task, ID: in.ID, Metadata: in.Metadata})
 	if err != nil {
 		writeFailure(w, err)
 		return

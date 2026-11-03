@@ -246,7 +246,7 @@ With many instances a notice for a Run on another instance is answered `not_writ
 
 A Session is one conversation that runs an Agent. It keeps every Message, a record of each Run, its token usage, its Events and every compaction, as its Record ([G-F03](#g-f03--stores-)). How it works: [specs/session.md](specs/session.md), [specs/record.md](specs/record.md). Why: decisions [004](plan/decisions/004-an-agent-is-a-definition-and-a-session-is-the-live-unit.md), [016](plan/decisions/016-gotato-session-is-the-live-unit-and-session-record-is-what-the-store-keeps.md).
 
-- You create a Session with `POST /v1/sessions` or `Runner.CreateSession(ctx, host.CreateSessionRequest{Agent, ID, Metadata, Messages})`, optionally with your own ID, metadata and a starting history. It answers a value, the `record.Info` of the new Session; an ID that is taken fails with `already_exists`. The instruction and the compaction ceiling are the Agent's: another instruction is another Agent.
+- You create a Session with `POST /v1/sessions` or `Runner.CreateSession(ctx, host.CreateSessionRequest{Agent, ID, Metadata, Messages})`, optionally with your own ID, metadata and a starting history. Instead of an `Agent` it may name a TaskSpec (`Task`, or `TaskSpec` as a value; HTTP: `task`, a registered name), which opens the Session a Run of that TaskSpec opens ([G-F36](#g-f36--agent-profiles-and-task-specs-)). It answers a value, the `record.Info` of the new Session; an ID that is taken fails with `already_exists`. The instruction and the compaction ceiling are the Agent's: another instruction is another Agent.
 - `record.Record` holds every stored Event as an Entry; a Session over a Record keeps a window of the last 1,000 Events in memory, and a Feed over no stored Record keeps a ring of the last 4,096 ([G-F13](#g-f13--events-)).
 - **Fork** (`Runner.Fork`, answering a `record.Info`) starts a new Session from another's Record and records the parent and the position it branches at. It writes the store and activates nothing, so its first request activates it on whichever instance receives it. The fork starts with a Checkpoint of its parent's facts (inherited Segments follow in the same write) and keeps its parent's prompt cache key, so its first Turn reads the parent's cached prefix.
 - One Session runs one Run at a time; a second is rejected or waits as the busy policy says ([G-F27](#g-f27--service-many-instances-)).
@@ -256,7 +256,7 @@ A Session's metadata holds the application's own fields (a chat ID, an owner) an
 | Key | Written by | Meaning |
 |---|---|---|
 | `gotato.agent` | `RunRequest.Agent`, `CreateSessionRequest.Agent`, a TaskSpec's Run | the AgentProfile this Session runs (one Runner serves several; a TaskSpec's Session keeps its profile's name) |
-| `gotato.task_spec` | `RunRequest.Task`, `RunRequest.TaskSpec` | the TaskSpec this Session was opened for, as a JSON document, kept as it was ([G-F36](#g-f36--agent-profiles-and-task-specs-)) |
+| `gotato.task_spec` | `RunRequest.Task`, `RunRequest.TaskSpec`, `CreateSessionRequest.Task`, `CreateSessionRequest.TaskSpec` | the TaskSpec this Session was opened for, as a JSON document, kept as it was ([G-F36](#g-f36--agent-profiles-and-task-specs-)) |
 | `gotato.tool.<id>` | `Runner.SetToolActive` | a tool switched on or off for this Session |
 | `gotato.model` | the Runner | the model the Agent last asked for, for information (each reply records the model that answered in `Message.Model`) |
 | `gotato.cache_key` | `Runner.Fork` | the prompt cache key this Session's requests carry, in place of the hash of its ID; a fork keeps its parent's |
@@ -299,8 +299,10 @@ resp, _ := runner.Run(ctx, host.RunRequest{Task: "morning-report", Prompt: "Go."
 | Lookup per build | a Session looks its AgentProfile up by name each time it is built, so a replaced profile reaches new and rebuilt Sessions and never a Run in flight |
 | `host.Config` | `Profiles *profile.Registry` (required), `DefaultAgent` (the AgentProfile a request that names none runs; empty means none, and such a request is `ErrUnknownAgent`), `Warm`, `TimeAwayAfter` |
 | `RunRequest.Task`, `RunRequest.TaskSpec` | a registered TaskSpec by name, or one carried as a value; exclusive, and either opens a new Session (no `SessionID`, no `Agent`). The Background is appended once, after the instruction. The TaskSpec is kept in the Session metadata `gotato.task_spec`, so every instance builds the Session the same after the registered spec changes, and a later `RunRequest.Agent` on it is refused |
+| `CreateSessionRequest.Task`, `CreateSessionRequest.TaskSpec` | the same two fields, with the same rules (exclusive, and no `Agent`), through the same code as a Run: the Session is created, not run, and run by its ID like any other. A caller-chosen `ID` is the retry point: a second create of it is `already_exists`, with no second Session ([D-051](plan/decisions/051-a-session-is-opened-for-a-task-spec-when-it-is-created.md)) |
+| `Runner.Tasks(ctx)` | the registered TaskSpecs, sorted, as `[]host.TaskInfo{Name, Agent}`; a stored one that cannot be read is listed without its `Agent`, not left out |
 | `host.Admission` | gained `Task` (the TaskSpec's name); `Agent` is the AgentProfile's name, the TaskSpec's profile for a task Run |
-| HTTP | no task fields: a Run is `POST /v1/sessions/{id}/runs` on an existing Session. `GET /v1/agents` and the JSON name `agent` are unchanged |
+| HTTP | `POST /v1/sessions` takes `task`, a registered TaskSpec name and never a value, and excludes `agent` (400 `invalid_argument`); a Run is `POST /v1/sessions/{id}/runs` on that Session. `GET /v1/tasks` answers `{"tasks": [{"name", "agent"}]}`, sorted by name. `GET /v1/agents` and the JSON name `agent` are unchanged |
 
 ## What the model sees
 
@@ -753,7 +755,7 @@ The team states how long its provider keeps the prompt cache, as `ModelFacts.Cac
 A bot, a job or another service talks to Sessions like any other API. Mount the handler from `adapter/http`, a Go module of its own, on your own mux (a program that also imports `net/http` imports it as `httpapi "github.com/jinhuang712/gotato/adapter/http"`). How it works: [specs/events.md](specs/events.md), [specs/errors.md](specs/errors.md). Why: decisions [028](plan/decisions/028-every-step-is-written-as-facts-and-a-log.md), [030](plan/decisions/030-every-entry-is-an-event.md).
 
 ```text
-GET    /healthz  /readyz  /v1/agents
+GET    /healthz  /readyz  /v1/agents  /v1/tasks
 POST   /v1/sessions      GET /v1/sessions      GET|DELETE /v1/sessions/{id}
 POST   /v1/sessions/{id}/fork    GET /v1/sessions/{id}/events    GET /v1/sessions/{id}/context
 GET    /v1/sessions/{id}/stream?after=N&record_epoch=E
@@ -765,7 +767,7 @@ POST   /v1/sessions/{id}/messages    POST /v1/sessions/{id}/notices    POST /v1/
 - A run request carries `prompt`, or `continue: true`, and may set `timeout_ms` and an `agent` that binds the Session to that registered Agent (how a Session whose stored Agent was dropped is repaired; without it, 400 `invalid_argument` "unknown agent").
 - A message request carries `kind` (`steer`, `follow_up`, `interrupt`) and `text`: 202 `{"session_id", "message_id", "queued": true}` when a Run takes it; with no Run going it starts one and holds until it settles, then 200 `{"session_id", "queued": false, "run": {…}}`; 409 `not_writer`, or forwarded with `httpapi.WithForwarding`. `…/abort` answers 202, 409 `invalid_state` when no Run is going, and forwards the same way. A notice request answers 202 `{"session_id", "number", "message_id"}` at once ([G-F26](#g-f26--steering-a-run-), [G-F29](#g-f29--runtime-notices-)).
 - `GET /v1/sessions?limit=N&cursor=C` answers one page, `{"sessions": […], "next": "…"}`, the most recently updated first, with `next` left out after the last page and 100 Sessions when `limit` is not set; each item is the listing columns only (`id`, `parent_id`, `created_at`, `updated_at`, `messages`, `runs`, `usage`, `metadata`), a bad `limit` is 400, and a store whose `Records` is not a `store.Lister` answers 400 `not_supported`. A Session updated while a client pages may repeat or be skipped. `POST /v1/sessions` and `…/fork` answer the same columns and `record_epoch`.
-- `GET /v1/agents` answers `{"agents": […], "max_effect": {name: cap}}`. `GET …/events` answers every stored Event as JSON Lines, filtered with `?kind=`. `GET /readyz` answers 200 with `active_runs` and `active_sessions`, 503 with `"draining": true` or `"lapsed": true`. `GET /healthz` reports the contract version, `"1"` at the first release.
+- `GET /v1/agents` answers `{"agents": […], "max_effect": {name: cap}}`. `GET /v1/tasks` answers `{"tasks": [{"name": …, "agent": …}]}`, the registered TaskSpecs by name with the AgentProfile each runs (`agent` is left out for a stored TaskSpec that cannot be read now). `POST /v1/sessions` takes `task` (a registered name) in place of `agent`. `GET …/events` answers every stored Event as JSON Lines, filtered with `?kind=`. `GET /readyz` answers 200 with `active_runs` and `active_sessions`, 503 with `"draining": true` or `"lapsed": true`. `GET /healthz` reports the contract version, `"1"` at the first release.
 - A Run that settles failed, canceled or past its deadline still answers 200 with the outcome in the body (a request refused as too long is such a Run: 200 with `context_overflow` in `result.error.code`). Only request-level problems use these statuses:
 
 | Status | When |

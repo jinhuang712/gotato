@@ -36,7 +36,8 @@
 //	GET    /healthz                         liveness: 200 {ok, contract}
 //	GET    /readyz                          readiness: 200, or 503 while draining {ok, draining, active_runs, active_sessions}
 //	GET    /v1/agents                       200 {agents: [name], max_effect: {name: effect}}
-//	POST   /v1/sessions                     {agent?, id?, metadata?}      → 201 session summary; 409 if id exists; 400 for a metadata key under "gotato."
+//	GET    /v1/tasks                        200 {tasks: [{name, agent}]}: the registered TaskSpecs by name, each with the AgentProfile it runs
+//	POST   /v1/sessions                     {agent? | task?, id?, metadata?} → 201 session summary; 409 if id exists; 400 for a metadata key under "gotato.", for task with agent, or for a task that is not registered
 //	GET    /v1/sessions?limit=N&cursor=C    → 200 {sessions: [listing columns], next?}; 400 not_supported when the store does not list
 //	GET    /v1/sessions/{id}                → 200 session document
 //	DELETE /v1/sessions/{id}                → 200 {id, deleted}
@@ -185,6 +186,7 @@ func New(runner *host.Runner, options ...Option) *Handler {
 	h.mux.HandleFunc("GET /healthz", h.healthy)
 	h.mux.HandleFunc("GET /readyz", h.ready)
 	h.mux.HandleFunc("GET /v1/agents", h.agents)
+	h.mux.HandleFunc("GET /v1/tasks", h.tasks)
 	h.mux.HandleFunc("POST /v1/sessions", h.createSession)
 	h.mux.HandleFunc("GET /v1/sessions", h.listSessions)
 	h.mux.HandleFunc("GET /v1/sessions/{id}", h.scoped(h.getSession))
@@ -300,4 +302,11 @@ func (h *Handler) agents(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 	writeJSON(w, http.StatusOK, map[string]any{"agents": names, "max_effect": caps})
+}
+
+// tasks answers the registered TaskSpecs, sorted by name, each with the
+// AgentProfile it runs. A TaskSpec that cannot be read now is listed without its
+// "agent" (host.Runner.Tasks).
+func (h *Handler) tasks(w http.ResponseWriter, r *http.Request) {
+	writeJSON(w, http.StatusOK, map[string]any{"tasks": h.runner.Tasks(r.Context())})
 }
