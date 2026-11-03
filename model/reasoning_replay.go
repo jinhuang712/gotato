@@ -11,7 +11,7 @@ import (
 // reply and Tool Result after it. A Steer is a user Message, so it starts a
 // new Round; a Continue without a new prompt stays in the Round it resumes;
 // Tool Results have a role of their own and never start one, and neither does
-// a runtime notice (G-F29): it is not the user speaking.
+// a runtime notice (F4.4): it is not the user speaking.
 //
 // With ModelFacts.RoundReasoning, an assistant reply before this index is sent
 // without its reasoning. A provider that takes only the current Round's

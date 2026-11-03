@@ -496,8 +496,8 @@ func forwardRunner(t *testing.T, st store.Store, agent profile.AgentProfile, mut
 	return r
 }
 
-// forwardMessage is the snippet FEATURES.md (G-F26) shows an embedder that
-// forwards a message it was not the writer of, with its own HTTP client.
+// forwardMessage is how an embedder forwards a message it was not the writer
+// of, with its own HTTP client (FEATURES.md → F9.5.2).
 func forwardMessage(ctx context.Context, runner *host.Runner, client *http.Client, req host.MessageRequest, forwarded bool) (*http.Response, error) {
 	_, err := runner.Send(ctx, req)
 	addr, ok := host.WriterOf(err)

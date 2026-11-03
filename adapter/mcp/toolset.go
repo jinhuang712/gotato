@@ -4,7 +4,7 @@
 // The adapter is a Go module of its own, on the official MCP Go SDK, so a
 // service that does not use MCP carries none of it. It builds tools only:
 // resources, prompts, sampling, elicitation, OAuth and Gotato as an MCP
-// server are not built (FEATURES.md, G-N20). A tool that asks for input in
+// server are not built (FEATURES.md → Not planned). A tool that asks for input in
 // the middle of a call gets no answer, and the call ends with a failed Tool
 // Result. Progress notifications are the Tool's progress, and the server's
 // instructions are the description when WithDescription is not set.

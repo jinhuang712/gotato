@@ -48,7 +48,7 @@ next message for S ──► pod B: opens S from the store, takes it over, goes 
 - **One writer.** While a Run is going on pod A, a message for the same Session that reaches pod B is not run there: pod B says `not_writer` and names pod A. You send it to pod A, or turn on forwarding in the HTTP endpoint.
 - **Waiting for the writer** is a plain answer to `not_writer` for one replica: retry the `NotRun` after a back-off until the writer finishes, then pod B takes the Session over. The limit: a long Run holds the second message that long. It was not tried with several instances writing one Session. Gotato does not forward by itself, since it builds no infrastructure ([Decision 024](../plan/decisions/024-gotato-builds-no-infrastructure.md)).
 - **Taking over.** Pod B takes the Session over when pod A's Run has ended, or pod A is gone.
-- **Mid-Run messages.** A message sent to a Session while it runs can steer the Run or wait for the next turn. `runner.Send` is the call; [FEATURES.md → Steering a Run](../FEATURES.md#g-f26--steering-a-run) has the rules.
+- **Mid-Run messages.** A message sent to a Session while it runs can steer the Run or wait for the next turn. `runner.Send` is the call; [FEATURES.md → F1.5: Steer a Run in flight](../FEATURES.md#f15-steer-a-run-in-flight) has the rules.
 
 ## Errors say what to do
 
@@ -167,6 +167,6 @@ The handler serves the same Runner over HTTP, with a stream for each Run and eac
 
 ## A chat bot on three pods
 
-[FEATURES.md → Service: many instances](../FEATURES.md#g-f27--service-many-instances) lists every behavior above. The chat-bot example, which runs three pods on a local cluster through a rolling deploy, a killed writer and a scale-down, is in [`examples/larkbot`](../examples/larkbot/README.md) and described in [Example: a chat bot](example-chat-bot.md).
+[FEATURES.md → F9: Many instances](../FEATURES.md#f9-many-instances) lists every behavior above. The chat-bot example, which runs three pods on a local cluster through a rolling deploy, a killed writer and a scale-down, is in [`examples/larkbot`](../examples/larkbot/README.md) and described in [Example: a chat bot](example-chat-bot.md).
 
 Known gap: there is no de-duplication across pods. `examples/larkbot` keeps an in-memory set of message IDs on each instance and drops a repeat it has seen; a repeat that lands on another instance is handled as new. Gotato itself does not de-duplicate `RequestID` in 0.2.0, and a message that a Run in flight takes is not in `run_started`: the Record names it by its message ID alone. If you want it, keep the message id in your own shared store.

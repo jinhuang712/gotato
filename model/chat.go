@@ -118,7 +118,7 @@ func convertChatMessage(message gotato.Message, names map[string]string, keepRea
 	}
 	if message.Role == gotato.RoleNotice {
 		// Chat Completions has no system message mid-conversation: a notice
-		// (G-F29) goes as a user message on the wire, and the Record keeps
+		// (F4.4) goes as a user message on the wire, and the Record keeps
 		// it a notice. Its tag comes from where the notice is built.
 		role = string(gotato.RoleUser)
 	}

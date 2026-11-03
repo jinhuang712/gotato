@@ -223,7 +223,7 @@ func TestReconnectWaitsAreJittered(t *testing.T) {
 	}
 }
 
-// replyOf is the loop FEATURES.md (G-F13) shows a chat bot: it returns the
+// replyOf is the loop a chat bot runs (FEATURES.md → F10.2): it returns the
 // text of the reply that ended the next Run to settle on a Session's stream,
 // that is, the last reply that asked for no tool.
 func replyOf(ctx context.Context, sub gotato.Subscription) (string, error) {

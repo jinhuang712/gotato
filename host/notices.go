@@ -13,7 +13,7 @@ import (
 )
 
 // defaultTimeAway is how long a Session must have been idle before a message
-// that starts a Run is followed by a time_away notice (G-F29).
+// that starts a Run is followed by a time_away notice (F4.4).
 const defaultTimeAway = 30 * time.Minute
 
 // NoticeRequest is one notice from your service for a Session.
@@ -37,7 +37,7 @@ type NoticeResult struct {
 	MessageID string `json:"message_id"`
 }
 
-// Notice tells the model something that is not the user's words (G-F29). It
+// Notice tells the model something that is not the user's words (F4.4). It
 // queues the notice and returns at once with the number of its notice_queued
 // Event; it never waits for the model, starts no Run and keeps none going.
 //
@@ -181,7 +181,7 @@ func splitNotices(left []gotato.Queued) (notices, rest []gotato.Queued) {
 }
 
 // queueTimeAway queues the time_away notice of a message that starts a Run
-// after the Session was idle longer than the Agent's threshold (G-F29). The
+// after the Session was idle longer than the Agent's threshold (F4.4). The
 // idle time is read from the Record: from the end of its last Run to now, so a
 // Session that was evicted, or loaded by another Instance, gets the notice the
 // same. A Session that has never finished a Run has none.

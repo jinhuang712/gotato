@@ -106,7 +106,7 @@ func TestARunEndsByItsCtx(t *testing.T) {
 
 // The core does not cap a Tool Result: an 8 MiB result, over the 4 MiB the old
 // cap allowed, reaches the next request whole and the Run completes, when the
-// Message limit leaves room for it. Until large results are spilled (G-F35),
+// Message limit leaves room for it. Until large results are spilled (F6.7),
 // it goes into the Context as it is.
 func TestALargeToolResultNoLongerFailsTheRun(t *testing.T) {
 	big := strings.Repeat("x", 8<<20)

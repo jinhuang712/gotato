@@ -11,7 +11,7 @@ import (
 	"github.com/jinhuang712/gotato/ref"
 )
 
-// The defaults of a Segment built by code (FEATURES.md → G-F06, the Segment settings table).
+// The defaults of a Segment built by code (FEATURES.md → F5.1.3).
 const (
 	// defaultMessageTokens is how long a user Message or a final reply may be
 	// in a Segment before it is cut, in estimated tokens (bytes ÷ 4).

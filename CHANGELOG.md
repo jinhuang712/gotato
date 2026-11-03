@@ -213,6 +213,22 @@ What changed in Gotato, from the user's side. Newest first. A breaking change ca
 
 ### Changed
 
+- **FEATURES.md is grouped by feature area, and every feature has a new ID.** Fourteen groups, F1 to F14, each with numbered features and parts (F5.1.4). The old IDs G-F01 to G-F37 and G-N01 to G-N28 are gone; *Not planned* is a list without IDs. Released notes below keep the old IDs, and their links lead to the new place.
+
+  | Old | New | Old | New |
+  |---|---|---|---|
+  | G-F01 Agents and Runs | F1 Runs | G-F13 Events | F10 Events |
+  | G-F26 Steering a Run | F1.5 Steer a Run in flight | G-F15 Extensions | F11 Extensions |
+  | G-F02 Sessions | F2 Sessions | G-F14 HTTP and streaming | F12 HTTP API |
+  | G-F36 Agent profiles and task specs | F3 Agent profiles and tasks | G-F12 The MCP adapter | F13 MCP adapter |
+  | G-F04 Context, G-F05 Context inspection | F4 Context, F4.6 | G-F37 A light library | F14.1 to F14.5 |
+  | G-F29 Runtime notices | F4.4 Notices | G-F22 Test kit and measurement | F14.6 Test kit |
+  | G-F06 Compaction | F5 Compaction | G-F07 Models and providers | F7 Model |
+  | G-F09 Tools and their Effect | F6.1 to F6.4 | G-F31 Recovering a cut stream | F7.6 |
+  | G-F10 Tool sets | F6.5 Tool sets | G-F33 Prompt cache retention | F7.7 |
+  | G-F34 Tool search | F6.6 Tool search | G-F03 Stores | F8 Store |
+  | G-F35 Large Tool Results | F6.7 Large results | G-F27 Service: many instances | F9 Many instances |
+
 - **The Runner and the Session are built from parts with one job each** (D-048). The Runner holds its Liveness row (`service/internal/heartbeat`), its admitted Runs (`runs`), its warm copies (`warm`, with one eviction for both bounds) and one clock (`clock`) as parts with a lock each, in a lock order of runs, then warm. The Session holds `def`, `life`, `run`, `events`, `history`, `tools`, `queue` and `host`: four locks, ordered events, run, queue, where it had six, and a Tool Result is committed in stages by `commitResult`. Nothing here changes behaviour, an Event or an error: it is how the code is cut, so each part is read and tested alone.
 
 - **A newly built Segment names each tool result and each kept message by a ref** (decision 043). A Segment already written is not changed and renders as before.
@@ -307,12 +323,12 @@ The test CLI (`internal/cmd/gotato`), the workload tools, `examples/larkbot` and
 
 Gotato runs no tests against real providers, and CI has no provider credentials. A provider's behavior is played by a fake gateway (`internal/fakegateway`) built from the providers' public wire formats. One live run exists (2026-10-16, one model, before later changes, G-F22); it was not repeated for this release. The list below is for a team to check on its own gateway.
 
-- **The wire APIs ([G-F07](FEATURES.md#g-f07--models-and-providers)).** `openai-chat-completions`, `openai-responses` and `anthropic-messages` are tested on request bytes and against the fake gateway, which refuses a request shaped otherwise than the documentation. Its quirks (a refusal as too long, a cut stream, cached tokens, a reasoning replay, a mid-conversation message, a slow reply) follow the documented shapes, not a provider's live answers.
-- **The wording of a refusal as too long ([G-F07](FEATURES.md#g-f07--models-and-providers), TODO "Do the providers word a refusal as too long as the fake gateway does?").** The wordings are the ones the providers are reported to return, and the public documentation quotes none. A team adds another with `overflow_phrases`.
-- **Native tool search ([G-F34](FEATURES.md#g-f34--tool-search)).** How a provider expands a `tool_reference`, and whether it takes a `cache_control` mark on a tool list that ends in deferred tools. A team whose gateway refuses `native` sets `list`.
-- **Runtime notices ([G-F29](FEATURES.md#g-f29--runtime-notices)).** Whether a provider answers a user turn that holds only a notice.
-- **Compaction ([G-F06](FEATURES.md#g-f06--compaction)).** How a model reads a `<tool_calls>` block between a user message and the reply; what Claude and OpenAI need of the reasoning in a tail kept mid-Run; whether Claude reads the Segments from the cache with Gotato's marks; whether `tool_choice: none` keeps the cache on Anthropic; how long a model-written Recap takes against `ModelCallDeadline`.
+- **The wire APIs ([G-F07](FEATURES.md#f7-model)).** `openai-chat-completions`, `openai-responses` and `anthropic-messages` are tested on request bytes and against the fake gateway, which refuses a request shaped otherwise than the documentation. Its quirks (a refusal as too long, a cut stream, cached tokens, a reasoning replay, a mid-conversation message, a slow reply) follow the documented shapes, not a provider's live answers.
+- **The wording of a refusal as too long ([G-F07](FEATURES.md#f7-model), TODO "Do the providers word a refusal as too long as the fake gateway does?").** The wordings are the ones the providers are reported to return, and the public documentation quotes none. A team adds another with `overflow_phrases`.
+- **Native tool search ([G-F34](FEATURES.md#f66-tool-search)).** How a provider expands a `tool_reference`, and whether it takes a `cache_control` mark on a tool list that ends in deferred tools. A team whose gateway refuses `native` sets `list`.
+- **Runtime notices ([G-F29](FEATURES.md#f44-notices)).** Whether a provider answers a user turn that holds only a notice.
+- **Compaction ([G-F06](FEATURES.md#f5-compaction)).** How a model reads a `<tool_calls>` block between a user message and the reply; what Claude and OpenAI need of the reasoning in a tail kept mid-Run; whether Claude reads the Segments from the cache with Gotato's marks; whether `tool_choice: none` keeps the cache on Anthropic; how long a model-written Recap takes against `ModelCallDeadline`.
 - **The Recap's quality ([G-E01](plan/GOALS.md#g-e01--the-recap-keeps-the-facts-), not measured).** The payments check ships and a team runs it on its own gateway: `go run ./internal/cmd/gotato-workload -recap-check -live -gateway-config gateway.yaml`. No gateway has run it yet, so the model-written Recap is off by default.
 - **Cache and cost numbers.** [G-B14](plan/GOALS.md#g-b14--context-size-and-cost-per-turn-by-the-sessions-age-) (cost per Turn by the Session's age), [G-B15](plan/GOALS.md#g-b15--the-first-request-after-an-idle-return-) (the first request after an idle return, not measured) and [G-B16](plan/GOALS.md#g-b16--cost-of-a-compaction) (the cost and time of a compaction) need a provider's cache and prices; the sizes and tokens come from a fake model. G-B01 (cache hit rate) has its number from the one live run only.
-- **MCP servers ([G-F12](FEATURES.md#g-f12--the-mcp-adapter)).** The tests use the MCP SDK's own server; no other server was tried, and none of the specification's multi round-trip revision.
+- **MCP servers ([G-F12](FEATURES.md#f13-mcp-adapter)).** The tests use the MCP SDK's own server; no other server was tried, and none of the specification's multi round-trip revision.
 - **Time to a first agent (G-B13).** Not measured; it needs developers new to Gotato.

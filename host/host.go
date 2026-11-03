@@ -178,7 +178,7 @@ type Config struct {
 	Warm WarmPolicy
 	// TimeAwayAfter is how long a Session must have been idle before a
 	// message that starts a Run is followed by a time_away notice with how
-	// long it has been and the time now (G-F29). Zero means 30 minutes;
+	// long it has been and the time now (F4.4). Zero means 30 minutes;
 	// a negative value turns the notice off. The time is shown in the zone of
 	// the AgentProfile's Compact.Location, UTC when it is nil.
 	TimeAwayAfter time.Duration

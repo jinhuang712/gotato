@@ -141,7 +141,7 @@ curl -s -XPOST localhost:8080/v1/sessions/s1/abort
 
 - 202 means the message is queued for the Run in flight.
 - With no Run going, a message starts one and the answer waits for it, like `/runs` (200 with the Run).
-- `/notices` queues a notice (a runtime fact for the model, not a user message). It starts no Run. [FEATURES.md → Steering a Run](../FEATURES.md#g-f26--steering-a-run) has the rules.
+- `/notices` queues a notice (a runtime fact for the model, not a user message). It starts no Run. [FEATURES.md → F4.4: Notices](../FEATURES.md#f44-notices) has the rules.
 
 ## 6. Not writer and forwarding
 

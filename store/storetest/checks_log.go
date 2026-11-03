@@ -201,7 +201,7 @@ func checkLogFrom(ctx context.Context, open Open) error {
 	return write([]record.Entry{logEntry(10, "a")}, 0, "after a write with no LogFrom", 7, 9)
 }
 
-// checkSpilledEntry checks the Entry of a spilled Tool Result (G-F35): a log
+// checkSpilledEntry checks the Entry of a spilled Tool Result (F6.7): a log
 // Entry of a megabyte. A store keeps it whole, Log(after seq-1) returns it
 // first, and a load reads facts only, so it never reads the body.
 func checkSpilledEntry(ctx context.Context, open Open) error {

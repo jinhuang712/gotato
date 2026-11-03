@@ -106,7 +106,7 @@ const (
 	// MessageSourceInterrupt is a Message that cut the model call in flight short
 	// and started the next Turn of the same Run.
 	MessageSourceInterrupt MessageSource = "interrupt"
-	// MessageSourceNotice is a notice (G-F29): in message_dropped and
+	// MessageSourceNotice is a notice (F4.4): in message_dropped and
 	// message_rejected it says what kind of message was dropped or refused.
 	MessageSourceNotice MessageSource = "notice"
 )
@@ -426,7 +426,7 @@ type MessageCommitted struct {
 }
 
 // NoticeQueued is published when a notice from a service or an extension waits
-// for the next model call (G-F29). Text is kept so that the notice can be
+// for the next model call (F4.4). Text is kept so that the notice can be
 // rebuilt from the Event.
 type NoticeQueued struct {
 	Header

@@ -206,7 +206,7 @@ func RecapModelRequest(request RecapRequest, maxTokens uint32) (gotato.ModelRequ
 // The five headings of a Recap, in the order the message asks for them.
 var recapHeadings = []string{"What happened", "Key facts", "Decisions", "Open items", "Where it stands"}
 
-// RecapAsk is the message that asks for a Recap (FEATURES.md → G-F06). It is a
+// RecapAsk is the message that asks for a Recap (FEATURES.md → F5.1.4). It is a
 // request for work, so it carries no tag, and it is never stored.
 func RecapAsk(request RecapRequest) string {
 	loc := request.Location

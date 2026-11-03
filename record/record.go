@@ -239,7 +239,7 @@ func (s *Record) SetLoadedTools(ids []string) {
 
 // PendingNotices returns the notices that were queued and neither committed
 // nor dropped, in the order they were queued. The next Run on any instance
-// queues them again (G-F29).
+// queues them again (F4.4).
 func (s *Record) PendingNotices() []gotato.PendingNotice {
 	s.mu.RLock()
 	defer s.mu.RUnlock()

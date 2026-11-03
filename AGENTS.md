@@ -201,7 +201,7 @@ When writing or rewriting a project document:
 - **Keep the tone calm, pragmatic and narrative.** State Gotato's own stance ("we consider …"), and never claim what other people or teams want or do.
 - **Name no organization.** Say "you", "your", "the team" or "the service". Examples stay generic, with no real organization's names or internal details.
 - **Use plain words, not slogans.** Bold a stance line only when the maintainer said it.
-- **Put the answer first.** Open a long document so a reader sees the whole of it at a glance, with a TL;DR outline or the few points the document is built around, and then write freely.
+- **Put the answer first.** Open a long document so a reader sees the whole of it at a glance, with a TL;DR outline or the few points the document is built around, and then write freely. FEATURES.md opens with its Summary tree of every group and feature, and each new feature takes the next number in its group.
 - **Explain in a short paragraph,** written as one block. Put separate points in a list, one sentence to a bullet, and never stack sentences line by line.
 - **Use tables and diagrams** where they read better than prose, and introduce each with a sentence that says what it shows.
 - **Hold no code chunk.** A command longer than two lines belongs in a script in `scripts/`, and the document names the script. A formula, a tree or a short command is fine.
@@ -256,7 +256,7 @@ A subject is conventional, in the imperative mood and under about 72 characters,
 | `test` | `test: cover context window strategy boundaries` |
 | `chore` | `chore: add CI workflow` |
 
-A body is optional but welcome when the why is not obvious from the diff. Name the goal or feature (`G-G08`, `G-F04`) when a commit exists to satisfy one.
+A body is optional but welcome when the why is not obvious from the diff. Name the goal or feature (`G-G08`, `F4.6`) when a commit exists to satisfy one.
 
 ### Landing a branch
 

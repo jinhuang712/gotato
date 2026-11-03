@@ -221,7 +221,7 @@ func encodeAnthropicRequest(model gotato.ModelConfig, request gotato.ModelReques
 func anthropicBlocks(message gotato.Message, names map[string]string, keepReasoning bool) (string, []anthropicBlock, error) {
 	switch message.Role {
 	case gotato.RoleUser, gotato.RoleNotice:
-		// A notice (G-F29) is tagged text in the adjacent user turn.
+		// A notice (F4.4) is tagged text in the adjacent user turn.
 		var blocks []anthropicBlock
 		for _, part := range message.Parts {
 			switch part.Kind {

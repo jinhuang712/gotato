@@ -231,7 +231,7 @@ func TestTruncatedTurnContinuesWithinTheBound(t *testing.T) {
 			}
 			// The continuation is a notice the Model sees after the cut-off
 			// Turn, so the next request never ends on an assistant, and it is
-			// not the user's words (G-F29).
+			// not the user's words (F4.4).
 			request, _ := model.LastRequest()
 			last := request.Messages[len(request.Messages)-1]
 			want := `<notice kind="continue">` + gotato.TruncatedContinuationText + `</notice>`
