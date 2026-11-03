@@ -37,7 +37,7 @@ The agent ends up as a separate system beside the service it works for.
 
 #### Graph frameworks are heavy for the work
 
-Agents are often assembled on graph frameworks such as LangGraph, Deep Agents or Langflow, with a node or a branch for each case. These setups are expensive to run, slow, and hard to develop and debug. We have not found them clearly better than one loop:
+Agents are often assembled on graph frameworks such as LangGraph, Deep Agents or Langflow, with a node or a branch for each case. Every case adds a node to draw and a branch to debug, while the work underneath is one loop:
 
 ```text
 call the model ──► run the tools it asked for ──► repeat until it answers
@@ -60,10 +60,10 @@ Katelyn Lesse makes the same point from the infrastructure side: Kubernetes was 
 
 #### A simple task carries a coding agent's weight
 
-Coding-agent harnesses are built to write code, so each session brings a machine with it. Anthropic's hosting guide for its Agent SDK gives this starting point for each session:
+Coding-agent harnesses are built to write code, so each session brings a machine with it. Anthropic's hosting guide for its Agent SDK gives this starting point for each agent instance:
 
 ```text
-1 GiB RAM · 5 GiB disk · 1 CPU · one subprocess
+1 GiB RAM · 5 GiB disk · 1 CPU
 ```
 
 The guide calls the 1 GiB "a floor, not the ceiling". A conversation is idle most of the time, so this cost runs while nothing happens.
@@ -93,7 +93,7 @@ before                               now
 
 **4. From a laptop process to many pods.** Agents are moving from a developer's machine into services, and services already run on many pods.
 
-**5. From Python, TypeScript and Rust to Go.** Agent tooling now arrives in the language that cloud services run on: Google ADK for Go, Eino and Genkit for Go. kagent measured the same minimal agent at 253 Mi idle on its Python runtime and 7 Mi on its Go runtime.
+**5. From Python, TypeScript and Rust to Go.** Agent tooling now arrives in the language that cloud services run on: Google ADK for Go, Eino and Genkit for Go. kagent measured minimal agents at 253 Mi idle on its Python runtime and 7 Mi on its Go runtime.
 
 **6. From coding agents to purpose-built agents.** Coding agents are the best known. Most agent work inside a running system is narrower, and needs tools and data rather than a machine:
 
@@ -142,7 +142,7 @@ Gotato should behave like any other library in the service: easy to add, safe to
 ### It fits into your service
 
 - **One build and one deploy:** Gotato arrives with `go get` and goes through the CI/CD the team already runs.
-- **A small footprint:** the core depends on the Go standard library alone, and the figures above show what the rest adds.
+- **A small footprint:** the core depends on the Go standard library alone, and what the rest adds is measured against Google ADK for Go.
 - **Your storage and your telemetry:** Gotato defines stable shapes for a Session and the Events it reports, and an adapter maps them onto the database and the telemetry stack you run.
 - **Any model provider:** a vendor that speaks a supported wire API works through configuration alone.
 - **Common endpoints:** a Go API and an optional HTTP API let a bot, a job or another service talk to a Session like any other API.
@@ -198,7 +198,7 @@ you:     store · model provider · tools · MCP servers · auth · telemetry
 - **Models stop getting better at planning:** a thin loop would then do less than a graph did, and more care in the tools and the instruction reduces it without a change in Gotato.
 - **A small deployment pays for a large design:** a team with a handful of conversations carries a store write for every step, and a Session built with the Go API alone keeps its record in memory and writes nothing.
 - **A purpose-built agent grows general:** teams keep adding tools until it needs people again, and a new job as a new Agent with its own tools and Effect cap reduces it.
-- **A resumed conversation pays for its prefix again:** a provider keeps a cached prefix for minutes or an hour at most, and Gotato compacts a waiting Session before its cache expires so that the first request back is smaller (not yet measured).
+- **A resumed conversation pays for its prefix again:** a provider keeps a cached prefix for minutes or an hour at most, and Gotato compacts a waiting Session before its cache expires so that the first request back is smaller.
 - **Provider behavior is mostly checked on fakes:** CI has no provider credentials, and what reduces it is a live run of the reference workload that a team can make against its own endpoint.
 - **Larger toolkits may add what Gotato offers:** the footprint is measured against Google ADK for Go, and what reduces it is that Gotato keeps to one loop and one Session.
 

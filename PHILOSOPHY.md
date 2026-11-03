@@ -87,6 +87,8 @@ A purpose-built agent is different. It runs privately, with a fixed set of tools
 
 A wall is not the same as a hand-off. A refund above a limit, or a change to production, can need a person by design. That is a step in the business process: the step is handed over, for example by opening a ticket, and the session finishes its job.
 
+A change to a production system is the clearest case. Most of what such an agent does ends in a report or a decision handed back to the service: investigating comes before acting. We take the stance that an agent does not change a production system on its own. The change is handed over, as a ticket or a message to the service, and the service's own code or a person makes it. Gotato ships no tool that changes a system. A team that writes one owns that choice, and the Effect cap bounds it.
+
 The gap shows in time as well. A cloud session outlives the instance that serves it, so the instance is disposable and the conversation is not:
 
 > The harness also became cattle. Because the session log sits outside the harness, nothing in the harness needs to survive a crash.
@@ -95,7 +97,7 @@ The gap shows in time as well. A cloud session outlives the instance that serves
 
 **The other side.** Requests drift, and models fail even when the tools are right. A bot built for order questions gets asked about holidays. Declining is part of its design: the instruction and the tools define its scope, and "that is not something I handle" is an answer, not a person stepping in. When the model gets a case wrong, the fix is a better instruction, better tools or a better model. A person pausing every run hides the failure instead of fixing it.
 
-**What it costs.** A purpose-built agent does less than a general one, and teams spend their care on the tools they give it. Teams may also keep adding tools until the agent is general again, and then it needs people again. Splitting it into smaller agents may be the answer. This is the stance we are least sure of.
+**What it costs.** A purpose-built agent does less than a general one, and teams spend their care on the tools they give it. Teams may also keep adding tools until the agent is general again, and then it needs people again. Splitting it into smaller agents may be the answer. It also gives up the agent that repairs a production system itself: the repair waits for the service or a person. This is the stance we are least sure of.
 
 ## 4. Where is Agent-as-a-Service going?
 
@@ -116,7 +118,7 @@ From there, two pictures of the future:
 | Services that look after themselves | Shops, ticketing systems and travel sites run as they do today, and agents inside them watch, investigate and report, and later decide, the way an SRE or an operator does. |
 | Purpose-built agents for whole populations | A travel planner, a health adviser or a policy consultant gets one conversation per user, most of them idle at any moment. |
 
-The second picture is out of reach for a machine per conversation. A million open conversations at 1 GiB each need about a petabyte of memory, and 1 GiB is the floor that Anthropic's hosting guide gives for one session. A conversation that is only a record in a store takes memory only while it is loaded. Memory then follows the conversations that are working, not the ones that are open.
+The second picture is out of reach for a machine per conversation. A million open conversations at 1 GiB each need about a petabyte of memory, and 1 GiB is the floor that Anthropic's hosting guide gives for one agent instance. A conversation that is only a record in a store takes memory only while it is loaded. Memory then follows the conversations that are working, not the ones that are open.
 
 We consider that at that scale, what the model reads costs more than what the service holds. Most of what a session sends to the model on each turn, it already sent on the turn before, so the biggest lever is a stable prefix that the provider can cache:
 
@@ -127,10 +129,6 @@ We consider that at that scale, what the model reads costs more than what the se
 **The other side.** Optimism is not evidence. Regulated work needs models that are reliable enough, operations work needs teams that trust agents, and population-scale traffic strains model capacity and cost as much as memory. All three are real, and none of them is solved by giving each conversation a bigger machine. They are solved, if at all, by better models, narrower agents and cheaper turns. Gotato works on the last two.
 
 **What it costs.** Building for population scale taxes small deployments: a team that only ever runs a handful of conversations carries the design without needing it.
-
-## When the answers collide
-
-The narrower answer wins. Serving more users or more kinds of work (4) tempts an agent to grow general, or to want a machine of its own. Gotato keeps each agent purpose-built (3) and free of a machine (2), and lets the reach come from more agents, not bigger ones.
 
 ## Sources
 
