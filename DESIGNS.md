@@ -13,7 +13,7 @@ Gotato is designed around twelve guidelines, in five groups. A guideline is a qu
 
 **What Gotato is**
 
-5. **Keep subtracting:** Gotato does the least it takes to run Sessions in the cloud.
+5. **Keep subtracting:** Gotato does the least it takes to run Sessions in the cloud, with the fewest terms, names and settings.
 6. **Stay inside the boundary:** what the service around Gotato already does is left to it.
 7. **What an Agent may do is read from its definition:** its tools and its Effect cap are its bounds, and nothing in a conversation widens them.
 
@@ -81,11 +81,13 @@ It costs an answer for every failure: each error says whether anything ran and w
 
 Gotato does the least it takes to run Sessions in the cloud. Every addition is weight that each service embedding Gotato carries for as long as it does, so the default answer to a new feature is no. A better model improves the Loop with no code change, while every node, interface and extension point is code someone keeps.
 
+The weight is what a user has to learn and depend on, not the lines it takes: the terms of the glossary, the exported names, the settings, the modules it pulls in and the footprint it leaves. A guarantee makes code, and that code is fine when it is the least that keeps the guarantee. A feature that stays is still built with the fewest names and settings that do its job, and a setting with no reason is a default fixed in code.
+
 It costs the features a team would have liked: what a Go service can do without goes to the application built on Gotato.
 
-**Ask:** can a Go service that embeds an agent work without it? If it can, it stays out.
+**Ask:** can a Go service that embeds an agent work without it? If it can, it stays out. If it stays, can it do its job with fewer terms, names or settings?
 
-- **Decisions:** [008](plan/decisions/008-agents-are-flat-and-the-application-composes-them.md) flat Agents; [009](plan/decisions/009-one-loop-extended-at-fixed-stages.md) one Loop; [010](plan/decisions/010-gotato-is-a-light-library-with-a-versioned-contract.md) a light library; [038](plan/decisions/038-a-limit-guards-a-real-failure.md) a limit guards a real failure; [001](plan/decisions/001-one-implementation-per-wire-api.md) one implementation per wire API; [041](plan/decisions/041-a-read-only-bash-for-large-results-is-another-project.md) a bash is another project; [052](plan/decisions/052-the-footprint-is-a-measure-and-has-no-limit.md) the footprint has no limit.
+- **Decisions:** [008](plan/decisions/008-agents-are-flat-and-the-application-composes-them.md) flat Agents; [009](plan/decisions/009-one-loop-extended-at-fixed-stages.md) one Loop; [010](plan/decisions/010-gotato-is-a-light-library-with-a-versioned-contract.md) a light library; [038](plan/decisions/038-a-limit-guards-a-real-failure.md) a limit guards a real failure; [001](plan/decisions/001-one-implementation-per-wire-api.md) one implementation per wire API; [041](plan/decisions/041-a-read-only-bash-for-large-results-is-another-project.md) a bash is another project; [052](plan/decisions/052-the-footprint-is-a-measure-and-has-no-limit.md) the footprint has no limit; [053](plan/decisions/053-minimal-is-measured-in-what-a-user-learns-and-depends-on.md) minimal is measured in what a user learns.
 - **How it works:** [a Session and its Loop](specs/session.md), [the model seam](specs/model.md).
 
 ## 6. Stay inside the boundary
