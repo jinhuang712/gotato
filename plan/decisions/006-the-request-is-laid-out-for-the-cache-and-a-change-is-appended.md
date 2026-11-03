@@ -11,7 +11,7 @@ Stable content comes first and growing content last: the instruction with any re
 ## Not chosen
 - An order by time or by kind: reads naturally, but one Turn's prefix is no longer the next Turn's.
 - A dynamic system prompt, or the current time in every request: always current, but never cached, so it costs its full price on every Turn. A fact the model needs now comes from a tool it calls.
-- Rewriting the instruction or the tool list at the top when it changes: the simplest edit, but the provider reads the whole history again. A change a service makes to an Agent in the middle of a Session still does this; the idea of appending it is kept in [FEATURES.md → Later](../../FEATURES.md#later-if-needed), to be built when the cost shows.
+- Rewriting the instruction or the tool list at the top when it changes: the simplest edit, but the provider reads the whole history again. A change a service makes to an Agent in the middle of a Session still does this; the idea of appending it is kept in [FEATURES.md → Later](../../FEATURES.md#later), to be built when the cost shows.
 - One provider's cache syntax in the core: no mapping layer, but the core is tied to one vendor.
 - A cache key per request or per instance: a provider that keys its cache would then serve one conversation from many caches.
 - A retention on each Agent, or one value for every provider: one setting, but how long a cache lives belongs to the provider, and the values differ (an hour on Claude at twice the price of a cache write, 30 minutes on OpenAI's Responses API from GPT-5.6).

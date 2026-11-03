@@ -54,3 +54,49 @@
 - found: re-reading the methods of M1, M2 and M3.
 - next: build a live form of the long session, and a task with a pause, in `internal/reftasks`, so `gotato-workload -live` can play them.
 - related: [M1](GOALS.md#m1-context-size-and-cost-per-turn-by-the-sessions-age-), [M2](GOALS.md#m2-the-first-request-after-an-idle-return-), [M3](GOALS.md#m3-cost-of-a-compaction)
+
+### [P2][DISCUSSION] Decision 046 asks for a note in decision 009 that a decision cannot take
+
+- description: decision 046 ends with "009 should say so": that a user's part of the compaction is the "second implementation" 009 speaks of. Decisions are not rewritten, so 009 cannot say it, and 046 cannot be edited to drop the request. The two read together today only by a reader who knows both.
+- created: 2026-11-03
+- status: open
+- found: rewriting the docs on 2026-11-03.
+- next: decide whether a new decision supersedes 009 with the reading 046 gives, or the request stays as it is.
+
+### [P2][ISSUE] The doc of `model.Retry` says `MaxWait` caps every wait, and the wait after a transport error has no cap
+
+- description: `Retry.MaxWait` is documented as the cap on the waits, but after a transport error (no response) the wait is the backoff alone and is not capped (`model/http.go`). specs/model.md states what the code does.
+- created: 2026-11-03
+- status: open
+- found: comparing specs/model.md with the code on 2026-11-03.
+- next: cap that wait by `MaxWait` as the doc says, with a test, or change the doc.
+
+### [P2][DISCUSSION] Are rolling deploys across contract versions safe?
+
+- description: the old RUNBOOK said an instance on an older contract refuses what it does not know; no code does that, and nothing tests two versions writing one store. The claim was removed from the docs.
+- created: 2026-11-03
+- status: open
+- found: checking RUNBOOK.md against the code on 2026-11-03.
+- next: decide whether 0.3.0 needs a test of an old and a new instance over one store before a rolling deploy is called safe.
+
+### [P3][DISCUSSION] Operators see little of an instance
+
+- description: Instance Events are readable only from Go, there is no hook for metrics, and `/readyz` reports four fields.
+- created: 2026-11-03
+- status: open
+- found: rewriting RUNBOOK.md on 2026-11-03.
+- related: [F10.4](../FEATURES.md#f104-watch-an-instance)
+
+### [P2][TASK] CI should run `scripts/check.sh` for each module
+
+- description: `.github/workflows/ci.yml` spells out gofmt, vet and test for each module, and `scripts/check.sh` does the same, so the checks have two definitions that can drift.
+- created: 2026-11-03
+- status: open
+- next: make each CI job call `scripts/check.sh <module>`.
+
+### [P3][TASK] Two READMEs hold command blocks longer than two lines
+
+- description: `bench/refservice/README.md` and `internal/cmd/gotato/README.md` hold multi-line commands, which the doc rules put in a script the doc names.
+- created: 2026-11-03
+- status: open
+- next: move each block to a script beside the README and name it there.

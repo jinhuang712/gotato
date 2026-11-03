@@ -36,7 +36,7 @@ Read-back:
 - Matching `ModelRecap` by type: a user's writer misses the model, and `*ModelRecap` slips past.
 
 ## Consequences
-One step is replaced without copying the rest, and any Transcript compacts. The cost is seven interfaces stable from 0.3.0. It departs from [009](009-one-loop-extended-at-fixed-stages.md)'s "concrete until a second exists": the user's part is the second, and 009 should say so. A decision is not rewritten, so 009 stays as it is: read its "second implementation" for compaction as the user-replaceable parts of this decision.
+One step is replaced without copying the rest, and any Transcript compacts. The cost is seven interfaces stable from 0.3.0. It departs from [009](009-one-loop-extended-at-fixed-stages.md)'s "concrete until a second exists": the user's part is the second, and 009 should say so.
 
 1. Add `ref`; delete `gotato.ReadResultToolID`, `SpillPageBytes`, `SpillPreviewBytes`, `modelctx.ReadResultID`, `ReadSegmentID`, the ref helpers of `internal/text`.
 2. Add `gotato.ReadBack`, `WithReadBack`, `CoreLimits.SpillPreviewBytes`; drop `PageBytes` from `ReadResultConfig` and `ReadSegmentConfig`. This fixes a bug: spill uses a fixed page size while `read_result` may use another.
