@@ -2,7 +2,7 @@
 
 Gotato is a minimal, synchronous, Go-native agent runtime. It is useful on its own and embeds into running, multi-instance Go services ([PROPOSAL.md](PROPOSAL.md)). This file is the first one a coding agent reads in a new window. It holds the read order, the layout and the rules for the work; the documents it points to hold the design.
 
-Every change passes the feature test: would a Go service embedding an agent want this on its own? Anything else belongs to an application built on Gotato.
+Every change passes the questions in *Keeping it small*, and what fails them belongs to an application built on Gotato or to the service around it.
 
 ## Read order
 
@@ -96,6 +96,21 @@ There are six Go modules: the root, `adapter/http`, `adapter/mcp`, `internal/cmd
 - **Keep the layering test passing.** `gotato/layering_test.go` enforces all of this and holds the allowed imports.
 - **`internal/` holds two kinds of package.** The shared ones (`internal/text`, `internal/hostlink`) import the standard library only, and any shipped package may import them. Our test tools (`internal/reftasks`, `internal/workload`, `internal/fakemodel` and `internal/cmd/...`) are imported by no shipped package.
 - **Prefer the standard library.** Add a dependency only after checking that the standard library or a smaller solution falls short. The root module depends only on `gopkg.in/yaml.v3`, which `internal/cmd/gatewayconf` (the test tools' gateway file) uses and no shipped package imports.
+
+## Keeping it small
+
+[Guideline 5: Keep subtracting](DESIGNS.md#5-keep-subtracting) measures weight in what a user learns and depends on: terms, exported names, settings, modules and footprint, not lines. Ask these questions of a feature, an exported name or a setting, when you add it and when you review it. Ask them in order, and the first yes gives the verdict.
+
+| # | Ask | If yes |
+|---|---|---|
+| 1 | Can a Go service that embeds an agent work without it? | Delete it, or leave it to the application |
+| 2 | Does the service around Gotato already do this job? | Leave it to the service, and keep only the seam |
+| 3 | Do only some users need it, and can they build it on the public API? | Move it out of the core, into an adapter, an example or a page of the wiki |
+| 4 | Does another mechanism already do the same job? | Merge the two |
+| 5 | Is it used only by tests or by one caller inside Gotato? | Unexport it |
+| 6 | Is it a setting with no stated reason, or one nobody changes? | Remove the setting and fix the default in code |
+
+When no answer is yes, it stays, and the last question is whether it can do its job with fewer terms, names or settings; if it can, shrink it. A verdict is one of keep, shrink, unexport, move out or delete, and one that changes the contract follows *Breaking changes*.
 
 ## Naming
 
