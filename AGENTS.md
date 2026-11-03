@@ -1,42 +1,100 @@
-# AGENTS.md — Instructions for Coding Agents Working in Gotato
+# AGENTS.md: how to work in Gotato
 
-You are working in the Gotato repository: **a minimal, synchronous, Go-native agent runtime** that is useful on its own and embeds into running, multi-instance Go services (PROPOSAL.md). This file tells you how to work here. The constitution is in the documents it points to.
+Gotato is a minimal, synchronous, Go-native agent runtime. It is useful on its own and embeds into running, multi-instance Go services ([PROPOSAL.md](PROPOSAL.md)). This file is the first one a coding agent reads in a new window. It holds the read order, the layout and the rules for the work; the documents it points to hold the design.
 
-Every change passes the feature test: *would a Go service embedding an agent want this on its own?* Anything else belongs to an application built on Gotato.
+Every change passes the feature test: would a Go service embedding an agent want this on its own? Anything else belongs to an application built on Gotato.
 
-## Read Order
+## Read order
 
-```text
-1. PROPOSAL.md          — why Gotato exists, and what it refuses to become
-2. PHILOSOPHY.md        — the beliefs every change follows
-3. DESIGNS.md           — design principles, and the decisions that follow from them
-4. GLOSSARY.md          — one name per thing, and its name in today's code
-5. plan/GOALS.md        — goals that pass or fail, and benchmarks tracked against a reference
-6. FEATURES.md          — implementation inventory with status markers, and what is not planned
-7. specs/               — how it works: one spec per part (session, record, events, context, compaction, tools, model, errors, multi-instance)
-8. plan/decisions/      — why it is built that way: one file per decision, with the alternatives not chosen
-9. relevant package docs and tests (start with the *_test.go next to what you change)
-```
+Read these in order when the window is new or was compacted. Each answers one question, and a fact lives in the one document that owns it.
 
-These documents are the single source of truth for Gotato's design. PROPOSAL to FEATURES are in the repository root; `specs/` explains how it works; GOALS, ROADMAP and TODO are in `plan/`, and `plan/decisions/` records why.
+| # | Read | Answers |
+|---|---|---|
+| 1 | [PROPOSAL.md](PROPOSAL.md) | Why Gotato exists, and what it refuses to become |
+| 2 | [PHILOSOPHY.md](PHILOSOPHY.md) | The beliefs every change follows |
+| 3 | [DESIGNS.md](DESIGNS.md) | The principles the design must always satisfy |
+| 4 | [GLOSSARY.md](GLOSSARY.md) | One name per thing, and its name in today's code |
+| 5 | [plan/GOALS.md](plan/GOALS.md) | The goals that pass or fail, and the benchmarks tracked against a reference |
+| 6 | [FEATURES.md](FEATURES.md) | What it does and will do, with status marks, and what is not planned |
+| 7 | [plan/ROADMAP.md](plan/ROADMAP.md) | When, and how far along |
+| 8 | [plan/TODO.md](plan/TODO.md) | The open defects, discussions and checks |
+| 9 | [specs/ARCHITECTURE.md](specs/ARCHITECTURE.md) | How the parts fit together |
+| 10 | [specs/](specs/) | How each part works inside: session, record, events, context, compaction, tools, model, errors, multi-instance |
+| 11 | [plan/decisions/](plan/decisions/) | Why it is built that way: one file per decision, with the alternatives not chosen |
+| 12 | [CHANGELOG.md](CHANGELOG.md) | What changed in each release, with before and after notes for breaks |
+| 13 | The package docs and tests | The doc comment of the package you change, then the `*_test.go` next to it |
 
-## Hard Architectural Rules
+## Layout
 
-- **Never introduce `sub-agent`, `ChildAgent`, `SupervisorAgent`, `WorkerAgent`, or any role as a Gotato runtime type.** There are only agents. Roles are application composition.
-- **Keep Agent identity flat.** Roles, hierarchy, and lineage belong to applications, stored in `Session.Metadata`.
-- **Keep Agent, Session, Transcript and Context separate.** An Agent is a definition; a Session runs it and commits to its Transcript; the model receives the output of a `ContextBuilder` (the Context). Model input is always a built value, separate from the full history. In code, the Agent is `profile.AgentProfile`, the live Session `gotato.Session` and its Record `record.Record`; GLOSSARY.md maps every term.
-- **Keep Session generic.** Task graphs, project state, worktrees, and product workflow live in `Metadata`.
-- **Keep Context as model-view construction**, built from the Transcript on every Turn.
-- **Preserve library-first use.** A small `main` must be able to build an agent with a fake model and run it in-process, with server, daemon, and database all optional.
-- **Keep the service on top.** `host` and `adapter/http` turn the runtime into a service by composing it; Agent semantics stay in the runtime. `adapter/http` is the HTTP API over `host`, and `adapter/mcp` is the other adapter: it supplies an MCP server's tools as a `ToolSet`. Each adapter is a Go module of its own, with a `replace` to the root. Core and standard runtime packages must never import an adapter. `examples/larkbot` is a Go module of its own too, an application (a Lark chat bot and a local-cluster harness) that imports the root module and the adapters through `replace`; nothing imports it.
-- **UI lives in applications.** Gotato has no human-facing surface of its own; widgets, TUIs, and desktop state belong to the applications above it.
-- **The CLI is our test tool, not a deliverable.** `internal/cmd/gotato` is a thin client of the packages, and a Go module of its own because `serve` needs `adapter/http`: it carries no runtime logic, so it tests the library's real behavior. If the CLI needs a behavior, add it to a package first. It promises no contract: its flags, JSON fields and exit codes are not versioned.
-- **Prefer ordinary Go** over framework machinery: options functions, interfaces, channels, `context.Context`.
-- **Preserve `context.Context` cancellation** through every model call, tool call, storage call, and stream.
-- **Keep the package layout** (guides/packages.md shows the tree). The module root holds no Go code: it holds the documents, `specs/` and `plan/` (with `plan/decisions/`), and the module files, and `gotato/layering_test.go` fails when a `.go` file appears there. A directory's name is its package's name, so no import needs an alias, except `adapter/http`, whose package is named `http` like `net/http`: a program that imports both imports it as `httpapi "github.com/jinhuang712/gotato/adapter/http"`. A test-helper package sits next to what it tests, like `net/http/httptest`: `store/storetest` beside `store`.
-- **Keep dependencies layered** ([decision 010](plan/decisions/010-gotato-is-a-light-library-with-a-versioned-contract.md)). The core package imports only the standard library, `ref` and the shared packages of `internal/`: it lives in `gotato/`, so code reads `gotato.NewSession`. Each package is one layer named for its job, and imports only the layers below it: `host` -> `profile` -> `store` -> `record` -> `gotato` -> `ref`. `store` imports `record`, never the reverse. `profile` (the AgentProfiles and TaskSpecs a host registers) sits between `host` and `store` and imports no `host`. `model` (the bridge to a model), `testkit` and the adapters (`adapter/http`, `adapter/mcp`) sit beside the layers and import down; no layer imports them. `gotato/layering_test.go` enforces this; keep it passing.
-- **`internal/` holds two kinds of package.** Shared packages (today `internal/text` and `internal/hostlink`) import the standard library only, and any shipped package, the core included, may import them; `gotato/layering_test.go` lists them. Our test tools (`internal/reftasks`, `internal/workload`, `internal/fakemodel`, `internal/cmd/...`) are imported by no shipped package.
-- **Prefer the standard library.** Add a dependency only after checking that the standard library or a smaller solution falls short. The root module depends only on `gopkg.in/yaml.v3` (used by `internal/cmd/gatewayconf`, the test tools' gateway file; no shipped package imports it).
+The module root holds the documents and the module files, and no Go code. The tree of packages and what each import costs is in `guides/packages.md`.
+
+| Path | Holds |
+|---|---|
+| `PROPOSAL.md`, `PHILOSOPHY.md`, `DESIGNS.md`, `GLOSSARY.md`, `FEATURES.md`, `CHANGELOG.md` | The reasons and the contract, as in the read order |
+| `README.md`, `RUNBOOK.md` | The front page, and what to do when a service built on Gotato misbehaves |
+| `plan/` | `GOALS.md`, `ROADMAP.md`, `TODO.md`, `INTEGRATION-FEEDBACK.md` (findings from real use, checked against the code), and `decisions/` |
+| `specs/` | One spec per part |
+| `guides/` | How-to pages for people who use the library |
+| `scripts/` | `check.sh` runs every check, and `cli-scenario.sh` smoke-runs the test CLI |
+| `gotato/`, `ref/`, `record/`, `store/`, `profile/`, `host/` | The layers of the runtime, from the core down to the host (see *Hard architectural rules*) |
+| `store/storetest/` | The Store contract suite |
+| `model/`, `testkit/` | The bridge to a model over HTTP, and the fakes for tests |
+| `internal/` | Shared packages (`text`, `hostlink`), and our own test tools (`reftasks`, `workload`, `fakemodel`, and `cmd/` with the test CLI `gotato`, `gotato-workload` and `gatewayconf`) |
+| `adapter/http/`, `adapter/mcp/` | Adapters, each a Go module of its own |
+| `examples/larkbot/` | An application, a Go module of its own |
+| `bench/refservice/` | The reference service that GOALS measures, a Go module of its own |
+| `notes/` | Work notes, ignored by Git and never committed |
+
+There are six Go modules: the root, `adapter/http`, `adapter/mcp`, `internal/cmd/gotato`, `examples/larkbot` and `bench/refservice`. CI checks each of them.
+
+## While you work
+
+- Before you change something, read the document that owns it.
+- Track where the project stands by scanning `plan/TODO.md`, `plan/ROADMAP.md` and `plan/GOALS.md`.
+- Write a decision in `plan/decisions/` at once when a choice had another way open, may be undone later and has a reason the code does not show.
+- Add what cannot be handled now to `plan/TODO.md` at once, as a defect, a discussion or a check.
+- When the documents and the code disagree, tell the maintainer and let them decide.
+- Once other developers build on the project, tell the maintainer it may need a wiki, and leave its form to them.
+- When a change is done, update `CHANGELOG.md` and the feature's status in `FEATURES.md` in the same change.
+- When a todo is handled, delete it from `plan/TODO.md` in the same change.
+- After a change, check only what it touched against the rules, with `scripts/check.sh` on the modules it touched.
+- Check the goals at the end of a checkpoint or before a release, and never for a small change.
+- When the maintainer stops you, stop at once.
+
+## Hard architectural rules
+
+### Agents and sessions
+
+- **Never introduce `sub-agent`, `ChildAgent`, `SupervisorAgent`, `WorkerAgent` or any role as a Gotato runtime type.** There are only agents, and roles are application composition.
+- **Keep Agent identity flat.** Roles, hierarchy and lineage belong to applications and live in `Session.Metadata`.
+- **Keep Agent, Session, Transcript and Context separate.** An Agent is a definition, a Session runs it and commits to its Transcript, and the model receives the output of a `ContextBuilder` (the Context), a built value apart from the full history. In code the Agent is `profile.AgentProfile`, the live Session is `gotato.Session` and its Record is `record.Record`; [GLOSSARY.md](GLOSSARY.md) maps every term.
+- **Keep Session generic.** Task graphs, project state, worktrees and product workflow live in `Metadata`.
+- **Keep Context as model-view construction,** built from the Transcript on every Turn.
+- **Preserve `context.Context` cancellation** through every model call, tool call, storage call and stream.
+
+### Library first
+
+- **Preserve library-first use.** A small `main` must be able to build an agent with a fake model and run it in-process, with server, daemon and database all optional.
+- **Keep the service on top.** `host` and `adapter/http` turn the runtime into a service by composing it, and Agent semantics stay in the runtime.
+- **Keep adapters outside the core.** `adapter/http` is the HTTP API over `host`, and `adapter/mcp` supplies an MCP server's tools as a `ToolSet`. Each is a Go module of its own with a `replace` to the root, and no core or runtime package imports one.
+- **Keep applications on top.** `examples/larkbot` is a chat bot and a local-cluster harness in a Go module of its own. It imports the root module and the adapters through `replace`, and nothing imports it.
+- **UI lives in applications.** Gotato has no human-facing surface of its own, so widgets, TUIs and desktop state belong to the applications above it.
+- **The CLI is our test tool, not a deliverable.** `internal/cmd/gotato` is a thin client of the packages, and a Go module of its own because `serve` needs `adapter/http`. It carries no runtime logic, so a behavior it needs goes into a package first. It promises no contract: its flags, JSON fields and exit codes are not versioned.
+- **Prefer ordinary Go** over framework machinery: option functions, interfaces, channels and `context.Context`.
+
+### Packages and layers
+
+- **Keep the package layout.** The module root holds no Go code, and `gotato/layering_test.go` fails when a `.go` file appears there.
+- **Name a directory as its package.** No import then needs an alias, except `adapter/http`, whose package is named `http` like `net/http`: a program that imports both imports it as `httpapi "github.com/jinhuang712/gotato/adapter/http"`.
+- **Put a test-helper package next to what it tests,** like `net/http/httptest`: `store/storetest` beside `store`.
+- **Keep dependencies layered** ([decision 010](plan/decisions/010-gotato-is-a-light-library-with-a-versioned-contract.md), [decision 050](plan/decisions/050-each-package-is-one-layer-named-for-its-job.md)). Each package is one layer named for its job and imports only the layers below it: `host` -> `profile` -> `store` -> `record` -> `gotato` -> `ref`.
+- **Keep the core small.** `gotato` imports only the standard library, `ref` and the shared packages of `internal/`, so code reads `gotato.NewSession`.
+- **Keep `store` and `record` one way.** `store` imports `record`, never the reverse, because the Record does not know how it is saved.
+- **Keep `profile` between `host` and `store`.** It holds the AgentProfiles and TaskSpecs a host registers, and imports no `host`.
+- **Keep `model`, `testkit` and the adapters beside the layers.** They import down, and no layer imports them.
+- **Keep the layering test passing.** `gotato/layering_test.go` enforces all of this and holds the allowed imports.
+- **`internal/` holds two kinds of package.** The shared ones (`internal/text`, `internal/hostlink`) import the standard library only, and any shipped package may import them. Our test tools (`internal/reftasks`, `internal/workload`, `internal/fakemodel` and `internal/cmd/...`) are imported by no shipped package.
+- **Prefer the standard library.** Add a dependency only after checking that the standard library or a smaller solution falls short. The root module depends only on `gopkg.in/yaml.v3`, which `internal/cmd/gatewayconf` (the test tools' gateway file) uses and no shipped package imports.
 
 ## Naming
 
@@ -51,7 +109,7 @@ Exported names follow one set of rules, so a reader can guess a name before look
 | A constant is prefixed with the name of its type | `RunStatusRunning`, `ToolEffectRead` |
 | A struct of settings is a `Config` or a `Policy`, never `Options`; a function type that configures is an `Option`, prefixed when a package has two | `CompactPolicy`, `store.WriterOption` |
 | `Load` reads from a store or a path, `Parse` from bytes, `From…` builds from a value in memory | `gatewayconf.Load(path)`, `record.FromDocument(doc)` |
-| A boolean method is the adjective with no `Is` (`Retryable()`, `Durable()`); a noun keeps `Is` (`IsCheckpoint()`), as the standard library does | `Durable()`, `IsCheckpoint()` |
+| A boolean method is the adjective with no `Is`; a noun keeps `Is`, as the standard library does | `Retryable()`, `IsCheckpoint()` |
 | An Event type is a past participle; a stream piece is a `…Delta`, and `ToolProgress` is the one other noun | `RunStarted`, `TextDelta` |
 | A package's main type is built by a bare `New` | `host.New`, `model.New` |
 | A package's sentinel errors live in its `errors.go`, in one `var` block; the codes live in `gotato/errors.go` | `host.ErrBusy` in `host/errors.go`, `gotato.CodeBusy` in `gotato/errors.go` |
@@ -61,174 +119,167 @@ Exported names follow one set of rules, so a reader can guess a name before look
 | `With…` is an Option, or a function that returns a modified copy of its value, as the standard library's `Request.WithContext` does | `WithModel`; `Event.WithNumber` |
 | A name read with its package says what it is; a bare noun that does not (`Block`) takes the noun it belongs to | `gotato.ContextBlock` |
 
-## Development Workflow
+## Development workflow
 
-1. **Inspect before editing.** Read the package, its tests, and the FEATURES.md row you are about to change.
-2. **Focused tests first, then full tests.**
-   ```bash
-   go test ./record/... ./store/...       # focused
-   gofmt -l . && go vet ./... && go test -race ./...   # full, root module
-   golangci-lint run ./...               # 0 issues; config in .golangci.yml
-   (cd adapter/http && gofmt -l . && go vet ./... && go test -race ./... && golangci-lint run ./...)  # when you touched host, or a type the HTTP API uses (host.Runner, record.Info)
-   (cd adapter/mcp && gofmt -l . && go vet ./... && go test -race ./... && golangci-lint run ./...)  # when you touched ToolSet, Tool or ToolResult
-   (cd internal/cmd/gotato && gofmt -l . && go vet ./... && go test -race ./... && golangci-lint run ./...)  # when you touched the CLI, or a package it drives
-   (cd examples/larkbot && gofmt -l . && go vet ./... && go test -race ./... && golangci-lint run ./...)  # when you touched the example, or a type it uses (host.Runner, profile.AgentProfile, ToolSet)
-   ```
-3. **Add regression tests for behavior changes.** A bug fix ships with a test that fails before the fix.
-4. **Use fake/replay models** (`testkit.FakeModel`, `testkit.ReplayModel`) for deterministic tests. Never make a unit test depend on a network provider or a credential.
-5. **Use CLI integration tests** (`internal/cmd/gotato/cli_test.go`) as one way to test runtime behavior end to end; assert on JSON, not on prose.
-6. **Update docs when public behavior changes**: package doc comments, `FEATURES.md` status markers, `README.md` examples, and `CHANGELOG.md` (*Unreleased*, with a before/after note for breaks).
-7. **Keep the CLI honest.** The CLI promises no contract: its flags, fields and exit codes change freely; update its tests and `internal/cmd/gotato/README.md` with it. No `CHANGELOG.md` entry is needed for the CLI.
-8. **Format**: `gofmt -l .` must print nothing.
-9. **Tag every guard.** A guard is code that exists only for a failure: a check, a recover, a fence, a retry, a fixed public text. Put a tag and its reason in the comment above it, in one line, with no history ("fixed in", "bug 12"): `// [SECURITY] a client cannot make the handler read a body past the cap.`. The tag says what the guard protects, from this closed list:
-   - `[SECURITY]`: a secret, a credential, an authorization decision, or a public text.
-   - `[DATA-LOSS]`: a Record, a Message or a result that would be lost or read wrong; the order of a durable write.
-   - `[OWNERSHIP]`: one writer per Session across Instances (Claim, epoch, release).
-   - `[LIVENESS]`: a hang, a leak, unbounded growth or a stuck state (goroutine, lock, queue, Claim).
-   - `[CONCURRENCY]`: a lock order, a "caller holds X", or a check and its change in one step.
-   - `[FAILURE-CLASS]`: why an error is, or is not, NotRun or Retryable.
-   - `[CONTRACT]`: behavior that a document, the Store suite or a serialized name requires.
-   - `[SEAM]`: code that looks unused but is an intended extension point, event, metric or introspection.
-   - `[WORKAROUND]`: a deliberate duplicate or detour; the comment says when it can go.
-   - `[LIMITATION]`: a known gap left on purpose; the comment says why.
-   - `[IMPORTANT]`: only when no other tag fits; the comment says what breaks if it changes.
+1. **Inspect before editing.** Read the package, its tests and the `FEATURES.md` row you are about to change.
+2. **Run the focused tests first,** such as `go test ./record/... ./store/...`.
+3. **Run the full checks with `scripts/check.sh`.** It runs gofmt on the tracked `.go` files outside `notes/`, then `go build`, `go vet`, `go test -race` and `golangci-lint` (config in `.golangci.yml`, 0 issues) in each module, and exits 1 if any step fails. Give it module paths, such as `scripts/check.sh adapter/http`, to check only those; the root is `.`.
+4. **Choose the modules by what you touched.**
 
-   A guard with no tag is a candidate for deletion in review. A tag whose reason no longer holds is stale. A change adds a guard only with a failing test that a supported use can trigger, and it reuses or replaces an existing mechanism before it adds a second one.
+   | You touched | Run |
+   |---|---|
+   | Anything in the root module | `.` |
+   | `host`, or a type the HTTP API uses (`host.Runner`, `record.Info`) | `adapter/http` too |
+   | `ToolSet`, `Tool` or `ToolResult` | `adapter/mcp` too |
+   | The CLI, or a package it drives | `internal/cmd/gotato` too |
+   | The example, or a type it uses (`host.Runner`, `profile.AgentProfile`, `ToolSet`) | `examples/larkbot` too |
+   | The reference service, or a package it embeds | `bench/refservice` too |
 
-## Editing the Project Documents
+   The script skips lint, with a note, when `golangci-lint` is missing or was built with an older Go than the module targets (today `examples/larkbot`). CI runs it there.
+5. **Add regression tests for behavior changes.** A bug fix ships with a test that fails before the fix.
+6. **Use fake and replay models** (`testkit.FakeModel`, `testkit.ReplayModel`) for deterministic tests. Never make a unit test depend on a network provider or a credential.
+7. **Use CLI integration tests** (`internal/cmd/gotato/cli_test.go`) as one way to test runtime behavior end to end, and assert on JSON, not on prose.
+8. **Update the documents when public behavior changes:** package doc comments, the `FEATURES.md` status mark, `README.md` examples, and `CHANGELOG.md` (*Unreleased*, with a before and after note for breaks).
+9. **Keep the CLI honest.** Update its tests and `internal/cmd/gotato/README.md` with it, and add no `CHANGELOG.md` entry for it, since it promises no contract.
+10. **Tag every guard.** A guard is code that exists only for a failure: a check, a recover, a fence, a retry or a fixed public text. Put a tag and its reason in the comment above it, in one line and with no history ("fixed in", "bug 12"): `// [SECURITY] a client cannot make the handler read a body past the cap.` The tag says what the guard protects, from this closed list:
 
-When the user points out a change to a document, re-read the whole document before editing. A wrong word or row usually comes from an idea that appears in other places too. Find every place the idea appears, and rewrite them together so the document stays consistent. Do not patch only the spot the user pointed at.
+    | Tag | Protects |
+    |---|---|
+    | `[SECURITY]` | A secret, a credential, an authorization decision or a public text |
+    | `[DATA-LOSS]` | A Record, a Message or a result that would be lost or read wrong; the order of a durable write |
+    | `[OWNERSHIP]` | One writer per Session across Instances (Claim, epoch, release) |
+    | `[LIVENESS]` | A hang, a leak, unbounded growth or a stuck state (goroutine, lock, queue, Claim) |
+    | `[CONCURRENCY]` | A lock order, a "caller holds X", or a check and its change in one step |
+    | `[FAILURE-CLASS]` | Why an error is, or is not, NotRun or Retryable |
+    | `[CONTRACT]` | Behavior that a document, the Store suite or a serialized name requires |
+    | `[SEAM]` | Code that looks unused but is an intended extension point, event, metric or introspection |
+    | `[WORKAROUND]` | A deliberate duplicate or detour; the comment says when it can go |
+    | `[LIMITATION]` | A known gap left on purpose; the comment says why |
+    | `[IMPORTANT]` | Only when no other tag fits; the comment says what breaks if it changes |
 
-When writing or rewriting a project document:
+    A guard with no tag is a candidate for deletion in review, and a tag whose reason no longer holds is stale. A change adds a guard only with a failing test that a supported use can trigger, and it reuses or replaces an existing mechanism before it adds a second one.
 
-- **Use the GLOSSARY.md terms.** One name per thing. Explain a term the first time a reader meets it.
-- **Keep the tone calm, pragmatic and narrative.** State Gotato's own stance ("we consider …"). Never claim what other people or teams want or do.
-- **Never write "company".** Say "you", "your", "the team" or "the service". Examples stay generic, with no real organization's names or internal details.
-- **Open a long document so a reader sees the whole of it at a glance, then write freely.** The opening is either a TL;DR outline or the few points the document is built around. A TL;DR lists every group in bold, with its items in a small table (name, a one-line description, and a status where the items are concrete features) or as bullets. A document built around points opens with them numbered, one sentence each, and gives each point its own section. The details follow in the same order: each group or point is a `##` heading, and each item a `###` heading. Under it, write freely and make it easy to scan: a lead sentence, then whatever reads best, such as bullets, a table, a small ASCII diagram, `code` names, or a code snippet of a few lines. Avoid long plain paragraphs. Introduce every diagram or code block with a sentence that says what it shows.
-- **Use plain words, not slogans.** Bold a stance line only when the maintainer said or approved it.
-- **In PROPOSAL.md,** the pain points come before the shift, and *What we want* describes needs; it does not answer the pains one by one. The proposal is a pitch.
-- **Link other documents as Markdown links:** [PHILOSOPHY.md](PHILOSOPHY.md).
-- **Quote only where the quote does real work,** and check every quote word for word against the original.
-- **Never describe Gotato by another project's name** ("X-like", "the Go version of X").
-- **Keep the review mark.** PROPOSAL, PHILOSOPHY, DESIGNS, GOALS, FEATURES and ROADMAP open with `<!-- what-we-build: approved|drafted YYYY-MM-DD -->`. Any edit sets the mark back to `drafted`, with the date, until the maintainer approves again.
-
-## Deterministic Testing Toolkit
+## Deterministic testing toolkit
 
 | Need | Use |
 |---|---|
 | a model that answers a scripted sequence | `testkit.FakeModel` |
 | a model that replays recorded `ModelEvent`s and fails when exhausted | `testkit.ReplayModel` |
 | a model that answers from the request (shared by agents, racy input order) | `testkit.FuncModel` with `testkit.ToolResults` / `testkit.UserText` |
-| a tool that returns a fixed result / records calls | `testkit.FakeTool` |
+| a tool that returns a fixed result and records calls | `testkit.FakeTool` |
 | prove a `store.Records`, `store.Liveness`, `store.Lister` or `store.Definitions` adapter keeps its contract | `storetest.RunRecords`, `RunLiveness`, `RunLister`, `RunDefinitions` in `store/storetest` |
 | capture every Event of a live Session or a Subscription in order | `testkit.RecordEvents(session)` right after `gotato.NewSession`, or `testkit.RecordSubscription(sub)`; read `Events()`, `Kinds()`, `OfKind(kind)` |
 | a pre-populated Session Record | `testkit.NewRecord("q", "a", ...)` |
-| a provider's wire API and its quirks over HTTP: a refusal as too long (before output and mid-stream), a cut stream, cached tokens, a reasoning replay, a mid-conversation `system`/`developer` message, a slow reply | `fakemodel.New()` in `internal/fakemodel` behind `httptest.NewServer`; quirks by `[quirk:name]` in the last user text or the `X-Fake-Quirk` header; `g.Requests()` records every request; `go run ./internal/fakemodel/cmd/fakemodel` serves it on a port |
-| the echo / demo models used by the CLI and the reference service | `testkit.EchoModel`, `testkit.DemoModel`, `testkit.DemoEchoTool()` |
-| the reference workload's tasks, with their fake models and checks (our own test tool, under `internal/`) | `reftasks.ReferenceTasks()` in `internal/reftasks` (`reftasks.ToolSearchTask()` is the one whose tools load, with `Task.Options` for its ToolSets and `reftasks.WithLoadedToolsOf` to copy a history with its loads); `reftasks.LongSession(turns, perRun, resultBytes, window, recap)` for a Session that compacts and merges (`LongSessionTask()` is the 2,000-Turn task of G-G10, played only when named) |
-| play tasks through a Runner and measure them (plan/GOALS.md) | `workload.Run` in `internal/workload`; `go run ./internal/cmd/gotato-workload` prints the report |
+| a provider's wire API and its quirks over HTTP: a refusal as too long (before output and mid-stream), a cut stream, cached tokens, a reasoning replay, a mid-conversation `system` or `developer` message, a slow reply | `fakemodel.New()` in `internal/fakemodel` behind `httptest.NewServer`; quirks by `[quirk:name]` in the last user text or the `X-Fake-Quirk` header; `g.Requests()` records every request; `go run ./internal/fakemodel/cmd/fakemodel` serves it on a port |
+| the echo and demo models used by the CLI and the reference service | `testkit.EchoModel`, `testkit.DemoModel`, `testkit.DemoEchoTool()` |
+| the reference workload's tasks, with their fake models and checks | `reftasks.ReferenceTasks()` in `internal/reftasks`; `reftasks.ToolSearchTask()` is the one whose tools load, with `Task.Options` for its ToolSets and `reftasks.WithLoadedToolsOf` to copy a history with its loads; `reftasks.LongSession(turns, perRun, resultBytes, window, recap)` builds a Session that compacts and merges, and `LongSessionTask()` is the 2,000-Turn task of G-G10, played only when named |
+| play tasks through a Runner and measure them ([plan/GOALS.md](plan/GOALS.md)) | `workload.Run` in `internal/workload`; `go run ./internal/cmd/gotato-workload` prints the report |
 
-## CLI Scenario Loop
+## CLI scenario loop
 
-A smoke run of the test tool, to see the packages work end to end:
+`scripts/cli-scenario.sh` is a smoke run of the test tool, to see the packages work end to end. It builds the CLI into `bin/`, creates a Session, runs a prompt with the demo model, reads the Events, inspects the Context and compacts it, and needs `jq`. Every step must exit 0, and each JSON step must print valid JSON. The exit codes of the tool are in `internal/cmd/gotato/README.md`.
 
-```bash
-(cd internal/cmd/gotato && go build -o ../../../bin/gotato .)   # the CLI is a module of its own
-export GOTATO_HOME=$(mktemp -d)
-./bin/gotato doctor --json
-id=$(./bin/gotato session create --json | jq -r .id)
-./bin/gotato run --session "$id" --model demo --json "use-tool"
-./bin/gotato events --session "$id" | head
-./bin/gotato context inspect "$id" --json
-./bin/gotato context compact "$id" --keep-messages 2 --json
-```
-
-Every command above should exit 0 and emit valid JSON on stdout. The tool's exit codes are in `internal/cmd/gotato/README.md`.
-
-## Definition of Done
+## Definition of done
 
 A change is not complete until:
 
-- relevant tests pass (`go test -race ./...`, `go vet ./...`, `gofmt -l .` empty) in every module touched;
-- the affected behavior has actually been exercised (a test, or a CLI scenario whose JSON you inspected);
-- documentation reflects the new state (`FEATURES.md` marker, package docs, README when user-visible);
-- the commit follows [Git Flow](#git-flow) below.
+- `scripts/check.sh` passes for every module the change touched;
+- the affected behavior has actually been exercised, by a test or by a CLI scenario whose JSON you inspected;
+- the documents reflect the new state: the `FEATURES.md` mark, `CHANGELOG.md`, package docs, and `README.md` when it is user-visible;
+- the commit follows *Git flow* below.
 
-Do not report work as complete when tests fail or a step was skipped; say so explicitly.
+Do not report work as complete when a test fails or a step was skipped. Say so explicitly.
 
-## Git Flow
+## Editing the project documents
+
+When the maintainer points out a change to a document, re-read the whole document before editing, and do so before any edit, even of one word. A wrong word or row usually comes from an idea that appears in other places too. Find every place the idea appears and rewrite them together, so the document stays consistent. Do not patch only the spot the maintainer pointed at.
+
+When writing or rewriting a project document:
+
+- **Give every fact one home.** Put it in the document that owns it, and let another document say less about it. When a fact changes, update its summaries in the same change.
+- **Use the GLOSSARY.md terms.** One name per thing, and explain a term the first time a reader meets it.
+- **Keep the tone calm, pragmatic and narrative.** State Gotato's own stance ("we consider …"), and never claim what other people or teams want or do.
+- **Name no organization.** Say "you", "your", "the team" or "the service". Examples stay generic, with no real organization's names or internal details.
+- **Use plain words, not slogans.** Bold a stance line only when the maintainer said it.
+- **Put the answer first.** Open a long document so a reader sees the whole of it at a glance, with a TL;DR outline or the few points the document is built around, and then write freely.
+- **Explain in a short paragraph,** written as one block. Put separate points in a list, one sentence to a bullet, and never stack sentences line by line.
+- **Use tables and diagrams** where they read better than prose, and introduce each with a sentence that says what it shows.
+- **Hold no code chunk.** A command longer than two lines belongs in a script in `scripts/`, and the document names the script. A formula, a tree or a short command is fine.
+- **Write an ID with its name,** such as "T4: A short skill". Link an ID only where the document's place in the read order allows it.
+- **List the items instead of giving a range,** and prefer a number to an adjective, with its source or left open.
+- **Write dates as `YYYY-MM-DD`.** Keep status marks out of headings, so the links to them stay stable.
+- **Check a claim before you write it.** Check a behavior claim by running it or mark it "not yet verified", and treat a goal as met only with a measurement or the maintainer's own report.
+- **Quote only where the quote does real work,** and check every quote word for word against the original.
+- **Never describe Gotato by another project's name** ("X-like", "the Go version of X").
+- **In PROPOSAL.md,** the pain points come before the shift, and *What we want* describes needs without answering the pains one by one. The proposal is a pitch.
+- **Link other documents as Markdown links:** [PHILOSOPHY.md](PHILOSOPHY.md).
+- **Send an open point to `plan/TODO.md`** as a `DISCUSSION`, so the work can stop at any time.
+
+The status marks mean the same in every document:
+
+| Mark | Means | Used in |
+|---|---|---|
+| ✅ | built, done or met | FEATURES, ROADMAP and GOALS |
+| 🚧 | built, with a gap named beside it | FEATURES |
+| 🟨 | in progress | ROADMAP |
+| ⬜ | planned, not started or not measured yet | FEATURES, ROADMAP and GOALS |
+| ❌ | measured and not met | GOALS |
+
+## Git flow
 
 A lightweight Git policy for human contributors and coding agents. It is deliberately not an enterprise process.
 
 ### Principles
 
-1. **Preserve history.** Never reinitialize the repository, never rewrite shared history, never force-push `main`.
-2. **Never destroy user work.** No `git reset --hard`, `git checkout -- .`, `git clean -f`, or stash-drop on a working tree you did not create. If the tree contains changes you did not make, leave them alone and mention the collision in your report.
-3. **Small, focused branches.** One concern per branch. Land often.
-4. **One conceptual change per commit** when practical. A commit should build and pass tests on its own.
-5. **Tests before commit and before merge.** `go test ./...` in every module you touched, plus `go vet ./...`.
-6. **Docs travel with public changes.** A commit that changes an exported API, an event kind, or a JSON field updates the relevant documentation (and `FEATURES.md` status markers) in the same commit or the same branch.
-7. **No AI/model/tool attribution in commit authorship** (no `Co-Authored-By` for a model or tool) unless the user explicitly requests it.
+1. **Preserve history.** Never reinitialize the repository, rewrite shared history or force-push `main`.
+2. **Never destroy user work.** No `git reset --hard`, `git checkout -- .`, `git clean -f` or stash drop on a working tree you did not create. If the tree holds changes you did not make, leave them alone and mention the collision in your report.
+3. **Keep branches small and focused.** One concern per branch, and land often.
+4. **Make one conceptual change per commit** when practical. A commit should build and pass tests on its own.
+5. **Test before commit and before merge,** with `scripts/check.sh` on every module you touched.
+6. **Let the documents travel with public changes.** A commit that changes an exported API, an event kind or a JSON field updates the relevant documents and the `FEATURES.md` mark in the same commit or the same branch.
+7. **Put no AI, model or tool attribution in commit authorship.** No `Co-Authored-By` for a model or tool unless the maintainer asks for it.
 
 ### Branches
 
-`main` is the integration branch and must always build and pass tests.
-
-Branch names use a type prefix:
-
-```text
-feat/<short-topic>
-fix/<short-topic>
-refactor/<short-topic>
-docs/<short-topic>
-test/<short-topic>
-chore/<short-topic>
-```
-
-Example: `refactor/runtime-foundation`, `feat/session-file-store`, `fix/event-subscription-leak`.
+`main` is the integration branch and must always build and pass tests. A branch name is `<type>/<short-topic>`, where the type is one of `feat`, `fix`, `refactor`, `docs`, `test` or `chore`, as in `feat/session-file-store` or `fix/event-subscription-leak`.
 
 ### Commits
 
-Conventional, descriptive subjects in the imperative mood, under ~72 characters:
+A subject is conventional, in the imperative mood and under about 72 characters, as `<type>: <what changed>` with the same types as a branch.
 
-```text
-feat: add file-backed session store
-fix: stop leaking a goroutine per event subscription
-refactor: route agent commits through Transcript
-docs: mark the file store as done in FEATURES.md
-test: cover context window strategy boundaries
-chore: add CI workflow
-```
+| Type | Example |
+|---|---|
+| `feat` | `feat: add file-backed session store` |
+| `fix` | `fix: stop leaking a goroutine per event subscription` |
+| `refactor` | `refactor: route agent commits through Transcript` |
+| `docs` | `docs: mark the file store as done in FEATURES.md` |
+| `test` | `test: cover context window strategy boundaries` |
+| `chore` | `chore: add CI workflow` |
 
-A body is optional but welcome when the *why* is not obvious from the diff. Reference the goal or feature (`G-G08`, `G-F14`, ...) when a commit exists to satisfy one.
+A body is optional but welcome when the why is not obvious from the diff. Name the goal or feature (`G-G08`, `G-F04`) when a commit exists to satisfy one.
 
-### Landing a Branch
+### Landing a branch
 
-- Land a branch by rebasing it on `main` and fast-forwarding `main` to it, so `main` stays a straight line with no merge commits. Rebase a branch of your own, one that nobody else has pulled; never rewrite shared history.
-- Resolve conflicts locally; run the full test suite again after resolution.
-- Squash only your own noise commits ("wip", "fix typo") before opening a PR; do not squash away meaningful history.
+- Land a branch by rebasing it on `main` and fast-forwarding `main` to it, so `main` stays a straight line with no merge commits.
+- Rebase only a branch of your own that nobody else has pulled, and never rewrite shared history.
+- Resolve conflicts locally and run `scripts/check.sh` again after the resolution.
+- Squash only your own noise commits ("wip", "fix typo") before opening a PR, and keep the meaningful history.
 
-### Breaking Changes and Migration Notes
+### Breaking changes
 
-A breaking change to the public Go API, HTTP contract, or event kinds must:
+A breaking change to the public Go API, the HTTP contract or the event kinds must:
 
-1. be called out in the commit subject with a `!` or a `BREAKING CHANGE:` body line;
-2. add or update an entry under *Unreleased* in `CHANGELOG.md` with a before/after snippet;
+1. be called out in the commit subject with a `!` or in a `BREAKING CHANGE:` body line;
+2. add or update an entry under *Unreleased* in `CHANGELOG.md` with a before and after note;
 3. prefer a deprecation period: keep the old symbol with a `// Deprecated:` comment for at least one release when the cost is low, and say in the entry when it goes.
 
-### Generated Files
+### Generated files and notes
 
-- Do not commit build output, coverage files, `go.work`, or local credentials (see `.gitignore`; `gateway.yaml` is ignored on purpose).
-- Work notes (inventories, decision logs, research, drafts) go in `notes/` at the repository root, which `.gitignore` ignores. They are never committed, and no project document links to them; a document records only the result.
+- Do not commit build output, coverage files, `go.work` or local credentials (see `.gitignore`; `gateway.yaml` is ignored on purpose).
+- Work notes (inventories, decision logs, research, drafts) go in `notes/` at the repository root, which `.gitignore` ignores. They are never committed and no project document links to them, so a document records only the result.
 
-### Coding-Agent Checklist Before Committing
+### Before committing
 
-```text
-git status --short                # only your intended files are staged
-gofmt -l .                        # empty
-go vet ./...                      # clean
-golangci-lint run ./...           # 0 issues
-go test ./...                     # green
-(cd internal/cmd/gotato && go build -o /dev/null .)   # CLI builds (a module of its own)
-docs updated?                     # FEATURES.md / README / package docs
-```
+1. Run `git status --short` and check that only your intended files are staged.
+2. Run `scripts/check.sh` on the modules you touched, and see it pass.
+3. Check that the documents are updated: the `FEATURES.md` mark, `CHANGELOG.md`, package docs and `README.md`.
