@@ -148,7 +148,7 @@ func startsWith(list, prefix []string) bool {
 	return true
 }
 
-// TestRequestOnlyGrowsAtItsEndAcrossCompactions checks GOALS.md G-G07 where
+// TestRequestOnlyGrowsAtItsEndAcrossCompactions checks GOALS.md O3 where
 // the Session compacts. The long_session task is played as several Runs that
 // move between instances and reloads, with compactions mid-Run and merges. Every
 // request keeps the instruction, the options and the cache key of the one before
@@ -261,7 +261,7 @@ func jsonOf2(v any) []byte {
 	return b
 }
 
-// TestSameRecordSameRequestAcrossCompactions checks GOALS.md G-G09 where the
+// TestSameRecordSameRequestAcrossCompactions checks GOALS.md O2 where the
 // Session compacts. At the end of every Run of the long_session task, the
 // Session is inspected by the instance that ran it, by the other instance, and
 // by a new Runner after a reload; the three requests are the same bytes, whether
@@ -311,8 +311,8 @@ func TestSameRecordSameRequestAcrossCompactions(t *testing.T) {
 	}
 }
 
-// This file checks G-G07 on the bytes the model bridge sends where the Session
-// compacts and merges (GOALS.md → G-G07). It plays the long_session task as
+// This file checks O3 on the bytes the model bridge sends where the Session
+// compacts and merges (GOALS.md → O3). It plays the long_session task as
 // TestRequestOnlyGrowsAtItsEndAcrossCompactions does, and encodes every request
 // with the model bridge for each wire API, with the facts of a Claude model, an
 // OpenAI model and a DeepSeek model.
@@ -529,7 +529,7 @@ func withoutReadSegment(tools []string) []string {
 	return slices.DeleteFunc(slices.Clone(tools), func(tool string) bool { return strings.Contains(tool, `"name":"`+ref.ReadSegment+`"`) })
 }
 
-// TestWireRequestOnlyGrowsAtItsEndAcrossCompactions checks GOALS.md G-G07 on
+// TestWireRequestOnlyGrowsAtItsEndAcrossCompactions checks GOALS.md O3 on
 // the model bridge's bytes where the Session compacts and merges. The long_session
 // task is played as in TestRequestOnlyGrowsAtItsEndAcrossCompactions, with and
 // without the model's Recap, and the model bridge encodes every request for each wire

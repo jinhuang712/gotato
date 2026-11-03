@@ -3,7 +3,7 @@
 // failed Run, tool call and check with its cause, token usage and cost, the
 // time Gotato adds per Turn next to the model's own time, the time to load a
 // Session, and whether each Turn's Context matches an inspection of the
-// Transcript it was built from (G-G03).
+// Transcript it was built from (O9).
 //
 // In CI the tasks from reftasks.ReferenceTasks run with their fake Models. The
 // live run passes a real Model and its price:
@@ -274,7 +274,7 @@ func playTask(ctx context.Context, runner *host.Runner, st store.Store, task ref
 				}
 				calls = append(calls, toolCall{id: e.CallID, toolID: e.ToolID, status: string(e.Status), executed: e.Executed})
 			case gotato.TurnEnded:
-				// A play's first Turn has nothing cached yet; G-B01 counts
+				// A play's first Turn has nothing cached yet; B1 counts
 				// from the second on.
 				if turn > 0 {
 					p.laterInput += e.Usage.InputTokens
@@ -366,7 +366,7 @@ type toolCall struct {
 
 // checkContext inspects, for every Turn, the Transcript that Turn was built
 // from (the Session's first Messages, since a reference task never compacts)
-// and compares its prefix hash with the Turn's context_built Event (G-G03).
+// and compares its prefix hash with the Turn's context_built Event (O9).
 func checkContext(ctx context.Context, inspector *host.Runner, st store.Store, final *record.Record, builds []build, report *TaskReport) {
 	messages := final.Messages()
 	mismatch := func(detail string) {

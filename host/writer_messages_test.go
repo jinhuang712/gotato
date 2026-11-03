@@ -79,7 +79,7 @@ func messageEvents(t *testing.T, st store.Store, id string) (queued, committed m
 // A Run in flight on one instance takes the messages sent to it from three
 // instances at once: those sent to the writer land once each in order, those
 // sent to the others are refused with the writer's address and land nowhere,
-// and no instance but the writer calls the model (GOALS.md G-G08).
+// and no instance but the writer calls the model (GOALS.md O6).
 func TestMessagesMidRunLandOnceOnTheWriter(t *testing.T) {
 	ctx := context.Background()
 	st := memStore()
@@ -185,7 +185,7 @@ func TestMessagesMidRunLandOnceOnTheWriter(t *testing.T) {
 	}
 }
 
-// TestManyInstancesOneWriterWithMessages is G-G08 with prompts and messages
+// TestManyInstancesOneWriterWithMessages is O6 with prompts and messages
 // together: several instances take, concurrently and at random, prompts and
 // Steers, FollowUps and Interrupts for the same Sessions, and one instance is
 // killed partway. A message lands at most once; one a live instance accepted

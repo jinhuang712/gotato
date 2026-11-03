@@ -9,7 +9,7 @@
 //	gotato-workload -tasks lookup,history_100 -plays 20 -concurrency 4
 //	gotato-workload -live -gateway-config gateway.yaml -price 3,15,0.3,3.75
 //
-// -recap-check runs the payments check of G-E01 instead of the tasks: it plays
+// -recap-check runs the payments check of B12 instead of the tasks: it plays
 // a conversation whose facts only Tool Results held, compacts the Session with
 // the Recap the model writes, and prints the share of questions answered before
 // and after. A team runs it on its own gateway before it turns the model's
@@ -20,14 +20,14 @@
 // -tasks long_session (or long_session_recap, with the model's Recap on) plays
 // 2,000 Turns of 20 KB Tool Results on one Session against a fake model with a
 // 128K-token window, and reports the size of its requests against the window
-// (G-G10, G-B14, G-B16). It plays only when named.
+// (O4, M1, M3). It plays only when named.
 //
 // -price is the model's price in US dollars per million tokens: input,
 // output, cache read and cache write. Keep the model and its price fixed from
 // one release to the next, so the numbers compare.
 //
 // Exit codes: 0 when the report shows no failure caused by Gotato or the store
-// (G-G04) and no Turn whose Context differed from its inspection (G-G03); 1 on
+// (O8) and no Turn whose Context differed from its inspection (O9); 1 on
 // an error; 2 on a usage error; 3 when one of those goals failed. With
 // -recap-check, 0 means the model wrote a Recap and the share answered after
 // the compaction reached -min-share, and 3 means it did not.
@@ -75,7 +75,7 @@ func run(ctx context.Context, args []string, stdout, stderr io.Writer, getenv fu
 	plays := flags.Int("plays", 1, "how many times each task is played")
 	concurrency := flags.Int("concurrency", 1, "how many plays of a task run at once")
 	storeDir := flags.String("store", "", "keep Sessions in a file store in this directory (default in memory)")
-	recapCheck := flags.Bool("recap-check", false, "run the payments check of G-E01 instead of the tasks: compact with the model's Recap and ask what only Tool Results held")
+	recapCheck := flags.Bool("recap-check", false, "run the payments check of B12 instead of the tasks: compact with the model's Recap and ask what only Tool Results held")
 	minShare := flags.Float64("min-share", 0, "with -recap-check: exit 3 when the share answered after the compaction is below this (0 to 1)")
 	recapTokens := flags.Uint("recap-max-tokens", 0, "with -recap-check: the Recap's output limit (default 8192)")
 	skipContext := flags.Bool("skip-context-check", false, "do not compare each Turn's Context with an inspection")
@@ -163,7 +163,7 @@ func run(ctx context.Context, args []string, stdout, stderr io.Writer, getenv fu
 	return exitOK
 }
 
-// runRecapCheck plays the payments check of G-E01 and prints its report. It
+// runRecapCheck plays the payments check of B12 and prints its report. It
 // exits 3 when the model wrote no Recap that passed the rules, or when the
 // share answered after the compaction is below minShare.
 func runRecapCheck(ctx context.Context, cfg workload.RecapCheckConfig, minShare float64, stdout, stderr io.Writer) int {

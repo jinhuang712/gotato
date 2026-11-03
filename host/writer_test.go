@@ -151,7 +151,7 @@ func TestLapsedHeartbeatFencesLateWrites(t *testing.T) {
 
 var errKilled = errors.New("the instance was killed")
 
-// TestManyInstancesOneWriter checks GOALS.md G-G08: several instances over one
+// TestManyInstancesOneWriter checks GOALS.md O6: several instances over one
 // store take concurrent prompts for the same Sessions, sent to random
 // instances, and one instance is killed partway. Every completed Run's prompt
 // lands once, followed by its reply; nothing is duplicated or interleaved;

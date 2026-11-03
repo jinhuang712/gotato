@@ -125,7 +125,7 @@ func toolResultsByCall(request gotato.ModelRequest) map[gotato.ToolCallID]gotato
 	return out
 }
 
-// TestEffectCapHidesToolsAboveIt is G-G05: Agents with every cap get a tool
+// TestEffectCapHidesToolsAboveIt is O10: Agents with every cap get a tool
 // at every Effect level, and the model calls all of them by name. A tool above
 // the cap is in no request and no listing, its code never runs, and its call
 // fails as a call to a tool this Session does not allow, which does not name it as available.

@@ -41,7 +41,7 @@ const (
 	CauseExtension Cause = "extension"
 	// CauseCanceled means the caller canceled.
 	CauseCanceled Cause = "canceled"
-	// CauseGotato means everything else. GOALS.md G-G04 wants none.
+	// CauseGotato means everything else. GOALS.md O8 wants none.
 	CauseGotato Cause = "gotato"
 )
 

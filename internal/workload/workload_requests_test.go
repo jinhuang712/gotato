@@ -24,8 +24,8 @@ import (
 // This file checks two goals of GOALS.md on the reference workload, from the
 // requests a model receives:
 //
-//   - G-G09, the same Record gives the same request: TestSameRecordSameRequest.
-//   - G-G07, no unplanned change to the prefix: TestRequestOnlyGrowsAtItsEnd.
+//   - O2, the same Record gives the same request: TestSameRecordSameRequest.
+//   - O3, no unplanned change to the prefix: TestRequestOnlyGrowsAtItsEnd.
 //
 // A "request" is the JSON of the gotato.ModelRequest the model got, the
 // value every provider encoder starts from. It holds the system instruction,
@@ -142,7 +142,7 @@ func playAcross(t *testing.T, st store.Store, task reftasks.Task, options playOp
 	return s.ID, log.all()
 }
 
-// TestSameRecordSameRequest checks GOALS.md G-G09. Each reference task is
+// TestSameRecordSameRequest checks GOALS.md O2. Each reference task is
 // played as several Runs on one Session, moving between instances and
 // reloads. Then, for every request the model got in the play, the Record as
 // it stood at that Turn (the stored Messages before the reply the request
@@ -209,7 +209,7 @@ func TestSameRecordSameRequest(t *testing.T) {
 	}
 }
 
-// TestRequestOnlyGrowsAtItsEnd checks the part of GOALS.md G-G07 that spans
+// TestRequestOnlyGrowsAtItsEnd checks the part of GOALS.md O3 that spans
 // Runs, reloads and instances. Each reference task is played as several Runs
 // on one Session (see playAcross). Every request must start with the bytes of
 // the request before it: the same system instruction, the same Tools, the same
@@ -295,8 +295,8 @@ func TestRequestOnlyGrowsAtItsEnd(t *testing.T) {
 	}
 }
 
-// This file checks G-G07 and G-G09 on the tool_search task, a Session whose Tools
-// load and unload (GOALS.md → G-G07 → Tools that load).
+// This file checks O3 and O2 on the tool_search task, a Session whose Tools
+// load and unload (GOALS.md → O3 → Tools that load).
 
 // hasCatalog says the request is a Session's with a catalog of loadable Tools.
 func hasCatalog(request gotato.ModelRequest) bool {
@@ -430,7 +430,7 @@ func elementsOf(t *testing.T, raw json.RawMessage) []string {
 }
 
 // TestToolSearchRequestOnlyGrowsAtItsEnd checks the tool loading part of
-// GOALS.md G-G07 as the core builds the requests. The tool_search task is played
+// GOALS.md O3 as the core builds the requests. The tool_search task is played
 // as several Runs across instances and reloads. In every pair of consecutive
 // requests the catalog is the same, and the loaded Tools are the earlier ones
 // and those the Tool Results between the two list as loaded (checkToolLoading).
@@ -450,7 +450,7 @@ func TestToolSearchRequestOnlyGrowsAtItsEnd(t *testing.T) {
 	t.Logf("%d request pairs, %d of them across a load", len(requests)-1, loads)
 }
 
-// TestWireRequestOnlyGrowsAtItsEnd checks G-G07 on the bytes the model bridge
+// TestWireRequestOnlyGrowsAtItsEnd checks O3 on the bytes the model bridge
 // encodes, for every reference task, on each wire API and each form of deferred
 // tools. Each task is played as in TestRequestOnlyGrowsAtItsEnd, and the
 // model bridge encodes its requests. Between two consecutive requests of a pair:
@@ -529,7 +529,7 @@ func compactingToolSearch(t *testing.T) (store.Store, string, []gotato.ModelRequ
 	return st, id, decodeRequests(t, sent)
 }
 
-// TestToolSearchRequestAcrossACompaction checks the other half of G-G07 for
+// TestToolSearchRequestAcrossACompaction checks the other half of O3 for
 // Tools that load: when the Session compacts, some of its Tools unload, and
 // that is the one pair where the loaded Tools may lose some. Every other pair
 // follows checkToolLoading. At the compaction the catalog is the same, the
@@ -589,7 +589,7 @@ func TestToolSearchRequestAcrossACompaction(t *testing.T) {
 	t.Logf("compaction unloaded %v", unloaded)
 }
 
-// TestSameRecordSameRequestAcrossLoadsAndUnloads checks G-G09 on the tool_search
+// TestSameRecordSameRequestAcrossLoadsAndUnloads checks O2 on the tool_search
 // task, with a compaction after Run 5. At the end of every Run, the Session is
 // inspected by the instance that ran it, by the other instance, and by a new
 // Runner after a reload; the three build the same request. The Runs load Tools

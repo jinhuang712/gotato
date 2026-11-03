@@ -112,7 +112,7 @@ func TestDeferredToolWithInvalidSchemaIsRefused(t *testing.T) {
 }
 
 // A load changes the tool list of the list form, and leaves it byte for byte
-// the same in the native form (G-G07).
+// the same in the native form (O3).
 func TestEachWireAPIKeepsTheToolListWhileAToolLoads(t *testing.T) {
 	first, second := loadingTurns()
 	for api, encode := range encodersByAPI() {

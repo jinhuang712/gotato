@@ -55,7 +55,7 @@ func warmedRunner(b *testing.B, sessions, messages int, ttl time.Duration) *host
 	return runner
 }
 
-// BenchmarkWarmSessionFootprint measures G-B08 for the warm Session: the heap
+// BenchmarkWarmSessionFootprint measures B8 for the warm Session: the heap
 // a warm copy holds, per Session, with a history of 10, 100 and 1,000
 // Messages. It builds 100 Sessions that have each run once, twice: once with
 // each Session kept warm, and once with none kept. What the Runner and the

@@ -12,7 +12,7 @@ import (
 	"time"
 )
 
-// buildBinary builds the service stripped, the way G-B12 measures it.
+// buildBinary builds the service stripped, the way C1 measures it.
 func buildBinary(tb testing.TB) string {
 	tb.Helper()
 	if _, err := exec.LookPath("go"); err != nil {
@@ -77,7 +77,7 @@ func TestStartupServesHealthz(t *testing.T) {
 	t.Logf("ready in %v", d)
 }
 
-// BenchmarkStartup measures G-B10: from process start to ready to serve.
+// BenchmarkStartup measures B10: from process start to ready to serve.
 func BenchmarkStartup(b *testing.B) {
 	bin := buildBinary(b)
 	b.ResetTimer()

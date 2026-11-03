@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Measures GOALS.md G-B12: modules and stripped binary size of the reference
+# Measures GOALS.md C1: modules and stripped binary size of the reference
 # service. Prints one JSON object on stdout.
 set -euo pipefail
 

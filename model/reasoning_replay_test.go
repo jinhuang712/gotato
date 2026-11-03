@@ -502,7 +502,7 @@ func mustJSON(t *testing.T, v any) string {
 	return string(b)
 }
 
-// TestFakeRequestOnlyGrowsAtItsEndWithReasoning checks GOALS.md G-G07 on the
+// TestFakeRequestOnlyGrowsAtItsEndWithReasoning checks GOALS.md O3 on the
 // bytes the Client sends when the replies carry reasoning, with the reasoning
 // as each wire API's fake signs it. One Session plays four Runs, three of them
 // with a tool loop, and every pair of consecutive requests is compared:

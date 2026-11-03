@@ -15,7 +15,7 @@ import (
 	"github.com/jinhuang712/gotato/store"
 )
 
-// RecapCheckConfig says how to run the Recap check (GOALS.md G-E01).
+// RecapCheckConfig says how to run the Recap check (GOALS.md B12).
 type RecapCheckConfig struct {
 	// Model replaces the check's fake Model: the check on your own gateway.
 	Model gotato.Model

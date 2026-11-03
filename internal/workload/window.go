@@ -13,14 +13,14 @@ import (
 
 // WindowReport is what a task with a window (reftasks.Task.Window) measured:
 // the size of every request against the window of its fake Model, and what the
-// compactions did (GOALS.md G-G10, G-B14 and G-B16). Sizes are tokens by the
+// compactions did (GOALS.md O4, M1 and M3). Sizes are tokens by the
 // estimate the fake Model reports as its input (reftasks.RequestTokens), not a
 // provider's count.
 type WindowReport struct {
 	// Window is the Model's window, in tokens.
 	Window int `json:"window"`
 	// Requests counts the Turns' requests the Model accepted, and
-	// OverWindow those it refused for being longer than the window (G-G10
+	// OverWindow those it refused for being longer than the window (O4
 	// wants 0). A request that asks for a Recap is counted apart.
 	Requests    int `json:"requests"`
 	OverWindow  int `json:"over_window"`
@@ -29,11 +29,11 @@ type WindowReport struct {
 	MaxRequest  int `json:"max_request_tokens"`
 	Compactions int `json:"compactions"`
 	Merges      int `json:"merges"`
-	// TokensAtTurn is the size of the request at the Turns G-B14 names, in
+	// TokensAtTurn is the size of the request at the Turns M1 names, in
 	// the first play: it should level off, not grow with the Session's age.
 	TokensAtTurn []TurnTokens `json:"tokens_at_turn,omitempty"`
 	// Recap is what the model's Recap cost, when the task turned it on
-	// (G-B16).
+	// (M3).
 	Recap *RecapCost `json:"recap,omitempty"`
 }
 
@@ -57,7 +57,7 @@ type RecapCost struct {
 	TakenOutTokens int `json:"taken_out_tokens"`
 }
 
-// turnsReported are the Turns whose request size G-B14 names.
+// turnsReported are the Turns whose request size M1 names.
 var turnsReported = []int{1, 10, 100, 1000, 2000}
 
 // windowModel gives a fake Model a window, counts every request against it,

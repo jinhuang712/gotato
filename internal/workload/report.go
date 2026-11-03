@@ -30,10 +30,10 @@ type Report struct {
 	Plays       int    `json:"plays"`
 	Concurrency int    `json:"concurrency"`
 	// GotatoFailures counts the failures caused by Gotato or the store, over
-	// every task. GOALS.md G-G04 wants 0.
+	// every task. GOALS.md O8 wants 0.
 	GotatoFailures int `json:"gotato_failures"`
 	// ContextMismatches counts the Turns whose Context differed from its
-	// inspection, over every task. GOALS.md G-G03 wants 0.
+	// inspection, over every task. GOALS.md O9 wants 0.
 	ContextMismatches int          `json:"context_mismatches"`
 	Tasks             []TaskReport `json:"tasks"`
 }
@@ -53,7 +53,7 @@ type TaskReport struct {
 	Usage    gotato.Usage `json:"usage"`
 	CostUSD  float64      `json:"cost_usd,omitempty"`
 	// CacheHitRate is cached input tokens ÷ input tokens, from each play's
-	// second Turn on (G-B01). It is absent when the model reports no usage.
+	// second Turn on (B1). It is absent when the model reports no usage.
 	CacheHitRate *float64 `json:"cache_hit_rate,omitempty"`
 	// ContextTurns counts the Turns compared with an inspection, and
 	// ContextMismatches those that differed; ContextDetail describes the
@@ -64,7 +64,7 @@ type TaskReport struct {
 	Time              Timing `json:"time"`
 	// Window is present for a task with a window of its own
 	// (reftasks.Task.Window): the size of its requests against it, and what
-	// its compactions did (G-G10, G-B14, G-B16).
+	// its compactions did (O4, M1, M3).
 	Window *WindowReport `json:"window,omitempty"`
 }
 
@@ -85,17 +85,17 @@ type Timing struct {
 	// GotatoMS is the rest of RunMS: building the Context, assembling the
 	// request, the Loop, and saving.
 	GotatoMS float64 `json:"gotato_ms"`
-	// GotatoPerTurnMS is Gotato's time per Turn (G-B05).
+	// GotatoPerTurnMS is Gotato's time per Turn (B5).
 	GotatoPerTurnMS float64 `json:"gotato_per_turn_ms"`
-	// LoadPerRunMS is the cold-load time before each Run (G-B07).
+	// LoadPerRunMS is the cold-load time before each Run (B7).
 	LoadPerRunMS float64 `json:"load_per_run_ms"`
 	// BeforeRequestPerRunMS is the time from a Run's start to its first
 	// context_built, when the first request goes to the model: what Gotato
-	// adds before the first token (G-B06).
+	// adds before the first token (B6).
 	BeforeRequestPerRunMS float64 `json:"before_request_per_run_ms"`
 	// ModelFirstTokenMS is the model's own time to its first text token, from
 	// a Turn's context_built to its first message_update, averaged over the
-	// Turns that stream text (G-B06).
+	// Turns that stream text (B6).
 	ModelFirstTokenMS float64 `json:"model_first_token_ms"`
 	// GotatoToModel and LoadToModel compare GotatoMS and LoadMS with the
 	// model's own time. They are absent when the model took no measurable

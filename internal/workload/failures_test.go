@@ -73,7 +73,7 @@ func TestRunFailureAttribution(t *testing.T) {
 	}
 }
 
-// TestContextCheckReportsAMismatch makes sure G-G03 can fail: a Turn whose
+// TestContextCheckReportsAMismatch makes sure O9 can fail: a Turn whose
 // prefix hash differs from its inspection is counted and described.
 func TestContextCheckReportsAMismatch(t *testing.T) {
 	task := reftasks.LookupTask()

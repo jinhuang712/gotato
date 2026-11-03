@@ -18,16 +18,16 @@ import (
 	"github.com/jinhuang712/gotato/store"
 )
 
-// G-G11 (GOALS.md): a failure leaves the Session usable. Every test below
+// O5 (GOALS.md): a failure leaves the Session usable. Every test below
 // injects one fault into a Run of a Session that already holds a finished
 // Run, through a Runner as a service would, and checks three things: the
 // Record keeps every step committed before the fault, the failed Run settles
 // with a status and a cause, and the next Run on the healthy Session succeeds
 // with a first request that holds the history the store holds.
 //
-// An instance that dies is TestCrashAtEveryWriteRebuildsTheLastStep (G-G01),
+// An instance that dies is TestCrashAtEveryWriteRebuildsTheLastStep (O1),
 // and a client that disconnects mid-stream is
-// TestStreamDisconnectSettlesAndSavesTheRun (G-G02), over HTTP.
+// TestStreamDisconnectSettlesAndSavesTheRun (O7), over HTTP.
 
 var errProvider = errors.New("provider unavailable")
 
@@ -281,7 +281,7 @@ func wantSettled(t *testing.T, res host.RunResponse, want gotato.RunStatus) {
 	}
 }
 
-// wantUsable checks the other promises of G-G11 after a fault: the Record
+// wantUsable checks the other promises of O5 after a fault: the Record
 // holds the steps committed before it, and the next Run on a healthy
 // Session succeeds with a first request that holds what the store holds.
 func (r *rig) wantUsable(id string, before []gotato.Message) {
@@ -611,7 +611,7 @@ func (s *faultStore) Append(ctx context.Context, id string, after uint64, entrie
 	return s.write(ctx, id, func() error { return s.Records.Append(ctx, id, after, entries, h) })
 }
 
-// TestCrashAtEveryWriteRebuildsTheLastStep checks GOALS.md G-G01 on the
+// TestCrashAtEveryWriteRebuildsTheLastStep checks GOALS.md O1 on the
 // reference workload: the instance dies after each write a task makes, in
 // turn, and another instance must rebuild exactly what that write left, with
 // a Context whose prefix hash matches it, and go on.

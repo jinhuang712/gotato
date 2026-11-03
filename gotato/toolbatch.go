@@ -390,7 +390,7 @@ func (a *Session) preflightTools(ctx context.Context, runID RunID, turn TurnNumb
 		*toolCalls++
 		// A call the Model got wrong (an unknown Tool, malformed or
 		// schema-invalid arguments) settles as a failed Tool Result the Model
-		// can read and correct; it never ends the Run (GOALS.md G-G04: every
+		// can read and correct; it never ends the Run (GOALS.md O8: every
 		// failed tool call returns its reason to the model).
 		entry, found := a.tools.registry.lookup(call.ToolID)
 		if !found {

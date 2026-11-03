@@ -19,10 +19,10 @@ func playLong(t *testing.T, task reftasks.Task) TaskReport {
 	return report.Tasks[0]
 }
 
-// G-G10: a Session played for 2,000 Turns, each with a 20 KB Tool Result,
+// O4: a Session played for 2,000 Turns, each with a 20 KB Tool Result,
 // against a fake Model with a 128K-token window, sends 0 requests over the
 // window and fails 0 Runs for its size. The Context stays bounded: the size of
-// the request levels off instead of growing with the Session's age (G-B14).
+// the request levels off instead of growing with the Session's age (M1).
 // Under the race detector the Session is 300 Turns, which takes seconds and not
 // a minute.
 func TestALongSessionStaysWithinItsWindow(t *testing.T) {
@@ -77,7 +77,7 @@ func TestALongSessionMergesTheOldestSegments(t *testing.T) {
 }
 
 // With the model's Recap on, the report counts what each Recap call spent and
-// what each compaction took out of the Context (G-B16). A Recap's request is the
+// what each compaction took out of the Context (M3). A Recap's request is the
 // Context plus an ask, so it fits the window too.
 func TestALongSessionWithTheModelsRecapCountsItsCost(t *testing.T) {
 	report := playLong(t, reftasks.LongSession(300, 10, 4096, 32_000, true))

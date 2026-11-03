@@ -35,7 +35,7 @@ type Task struct {
 	// request against it, and refuses one over it as the provider would
 	// (workload.WindowReport).
 	Window int
-	// Recap turns the Agent's model Recap on for the task (G-B16).
+	// Recap turns the Agent's model Recap on for the task (M3).
 	Recap bool
 	// Check reports whether a play reached the task's goal, from the final
 	// text of each Run in order. It holds for any Model that does the task,

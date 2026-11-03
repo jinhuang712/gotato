@@ -46,7 +46,7 @@ func (hangingStream) Recv(ctx context.Context) (gotato.ModelEvent, error) {
 func (hangingStream) Close() error { return nil }
 
 // A client that disconnects mid-stream still gets its Run settled and saved
-// (GOALS.md G-G02).
+// (GOALS.md O7).
 func TestStreamDisconnectSettlesAndSavesTheRun(t *testing.T) {
 	runner, err := host.New(withAgents(host.Config{Store: memStore()}, []profile.AgentProfile{{Name: "slow", Model: hangingModel{}}}...))
 	if err != nil {

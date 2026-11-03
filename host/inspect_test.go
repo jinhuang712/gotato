@@ -20,7 +20,7 @@ func (briefNote) Transform(_ context.Context, snapshot gotato.ContextSnapshot) (
 	return append([]gotato.Message{gotato.UserMessage("note: answer briefly")}, snapshot.Messages...), nil
 }
 
-// TestInspectMatchesTheNextRun checks GOALS.md G-G03 at the Runner: what
+// TestInspectMatchesTheNextRun checks GOALS.md O9 at the Runner: what
 // Inspect reports is what the next Run's first Turn sends, Extensions and
 // model options included.
 func TestInspectMatchesTheNextRun(t *testing.T) {

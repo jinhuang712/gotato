@@ -210,7 +210,7 @@ func TestFuncToolMalformedArgumentsNeverExecute(t *testing.T) {
 	}
 	defer func() { _ = agent.Close(context.Background()) }()
 	// Invalid arguments settle as a failed Tool Result the Model can correct;
-	// the Run continues (GOALS.md G-G04).
+	// the Run continues (GOALS.md O8).
 	result, err := agent.Prompt(context.Background(), UserMessage("weather"))
 	if err != nil || result.Status != RunStatusCompleted {
 		t.Fatalf("run = %+v, %v; invalid arguments must not end the Run", result, err)

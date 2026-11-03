@@ -213,6 +213,22 @@ What changed in Gotato, from the user's side. Newest first. A breaking change ca
 
 ### Changed
 
+- **The goals have IDs that name their kind.** O for an objective, M a measure, B a benchmark, C a comparison and R a constraint, each numbered from 1. Test comments and the workload's report name the new IDs. Released notes below keep the old ones.
+
+  | Old | New | Old | New |
+  |---|---|---|---|
+  | G-G01 Session reconstructable | O1 | G-B14 Context size and cost by age | M1 |
+  | G-G09 The same Record gives the same request | O2 | G-B15 The first request after an idle return | M2 |
+  | G-G07 No unplanned change to the prefix | O3 | G-B16 Cost of a compaction | M3 |
+  | G-G10 A long Session stays within its window | O4 | G-B13 Time to a first agent | M4 |
+  | G-G11 A failure leaves the Session usable | O5 | G-B01 to G-B11 | B1 to B11, in order |
+  | G-G08 One owner across instances | O6 | G-E01 The Recap keeps the facts | B12 |
+  | G-G02 No silent stream cutoffs | O7 | G-B12 Footprint | C1 |
+  | G-G04 No failures caused by Gotato | O8 | G-R01 Layers import only downward | R1 |
+  | G-G03 Context fidelity | O9 | G-R02 A Session runs with no server | R2 |
+  | G-G05 Effect cap holds | O10 | | |
+  | G-G06 Breaking changes are written down | O11 | | |
+
 - **FEATURES.md is grouped by feature area, and every feature has a new ID.** Fourteen groups, F1 to F14, each with numbered features and parts (F5.1.4). The old IDs G-F01 to G-F37 and G-N01 to G-N28 are gone; *Not planned* is a list without IDs. Released notes below keep the old IDs, and their links lead to the new place.
 
   | Old | New | Old | New |
@@ -328,7 +344,7 @@ Gotato runs no tests against real providers, and CI has no provider credentials.
 - **Native tool search ([G-F34](FEATURES.md#f66-tool-search)).** How a provider expands a `tool_reference`, and whether it takes a `cache_control` mark on a tool list that ends in deferred tools. A team whose gateway refuses `native` sets `list`.
 - **Runtime notices ([G-F29](FEATURES.md#f44-notices)).** Whether a provider answers a user turn that holds only a notice.
 - **Compaction ([G-F06](FEATURES.md#f5-compaction)).** How a model reads a `<tool_calls>` block between a user message and the reply; what Claude and OpenAI need of the reasoning in a tail kept mid-Run; whether Claude reads the Segments from the cache with Gotato's marks; whether `tool_choice: none` keeps the cache on Anthropic; how long a model-written Recap takes against `ModelCallDeadline`.
-- **The Recap's quality ([G-E01](plan/GOALS.md#g-e01--the-recap-keeps-the-facts-), not measured).** The payments check ships and a team runs it on its own gateway: `go run ./internal/cmd/gotato-workload -recap-check -live -gateway-config gateway.yaml`. No gateway has run it yet, so the model-written Recap is off by default.
-- **Cache and cost numbers.** [G-B14](plan/GOALS.md#g-b14--context-size-and-cost-per-turn-by-the-sessions-age-) (cost per Turn by the Session's age), [G-B15](plan/GOALS.md#g-b15--the-first-request-after-an-idle-return-) (the first request after an idle return, not measured) and [G-B16](plan/GOALS.md#g-b16--cost-of-a-compaction) (the cost and time of a compaction) need a provider's cache and prices; the sizes and tokens come from a fake model. G-B01 (cache hit rate) has its number from the one live run only.
+- **The Recap's quality ([G-E01](plan/GOALS.md#b12-the-recap-keeps-the-facts-), not measured).** The payments check ships and a team runs it on its own gateway: `go run ./internal/cmd/gotato-workload -recap-check -live -gateway-config gateway.yaml`. No gateway has run it yet, so the model-written Recap is off by default.
+- **Cache and cost numbers.** [G-B14](plan/GOALS.md#m1-context-size-and-cost-per-turn-by-the-sessions-age-) (cost per Turn by the Session's age), [G-B15](plan/GOALS.md#m2-the-first-request-after-an-idle-return-) (the first request after an idle return, not measured) and [G-B16](plan/GOALS.md#m3-cost-of-a-compaction) (the cost and time of a compaction) need a provider's cache and prices; the sizes and tokens come from a fake model. G-B01 (cache hit rate) has its number from the one live run only.
 - **MCP servers ([G-F12](FEATURES.md#f13-mcp-adapter)).** The tests use the MCP SDK's own server; no other server was tried, and none of the specification's multi round-trip revision.
 - **Time to a first agent (G-B13).** Not measured; it needs developers new to Gotato.

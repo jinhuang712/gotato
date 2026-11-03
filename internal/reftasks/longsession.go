@@ -13,7 +13,7 @@ import (
 	"github.com/jinhuang712/gotato/gotato"
 )
 
-// The long_session task (GOALS.md G-G10 and G-B14): one Session played for
+// The long_session task (GOALS.md O4 and M1): one Session played for
 // 2,000 Turns, each with a 20 KB Tool Result, against a fake Model with a
 // 128K-token window.
 const (
@@ -40,7 +40,7 @@ func LongSessionTask() Task {
 }
 
 // LongSessionRecapTask is LongSessionTask with the model's Recap turned on
-// (G-B16): the task long_session_recap.
+// (M3): the task long_session_recap.
 func LongSessionRecapTask() Task {
 	return LongSession(LongSessionTurns, LongSessionTurnsPerRun, LongSessionResultBytes, LongSessionWindow, true)
 }
@@ -48,7 +48,7 @@ func LongSessionRecapTask() Task {
 // LongSession is the long_session task at the size given: turns Turns in Runs
 // of perRun Turns each, every Tool Result resultBytes long, against a fake
 // Model whose window is window tokens. With recap, the Agent turns the model's
-// Recap on (G-B16), and the fake Model writes one when asked.
+// Recap on (M3), and the fake Model writes one when asked.
 //
 // The Model plays from the request alone: it calls logs.read at every Turn of
 // a Run but the last, which answers, and it reads where it is in the Run from

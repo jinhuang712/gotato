@@ -172,7 +172,7 @@ Exported names follow one set of rules, so a reader can guess a name before look
 | a pre-populated Session Record | `testkit.NewRecord("q", "a", ...)` |
 | a provider's wire API and its quirks over HTTP: a refusal as too long (before output and mid-stream), a cut stream, cached tokens, a reasoning replay, a mid-conversation `system` or `developer` message, a slow reply | `fakemodel.New()` in `internal/fakemodel` behind `httptest.NewServer`; quirks by `[quirk:name]` in the last user text or the `X-Fake-Quirk` header; `g.Requests()` records every request; `go run ./internal/fakemodel/cmd/fakemodel` serves it on a port |
 | the echo and demo models used by the CLI and the reference service | `testkit.EchoModel`, `testkit.DemoModel`, `testkit.DemoEchoTool()` |
-| the reference workload's tasks, with their fake models and checks | `reftasks.ReferenceTasks()` in `internal/reftasks`; `reftasks.ToolSearchTask()` is the one whose tools load, with `Task.Options` for its ToolSets and `reftasks.WithLoadedToolsOf` to copy a history with its loads; `reftasks.LongSession(turns, perRun, resultBytes, window, recap)` builds a Session that compacts and merges, and `LongSessionTask()` is the 2,000-Turn task of G-G10, played only when named |
+| the reference workload's tasks, with their fake models and checks | `reftasks.ReferenceTasks()` in `internal/reftasks`; `reftasks.ToolSearchTask()` is the one whose tools load, with `Task.Options` for its ToolSets and `reftasks.WithLoadedToolsOf` to copy a history with its loads; `reftasks.LongSession(turns, perRun, resultBytes, window, recap)` builds a Session that compacts and merges, and `LongSessionTask()` is the 2,000-Turn task of O4, played only when named |
 | play tasks through a Runner and measure them ([plan/GOALS.md](plan/GOALS.md)) | `workload.Run` in `internal/workload`; `go run ./internal/cmd/gotato-workload` prints the report |
 
 ## CLI scenario loop
@@ -256,7 +256,7 @@ A subject is conventional, in the imperative mood and under about 72 characters,
 | `test` | `test: cover context window strategy boundaries` |
 | `chore` | `chore: add CI workflow` |
 
-A body is optional but welcome when the why is not obvious from the diff. Name the goal or feature (`G-G08`, `F4.6`) when a commit exists to satisfy one.
+A body is optional but welcome when the why is not obvious from the diff. Name the goal or feature (`O6`, `F4.6`) when a commit exists to satisfy one.
 
 ### Landing a branch
 

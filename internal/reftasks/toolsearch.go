@@ -18,7 +18,7 @@ import (
 	"github.com/jinhuang712/gotato/profile"
 )
 
-// The tool_search task (GOALS.md G-G07 and G-G09 on a Session whose Tools load
+// The tool_search task (GOALS.md O3 and O2 on a Session whose Tools load
 // and unload): the Agent offers one base Tool and three ToolSets, a dozen
 // catalog Tools in all. The Model finds them with search_tools.
 const (

@@ -11,7 +11,7 @@ import (
 	"github.com/jinhuang712/gotato/gotato"
 )
 
-// RecapCheck is the payments example of GOALS.md G-E01: an operations
+// RecapCheck is the payments example of GOALS.md B12: an operations
 // assistant that reads payments, orders and logs works through a conversation,
 // and is then asked questions whose answers appeared only in Tool Results.
 // A team runs it on demand against its own gateway (internal/workload

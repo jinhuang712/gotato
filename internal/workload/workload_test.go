@@ -24,15 +24,15 @@ func taskReport(t *testing.T, report workload.Report, name string) workload.Task
 }
 
 // TestReferenceWorkload is the reference workload as CI runs it: every task
-// with its fake model. It checks GOALS.md G-G03 (each Turn's Context matches
-// its inspection) and G-G04 (no failure caused by Gotato or the store).
+// with its fake model. It checks GOALS.md O9 (each Turn's Context matches
+// its inspection) and O8 (no failure caused by Gotato or the store).
 func TestReferenceWorkload(t *testing.T) {
 	report, err := workload.Run(context.Background(), workload.Config{}, reftasks.ReferenceTasks())
 	if err != nil {
 		t.Fatal(err)
 	}
 	if report.GotatoFailures != 0 || report.ContextMismatches != 0 {
-		t.Fatalf("G-G04 failures %d, G-G03 mismatches %d: %+v", report.GotatoFailures, report.ContextMismatches, report)
+		t.Fatalf("O8 failures %d, O9 mismatches %d: %+v", report.GotatoFailures, report.ContextMismatches, report)
 	}
 	want := map[string]struct{ runs, turns, toolCalls int }{
 		"lookup":       {1, 2, 1},
@@ -56,7 +56,7 @@ func TestReferenceWorkload(t *testing.T) {
 		if task.ContextTurns != task.Turns {
 			t.Errorf("%s: %d Turns compared with an inspection, want %d", task.Task, task.ContextTurns, task.Turns)
 		}
-		// Every task's last reply streams text, so G-B06 has both halves.
+		// Every task's last reply streams text, so B6 has both halves.
 		if task.Time.BeforeRequestPerRunMS <= 0 || task.Time.ModelFirstTokenMS < 0 || task.Time.ModelFirstTokenMS > task.Time.ModelMS {
 			t.Errorf("%s: before request %v ms per Run, first token %v ms", task.Task, task.Time.BeforeRequestPerRunMS, task.Time.ModelFirstTokenMS)
 		}
@@ -191,7 +191,7 @@ func TestFailedRunsAreAttributed(t *testing.T) {
 }
 
 // BenchmarkReferenceTasks plays each task with its fake model and reports
-// Gotato's time per Turn (G-B05, G-B09) and the load time per Run (G-B07).
+// Gotato's time per Turn (B5, B9) and the load time per Run (B7).
 // Run it with -benchmem for allocations.
 func BenchmarkReferenceTasks(b *testing.B) {
 	for _, task := range reftasks.ReferenceTasks() {
