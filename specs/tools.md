@@ -1,6 +1,6 @@
 # Tools
 
-An agent acts through tools, and a service may have hundreds of them: your own functions, and every tool of every MCP server it connects. Each tool definition is read on every request, and each can do harm. Gotato decides which tools the model sees, loads them one by one so the request stays small and the cache stays warm, and runs each call so that its result is written whole or not at all. This spec follows one thread through the layers of the [map](ARCHITECTURE.md): the core holds the registry, the search and the calls, `record` holds the read-back tools, and the MCP adapter is a module of its own.
+An agent acts through tools, and a service may have hundreds of them: your own functions, and every tool of every MCP server it connects. Each tool definition is read on every request, and each can do harm. Gotato decides which tools the model sees, loads them one by one so the request stays small and the cache stays warm, and runs each call so that its result is written whole or not at all. This spec follows one thread through the layers of the [map](ARCHITECTURE.md): the core holds the registry, the search and the calls, and `record` holds the read-back tools. The MCP adapter has a spec of its own, `mcp.md`.
 
 ## TL;DR
 - A Tool declares an Effect, and the Agent's cap hides every Tool above it, so the model never plans around a tool it may not use.
@@ -75,18 +75,7 @@ In the list form a load adds a tool, so the next request pays one cache read aft
 
 ## MCP as a ToolSet
 
-One MCP server is one ToolSet, and its tools are `<server>.<tool>`.
-
-```text
- Sessions of this Instance           mcp.ToolSet                      MCP server
-   resolve (start of a Run) ───────▶ list tools  ───────────────────▶ tools/list
-   ◀── Tools, Effect from annotations                                       │
-   call crm.find (Run's ctx) ──────▶ tools/call + progress token ───▶       │
-   ◀── Tool Result, progress as tool_progress ◀─────────────────────────────┘
-        one shared connection; 404 on the session = reconnect, send the call once more
-```
-
-The adapter is a Go module of its own, so a service without MCP carries none of it. It connects at the first resolution (10 seconds at most) and shares that one connection among all Sessions, so no state of the server belongs to a Session and any Instance can make any call. A tool's Effect is the one the service sets for it, else the one its annotations give, else the one set for a server with no annotations, else destructive. A transport or protocol failure never reaches the model in the SDK's words: a failed call says only that the server did not take it. What a server writes in a result it marks as an error is the content of a failed Tool Result, and the model reads it, with look-alike tags escaped and `_meta` copied without the key that marks Gotato's own text. A tool that asks for input in the middle of a call gets no answer, because there is no person to ask.
+One MCP server is one ToolSet, and its tools are `<server>.<tool>`. To the core it is a ToolSet like any other: resolved at the start of a Run, behind the same cap, catalog and checks. How the adapter connects, maps a server's tools and their Effect, and turns a result into what the model reads is in `mcp.md`.
 
 ## One call, start to commit
 
@@ -129,4 +118,4 @@ A service installs the default `ReadBack` over its store, so an Agent needs noth
 - Any Instance rebuilds the same tool list and the same history from the Record.
 
 ## See also
-[ARCHITECTURE.md](ARCHITECTURE.md), the principles [a request only grows at its end](../DESIGNS.md#2-a-request-only-grows-at-its-end), [stay inside the boundary](../DESIGNS.md#6-stay-inside-the-boundary) and [serve purpose-built agents](../DESIGNS.md#7-serve-purpose-built-agents), [FEATURES.md](../FEATURES.md) (F6: Tools, F13: MCP adapter), decisions [005](../plan/decisions/005-no-approval-system.md), [014](../plan/decisions/014-the-effect-cap-hides-tools-above-it.md), [015](../plan/decisions/015-only-the-agent-sets-the-effect-cap.md), [039](../plan/decisions/039-tools-load-one-by-one-from-a-catalog.md), [040](../plan/decisions/040-a-large-tool-result-is-spilled-and-read-in-pages.md) and [041](../plan/decisions/041-a-read-only-bash-for-large-results-is-another-project.md).
+[ARCHITECTURE.md](ARCHITECTURE.md), the principles [a request only grows at its end](../DESIGNS.md#2-a-request-only-grows-at-its-end), [stay inside the boundary](../DESIGNS.md#6-stay-inside-the-boundary) and [serve purpose-built agents](../DESIGNS.md#7-serve-purpose-built-agents), [FEATURES.md](../FEATURES.md) (F6: Tools), decisions [005](../plan/decisions/005-no-approval-system.md), [014](../plan/decisions/014-the-effect-cap-hides-tools-above-it.md), [015](../plan/decisions/015-only-the-agent-sets-the-effect-cap.md), [039](../plan/decisions/039-tools-load-one-by-one-from-a-catalog.md), [040](../plan/decisions/040-a-large-tool-result-is-spilled-and-read-in-pages.md) and [041](../plan/decisions/041-a-read-only-bash-for-large-results-is-another-project.md).

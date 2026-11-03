@@ -100,20 +100,7 @@ On the wire a Notice is `<notice kind="…">text</notice>`, with the kind and th
 
 ## A big result stays out
 
-A Tool Result over one page is written to the Record first, and the Context keeps only its start. A Session does this only when a `ReadBack` is installed, so every ref it writes has a reader.
-
-```text
- Loop                          Record                  Context              Model
-  │ result > one page            │                        │                    │
-  │ 1 tool_result_spilled ─────▶ │ full body, Entry N     │                    │
-  │ 2 Message: preview + ref ──▶ │ (records N)  ─────────▶│ preview + ref ───▶ │
-  │                              │                        │ ◀ read_result(ref, page 2)
-  │ 3 read the body at N ◀────── │                        │   one page back ──▶ │
-```
-
-The body goes in before the Message that points to it, so a crash between the two leaves a log Entry nobody points at and nothing worse. The Message holds a preview and the ref `result:<call_id>`, and it is written once, so the bytes already sent stay the same. A load does not read the body; `read_result` does, one page at a time, and it reads only results of its own Session. `read_segment` is its sibling for Segments.
-
-Three numbers would break the preview if they disagreed: the line past which a result is spilled, the page the preview counts its pages by, and the page the read tools return. They are one number, the page size, and the `ReadBack` owns it (`gotato.WithReadBack`; `record.ReadBack{PageSize}`, 32 KiB by default). The preview is the first `CoreLimits.SpillPreviewBytes` of the body (8,000 by default, never above the page), so it is always the start of page 1. The core writes the line after it, `[Result cut: 412 KiB, 13 pages. Read it page by page with read_result(ref="result:call_9a2", page=1); ...]`, so the line is the same on every Instance. With no `ReadBack`, or over a Transcript that keeps no Entries, a result is not spilled and goes in whole. If the team has pruned the body, `read_result` says `result:<id> was removed from the Record, so only what the conversation keeps of it is left.`; it says the same of a message.
+A Tool Result over one page is written to the Record first, and the request keeps only its start: a preview and a ref, `result:<call_id>`, in a Message written once, so the bytes already sent never change. The model reads the rest a page at a time with `read_result`. How a result is spilled, and the one page size the preview and the read tools share, are in `tools.md`.
 
 ## Your own builder, and an inspection
 
