@@ -16,6 +16,7 @@ How-to pages for people who use Gotato in a Go service. The wiki lives in the re
 | keep Sessions in my own database | [Write a store adapter](how-to/write-a-store-adapter.md) |
 | limit what a tenant can run | [Limit Runs per tenant](how-to/limit-runs-per-tenant.md) |
 | have a person approve a step | [Ask a person before a step](how-to/ask-a-person-before-a-step.md) |
+| understand an error or a surprise | [Troubleshooting](troubleshooting.md) |
 | find the seam that changes a default | [Extension points](reference/extension-points.md) |
 | know which packages to import | [Packages](reference/packages.md) |
 
@@ -78,6 +79,10 @@ One task on each page. Each assumes you have done [Getting started](tutorials/ge
 - [Compact your own Transcript](how-to/compact-your-own-transcript.md): a store that is not a `record.Record`.
 - [Read back from your own store](how-to/read-back-from-your-own-store.md): spilled results and old Segments.
 - [Customize the model bridge](how-to/customize-the-model-bridge.md): the wire, the connection, the retry, the error.
+
+## When something fails
+
+- [Troubleshooting](troubleshooting.md): what you see, why it happens and what to do, from a refused call to a model that does something unexpected.
 
 ## Reference
 
