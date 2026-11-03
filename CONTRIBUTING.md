@@ -1,6 +1,6 @@
 # Contributing
 
-Gotato is a small library with a versioned contract, so a change is welcome when it keeps it small and keeps the contract. This page is for people who change Gotato itself; how to use it is in the README and the guides.
+Gotato is a small library with a versioned contract, so a change is welcome when it keeps it small and keeps the contract. This page is for people who change Gotato itself; how to use it is in the README and the wiki.
 
 ## Before you start
 
@@ -12,7 +12,7 @@ A change passes one test first: would a Go service that embeds an agent want thi
 
 ## Set up
 
-You need the Go versions in [guides/install.md](guides/install.md), and the newest of them to run the checks in every module. The repository holds six Go modules: the root, `adapter/http`, `adapter/mcp`, `internal/cmd/gotato`, `examples/larkbot` and `bench/refservice`. Nothing else is needed: the tests run with no network and no model provider.
+You need the Go versions in [wiki/install.md](wiki/install.md), and the newest of them to run the checks in every module. The repository holds six Go modules: the root, `adapter/http`, `adapter/mcp`, `internal/cmd/gotato`, `examples/larkbot` and `bench/refservice`. Nothing else is needed: the tests run with no network and no model provider.
 
 ## Make a change
 

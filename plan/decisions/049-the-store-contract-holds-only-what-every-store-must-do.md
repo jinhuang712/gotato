@@ -31,4 +31,4 @@ Adapters call Gotato's checks, a SQL store keeps every ID Gotato makes, Records 
 4. Replace `factKinds` with one table of each stored kind's `Layer`; `layerOf` fails for a missing kind, and a test ranges over the stored kinds.
 5. `Runner.Sessions(ctx, session.ListQuery) (session.ListPage, error)`; delete `ListOption`; `GET /v1/sessions` takes `limit` and `cursor`.
 6. `NewMemoryStore` and `NewFileStore` take `WithClock`; `storetest` splits into `RunRecords`, `RunLiveness`, `RunLister`, checks a Load racing Appends, and takes an optional `Advance(time.Duration)` for its sleeps.
-7. Update the `Store` doc, [specs/record.md](../../specs/record.md) and [guides/write-a-store.md](../../guides/write-a-store.md).
+7. Update the `Store` doc, [specs/record.md](../../specs/record.md) and [wiki/write-a-store.md](../../wiki/write-a-store.md).

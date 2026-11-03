@@ -26,7 +26,7 @@ Read these in order when the window is new or was compacted. Each answers one qu
 
 ## Layout
 
-The module root holds the documents and the module files, and no Go code. The tree of packages and what each import costs is in `guides/packages.md`.
+The module root holds the documents and the module files, and no Go code. The tree of packages and what each import costs is in `wiki/packages.md`.
 
 | Path | Holds |
 |---|---|
@@ -34,7 +34,7 @@ The module root holds the documents and the module files, and no Go code. The tr
 | `README.md`, `RUNBOOK.md`, `CONTRIBUTING.md` | The front page, what to do when a service built on Gotato misbehaves, and how to change and release Gotato |
 | `plan/` | `GOALS.md`, `ROADMAP.md`, `TODO.md` and `decisions/` |
 | `specs/` | One spec per part |
-| `guides/` | How-to pages for people who use the library |
+| `wiki/` | The wiki: how-to pages for people who use the library, with `wiki/README.md` as its front page |
 | `scripts/` | `check.sh` runs every check, and `cli-scenario.sh` smoke-runs the test CLI |
 | `gotato/`, `ref/`, `record/`, `store/`, `profile/`, `host/` | The layers of the runtime, from the core down to the host (see *Hard architectural rules*) |
 | `store/storetest/` | The Store contract suite |

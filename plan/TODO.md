@@ -17,7 +17,7 @@
 - created: 2026-11-03
 - status: open
 - found: reading the CHANGELOG entry of the list change against `adapter/http/handler.go` while checking [O11: Breaking changes are written down](GOALS.md#o11-breaking-changes-are-written-down).
-- next: decide. Either way the version should become `"2"`, since the contract did change: change the constant, its test, the example in `guides/http-in-five-minutes.md` and the break's CHANGELOG entry in one commit. If the answer is that it does not HALT the core, reword [O11: Breaking changes are written down](GOALS.md#o11-breaking-changes-are-written-down) and guideline 12, and tag the adapter apart from the root.
+- next: decide. Either way the version should become `"2"`, since the contract did change: change the constant, its test, the example in `wiki/http-in-five-minutes.md` and the break's CHANGELOG entry in one commit. If the answer is that it does not HALT the core, reword [O11: Breaking changes are written down](GOALS.md#o11-breaking-changes-are-written-down) and guideline 12, and tag the adapter apart from the root.
 - blocks: [CP4.4: Breaking changes are written down](ROADMAP.md#cp44-breaking-changes-are-written-down)
 
 ### [P2][TASK] Script the resident memory of the reference service
