@@ -103,14 +103,18 @@ The gap shows in time as well. A cloud session outlives the instance that serves
 
 This is an optimistic view, and it is stated as one. It starts from the work purpose-built agents already do well. Each kind is work that rules cannot write down and one model call cannot settle:
 
-- **The hard cases inside a pipeline:** rules clear most identity-check files and one model call clears most of the rest, and an agent decides the few left because an agent on every file would be slow and expensive.
-- **Investigations:** an agent that an alert or a schedule starts reads the state of a system and writes up what it found for the people responsible.
-- **Conversations with users:** they need the service's own tools and records, such as rebooking a canceled flight or explaining a double charge.
+| Work | What it looks like |
+|---|---|
+| The hard cases inside a pipeline | A user uploads hundreds of files for an identity check. Rules clear most of them, and a single model call clears most of the rest. When that call is not confident, an agent looks at past submissions and other sources, calls tools and decides. An `if` cannot express that step, one call is not enough, and running an agent on every file would be slow and expensive. |
+| Investigations | On a schedule or an alert, an agent looks for dirty data with one clear goal, reads the state of a system and appends a short report for people to read later. Or it investigates an error, writes up what happened and tells the people responsible. |
+| Conversations with users | The service's own tools and records answer them: rebooking a canceled flight, explaining a double charge, advising within a known policy in travel, health or law. |
 
 From there, two pictures of the future:
 
-- **Services that look after themselves:** agents inside a shop or a ticketing system look after it as an operator does, first by investigating and reporting and later by deciding.
-- **Purpose-built agents for whole populations:** a travel planner, a health adviser or a policy consultant gets one conversation for each user and most of them are idle at any moment.
+| Picture | What it looks like |
+|---|---|
+| Services that look after themselves | Shops, ticketing systems and travel sites run as they do today, and agents inside them watch, investigate and report, and later decide, the way an SRE or an operator does. |
+| Purpose-built agents for whole populations | A travel planner, a health adviser or a policy consultant gets one conversation per user, most of them idle at any moment. |
 
 The second picture is out of reach for a machine per conversation. A million open conversations at 1 GiB each need about a petabyte of memory, and 1 GiB is the floor that Anthropic's hosting guide gives for one session. A conversation that is only a record in a store takes memory only while it is loaded. Memory then follows the conversations that are working, not the ones that are open.
 

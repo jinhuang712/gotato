@@ -91,3 +91,11 @@
 - created: 2026-11-03
 - status: open
 - next: move each block to a script beside the README and name it there.
+
+### [P2][DISCUSSION] Should agents act on production systems alone?
+
+- description: most of the work PHILOSOPHY.md describes ends in a report or a decision handed back to the service: investigating comes before acting. Whether an agent should change a production system on its own is a stance nobody has taken yet; the earlier PHILOSOPHY held it as an open reflection.
+- created: 2026-11-03
+- status: open
+- found: rewriting PHILOSOPHY.md to its guide, which keeps only the stances the project holds.
+- next: the maintainer decides; a stance goes to PHILOSOPHY.md, a refusal to FEATURES.md → Not planned.
