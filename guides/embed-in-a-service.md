@@ -105,7 +105,7 @@ err = profiles.RegisterTaskSpecInline(profile.TaskSpec{
 out, err := runner.Run(ctx, host.RunRequest{Task: "morning-report", Prompt: "Go."})
 ```
 
-A Run of a TaskSpec opens a new Session, so it takes no `SessionID` and no `Agent`. The Background is added once after the instruction, and the Session keeps the TaskSpec as it was, so another pod builds it the same after you change the registered spec. A spec that widens its profile is refused (`profile.ErrWidens`). `RunRequest.TaskSpec` carries a spec as a value instead of by name.
+A Run of a TaskSpec opens a new Session, so it takes no `SessionID` and no `Agent`. The Background is added once after the instruction, and the Session keeps the TaskSpec as it was, so another pod builds it the same after you change the registered spec. A spec that widens its profile is refused (`profile.ErrWidens`). `RunRequest.TaskSpec` carries a spec as a value instead of by name. `CreateSession` takes the same `Task` and `TaskSpec` and opens the same Session without running it, so a scheduler creates it with an ID it derives (the job and the day, say), runs it by that ID, and a retry of either call is safe: a second create of the ID is `already_exists`. Over HTTP, `POST /v1/sessions` takes `{"task": "morning-report", "id": "..."}`, a registered name and never a value, and `GET /v1/tasks` lists the names.
 
 ### Definitions from your own store
 
