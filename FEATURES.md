@@ -1742,7 +1742,7 @@ A bot, a job or another service talks to Sessions like any other API. The handle
 Every host call has a route.
 
 - **Design:** [6 Stay inside the boundary](DESIGNS.md#6-stay-inside-the-boundary)
-- **How it works:** [specs/events.md](specs/events.md), [specs/errors.md](specs/errors.md)
+- **How it works:** [specs/http.md](specs/http.md)
 - **Why:** [025](plan/decisions/025-callers-credentials-and-quotas-belong-to-the-service.md)
 
 **Stories:**
@@ -1770,7 +1770,7 @@ Every host call has a route.
 A Run that settles failed, canceled or past its deadline still answers 200 with the outcome in the body. Only problems with the request itself use other statuses.
 
 - **Design:** [4 A failure stays local](DESIGNS.md#4-a-failure-stays-local)
-- **How it works:** [specs/errors.md](specs/errors.md)
+- **How it works:** [specs/http.md](specs/http.md)
 - **Why:** [035](plan/decisions/035-the-runtime-says-whether-an-error-ran-and-whether-to-retry.md)
 
 **Stories:**
@@ -1803,7 +1803,7 @@ A Run that settles failed, canceled or past its deadline still answers 200 with 
 A streamed Run sends each Event as a server-sent event and ends with the Run's result.
 
 - **Design:** [9 A Session can be stopped and seen](DESIGNS.md#9-a-session-can-be-stopped-and-seen)
-- **How it works:** [specs/events.md](specs/events.md)
+- **How it works:** [specs/http.md](specs/http.md)
 - **Why:** [018](plan/decisions/018-events-are-typed-written-before-sent-and-never-awaited.md)
 
 **Stories:**
@@ -1822,7 +1822,7 @@ A streamed Run sends each Event as a server-sent event and ends with the Run's r
 A Session's stream sends the stored Events after a number, then the live ones across Runs, on any instance. A client that drops reconnects with the last number it saw.
 
 - **Design:** [8 No instance is special](DESIGNS.md#8-no-instance-is-special)
-- **How it works:** [specs/events.md](specs/events.md)
+- **How it works:** [specs/http.md](specs/http.md)
 - **Why:** [030](plan/decisions/030-every-entry-is-an-event.md)
 
 **Stories:**
@@ -1840,7 +1840,7 @@ A Session's stream sends the stored Events after a number, then the live ones ac
 When you turn it on, the handler forwards a message, notice or Stop for a Run on another instance to the writer, only to addresses your rule accepts.
 
 - **Design:** [8 No instance is special](DESIGNS.md#8-no-instance-is-special)
-- **How it works:** [specs/host.md](specs/host.md)
+- **How it works:** [specs/http.md](specs/http.md)
 - **Why:** [037](plan/decisions/037-when-the-hash-missed-the-answer-names-the-writer.md)
 
 **Stories:**
@@ -1864,7 +1864,7 @@ Tools a team already runs as MCP servers reach a Session as a tool set. The adap
 A server connects over streamable HTTP, used without state so any instance can make any call, or as a subprocess shared by the instance's Sessions.
 
 - **Design:** [6 Stay inside the boundary](DESIGNS.md#6-stay-inside-the-boundary)
-- **How it works:** [specs/tools.md](specs/tools.md)
+- **How it works:** [specs/mcp.md](specs/mcp.md)
 - **Why:** [026](plan/decisions/026-gotato-ships-no-machine-no-client-and-no-tool-catalog.md), [039](plan/decisions/039-tools-load-one-by-one-from-a-catalog.md)
 
 **Stories:**
@@ -1883,7 +1883,7 @@ A server connects over streamable HTTP, used without state so any instance can m
 A tool's Effect comes from the server's annotations: read-only is `read`, non-destructive in a closed world is `write_local`, non-destructive in an open world is `write_external`, and anything else is `destructive`.
 
 - **Design:** [7 Serve purpose-built agents](DESIGNS.md#7-serve-purpose-built-agents)
-- **How it works:** [specs/tools.md](specs/tools.md)
+- **How it works:** [specs/mcp.md](specs/mcp.md)
 - **Why:** [011](plan/decisions/011-an-agents-bounds-are-its-tools-and-its-effect-cap.md)
 
 **Stories:**
@@ -1901,7 +1901,7 @@ A tool's Effect comes from the server's annotations: read-only is `read`, non-de
 Authentication is your HTTP client: a fixed header, a refreshing token or mutual TLS. A round tripper can send the end user's token on each call, though the connection is shared.
 
 - **Design:** [6 Stay inside the boundary](DESIGNS.md#6-stay-inside-the-boundary)
-- **How it works:** [specs/tools.md](specs/tools.md)
+- **How it works:** [specs/mcp.md](specs/mcp.md)
 - **Why:** [025](plan/decisions/025-callers-credentials-and-quotas-belong-to-the-service.md)
 
 **Stories:**
@@ -1915,7 +1915,7 @@ Authentication is your HTTP client: a fixed header, a refreshing token or mutual
 A team leaves a tool out, or changes only the name the model sees, before the model sees either. The adapter reports the tools it left out and why.
 
 - **Design:** [7 Serve purpose-built agents](DESIGNS.md#7-serve-purpose-built-agents)
-- **How it works:** [specs/tools.md](specs/tools.md)
+- **How it works:** [specs/mcp.md](specs/mcp.md)
 - **Why:** [039](plan/decisions/039-tools-load-one-by-one-from-a-catalog.md)
 
 **Stories:**
@@ -1931,7 +1931,7 @@ A team leaves a tool out, or changes only the name the model sees, before the mo
 A server's result becomes what the model reads: text, images, structured content as JSON, and one line for what cannot be shown. A server's error is a failed result the model reads.
 
 - **Design:** [4 A failure stays local](DESIGNS.md#4-a-failure-stays-local)
-- **How it works:** [specs/tools.md](specs/tools.md)
+- **How it works:** [specs/mcp.md](specs/mcp.md)
 - **Why:** [023](plan/decisions/023-a-mistake-the-model-can-fix-is-a-tool-result.md)
 
 **Stories:**
@@ -2028,7 +2028,7 @@ The Go API, the HTTP contract and the shape of a saved Session change only throu
 You test agents without a network or a paid model, and measure Gotato on a fixed workload.
 
 - **Design:** [9 A Session can be stopped and seen](DESIGNS.md#9-a-session-can-be-stopped-and-seen)
-- **How it works:** [specs/ARCHITECTURE.md](specs/ARCHITECTURE.md)
+- **How it works:** [specs/testing.md](specs/testing.md)
 - **Why:** [010](plan/decisions/010-gotato-is-a-light-library-with-a-versioned-contract.md), [013](plan/decisions/013-a-conformance-suite-ships-with-the-store-contract.md)
 
 **Stories:**

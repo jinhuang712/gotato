@@ -23,6 +23,12 @@ Every Instance reads and writes the same Store; none connects to another.
 
 The hash sends most requests for a Session to one Instance, but that is routing and not correctness: if it misses, or an Instance leaves, the request lands elsewhere and still works. The Store's conditional writes are the only coordination, so a team needs no etcd or Redis next to its database. Gotato spreads no load. An Instance refuses a new Session only past its hard limit, and says Not run, so a retry elsewhere is safe.
 
+The load balancer the team already runs needs three things from it, and nothing else:
+
+- a consistent hash on the `session-id` header, so the requests of a Session reach its writer;
+- one retry on another instance after a refusal marked both not run and retryable;
+- readiness from `/readyz`, which answers 503 while the instance drains or its row has lapsed.
+
 ## A Claim makes one Writer
 
 A Claim is an Entry in the Record, written at the position after the head its Instance read.
