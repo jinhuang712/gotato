@@ -1,6 +1,6 @@
 # Tools
 
-An agent acts through tools, and a service may have hundreds of them: your own functions, and every tool of every MCP server it connects. Each tool definition is read on every request, and each can do harm. Gotato decides which tools the model sees, loads them one by one so the request stays small and the cache stays warm, and runs each call so that its result is written whole or not at all.
+An agent acts through tools, and a service may have hundreds of them: your own functions, and every tool of every MCP server it connects. Each tool definition is read on every request, and each can do harm. Gotato decides which tools the model sees, loads them one by one so the request stays small and the cache stays warm, and runs each call so that its result is written whole or not at all. This spec follows one thread through the layers of the [map](ARCHITECTURE.md): the core holds the registry, the search and the calls, `record` holds the read-back tools, and the MCP adapter is a module of its own.
 
 ## TL;DR
 - A Tool declares an Effect, and the Agent's cap hides every Tool above it, so the model never plans around a tool it may not use.
@@ -20,7 +20,7 @@ Every tool passes the same gates before it reaches a request; a tool that fails 
  Effect:  read  <  write_local  <  write_external  <  destructive      (no Effect counts as destructive)
 ```
 
-An Effect says what a tool changes. The Agent names the highest Effect its tools may have (`AgentProfile.MaxEffect`), and a Session can lower what it offers with a filter but can never raise the cap. A TaskSpec may set a cap no higher than its profile's, never a higher one. Only the Agent sets the cap: an AgentProfile holds typed fields, not options that run after the Runner's own, so nothing it carries can lift it. A tool above the cap is in no request, no inspected Context and no search index. A model that calls its name anyway gets a failed result that says the Session does not allow it, and the Run goes on. `search_tools` and `read_result` declare `read`, so every cap keeps them. Watch the default: with no cap, every tool runs.
+An Effect says what a tool changes. The Agent names the highest Effect its tools may have (`AgentProfile.MaxEffect`), and a Session can lower what it offers with a filter, or switch a tool off (`Runner.SetToolActive`), but can never raise the cap. A TaskSpec may set a cap no higher than its profile's, never a higher one. Only the Agent sets the cap: an AgentProfile holds typed fields, not options that run after the Runner's own, so nothing it carries can lift it. A tool above the cap is in no request, no inspected Context and no search index. A model that calls its name anyway gets a failed result that says the Session does not allow it, and the Run goes on. `search_tools` and `read_result` declare `read`, so every cap keeps them. Watch the default: with no cap, every tool runs.
 
 ## The catalog and the three installs
 
@@ -86,11 +86,11 @@ One MCP server is one ToolSet, and its tools are `<server>.<tool>`.
         one shared connection; 404 on the session = reconnect, send the call once more
 ```
 
-The adapter is a Go module of its own, so a service without MCP carries none of it. It connects at the first resolution and shares that one connection among all Sessions, so no state of the server belongs to a Session and any Instance can make any call. Effect comes from the annotations, and a tool with none is destructive. The server's own text never reaches the model as an error: a failed call says only that the server did not take it. A tool that asks for input in the middle of a call gets no answer, because there is no person to ask.
+The adapter is a Go module of its own, so a service without MCP carries none of it. It connects at the first resolution (10 seconds at most) and shares that one connection among all Sessions, so no state of the server belongs to a Session and any Instance can make any call. A tool's Effect is the one the service sets for it, else the one its annotations give, else the one set for a server with no annotations, else destructive. A transport or protocol failure never reaches the model in the SDK's words: a failed call says only that the server did not take it. What a server writes in a result it marks as an error is the content of a failed Tool Result, and the model reads it, with look-alike tags escaped and `_meta` copied without the key that marks Gotato's own text. A tool that asks for input in the middle of a call gets no answer, because there is no person to ask.
 
 ## One call, start to commit
 
-Calls are checked in source order, run in groups, and committed in source order.
+Calls are checked in source order, run in groups, and committed in source order. A Turn runs one call at a time unless `CoreLimits.MaxParallelTools` is raised from its default of 1, and a `ToolCallDeadline` of 2 minutes ends a call that hangs.
 
 ```text
  preflight (source order)      run                        commit (source order)
@@ -103,7 +103,7 @@ Calls are checked in source order, run in groups, and committed in source order.
  result the model can read
 ```
 
-A call the model got wrong, whether an unknown tool, bad JSON or arguments that fail the schema, becomes a failed result with the reason, and the next Turn can correct it. A tool's own error becomes "tool failed" with a code, unless the error is a `PublicError`, since a foreign error may carry a host or a secret. A panic is a failed call, not a dead process. A call that passes its `ToolCallDeadline` fails with `deadline_exceeded`, says its outcome is unknown, and the Run goes on; the Run stops waiting at the deadline even when the tool ignores its `ctx`, whose goroutine runs on until it returns. On cancel, a call that had started is recorded as canceled with `executed: true`, because it may have done its work; one that had not is never launched. Every call gets a result, even when the Run ends first, because a provider refuses a request that has a call without one.
+A call the model got wrong, whether an unknown tool, bad JSON or arguments that fail the schema, becomes a failed result with the reason, and the next Turn can correct it. A foreign error from a tool becomes "tool failed" with a code, since it may carry a host or a secret. An error that is a `PublicError` shows its `Public()` text, and a `RuntimeError` keeps its code and its Message, which its maker wrote to be read. A panic is a failed call, not a dead process. A call that passes its `ToolCallDeadline` fails with `deadline_exceeded`, says its outcome is unknown, and the Run goes on; the Run stops waiting at the deadline even when the tool ignores its `ctx`, whose goroutine runs on until it returns. On cancel, a call that had started is recorded as canceled with `executed: true`, because it may have done its work; one that had not is never launched. Every call gets a result, even when the Run ends first, because a provider refuses a request that has a call without one.
 
 A call's `Arguments` are bytes, so JSON shows them as base64 in a Record; decode them to read them. Arguments that are not valid JSON are stored as given.
 
@@ -129,4 +129,4 @@ A service installs the default `ReadBack` over its store, so an Agent needs noth
 - Any Instance rebuilds the same tool list and the same history from the Record.
 
 ## See also
-[FEATURES.md → G-F09](../FEATURES.md#g-f09--tools-and-their-effect-), [G-F10](../FEATURES.md#g-f10--tool-sets-), [G-F34](../FEATURES.md#g-f34--tool-search-), [G-F12](../FEATURES.md#g-f12--the-mcp-adapter-) and [G-F35](../FEATURES.md#g-f35--large-tool-results-) for defaults and status, decisions [005](../plan/decisions/005-no-approval-system.md), [014](../plan/decisions/014-the-effect-cap-hides-tools-above-it.md), [015](../plan/decisions/015-only-the-agent-sets-the-effect-cap.md), [039](../plan/decisions/039-tools-load-one-by-one-from-a-catalog.md) [040](../plan/decisions/040-a-large-tool-result-is-spilled-and-read-in-pages.md) and [041](../plan/decisions/041-a-read-only-bash-for-large-results-is-another-project.md), [GLOSSARY.md](../GLOSSARY.md). Related specs: [record.md](record.md) and [context.md](context.md).
+[ARCHITECTURE.md](ARCHITECTURE.md), the principles [a request only grows at its end](../DESIGNS.md#2-a-request-only-grows-at-its-end), [stay inside the boundary](../DESIGNS.md#6-stay-inside-the-boundary) and [serve purpose-built agents](../DESIGNS.md#7-serve-purpose-built-agents), [FEATURES.md](../FEATURES.md) (G-F09: Tools and their Effect, G-F10: ToolSets, G-F12: The MCP adapter, G-F34: Tool search, G-F35: Large tool results), decisions [005](../plan/decisions/005-no-approval-system.md), [014](../plan/decisions/014-the-effect-cap-hides-tools-above-it.md), [015](../plan/decisions/015-only-the-agent-sets-the-effect-cap.md), [039](../plan/decisions/039-tools-load-one-by-one-from-a-catalog.md), [040](../plan/decisions/040-a-large-tool-result-is-spilled-and-read-in-pages.md) and [041](../plan/decisions/041-a-read-only-bash-for-large-results-is-another-project.md).
