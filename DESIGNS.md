@@ -92,7 +92,7 @@ It costs the batteries: a team supplies its own store, telemetry, authentication
 **Ask:** is this a job only an agent runtime has, or one the service around it already does?
 
 - **Decisions:** [024](plan/decisions/024-gotato-builds-no-infrastructure.md) no infrastructure; [003](plan/decisions/003-gotato-owns-the-shapes-and-adapters-own-storage.md) shapes and adapters; [025](plan/decisions/025-callers-credentials-and-quotas-belong-to-the-service.md) callers, credentials, quotas; [037](plan/decisions/037-when-the-hash-missed-the-answer-names-the-writer.md) the answer names the writer; [010](plan/decisions/010-gotato-is-a-light-library-with-a-versioned-contract.md) a light library; [001](plan/decisions/001-one-implementation-per-wire-api.md) one implementation per wire API; [026](plan/decisions/026-gotato-ships-no-machine-no-client-and-no-tool-catalog.md) no machine, client or catalog; [050](plan/decisions/050-each-package-is-one-layer-named-for-its-job.md) a transport is an adapter.
-- **How it works:** [many instances](specs/multi-instance.md), [the model seam](specs/model.md), [tools and MCP](specs/tools.md).
+- **How it works:** [many instances](specs/host.md), [the model seam](specs/model.md), [tools and MCP](specs/tools.md).
 
 ## 7. Serve purpose-built agents
 
@@ -114,7 +114,7 @@ It costs machinery that a single Instance would not need: a claim on each Sessio
 **Ask:** is this still right when a request reaches any Instance?
 
 - **Decisions:** [019](plan/decisions/019-one-writer-per-session-claimed-in-the-store.md) one writer per Session; [027](plan/decisions/027-instances-coordinate-through-the-stores-conditional-writes.md) conditional writes and liveness; [020](plan/decisions/020-no-session-is-bound-to-an-instance.md) no Session bound to an Instance; [021](plan/decisions/021-messages-reach-the-writer-and-take-effect-in-its-process.md) messages reach the writer; [036](plan/decisions/036-a-warm-copy-is-a-cache-not-a-lock.md) a warm copy is a cache; [024](plan/decisions/024-gotato-builds-no-infrastructure.md) no infrastructure; [037](plan/decisions/037-when-the-hash-missed-the-answer-names-the-writer.md) the answer names the writer; [049](plan/decisions/049-the-store-contract-holds-only-what-every-store-must-do.md) the store contract; [050](plan/decisions/050-each-package-is-one-layer-named-for-its-job.md) a host needs a definition in code.
-- **How it works:** [many instances](specs/multi-instance.md), [the Record](specs/record.md).
+- **How it works:** [many instances](specs/host.md), [the Record](specs/record.md).
 
 ## 9. A Session can be stopped and seen
 
@@ -140,7 +140,7 @@ It costs a contract for every seam: each interface stays stable once it ships, a
 **Ask:** can a user replace this default without copying the code around it, and does this type hold one layer's concerns?
 
 - **Decisions:** [003](plan/decisions/003-gotato-owns-the-shapes-and-adapters-own-storage.md) shapes and adapters; [009](plan/decisions/009-one-loop-extended-at-fixed-stages.md) one Loop, extended at fixed stages; [013](plan/decisions/013-a-conformance-suite-ships-with-the-store-contract.md) a conformance suite; [044](plan/decisions/044-an-agent-profile-and-a-task-spec-are-registered-inline-or-from-a-store.md) profiles inline or from a store; [045](plan/decisions/045-the-gateway-is-layered-and-each-layer-can-be-replaced.md) a model bridge in layers; [046](plan/decisions/046-compaction-is-a-fixed-frame-around-parts-a-user-can-replace.md) compaction as a frame with parts; [047](plan/decisions/047-a-value-a-layer-owns-is-set-only-through-that-layer.md) a value set only through its layer, any other way refused; [048](plan/decisions/048-the-runner-and-the-session-are-built-from-parts-and-host-plumbing-is-internal.md) parts with one job; [049](plan/decisions/049-the-store-contract-holds-only-what-every-store-must-do.md) the store contract; [050](plan/decisions/050-each-package-is-one-layer-named-for-its-job.md) one package per layer; [051](plan/decisions/051-a-session-is-opened-for-a-task-spec-when-it-is-created.md) a TaskSpec Session opened at create.
-- **How it works:** [who may set what](specs/session.md#who-may-set-what), [a Session's parts](specs/session.md#a-session-is-built-from-parts), [a Runner's parts](specs/multi-instance.md#a-runner-is-built-from-parts), [the model bridge](specs/model.md#the-model-bridge-is-four-layers), [the compaction frame](specs/compaction.md#the-frame-and-its-parts).
+- **How it works:** [who may set what](specs/session.md#who-may-set-what), [a Session's parts](specs/session.md#a-session-is-built-from-parts), [a Runner's parts](specs/host.md#a-runner-is-built-from-parts), [the model bridge](specs/model.md#the-model-bridge-is-four-layers), [the compaction frame](specs/compaction.md#the-frame-and-its-parts).
 
 ## When principles collide
 

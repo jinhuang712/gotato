@@ -415,7 +415,7 @@ A fork starts a new Session from another's history and records the parent and th
 A Session runs one Run at a time. A second Run on a busy Session is refused with `busy` (HTTP 409), or waits, as the host's busy policy says.
 
 - **Design:** [8 No instance is special](DESIGNS.md#8-no-instance-is-special)
-- **How it works:** [specs/multi-instance.md](specs/multi-instance.md)
+- **How it works:** [specs/host.md](specs/host.md)
 - **Why:** [019](plan/decisions/019-one-writer-per-session-claimed-in-the-store.md)
 
 **Stories:**
@@ -1385,7 +1385,7 @@ A host runs Sessions inside your service on as many instances as you run. Any in
 The prompt, a model call before it is made, a streaming reply every second or 4 KiB, the reply, tools before they run and each tool result are written as they happen. A crash loses at most the step in flight.
 
 - **Design:** [1 The store is the only truth](DESIGNS.md#1-the-store-is-the-only-truth)
-- **How it works:** [specs/multi-instance.md](specs/multi-instance.md), [specs/record.md](specs/record.md)
+- **How it works:** [specs/host.md](specs/host.md), [specs/record.md](specs/record.md)
 - **Why:** [002](plan/decisions/002-the-store-is-the-truth-and-memory-is-a-cache.md), [028](plan/decisions/028-every-step-is-written-as-facts-and-a-log.md)
 
 **Stories:**
@@ -1401,7 +1401,7 @@ The prompt, a model call before it is made, a streaming reply every second or 4 
 One instance writes a Session at a time, through a claim in the store. A second instance that tries stops before it calls the model.
 
 - **Design:** [8 No instance is special](DESIGNS.md#8-no-instance-is-special)
-- **How it works:** [specs/multi-instance.md](specs/multi-instance.md)
+- **How it works:** [specs/host.md](specs/host.md)
 - **Why:** [019](plan/decisions/019-one-writer-per-session-claimed-in-the-store.md), [027](plan/decisions/027-instances-coordinate-through-the-stores-conditional-writes.md)
 
 **Stories:**
@@ -1417,7 +1417,7 @@ One instance writes a Session at a time, through a claim in the store. A second 
 When a Session's writer is gone or idle, any instance claims it, loads it from the last Checkpoint and serves the request.
 
 - **Design:** [8 No instance is special](DESIGNS.md#8-no-instance-is-special)
-- **How it works:** [specs/multi-instance.md](specs/multi-instance.md)
+- **How it works:** [specs/host.md](specs/host.md)
 - **Why:** [020](plan/decisions/020-no-session-is-bound-to-an-instance.md)
 
 **Stories:**
@@ -1433,7 +1433,7 @@ When a Session's writer is gone or idle, any instance claims it, loads it from t
 Each instance keeps one row in the store, timed by the store's clock. When the row expires, the instance's claims end with no write, so its Sessions are free.
 
 - **Design:** [8 No instance is special](DESIGNS.md#8-no-instance-is-special)
-- **How it works:** [specs/multi-instance.md](specs/multi-instance.md)
+- **How it works:** [specs/host.md](specs/host.md)
 - **Why:** [027](plan/decisions/027-instances-coordinate-through-the-stores-conditional-writes.md)
 
 **Stories:**
@@ -1451,7 +1451,7 @@ Each instance keeps one row in the store, timed by the store's clock. When the r
 Your load balancer should send every request for a Session to its writer, by a consistent hash on the `session-id` header. When it misses, the request still runs once.
 
 - **Design:** [8 No instance is special](DESIGNS.md#8-no-instance-is-special)
-- **How it works:** [specs/multi-instance.md](specs/multi-instance.md)
+- **How it works:** [specs/host.md](specs/host.md)
 - **Why:** [020](plan/decisions/020-no-session-is-bound-to-an-instance.md), [037](plan/decisions/037-when-the-hash-missed-the-answer-names-the-writer.md)
 
 **Stories:**
@@ -1477,7 +1477,7 @@ A Steer, Follow up, Interrupt, notice or Stop for a Run another instance writes 
 After a Run the Session stays in memory with no claim, for 60 idle minutes by default. Before each Run the instance checks the stored head and reloads if another instance wrote since.
 
 - **Design:** [1 The store is the only truth](DESIGNS.md#1-the-store-is-the-only-truth)
-- **How it works:** [specs/multi-instance.md](specs/multi-instance.md)
+- **How it works:** [specs/host.md](specs/host.md)
 - **Why:** [036](plan/decisions/036-a-warm-copy-is-a-cache-not-a-lock.md)
 
 **Stories:**
@@ -1494,7 +1494,7 @@ After a Run the Session stays in memory with no claim, for 60 idle minutes by de
 The instance counts the Sessions it holds in memory, warm ones included. Past the limit the longest idle is evicted first, and a Run is refused only when every live Session is running.
 
 - **Design:** [4 A failure stays local](DESIGNS.md#4-a-failure-stays-local)
-- **How it works:** [specs/multi-instance.md](specs/multi-instance.md)
+- **How it works:** [specs/host.md](specs/host.md)
 - **Why:** [036](plan/decisions/036-a-warm-copy-is-a-cache-not-a-lock.md), [048](plan/decisions/048-the-runner-and-the-session-are-built-from-parts-and-host-plumbing-is-internal.md)
 
 **Stories:**
@@ -1511,7 +1511,7 @@ The instance counts the Sessions it holds in memory, warm ones included. Past th
 The host asks your rule whether a Run may start, with the caller's context and the instance's counts. Its default is no limit; a simple limit on Runs at once is built in.
 
 - **Design:** [10 Each layer does one job, and each default can be replaced](DESIGNS.md#10-each-layer-does-one-job-and-each-default-can-be-replaced)
-- **How it works:** [specs/multi-instance.md](specs/multi-instance.md)
+- **How it works:** [specs/host.md](specs/host.md)
 - **Why:** [025](plan/decisions/025-callers-credentials-and-quotas-belong-to-the-service.md), [048](plan/decisions/048-the-runner-and-the-session-are-built-from-parts-and-host-plumbing-is-internal.md)
 
 **Stories:**
@@ -1530,7 +1530,7 @@ The host asks your rule whether a Run may start, with the caller's context and t
 On a stop signal, or a call from your endpoint, the instance stops taking new Runs and lets every Run finish, save and release.
 
 - **Design:** [8 No instance is special](DESIGNS.md#8-no-instance-is-special)
-- **How it works:** [specs/multi-instance.md](specs/multi-instance.md)
+- **How it works:** [specs/host.md](specs/host.md)
 - **Why:** [020](plan/decisions/020-no-session-is-bound-to-an-instance.md)
 
 **Stories:**
@@ -1840,7 +1840,7 @@ A Session's stream sends the stored Events after a number, then the live ones ac
 When you turn it on, the handler forwards a message, notice or Stop for a Run on another instance to the writer, only to addresses your rule accepts.
 
 - **Design:** [8 No instance is special](DESIGNS.md#8-no-instance-is-special)
-- **How it works:** [specs/multi-instance.md](specs/multi-instance.md)
+- **How it works:** [specs/host.md](specs/host.md)
 - **Why:** [037](plan/decisions/037-when-the-hash-missed-the-answer-names-the-writer.md)
 
 **Stories:**

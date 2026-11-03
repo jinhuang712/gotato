@@ -1,6 +1,6 @@
 # Session
 
-A conversation with an agent has to survive a crash, a deploy and a week of silence, and it has to accept a new message while a Run is still going. Gotato splits this into parts with one job each. An Agent says how to run. A Session is the conversation that runs it. A Run is one request to that Session, made of Turns, and everything it does is written to the Session's Record as it happens. This is the spec of the core, the `gotato` layer of the [map](ARCHITECTURE.md): the live Session and its Loop. The host that builds one for each Run is described in `multi-instance.md`, and the definitions it builds from in `profile.md`.
+A conversation with an agent has to survive a crash, a deploy and a week of silence, and it has to accept a new message while a Run is still going. Gotato splits this into parts with one job each. An Agent says how to run. A Session is the conversation that runs it. A Run is one request to that Session, made of Turns, and everything it does is written to the Session's Record as it happens. This is the spec of the core, the `gotato` layer of the [map](ARCHITECTURE.md): the live Session and its Loop. The host that builds one for each Run is described in `host.md`, and the definitions it builds from in `profile.md`.
 
 ## TL;DR
 - An Agent is a definition and holds nothing; a Session is one conversation, and its Record in the Store is the truth. The live Session is a goroutine built over that Record for each Run.

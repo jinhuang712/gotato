@@ -19,7 +19,7 @@ Read these in order when the window is new or was compacted. Each answers one qu
 | 7 | [plan/ROADMAP.md](plan/ROADMAP.md) | When, and how far along |
 | 8 | [plan/TODO.md](plan/TODO.md) | The open defects, discussions and checks |
 | 9 | [specs/ARCHITECTURE.md](specs/ARCHITECTURE.md) | How the parts fit together |
-| 10 | [specs/](specs/) | How each part works inside: session, record, events, context, compaction, tools, model, errors, multi-instance |
+| 10 | [specs/](specs/) | How each part works inside, one spec per part: the map in ARCHITECTURE.md, then session, context, tools, record, compaction, store, profile, model, host, http, mcp and testing, with errors and events across the parts |
 | 11 | [plan/decisions/](plan/decisions/) | Why it is built that way: one file per decision, with the alternatives not chosen |
 | 12 | [CHANGELOG.md](CHANGELOG.md) | What changed in each release, with before and after notes for breaks |
 | 13 | The package docs and tests | The doc comment of the package you change, then the `*_test.go` next to it |

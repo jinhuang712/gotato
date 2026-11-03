@@ -50,7 +50,7 @@ A Checkpoint stands in for everything before it, so a load starts at the last on
           one that never started was not run
 ```
 
-The Checkpoint names its Segments by number and does not copy them, which is why a load hands them back apart. How a compaction writes a Checkpoint is in `compaction.md`. A Claim is a Fact: the Instance that writes a Record names itself and its Epoch in an Entry at the position after the head it read, and the multi-instance spec covers how that makes one Writer.
+The Checkpoint names its Segments by number and does not copy them, which is why a load hands them back apart. How a compaction writes a Checkpoint is in `compaction.md`. A Claim is a Fact: the Instance that writes a Record names itself and its Epoch in an Entry at the position after the head it read, and `host.md` covers how that makes one Writer.
 
 ## A TaskSpec in the Record
 

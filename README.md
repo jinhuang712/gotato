@@ -96,7 +96,7 @@ Start with the proposal to see why Gotato exists, and with the architecture to s
 | [specs/record.md](specs/record.md) | the Record: facts, log, forks, spilled results |
 | [specs/store.md](specs/store.md) | the Store contract, the Writer, the shipped stores |
 | [specs/profile.md](specs/profile.md) | AgentProfiles, TaskSpecs and the Registry |
-| [specs/multi-instance.md](specs/multi-instance.md) | the host: Claims, takeover, warm copies, drain |
+| [specs/host.md](specs/host.md) | the host: Claims, takeover, warm copies, drain |
 | [specs/tools.md](specs/tools.md) | Effects, tool search, calls, MCP, large results |
 | [specs/model.md](specs/model.md) | the model bridge, its four layers and retries |
 | [specs/errors.md](specs/errors.md) | what ran, and whether to retry |
