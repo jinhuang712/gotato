@@ -1,19 +1,19 @@
-<!-- what-we-build: approved 2026-10-28 -->
-# Gotato — Philosophy
+<!-- what-we-build: drafted 2026-11-03 -->
+# Philosophy
 
-Agents are moving off developers' machines and into the systems they serve. The work they do there is not new: settling the hard cases in a pipeline, investigating an alert, answering a user from the service's own records. What is new is how little it takes. A loop around a capable model now does work that used to need a graph framework, and most of that work needs tools and data, not a machine.
+Agents are moving off developers' machines and into the systems they serve. The work they do there is not new. What is new is how little it takes: a loop around a capable model now does work that used to need a graph framework, and most of that work needs tools and data, not a machine.
 
 > Agents can handle sophisticated tasks, but their implementation is often straightforward. They are typically just LLMs using tools based on environmental feedback in a loop.
 >
 > — Erik S. and Barry Zhang, *Building effective agents*, Anthropic, 2024
 
-Gotato is built for that kind of agent: purpose-built, running inside an ordinary service, and light enough to have many of. This page asks four questions about that world and answers each one.
+Gotato is built for that kind of agent: purpose-built, running inside an ordinary service, and light enough to have many of. This page asks four questions about that world and answers each one. The answers are reasoned for the cloud. A developer's own tool can embed Gotato, and the answers may weigh differently on a person's machine.
 
 ## 1. What actually changed?
 
 **The model keeps taking over the harness, so the harness should stay thin.**
 
-The work agents do in a service is not new. Teams built it before, mostly in Python or TypeScript, on graph frameworks such as LangGraph, Deep Agents and Langflow. It worked, more or less, at a high price: costly and slow to run, hard to build and debug, and not clearly better than a plain loop.
+The work agents do in a service is not new. Teams built it before, mostly in Python or TypeScript, on graph frameworks such as LangGraph, Deep Agents and Langflow. In our experience it worked, more or less, at a high price: costly and slow to run, hard to build and debug, and not clearly better than a plain loop.
 
 The graphs were there for a reason. They made up for weaker models:
 
@@ -21,7 +21,7 @@ The graphs were there for a reason. They made up for weaker models:
 - a model that lost track got a node to hold its place;
 - a model that picked the wrong tool got a branch that picked for it.
 
-Each node encoded something the model could not do *at the time*. Models keep getting better at exactly these things: planning, choosing tools, recovering from errors. Each improvement turns another part of the harness into dead weight that someone still has to maintain. A thin loop ages the other way: each better model makes it better, with no code change.
+Each node encoded something the model could not do *at the time*. Models keep getting better at exactly these things: planning, choosing tools and recovering from errors. Each improvement turns another part of the harness into dead weight that someone still has to maintain. A thin loop ages the other way: each better model makes it better, with no code change.
 
 The labs say the same about their own harnesses:
 
@@ -45,8 +45,8 @@ The pattern is older than agents. Across decades of AI research, knowledge built
 
 One popular direction is to move a developer's whole session into the cloud, environment and all, so that it keeps running when the laptop closes and can be checked from a phone. A developer's machine is harder to move than it looks. It is a small operating system built up over years:
 
-- toolchains, browsers, Xcode and its simulators;
-- credentials, VPN access, caches and local services;
+- toolchains, browsers and Xcode with its simulators;
+- credentials and VPN access, caches and local services;
 - sometimes a GPU.
 
 A container holds what someone wrote down. A laptop is mostly what nobody wrote down. Copying it to the cloud means rebuilding that system online, one missing piece at a time.
@@ -84,14 +84,11 @@ General agents plan for that gap with people. A lab product serves anyone, with 
 >
 > — OpenAI, *A practical guide to building agents*, 2025
 
-A purpose-built agent is different. It runs privately, with a fixed set of tools, for jobs the team can predict. Every tool, credential and data source was chosen on purpose. If the agent still hits a wall, such as an expired token, a missing tool or an MCP server that is down, something in that set is broken. The fix belongs in the stack, not in a pause that waits for a person.
+A purpose-built agent is different. It runs privately, with a fixed set of tools, for jobs the team can predict. Every tool, credential and data source was chosen on purpose. Its bounds come from what it is given, not from someone watching it work. If it still hits a wall, such as an expired token, a missing tool or an MCP server that is down, something in that set is broken. The fix belongs in the stack, not in a pause that waits for a person.
 
-A wall is not the same as a hand-off. A refund above a limit, or a change to production, can need a person by design. That is a step in the business process: a tool files the request, for example by opening a ticket, and the session finishes its job.
+A wall is not the same as a hand-off. A refund above a limit, or a change to production, can need a person by design. That is a step in the business process: the step is handed over, for example by opening a ticket, and the session finishes its job.
 
-Two things follow:
-
-- **The bounds are built in.** They come from what the agent is given (named tools, each with a declared effect, each checking its own arguments), not from someone watching it work.
-- **The conversation lives outside the process.** A cloud session outlives the instance that serves it, so its record lives in a store, and whichever instance is free serves the next turn.
+The gap shows in time as well. A cloud session outlives the instance that serves it, so the instance is disposable and the conversation is not:
 
 > The harness also became cattle. Because the session log sits outside the harness, nothing in the harness needs to survive a crash.
 >
@@ -99,7 +96,7 @@ Two things follow:
 
 **The other side.** Requests drift, and models fail even when the tools are right. A bot built for order questions gets asked about holidays. Declining is part of its design: the instruction and the tools define its scope, and "that is not something I handle" is an answer, not a person stepping in. When the model gets a case wrong, the fix is a better instruction, better tools or a better model. A person pausing every run hides the failure instead of fixing it.
 
-**What it costs.** A purpose-built agent does less than a general one. Teams write careful tools, because the tools are the bounds. Keeping the conversation outside the process costs a write for every step.
+**What it costs.** A purpose-built agent does less than a general one, and teams spend their care on the tools they give it. Teams may also keep adding tools until the agent is general again, and then it needs people again. Splitting it into smaller agents may be the answer. This is the stance we are least sure of.
 
 ## 4. Where is Agent-as-a-Service going?
 
@@ -107,18 +104,18 @@ Two things follow:
 
 This is an optimistic view, and it is stated as one. It starts from the work purpose-built agents already do well. Each kind is work that rules cannot write down and one model call cannot settle:
 
-- **The hard cases inside a pipeline.** A user uploads hundreds of files for an identity check. Rules clear most of them, and a single model call clears most of the rest. When that call is not confident, an agent looks at past submissions and other sources, calls tools and decides. An `if` cannot express that step, one call is not enough, and running an agent on every file would be slow and expensive.
-- **Investigations.** On a schedule or an alert, an agent looks for dirty data with one clear goal, reads the state of a system and appends a short report for people to read later, or investigates an error, writes up what happened and tells the people responsible.
-- **Conversations with users** that need the service's own tools and records: rebooking a canceled flight, explaining a double charge, advising within a known policy in travel, health or law.
+- **The hard cases inside a pipeline:** rules clear most identity-check files and one model call clears most of the rest, and an agent decides the few left because an agent on every file would be slow and expensive.
+- **Investigations:** an agent that an alert or a schedule starts reads the state of a system and writes up what it found for the people responsible.
+- **Conversations with users:** they need the service's own tools and records, such as rebooking a canceled flight or explaining a double charge.
 
 From there, two pictures of the future:
 
-- **Services that look after themselves.** Shops, ticketing systems and travel sites run as they do today, and agents inside them watch, investigate and report, and later decide, the way an SRE or an operator does.
-- **Purpose-built agents for whole populations.** A travel planner, a health adviser or a policy consultant gets one conversation per user, most of them idle at any moment.
+- **Services that look after themselves:** agents inside a shop or a ticketing system look after it as an operator does, first by investigating and reporting and later by deciding.
+- **Purpose-built agents for whole populations:** a travel planner, a health adviser or a policy consultant gets one conversation for each user and most of them are idle at any moment.
 
-The second picture is out of reach for a machine per conversation. A million open conversations at 1 GiB each need about a petabyte of memory. At the few kilobytes that Gotato's benchmark measures for each idle conversation in memory, they need a few gigabytes, and a conversation unloaded from memory is only a record in a store.
+The second picture is out of reach for a machine per conversation. A million open conversations at 1 GiB each need about a petabyte of memory, and 1 GiB is the floor that Anthropic's hosting guide gives for one session. A conversation that is only a record in a store takes memory only while it is loaded. Memory then follows the conversations that are working, not the ones that are open.
 
-At that scale, what the model reads costs more than what the service holds. Most of what a session sends to the model on each turn, it already sent on the turn before, so the biggest lever is a stable prefix that the provider can cache:
+We consider that at that scale, what the model reads costs more than what the service holds. Most of what a session sends to the model on each turn, it already sent on the turn before, so the biggest lever is a stable prefix that the provider can cache:
 
 > If I had to choose just one metric, I'd argue that the KV-cache hit rate is the single most important metric for a production-stage AI agent.
 >
@@ -126,19 +123,11 @@ At that scale, what the model reads costs more than what the service holds. Most
 
 **The other side.** Optimism is not evidence. Regulated work needs models that are reliable enough, operations work needs teams that trust agents, and population-scale traffic strains model capacity and cost as much as memory. All three are real, and none of them is solved by giving each conversation a bigger machine. They are solved, if at all, by better models, narrower agents and cheaper turns. Gotato works on the last two.
 
-**What it costs.** Building for population scale means saving each conversation to a store and laying out each request for the cache. A team that only ever runs a handful of conversations pays for that design without needing it.
+**What it costs.** Building for population scale taxes small deployments: a team that only ever runs a handful of conversations carries the design without needing it.
 
 ## When the answers collide
 
 The narrower answer wins. Serving more users or more kinds of work (4) tempts an agent to grow general, or to want a machine of its own. Gotato keeps each agent purpose-built (3) and free of a machine (2), and lets the reach come from more agents, not bigger ones.
-
-## Reflections
-
-- **Purpose-built agents grow.** Teams keep adding tools until an agent is general again, and then it needs people again. Splitting it into smaller agents may be the answer. This is the stance we are least sure of.
-- **Investigating comes before acting.** Most of the work above ends in a report or a decision handed back to the service. Whether agents should act on production systems alone is still open.
-- **The cache does not wait forever.** A provider keeps a cached prefix for minutes, or an hour at most. A conversation that resumes after a long silence pays for its prefix again.
-- **The local session is not excluded.** A developer's own tool can embed Gotato. The answers here are reasoned for the cloud, and they may weigh differently on a person's machine.
-- **How these answers changed.** An earlier draft argued that an agent differs from other parts of a service in four ways: time, cost, authority and opacity. Authority and opacity turned out to be rules about how Gotato is built, not beliefs about the world, so they now live in [DESIGNS.md](DESIGNS.md) as the Effect cap and the inspectable Context.
 
 ## Sources
 
@@ -150,3 +139,4 @@ Every quote was compared with the original. Web pages were downloaded and their 
 - OpenAI. *Agents API: architecture*. https://developers.openai.com/api/docs/guides/agents-api/architecture
 - OpenAI. *A practical guide to building agents*. 2025. https://cdn.openai.com/business-guides-and-resources/a-practical-guide-to-building-agents.pdf
 - Yichao "Peak" Ji. *Context Engineering for AI Agents: Lessons from Building Manus*. Manus, 2025-07-18. https://manus.im/blog/Context-Engineering-for-AI-Agents-Lessons-from-Building-Manus
+- Anthropic. *Hosting the Agent SDK*. https://code.claude.com/docs/en/agent-sdk/hosting
