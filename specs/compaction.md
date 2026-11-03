@@ -119,9 +119,34 @@ Some charges in last night's batch failed. Why?
 <segment n="1">  ref msg:m01  </segment>                          msg:<message_id>
 ```
 
+The default Builder, `CodeSegments`, writes the Segment from the closed Messages in order, grouped by the Run each came from, with the time of each Run in the compaction's time zone:
+
+| What was closed | What the Segment holds |
+|---|---|
+| a user Message, a Run's final reply | word for word up to 2,000 tokens (bytes over 4), then a line saying the rest is read with `read_segment`; the line `ref msg:<id>` after it |
+| a tool call | one line: time, tool, its arguments up to 200 characters, `ok` or the error code, and `[result:<call_id>]`; a call repeated with the same arguments is counted, not repeated |
+| more than 100 tool calls in a Segment | the first 100 lines, then the rest counted by tool name |
+| an image or a file | a placeholder that names its kind and size |
+| a notice from the service | word for word; Gotato's own notices are left out |
+| a Run's other text, its reasoning, the tool results | nothing; the refs lead back to them |
+
+The three numbers are `SegmentSettings` of `CodeSegments`, and a zero value takes the default.
+
 `read_result(ref)` returns the original of either, page by page, from the Record: a result that was never spilled is read the same way as one that was. Reasoning gets no ref and is not read back. A ref points at the Record, so every instance resolves it alike, and into Entries a team pruned it reads as removed. A Segment written by an older version has no refs and renders as it did; a Segment is still written once.
 
 The ref form is a contract, since a Segment carries it forever, so it lives in the small public package `ref`: `ref.Result(call)` is `result:<call_id>`, `ref.Message(id)` is `msg:<message_id>`, with `ref.Parse` and `ref.Safe`, and the two tools are `ref.ReadResult` and `ref.ReadSegment`. A Builder of a team's own may write refs, and the frame refuses one that names nothing the Segment closed, so no Segment points at a thing the model cannot read. Where the originals are read from is the `ReadBack`'s `Originals`, described with the tools in `tools.md`.
+
+## The Recap
+
+The Recap is the one part of a Segment a model writes, and nothing writes it unless the team sets a writer. `ModelRecap` is the Agent's own model: it sends the Context the next call would send, so the provider reads it from the cache, followed by one plain user message that asks for the Recap and is never stored. The call has an output limit of 8,192 tokens and the model call deadline of two minutes, unless the writer sets its own.
+
+The answer must keep five headings, in this order, and may leave out any but the first:
+
+```text
+## What happened      ## Key facts      ## Decisions      ## Open items      ## Where it stands
+```
+
+A Recap fails when the reply calls a tool, stops at the output limit, starts with anything but one of the five, uses another `## ` heading, or has no `## What happened`. A Recap that fails costs only itself: the Segment is closed without one, and the compaction records why (`recap_error`) and the call's usage. A merged Segment's Recap is asked from the Recaps of the Segments it merges, each with its refs, and the model is told to keep each ref next to what it states. With no merge writer, code writes a digest instead, under `## What happened`, so it passes the same rules. Each Segment gets one line: its times, the start of up to three user Messages (160 characters each), its tool calls counted by tool, and its own Recap cut to 300 characters; an earlier merged Segment gives the start of its Recap, 1,200 characters. Each line keeps four message refs and four result refs, eight for a merged Segment. The whole is held to 4,000 bytes by dropping the oldest lines.
 
 ## Size against the ceiling
 
@@ -139,6 +164,21 @@ ceiling┼ ─ ─ ─ ─ ─ ─ ─ ─ ─ ─ ─ ─ ─ ─ ─ ─ ─ �
 ```
 
 The first three compact on purpose: when the size crosses the ceiling, when an idle Session is about to lose its cache, and when the service asks. Compacting before the cache expires makes the first request after a pause small and cheap. An overflow is different: it is the provider saying no, so it can happen below the ceiling when our size estimate was low. A Turn compacts at most once, so if the retry is refused again the Run ends instead of looping. What counts is a compaction or a merge that started (it emitted `compaction_started`), even one that was dropped; a check that found nothing to close or merge does not count.
+
+The ceiling is the model's window less the larger of 10% of it and 16,000 tokens, unless the Agent sets its own; a negative ceiling turns the size trigger off, and with no window and no ceiling only an overflow compacts. The Segments have a budget of their own, half the ceiling or 32,000 tokens with none, and a Run's first Turn that finds them past it merges alone (`past_budget`).
+
+An idle compaction runs on the warm Session's own timer, outside any Run, and a message that arrives cancels it. Its time comes from two clocks:
+
+```text
+ lead   = min(IdleLead, TTL / 2)                       IdleLead: 5 minutes by default
+ after  = TTL − lead                                   why: before_unload
+ if retention ≥ 2 × IdleLead and retention − lead < after:
+ after  = retention − lead                             why: before_cache_expires
+```
+
+`TTL` is how long the host keeps the Session warm, and `retention` how long the provider keeps the cache, as the model's facts state it. The timer compacts only when at least `IdleMinTokens`, 20,000 by default, came since the last Checkpoint, so a short Session is not compacted for nothing. A service with its own timer turns it off and calls a compaction on demand.
+
+On demand, a caller may keep a number of recent Messages, or compact only when at least so many tokens came since the last Checkpoint. A call that does nothing says why: `below_min_tokens`, or `nothing_to_close`. It runs under the Session's lock with the Agent's own parts and numbers. A Session running on another instance is waited for, as for a Run, then refused as `busy`, and a draining instance refuses it, since it would claim a Session after the instance said it leaves.
 
 ## When it fails
 

@@ -72,7 +72,7 @@ The core resolves the tools a Session may offer, keeps the catalog the model loa
 A reference is the short text that names one original, such as a tool result or a message. A Segment keeps it for as long as the Record lives, so its form is a package of its own that imports nothing.
 
 - Folder: `ref/`.
-- Spec: [record.md](record.md).
+- Spec: [compaction.md](compaction.md).
 
 ## The Record
 

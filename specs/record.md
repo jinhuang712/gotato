@@ -24,7 +24,16 @@ The Record is one line of Entries numbered from 1, and each Entry is a Fact or a
          └ Checkpoint
 ```
 
-Facts are what a rebuild reads: Messages, Tool calls that started, metadata changes, loaded tools, Segments, Claims and Checkpoints. Log entries tell what happened, for people and telemetry: a Run's start and end, usage, model calls, the parts of a streaming reply. Splitting them keeps a load cheap, because its cost follows the state of the Session and not how chatty its Runs were. One exception: while a Run is in flight a load also returns the Log entries since the last Checkpoint, to rebuild the reply that was streaming as a Cut-off reply if the Run never ended. An Entry has a position, a kind (the Event's kind), a layer, a time, the Instance that wrote it and its data. A store reads nothing in it but the position, the kind and the layer.
+Facts are what a rebuild reads, and one table in the code says which kinds they are, so a new kind that is forgotten fails its first write instead of quietly becoming a log entry a load leaves out:
+
+| Facts | Log entries |
+|---|---|
+| `session_created`, `session_claimed` | `session_released`, `run_started`, `run_ended`, `turn_started`, `turn_ended` |
+| `message_committed`, `notice_committed` | `message_queued`, `notice_queued`, `message_dropped`, `message_rejected`, `abort_requested` |
+| `reply_ended`, `reply_cut_off` | `context_built`, `reply_started`, `reply_part_kept`, `model_retried` |
+| `tool_started`, `tool_result_committed`, `tool_loaded`, `tool_unloaded` | `tool_ended`, `tool_result_spilled` |
+| `metadata_changed`, `segment_closed`, `compaction_ended` (a Checkpoint) | `compaction_started`, `compaction_failed`, `extension_failed` |
+ Log entries tell what happened, for people and telemetry: a Run's start and end, usage, model calls, the parts of a streaming reply. Splitting them keeps a load cheap, because its cost follows the state of the Session and not how chatty its Runs were. One exception: while a Run is in flight a load also returns the Log entries since the last Checkpoint, to rebuild the reply that was streaming as a Cut-off reply if the Run never ended. An Entry has a position, a kind (the Event's kind), a layer, a time, the Instance that wrote it and its data. A store reads nothing in it but the position, the kind and the layer.
 
 ## What a rebuild does
 
