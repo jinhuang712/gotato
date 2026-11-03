@@ -438,7 +438,17 @@ Modules and stripped binary of a program that imports the agent, the Runner, a s
 C1 = Gotato's value / ADK's value, for modules linked, packages outside the standard library, and stripped binary bytes
 ```
 
-**Last result:** on 2026-11-03, Gotato 3 modules linked (the service, Gotato and its HTTP adapter; `go list -m all` also lists `yaml.v3`, which the binary does not link), 15 packages and 9.0 MB (9,030,338 bytes), with Go 1.27.2 on darwin/arm64 (Apple M3). ADK for Go 128 modules, 370 packages and 14.8 MB, on 2026-10-15 on the same machine. So 0.02 of the modules, 0.04 of the packages and 0.61 of the size. The binary was 10.6 MB before a fix of 2026-11-03 that stopped the linker keeping every exported method.
+**Last result:**
+
+```text
+                                   Gotato        Google ADK for Go
+modules in the build graph         3 (4 listed)  128
+non-standard-library packages      15            370
+binary, stripped                   9.0 MB        14.8 MB
+minimum Go version                 1.24          1.26.6
+```
+
+On 2026-11-03, Gotato 3 modules linked (the service, Gotato and its HTTP adapter; `go list -m all` also lists `yaml.v3`, which the binary does not link), 15 packages and 9.0 MB (9,030,338 bytes), with Go 1.27.2 on darwin/arm64 (Apple M3). ADK for Go 128 modules, 370 packages and 14.8 MB, on 2026-10-15 on the same machine. So 0.02 of the modules, 0.04 of the packages and 0.61 of the size. The binary was 10.6 MB before a fix of 2026-11-03 that stopped the linker keeping every exported method.
 
 ### Constraints
 

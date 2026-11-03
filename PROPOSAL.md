@@ -133,17 +133,7 @@ Several good options exist for building agents, and each makes a different choic
 | Go composition frameworks, such as Eino | components and graphs to assemble, with conversation storage left to the application | one loop with Sessions built in |
 | Batteries-included Go toolkits, such as Google ADK for Go | agents, workflows, sub-agents, A2A, database sessions and a REST server | one loop and one Session |
 
-The footprint follows from that choice. A program that imports each library's agent, runner, session store and HTTP server, and does nothing else, measures:
-
-```text
-                                   Gotato        Google ADK for Go
-modules in the build graph         3 (4 listed)  128
-non-standard-library packages      15            370
-binary, stripped                   9.0 MB        14.8 MB
-minimum Go version                 1.24          1.26.6
-```
-
-Gotato was measured on 2026-11-03 with `bench/refservice/footprint.sh` (Go 1.27.2, Apple M3) on the reference service, which also imports the model bridge. ADK for Go v2.6.0 was measured on 2026-10-15 on an Apple M3.
+The footprint follows from that choice. A program that imports each library's agent, runner, session store and HTTP server, and does nothing else, builds with Gotato from a small fraction of the modules and packages that Google ADK for Go needs, into a smaller binary; GOALS.md keeps the measurement and its date.
 
 ## What we want
 
