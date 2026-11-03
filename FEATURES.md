@@ -1,4 +1,3 @@
-<!-- what-we-build: drafted 2026-11-03 -->
 # Gotato — Features
 
 What Gotato does today, what it will do, and what it will not. Each feature is told from the side of the developer who embeds Gotato in a Go service: what they call, what happens, and what they see when it fails. How a part works inside is in [specs/](specs/), why it is built that way is in [plan/decisions/](plan/decisions/README.md), and the principle each feature rests on is in [DESIGNS.md](DESIGNS.md).
