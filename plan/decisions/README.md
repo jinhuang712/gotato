@@ -73,3 +73,4 @@ Decided: YYYY-MM-DD    Status: current | superseded by NNN
 | [048](048-the-runner-and-the-session-are-built-from-parts-and-host-plumbing-is-internal.md) | 2026-11-02 | The Runner and the Session are built from parts with one job each, and host plumbing leaves the public API |
 | [049](049-the-store-contract-holds-only-what-every-store-must-do.md) | 2026-11-02 | The store contract holds only what every store must do |
 | [050](050-each-package-is-one-layer-named-for-its-job.md) | 2026-11-02 | Each package is one layer, named for its job |
+| [051](051-a-session-is-opened-for-a-task-spec-when-it-is-created.md) | 2026-11-03 | A Session is opened for a TaskSpec when it is created |
