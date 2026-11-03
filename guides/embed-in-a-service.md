@@ -151,6 +151,18 @@ doc, err := runner.Record(ctx, info.ID)      // a record.Document: a copy
 
 There is no `Runner.Store()`; keep the `store.Store` you gave to `host.New` if you read Records yourself.
 
+## A structured answer is a tool of the Agent's own
+
+Gotato has no structured-output mode. Give the Agent a tool whose arguments are the shape you want, such as `submit_ticket`, and say in its instruction to call it with the result. The arguments are checked against the tool's schema before it runs, and arguments that do not fit go back to the model as a failed result, so it corrects them. The tool receives the value decoded and keeps it where your service keeps the Run's result. The model usually answers once more after the call, so an instruction such as "after submitting, reply only 'Done'" keeps that answer short.
+
+## Who may touch a Session
+
+Who the caller is, and which Sessions it may touch, are your service's. Gotato has no identity type and no "not allowed" error; it passes each request's `context.Context`, with its values, to every store and extension call for that request. So the check goes in a wrapper of your store:
+
+- **Answer not found.** A wrapper returns `record.ErrNotFound` for a Session the caller does not own; HTTP answers 404, which does not reveal that the Session exists.
+- **Guard the store, and every call is guarded.** A Run, a Stop, a Steer, a Follow up, an Interrupt and a notice all read through the store, so a wrapper that checks load, log, append, delete and list covers them all. A wrapper that embeds a `store.Records` hides its `Lister`; implement `List` on the wrapper too, or listing answers `not_supported`.
+- **Work Gotato starts on its own has no caller.** An idle compaction and a liveness renewal carry no request's values, and a following Run keeps the values of the request that started the Run before it, without its cancellation. Decide what an empty caller means in your rule.
+
 ## Shutting down
 
 On SIGTERM, call `runner.Drain(ctx)`: the pod stops taking new Runs, lets each Run finish, save and release its Session, and answers 503 on `/readyz` so the load balancer sends traffic elsewhere. Then `runner.Close(ctx)` removes the pod's row, and other pods take its Sessions over at once. In the maintainer's rolling-deploy runs on a local cluster, no message was lost this way.
