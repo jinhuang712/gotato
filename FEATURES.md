@@ -165,7 +165,7 @@ A Run is one pass of the Loop over a Session, from a message to the model's fina
 
 - **Design:** [9 A Session can be stopped and seen](DESIGNS.md#9-a-session-can-be-stopped-and-seen)
 - **How it works:** [specs/session.md](specs/session.md)
-- **Why:** [004](plan/decisions/004-an-agent-is-a-definition-and-a-session-is-the-live-unit.md), [009](plan/decisions/009-one-loop-extended-at-fixed-stages.md), [022](plan/decisions/022-a-session-is-a-goroutine-over-its-record.md)
+- **Why:** [004 Agent and Session](plan/decisions/004-an-agent-is-a-definition-and-a-session-is-the-live-unit.md), [009 One Loop](plan/decisions/009-one-loop-extended-at-fixed-stages.md), [022 A Session is a goroutine](plan/decisions/022-a-session-is-a-goroutine-over-its-record.md)
 
 **Stories:**
 
@@ -192,7 +192,7 @@ Every Run that starts ends with one of four statuses: `completed`, `failed`, `ca
 
 - **Design:** [4 A failure stays local](DESIGNS.md#4-a-failure-stays-local)
 - **How it works:** [specs/session.md](specs/session.md), [specs/errors.md](specs/errors.md)
-- **Why:** [012](plan/decisions/012-a-run-stops-through-its-context-and-the-record-is-the-trace.md), [035](plan/decisions/035-the-runtime-says-whether-an-error-ran-and-whether-to-retry.md)
+- **Why:** [012 Stop through the context, the Record is the trace](plan/decisions/012-a-run-stops-through-its-context-and-the-record-is-the-trace.md), [035 Ran, and retry](plan/decisions/035-the-runtime-says-whether-an-error-ran-and-whether-to-retry.md)
 
 **Stories:**
 
@@ -212,7 +212,7 @@ A Run ends when the model gives its final answer, or earlier for one of a few na
 
 - **Design:** [9 A Session can be stopped and seen](DESIGNS.md#9-a-session-can-be-stopped-and-seen)
 - **How it works:** [specs/session.md](specs/session.md)
-- **Why:** [012](plan/decisions/012-a-run-stops-through-its-context-and-the-record-is-the-trace.md), [038](plan/decisions/038-a-limit-guards-a-real-failure.md)
+- **Why:** [012 Stop through the context, the Record is the trace](plan/decisions/012-a-run-stops-through-its-context-and-the-record-is-the-trace.md), [038 A limit guards a real failure](plan/decisions/038-a-limit-guards-a-real-failure.md)
 
 **Stories:**
 
@@ -221,10 +221,10 @@ A Run ends when the model gives its final answer, or earlier for one of a few na
 | The Run ends because | Status |
 |---|---|
 | the model gave its final answer | `completed` |
-| your stop at the end of a Turn said so ([F11.5](#f115-at-a-turns-end)) | `completed` |
-| it was stopped ([F1.5.4](#f154-stop)) or its caller's context ended | `canceled` |
-| its deadline passed ([F1.4](#f14-a-runs-deadline)) | `deadline_exceeded` |
-| it is still past the compaction ceiling after the Turn's compaction ([F5.4](#f54-the-ceiling)) | `failed`, `limit_exceeded` |
+| your stop at the end of a Turn said so ([F11.5: At a Turn's end](#f115-at-a-turns-end)) | `completed` |
+| it was stopped ([F1.5.4: Stop](#f154-stop)) or its caller's context ended | `canceled` |
+| its deadline passed ([F1.4: A Run's deadline](#f14-a-runs-deadline)) | `deadline_exceeded` |
+| it is still past the compaction ceiling after the Turn's compaction ([F5.4: The ceiling](#f54-the-ceiling)) | `failed`, `limit_exceeded` |
 | the provider still refuses the request as too long after a compaction | `failed`, `context_overflow` |
 | a write to the store failed | `failed`, `store_failure` or `conflict` |
 | the model failed after its retries, or your code failed | `failed`, with the code |
@@ -233,11 +233,11 @@ A Run ends when the model gives its final answer, or earlier for one of a few na
 
 **Status:** ✅
 
-A Run stops through its context. In a service an Agent has a Run timeout, 30 minutes by default, and negative means none. A task may shorten it ([F3.3.1](#f331-a-task-only-narrows)), and a request's own timeout wins.
+A Run stops through its context. In a service an Agent has a Run timeout, 30 minutes by default, and negative means none. A task may shorten it ([F3.3.1: A task only narrows](#f331-a-task-only-narrows)), and a request's own timeout wins.
 
 - **Design:** [9 A Session can be stopped and seen](DESIGNS.md#9-a-session-can-be-stopped-and-seen)
 - **How it works:** [specs/session.md](specs/session.md)
-- **Why:** [012](plan/decisions/012-a-run-stops-through-its-context-and-the-record-is-the-trace.md)
+- **Why:** [012 Stop through the context, the Record is the trace](plan/decisions/012-a-run-stops-through-its-context-and-the-record-is-the-trace.md)
 
 **Stories:**
 
@@ -252,9 +252,9 @@ A Run stops through its context. In a service an Agent has a Run timeout, 30 min
 
 While a Run works you can change its course without starting over, from any instance. A message either joins the Run in flight or, when none is going, starts a new one.
 
-- **Design:** [9 A Session can be stopped and seen](DESIGNS.md#9-a-session-can-be-stopped-and-seen), [8 No instance is special](DESIGNS.md#8-no-instance-is-special)
+- **Design:** [9 A Session can be stopped and seen](DESIGNS.md#9-a-session-can-be-stopped-and-seen), [8 No instance is special](DESIGNS.md#8-no-instance-is-special), [11 A Session has one writer at a time](DESIGNS.md#11-a-session-has-one-writer-at-a-time)
 - **How it works:** [specs/session.md](specs/session.md)
-- **Why:** [021](plan/decisions/021-messages-reach-the-writer-and-take-effect-in-its-process.md)
+- **Why:** [021 Messages reach the writer](plan/decisions/021-messages-reach-the-writer-and-take-effect-in-its-process.md)
 
 **Stories:**
 
@@ -265,7 +265,7 @@ While a Run works you can change its course without starting over, from any inst
 - A Run in flight takes the message and the call answers at once that it is queued, with the message's ID (HTTP 202).
 - With no Run going the message is the prompt of a new Run, and the call holds until that Run settles (HTTP 200 with the Run).
 - A message that arrives while a Run is ending waits for the release and starts the next Run; it is never answered `busy`.
-- A message for a Run another instance writes is answered with that instance's address ([F9.5.2](#f952-a-message-for-a-run-elsewhere)).
+- A message for a Run another instance writes is answered with that instance's address ([F9.5.2: A message for a Run elsewhere](#f952-a-message-for-a-run-elsewhere)).
 
 #### F1.5.1: Steer
 
@@ -299,7 +299,7 @@ A message the instance accepted is not lost because its Run ended. It becomes a 
 
 - **Design:** [4 A failure stays local](DESIGNS.md#4-a-failure-stays-local)
 - **How it works:** [specs/session.md](specs/session.md)
-- **Why:** [021](plan/decisions/021-messages-reach-the-writer-and-take-effect-in-its-process.md)
+- **Why:** [021 Messages reach the writer](plan/decisions/021-messages-reach-the-writer-and-take-effect-in-its-process.md)
 
 **Stories:**
 
@@ -316,7 +316,7 @@ Each limit guards a real failure, a zero value means its default, and one past a
 
 - **Design:** [4 A failure stays local](DESIGNS.md#4-a-failure-stays-local)
 - **How it works:** [specs/session.md](specs/session.md)
-- **Why:** [038](plan/decisions/038-a-limit-guards-a-real-failure.md)
+- **Why:** [038 A limit guards a real failure](plan/decisions/038-a-limit-guards-a-real-failure.md)
 
 **Stories:**
 
@@ -329,7 +329,7 @@ Each limit guards a real failure, a zero value means its default, and one past a
 | waiting Steers, Follow ups and notices | 8, 4, 16 | what waits for the Run's next boundary |
 | tools at once | 1 | tools running together that were never meant to |
 | one model call, one tool call | 2 minutes each | one stuck call holding the Run, even a tool that ignores its context; negative turns it off |
-| continues after the output limit | 0, off | how many times a Run asks the model to go on ([F4.4.2](#f442-the-continue-notice)) |
+| continues after the output limit | 0, off | how many times a Run asks the model to go on ([F4.4.2: The continue notice](#f442-the-continue-notice)) |
 
 ### F1.8: Your code panics
 
@@ -339,7 +339,7 @@ No call into your code can end the process or hold a lock of Gotato's. A panic c
 
 - **Design:** [4 A failure stays local](DESIGNS.md#4-a-failure-stays-local)
 - **How it works:** [specs/session.md](specs/session.md), [specs/errors.md](specs/errors.md)
-- **Why:** [023](plan/decisions/023-a-mistake-the-model-can-fix-is-a-tool-result.md)
+- **Why:** [023 Mistakes and settling](plan/decisions/023-a-mistake-the-model-can-fix-is-a-tool-result.md)
 
 **Stories:**
 
@@ -380,14 +380,14 @@ You create a Session with your own ID or a generated one, your metadata and a st
 
 - **Design:** [1 The store is the only truth](DESIGNS.md#1-the-store-is-the-only-truth)
 - **How it works:** [specs/session.md](specs/session.md), [specs/record.md](specs/record.md)
-- **Why:** [016](plan/decisions/016-gotato-session-is-the-live-unit-and-session-record-is-what-the-store-keeps.md), [051](plan/decisions/051-a-session-is-opened-for-a-task-spec-when-it-is-created.md)
+- **Why:** [016 Session and Record types](plan/decisions/016-gotato-session-is-the-live-unit-and-session-record-is-what-the-store-keeps.md), [051 A TaskSpec Session opened at create](plan/decisions/051-a-session-is-opened-for-a-task-spec-when-it-is-created.md)
 
 **Stories:**
 
 - A service creates a Session for a chat with the chat's ID and a starting history, and runs it later by that ID.
 
 - An ID that is taken fails with `already_exists`, also when two instances create it at once.
-- Instead of an Agent a create may name a task ([F3.3.3](#f333-open-a-task-session-with-your-own-id)).
+- Instead of an Agent a create may name a task ([F3.3.3: Open a task Session with your own ID](#f333-open-a-task-session-with-your-own-id)).
 - A Run with no Session creates one too.
 
 ### F2.2: Fork a Session
@@ -398,7 +398,7 @@ A fork starts a new Session from another's history and records the parent and th
 
 - **Design:** [2 A request only grows at its end](DESIGNS.md#2-a-request-only-grows-at-its-end)
 - **How it works:** [specs/record.md](specs/record.md)
-- **Why:** [017](plan/decisions/017-the-record-is-an-append-only-log.md)
+- **Why:** [017 An append-only Record](plan/decisions/017-the-record-is-an-append-only-log.md)
 
 **Stories:**
 
@@ -414,16 +414,16 @@ A fork starts a new Session from another's history and records the parent and th
 
 A Session runs one Run at a time. A second Run on a busy Session is refused with `busy` (HTTP 409), or waits, as the host's busy policy says.
 
-- **Design:** [8 No instance is special](DESIGNS.md#8-no-instance-is-special)
+- **Design:** [11 A Session has one writer at a time](DESIGNS.md#11-a-session-has-one-writer-at-a-time)
 - **How it works:** [specs/host.md](specs/host.md)
-- **Why:** [019](plan/decisions/019-one-writer-per-session-claimed-in-the-store.md)
+- **Why:** [019 One writer per Session](plan/decisions/019-one-writer-per-session-claimed-in-the-store.md)
 
 **Stories:**
 
 - Two browser tabs send a prompt at once, and the second is told the Session is busy.
 
 - Refusal is the default; a refusal is marked not run, so it is safe to send again after the Run in flight.
-- A message for the Run in flight is not a second Run ([F1.5](#f15-steer-a-run-in-flight)).
+- A message for the Run in flight is not a second Run ([F1.5: Steer a Run in flight](#f15-steer-a-run-in-flight)).
 
 ### F2.4: Your own metadata
 
@@ -433,7 +433,7 @@ A Session holds your own fields, such as a chat ID or an owner, as metadata. The
 
 - **Design:** [10 Each layer does one job, and each default can be replaced](DESIGNS.md#10-each-layer-does-one-job-and-each-default-can-be-replaced)
 - **How it works:** [specs/session.md](specs/session.md)
-- **Why:** [047](plan/decisions/047-a-value-a-layer-owns-is-set-only-through-that-layer.md)
+- **Why:** [047 A value set only through its layer, any other way refused](plan/decisions/047-a-value-a-layer-owns-is-set-only-through-that-layer.md)
 
 **Stories:**
 
@@ -452,7 +452,7 @@ Deleting a Session removes its Record. A Record created again under the same ID 
 
 - **Design:** [1 The store is the only truth](DESIGNS.md#1-the-store-is-the-only-truth)
 - **How it works:** [specs/store.md](specs/store.md)
-- **Why:** [049](plan/decisions/049-the-store-contract-holds-only-what-every-store-must-do.md)
+- **Why:** [049 The store contract](plan/decisions/049-the-store-contract-holds-only-what-every-store-must-do.md)
 
 **Stories:**
 
@@ -469,7 +469,7 @@ You read a Session's Record, its stored Events, and its summary, on any instance
 
 - **Design:** [9 A Session can be stopped and seen](DESIGNS.md#9-a-session-can-be-stopped-and-seen)
 - **How it works:** [specs/record.md](specs/record.md), [specs/events.md](specs/events.md)
-- **Why:** [028](plan/decisions/028-every-step-is-written-as-facts-and-a-log.md)
+- **Why:** [028 Facts and a log](plan/decisions/028-every-step-is-written-as-facts-and-a-log.md)
 
 **Stories:**
 
@@ -489,7 +489,7 @@ A profile is the whole definition of a kind of Agent: its name, model, instructi
 
 - **Design:** [10 Each layer does one job, and each default can be replaced](DESIGNS.md#10-each-layer-does-one-job-and-each-default-can-be-replaced)
 - **How it works:** [specs/profile.md](specs/profile.md)
-- **Why:** [004](plan/decisions/004-an-agent-is-a-definition-and-a-session-is-the-live-unit.md), [044](plan/decisions/044-an-agent-profile-and-a-task-spec-are-registered-inline-or-from-a-store.md)
+- **Why:** [004 Agent and Session](plan/decisions/004-an-agent-is-a-definition-and-a-session-is-the-live-unit.md), [044 A job only narrows its Agent](plan/decisions/044-an-agent-profile-and-a-task-spec-are-registered-inline-or-from-a-store.md)
 
 **Stories:**
 
@@ -509,7 +509,7 @@ A profile written in your code is registered as a value. Only an inline profile 
 
 **Status:** ✅
 
-A profile kept in your database is registered by name, and read from the store each time a Session is built. A stored profile is data only: a model name, tool and tool set names, numbers and text. It chooses from what your code offers in a name catalog and never adds to it; a name the catalog lacks is refused. The documents are kept by [F8.8](#f88-keep-definitions).
+A profile kept in your database is registered by name, and read from the store each time a Session is built. A stored profile is data only: a model name, tool and tool set names, numbers and text. It chooses from what your code offers in a name catalog and never adds to it; a name the catalog lacks is refused. The documents are kept by [F8.8: Keep definitions](#f88-keep-definitions).
 
 #### F3.1.3: Replace a profile
 
@@ -525,7 +525,7 @@ The host names the profile a request runs when it names none. With no default, s
 
 - **Design:** [10 Each layer does one job, and each default can be replaced](DESIGNS.md#10-each-layer-does-one-job-and-each-default-can-be-replaced)
 - **How it works:** [specs/profile.md](specs/profile.md)
-- **Why:** [044](plan/decisions/044-an-agent-profile-and-a-task-spec-are-registered-inline-or-from-a-store.md)
+- **Why:** [044 A job only narrows its Agent](plan/decisions/044-an-agent-profile-and-a-task-spec-are-registered-inline-or-from-a-store.md)
 
 **Stories:**
 
@@ -539,9 +539,9 @@ The host names the profile a request runs when it names none. With no default, s
 
 A task is a job that runs again, such as a report each morning: a name, its profile, a background text, and bounds that only narrow the profile.
 
-- **Design:** [7 Serve purpose-built agents](DESIGNS.md#7-serve-purpose-built-agents), [10 Each layer does one job, and each default can be replaced](DESIGNS.md#10-each-layer-does-one-job-and-each-default-can-be-replaced)
+- **Design:** [7 What an Agent may do is read from its definition](DESIGNS.md#7-what-an-agent-may-do-is-read-from-its-definition), [10 Each layer does one job, and each default can be replaced](DESIGNS.md#10-each-layer-does-one-job-and-each-default-can-be-replaced)
 - **How it works:** [specs/profile.md](specs/profile.md)
-- **Why:** [044](plan/decisions/044-an-agent-profile-and-a-task-spec-are-registered-inline-or-from-a-store.md), [051](plan/decisions/051-a-session-is-opened-for-a-task-spec-when-it-is-created.md)
+- **Why:** [044 A job only narrows its Agent](plan/decisions/044-an-agent-profile-and-a-task-spec-are-registered-inline-or-from-a-store.md), [051 A TaskSpec Session opened at create](plan/decisions/051-a-session-is-opened-for-a-task-spec-when-it-is-created.md)
 
 **Stories:**
 
@@ -583,7 +583,7 @@ The host lists the registered profiles with their Effect caps, and the registere
 
 - **Design:** [9 A Session can be stopped and seen](DESIGNS.md#9-a-session-can-be-stopped-and-seen)
 - **How it works:** [specs/profile.md](specs/profile.md)
-- **Why:** [051](plan/decisions/051-a-session-is-opened-for-a-task-spec-when-it-is-created.md)
+- **Why:** [051 A TaskSpec Session opened at create](plan/decisions/051-a-session-is-opened-for-a-task-spec-when-it-is-created.md)
 
 **Stories:**
 
@@ -605,7 +605,7 @@ The Context is a value built from the Record on every Turn: the instruction, the
 
 - **Design:** [3 The Context is a bounded view](DESIGNS.md#3-the-context-is-a-bounded-view)
 - **How it works:** [specs/context.md](specs/context.md)
-- **Why:** [007](plan/decisions/007-the-context-is-a-value-built-every-turn-and-a-team-can-replace-it.md)
+- **Why:** [007 The Context is a built value](plan/decisions/007-the-context-is-a-value-built-every-turn-and-a-team-can-replace-it.md)
 
 **Stories:**
 
@@ -613,7 +613,7 @@ The Context is a value built from the Record on every Turn: the instruction, the
 
 - Reference text the Agent carries goes in its instruction.
 - Nothing that changes every Turn is added; a fact the model needs now, such as the time, comes from a tool.
-- A large tool result stays out of the Context except for its preview ([F6.7](#f67-large-results)).
+- A large tool result stays out of the Context except for its preview ([F6.7: Large results](#f67-large-results)).
 
 ### F4.2: Laid out for the cache
 
@@ -623,14 +623,14 @@ What never changes comes first and what grows comes last, and a change Gotato ma
 
 - **Design:** [2 A request only grows at its end](DESIGNS.md#2-a-request-only-grows-at-its-end)
 - **How it works:** [specs/context.md](specs/context.md)
-- **Why:** [006](plan/decisions/006-the-request-is-laid-out-for-the-cache-and-a-change-is-appended.md)
+- **Why:** [006 The request is laid out for the cache](plan/decisions/006-the-request-is-laid-out-for-the-cache-and-a-change-is-appended.md)
 
 **Stories:**
 
 - A long support Session pays the full input price only for the newest messages of each Turn.
 
 - The tools are sorted by ID, so the same tools give the same bytes.
-- A few changes rewrite bytes already sent, on purpose and at a known moment: the last Round's reasoning, a compaction's tool list and a merge of the oldest Segments ([F5.2.4](#f524-the-one-rewrite-of-what-was-sent)).
+- A few changes rewrite bytes already sent, on purpose and at a known moment: the last Round's reasoning, a compaction's tool list and a merge of the oldest Segments ([F5.2.4: The one rewrite of what was sent](#f524-the-one-rewrite-of-what-was-sent)).
 
 #### F4.2.1: Cache markers
 
@@ -652,7 +652,7 @@ When the model's facts say the provider takes back only the current Round's reas
 
 - **Design:** [2 A request only grows at its end](DESIGNS.md#2-a-request-only-grows-at-its-end)
 - **How it works:** [specs/model.md](specs/model.md)
-- **Why:** [029](plan/decisions/029-reasoning-goes-back-for-the-current-round.md)
+- **Why:** [029 Reasoning for the current Round](plan/decisions/029-reasoning-goes-back-for-the-current-round.md)
 
 **Stories:**
 
@@ -668,7 +668,7 @@ Gotato, your service or an extension sometimes has to tell the model something t
 
 - **Design:** [2 A request only grows at its end](DESIGNS.md#2-a-request-only-grows-at-its-end)
 - **How it works:** [specs/context.md](specs/context.md)
-- **Why:** [031](plan/decisions/031-a-notice-is-a-message-of-its-own-kind.md)
+- **Why:** [031 Notices](plan/decisions/031-a-notice-is-a-message-of-its-own-kind.md)
 
 **Stories:**
 
@@ -707,7 +707,7 @@ Retrieval, a window, or any other way to choose what the model sees is your own 
 
 - **Design:** [10 Each layer does one job, and each default can be replaced](DESIGNS.md#10-each-layer-does-one-job-and-each-default-can-be-replaced)
 - **How it works:** [specs/context.md](specs/context.md)
-- **Why:** [007](plan/decisions/007-the-context-is-a-value-built-every-turn-and-a-team-can-replace-it.md)
+- **Why:** [007 The Context is a built value](plan/decisions/007-the-context-is-a-value-built-every-turn-and-a-team-can-replace-it.md)
 
 **Stories:**
 
@@ -721,7 +721,7 @@ You can see the request the next Turn would send, built as a Run builds it, with
 
 - **Design:** [9 A Session can be stopped and seen](DESIGNS.md#9-a-session-can-be-stopped-and-seen)
 - **How it works:** [specs/context.md](specs/context.md)
-- **Why:** [007](plan/decisions/007-the-context-is-a-value-built-every-turn-and-a-team-can-replace-it.md)
+- **Why:** [007 The Context is a built value](plan/decisions/007-the-context-is-a-value-built-every-turn-and-a-team-can-replace-it.md)
 
 **Stories:**
 
@@ -746,13 +746,13 @@ A compaction closes what came since the last Checkpoint, less a kept tail, into 
 
 - **Design:** [3 The Context is a bounded view](DESIGNS.md#3-the-context-is-a-bounded-view), [2 A request only grows at its end](DESIGNS.md#2-a-request-only-grows-at-its-end)
 - **How it works:** [specs/compaction.md](specs/compaction.md)
-- **Why:** [032](plan/decisions/032-compaction-closes-a-segment-and-never-rewrites-one.md), [033](plan/decisions/033-code-builds-a-segment-and-the-model-writes-only-the-recap.md), [034](plan/decisions/034-a-segment-is-written-once.md)
+- **Why:** [032 Compaction closes a Segment](plan/decisions/032-compaction-closes-a-segment-and-never-rewrites-one.md), [033 Code builds a Segment](plan/decisions/033-code-builds-a-segment-and-the-model-writes-only-the-recap.md), [034 A Segment is written once](plan/decisions/034-a-segment-is-written-once.md)
 
 **Stories:**
 
 - A support Session lives for a month, and its requests keep fitting the model's window with no setting beyond the window.
 
-- The tools the closed Segment or the kept tail called stay loaded; the others unload ([F6.6](#f66-tool-search)).
+- The tools the closed Segment or the kept tail called stay loaded; the others unload ([F6.6: Tool search](#f66-tool-search)).
 
 #### F5.1.1: The Record is never rewritten
 
@@ -777,7 +777,7 @@ Code builds the Segment, so what it keeps never depends on a model.
 | the user's messages, each Run's final reply | word for word, cut at 2K tokens each with a line saying how to read the rest; each carries a reference |
 | each tool call | one line inside its Run: time, tool, arguments cut short, the outcome and the reference of its result; repeats counted |
 | your service's notices | word for word; Gotato's own are left out |
-| the rest of a Run's text, reasoning and tool results | left out of the Context, and read back by reference ([F5.3](#f53-read-back)) |
+| the rest of a Run's text, reasoning and tool results | left out of the Context, and read back by reference ([F5.3: Read back](#f53-read-back)) |
 
 #### F5.1.4: The Recap
 
@@ -799,7 +799,7 @@ Segments have a token budget. Past it, the oldest merge into one Segment, so a S
 
 - **Design:** [3 The Context is a bounded view](DESIGNS.md#3-the-context-is-a-bounded-view), [2 A request only grows at its end](DESIGNS.md#2-a-request-only-grows-at-its-end)
 - **How it works:** [specs/compaction.md](specs/compaction.md)
-- **Why:** [032](plan/decisions/032-compaction-closes-a-segment-and-never-rewrites-one.md), [043](plan/decisions/043-compaction-moves-content-out-and-never-makes-it-unreadable.md)
+- **Why:** [032 Compaction closes a Segment](plan/decisions/032-compaction-closes-a-segment-and-never-rewrites-one.md), [043 Moved content stays readable](plan/decisions/043-compaction-moves-content-out-and-never-makes-it-unreadable.md)
 
 **Stories:**
 
@@ -837,7 +837,7 @@ Nothing moved out of the model's view is unreadable. The model reads any Segment
 
 - **Design:** [3 The Context is a bounded view](DESIGNS.md#3-the-context-is-a-bounded-view)
 - **How it works:** [specs/compaction.md](specs/compaction.md), [specs/tools.md](specs/tools.md)
-- **Why:** [043](plan/decisions/043-compaction-moves-content-out-and-never-makes-it-unreadable.md)
+- **Why:** [043 Moved content stays readable](plan/decisions/043-compaction-moves-content-out-and-never-makes-it-unreadable.md)
 
 **Stories:**
 
@@ -855,14 +855,14 @@ The ceiling is the size a Context may reach: the model's window less the larger 
 
 - **Design:** [3 The Context is a bounded view](DESIGNS.md#3-the-context-is-a-bounded-view), [4 A failure stays local](DESIGNS.md#4-a-failure-stays-local)
 - **How it works:** [specs/compaction.md](specs/compaction.md)
-- **Why:** [038](plan/decisions/038-a-limit-guards-a-real-failure.md)
+- **Why:** [038 A limit guards a real failure](plan/decisions/038-a-limit-guards-a-real-failure.md)
 
 **Stories:**
 
 - A team states its model's window and never sees a request refused as too long.
 
 - A Run still past the ceiling after the Turn's compaction ends with `limit_exceeded`, whoever set it.
-- A team that wants a cost cap writes its own stop at the end of a Turn ([F11.5](#f115-at-a-turns-end)).
+- A team that wants a cost cap writes its own stop at the end of a Turn ([F11.5: At a Turn's end](#f115-at-a-turns-end)).
 - With no window and no ceiling there is no compaction by size; it runs only after a refusal as too long, if the refusal is recognized.
 
 ### F5.5: When it runs
@@ -873,7 +873,7 @@ Each compaction records why it ran.
 
 - **Design:** [3 The Context is a bounded view](DESIGNS.md#3-the-context-is-a-bounded-view)
 - **How it works:** [specs/compaction.md](specs/compaction.md)
-- **Why:** [032](plan/decisions/032-compaction-closes-a-segment-and-never-rewrites-one.md), [036](plan/decisions/036-a-warm-copy-is-a-cache-not-a-lock.md)
+- **Why:** [032 Compaction closes a Segment](plan/decisions/032-compaction-closes-a-segment-and-never-rewrites-one.md), [036 A warm copy is a cache](plan/decisions/036-a-warm-copy-is-a-cache-not-a-lock.md)
 
 **Stories:**
 
@@ -917,7 +917,7 @@ When to compact, where to cut, how a Segment reads, who writes the Recap and how
 
 - **Design:** [10 Each layer does one job, and each default can be replaced](DESIGNS.md#10-each-layer-does-one-job-and-each-default-can-be-replaced)
 - **How it works:** [specs/compaction.md](specs/compaction.md)
-- **Why:** [046](plan/decisions/046-compaction-is-a-fixed-frame-around-parts-a-user-can-replace.md)
+- **Why:** [046 Compaction as a frame with parts](plan/decisions/046-compaction-is-a-fixed-frame-around-parts-a-user-can-replace.md)
 
 **Stories:**
 
@@ -938,9 +938,9 @@ A tool is one thing an Agent can do, and each declares how much it can change: i
 
 A Go function becomes a tool, its input schema comes from the Go type, and every call is checked against it before the tool runs.
 
-- **Design:** [7 Serve purpose-built agents](DESIGNS.md#7-serve-purpose-built-agents)
+- **Design:** [7 What an Agent may do is read from its definition](DESIGNS.md#7-what-an-agent-may-do-is-read-from-its-definition)
 - **How it works:** [specs/tools.md](specs/tools.md)
-- **Why:** [011](plan/decisions/011-an-agents-bounds-are-its-tools-and-its-effect-cap.md)
+- **Why:** [011 Bounds and tool output](plan/decisions/011-an-agents-bounds-are-its-tools-and-its-effect-cap.md)
 
 **Stories:**
 
@@ -954,9 +954,9 @@ A Go function becomes a tool, its input schema comes from the Go type, and every
 
 Every tool declares its Effect: `read`, `write_local`, `write_external` or `destructive`, and a tool that declares none counts as destructive. An Agent may set a cap, and a tool above it is never seen.
 
-- **Design:** [7 Serve purpose-built agents](DESIGNS.md#7-serve-purpose-built-agents)
+- **Design:** [7 What an Agent may do is read from its definition](DESIGNS.md#7-what-an-agent-may-do-is-read-from-its-definition)
 - **How it works:** [specs/tools.md](specs/tools.md)
-- **Why:** [005](plan/decisions/005-no-approval-system.md), [011](plan/decisions/011-an-agents-bounds-are-its-tools-and-its-effect-cap.md), [014](plan/decisions/014-the-effect-cap-hides-tools-above-it.md), [015](plan/decisions/015-only-the-agent-sets-the-effect-cap.md)
+- **Why:** [005 No approval system](plan/decisions/005-no-approval-system.md), [011 Bounds and tool output](plan/decisions/011-an-agents-bounds-are-its-tools-and-its-effect-cap.md), [014 The cap hides tools](plan/decisions/014-the-effect-cap-hides-tools-above-it.md), [015 Only the Agent sets the cap](plan/decisions/015-only-the-agent-sets-the-effect-cap.md)
 
 **Stories:**
 
@@ -974,7 +974,7 @@ An unknown tool, arguments that are not valid JSON or fail the schema, and a too
 
 - **Design:** [4 A failure stays local](DESIGNS.md#4-a-failure-stays-local)
 - **How it works:** [specs/tools.md](specs/tools.md), [specs/errors.md](specs/errors.md)
-- **Why:** [023](plan/decisions/023-a-mistake-the-model-can-fix-is-a-tool-result.md)
+- **Why:** [023 Mistakes and settling](plan/decisions/023-a-mistake-the-model-can-fix-is-a-tool-result.md)
 
 **Stories:**
 
@@ -991,7 +991,7 @@ Tools run one at a time by default. With a higher limit, up to that many run at 
 
 - **Design:** [4 A failure stays local](DESIGNS.md#4-a-failure-stays-local)
 - **How it works:** [specs/tools.md](specs/tools.md)
-- **Why:** [038](plan/decisions/038-a-limit-guards-a-real-failure.md)
+- **Why:** [038 A limit guards a real failure](plan/decisions/038-a-limit-guards-a-real-failure.md)
 
 **Stories:**
 
@@ -1005,7 +1005,7 @@ A tool set is a group of tools with a name, a description and one source, such a
 
 - **Design:** [2 A request only grows at its end](DESIGNS.md#2-a-request-only-grows-at-its-end)
 - **How it works:** [specs/tools.md](specs/tools.md)
-- **Why:** [039](plan/decisions/039-tools-load-one-by-one-from-a-catalog.md)
+- **Why:** [039 Tools load from a catalog](plan/decisions/039-tools-load-one-by-one-from-a-catalog.md)
 
 **Stories:**
 
@@ -1045,7 +1045,7 @@ A service can offer hundreds of tools. The model reads a catalog and loads the t
 
 - **Design:** [2 A request only grows at its end](DESIGNS.md#2-a-request-only-grows-at-its-end)
 - **How it works:** [specs/tools.md](specs/tools.md)
-- **Why:** [039](plan/decisions/039-tools-load-one-by-one-from-a-catalog.md)
+- **Why:** [039 Tools load from a catalog](plan/decisions/039-tools-load-one-by-one-from-a-catalog.md)
 
 **Stories:**
 
@@ -1066,7 +1066,7 @@ A text result over one page is kept whole in the Record, and the model gets a pr
 
 - **Design:** [3 The Context is a bounded view](DESIGNS.md#3-the-context-is-a-bounded-view)
 - **How it works:** [specs/tools.md](specs/tools.md), [specs/record.md](specs/record.md)
-- **Why:** [040](plan/decisions/040-a-large-tool-result-is-spilled-and-read-in-pages.md), [041](plan/decisions/041-a-read-only-bash-for-large-results-is-another-project.md)
+- **Why:** [040 Large results are spilled](plan/decisions/040-a-large-tool-result-is-spilled-and-read-in-pages.md), [041 A bash is another project](plan/decisions/041-a-read-only-bash-for-large-results-is-another-project.md)
 
 **Stories:**
 
@@ -1092,7 +1092,7 @@ Gotato speaks Chat Completions, Responses and Anthropic Messages, each implement
 
 - **Design:** [6 Stay inside the boundary](DESIGNS.md#6-stay-inside-the-boundary)
 - **How it works:** [specs/model.md](specs/model.md)
-- **Why:** [001](plan/decisions/001-one-implementation-per-wire-api.md), [045](plan/decisions/045-the-gateway-is-layered-and-each-layer-can-be-replaced.md)
+- **Why:** [001 One implementation per wire API](plan/decisions/001-one-implementation-per-wire-api.md), [045 A model bridge in layers](plan/decisions/045-the-gateway-is-layered-and-each-layer-can-be-replaced.md)
 
 **Stories:**
 
@@ -1110,7 +1110,7 @@ Gotato keeps no table of providers or models and reads nothing from an address o
 
 - **Design:** [6 Stay inside the boundary](DESIGNS.md#6-stay-inside-the-boundary)
 - **How it works:** [specs/model.md](specs/model.md)
-- **Why:** [042](plan/decisions/042-a-models-profile-is-its-own-value-apart-from-the-connection.md), [045](plan/decisions/045-the-gateway-is-layered-and-each-layer-can-be-replaced.md)
+- **Why:** [042 A model's profile is its own value](plan/decisions/042-a-models-profile-is-its-own-value-apart-from-the-connection.md), [045 A model bridge in layers](plan/decisions/045-the-gateway-is-layered-and-each-layer-can-be-replaced.md)
 
 **Stories:**
 
@@ -1119,8 +1119,8 @@ Gotato keeps no table of providers or models and reads nothing from an address o
 | Fact | Means | If left out |
 |---|---|---|
 | window | the context window in tokens, or unknown written out | the bridge refuses the model |
-| cache retention | how long the provider keeps the prompt cache ([F7.7](#f77-prompt-cache-retention)) | the provider's default |
-| round reasoning | the provider takes back only the current Round's reasoning ([F4.3](#f43-reasoning-goes-back-for-the-current-round)) | every reasoning artifact is sent |
+| cache retention | how long the provider keeps the prompt cache ([F7.7: Prompt cache retention](#f77-prompt-cache-retention)) | the provider's default |
+| round reasoning | the provider takes back only the current Round's reasoning ([F4.3: Reasoning goes back for the current Round](#f43-reasoning-goes-back-for-the-current-round)) | every reasoning artifact is sent |
 | thinking binding | the provider checks the prefix a thinking block was written under | nothing is sent about it |
 
 - Not yet run against a real provider: Gemini's thought signature on the chat wire, and DeepSeek's rule on reasoning.
@@ -1129,11 +1129,11 @@ Gotato keeps no table of providers or models and reads nothing from an address o
 
 **Status:** ✅
 
-Temperature, the output limit and reasoning settings are set per Agent, under the model's own defaults field by field. A task may lower the output limit ([F3.3.1](#f331-a-task-only-narrows)).
+Temperature, the output limit and reasoning settings are set per Agent, under the model's own defaults field by field. A task may lower the output limit ([F3.3.1: A task only narrows](#f331-a-task-only-narrows)).
 
 - **Design:** [10 Each layer does one job, and each default can be replaced](DESIGNS.md#10-each-layer-does-one-job-and-each-default-can-be-replaced)
 - **How it works:** [specs/model.md](specs/model.md)
-- **Why:** [045](plan/decisions/045-the-gateway-is-layered-and-each-layer-can-be-replaced.md), [047](plan/decisions/047-a-value-a-layer-owns-is-set-only-through-that-layer.md)
+- **Why:** [045 A model bridge in layers](plan/decisions/045-the-gateway-is-layered-and-each-layer-can-be-replaced.md), [047 A value set only through its layer, any other way refused](plan/decisions/047-a-value-a-layer-owns-is-set-only-through-that-layer.md)
 
 **Stories:**
 
@@ -1150,7 +1150,7 @@ A call is sent again when no response came, on 429 except a hard quota, on 500, 
 
 - **Design:** [4 A failure stays local](DESIGNS.md#4-a-failure-stays-local)
 - **How it works:** [specs/model.md](specs/model.md)
-- **Why:** [035](plan/decisions/035-the-runtime-says-whether-an-error-ran-and-whether-to-retry.md)
+- **Why:** [035 Ran, and retry](plan/decisions/035-the-runtime-says-whether-an-error-ran-and-whether-to-retry.md)
 
 **Stories:**
 
@@ -1158,18 +1158,18 @@ A call is sent again when no response came, on 429 except a hard quota, on 500, 
 
 - The default is 2 retries, a 200 ms backoff and a 60 s longest wait; a team sets its own or none.
 - A refusal as too long is never retried.
-- An error the provider sends mid-stream is marked retryable, but the bridge does not send it again once the stream started; a cut stream is the exception ([F7.6](#f76-recover-a-cut-stream)).
+- An error the provider sends mid-stream is marked retryable, but the bridge does not send it again once the stream started; a cut stream is the exception ([F7.6: Recover a cut stream](#f76-recover-a-cut-stream)).
 - When the retries run out the Run fails with `model_failure`.
 
 ### F7.5: A request refused as too long
 
 **Status:** ✅
 
-A 400 or 413 that says the request is too long, or a stop for the context window mid-reply, is recognized as `context_overflow`. The Session compacts and tries once more ([F5.5.2](#f552-after-a-refusal-as-too-long)).
+A 400 or 413 that says the request is too long, or a stop for the context window mid-reply, is recognized as `context_overflow`. The Session compacts and tries once more ([F5.5.2: After a refusal as too long](#f552-after-a-refusal-as-too-long)).
 
 - **Design:** [3 The Context is a bounded view](DESIGNS.md#3-the-context-is-a-bounded-view)
 - **How it works:** [specs/model.md](specs/model.md)
-- **Why:** [035](plan/decisions/035-the-runtime-says-whether-an-error-ran-and-whether-to-retry.md)
+- **Why:** [035 Ran, and retry](plan/decisions/035-the-runtime-says-whether-an-error-ran-and-whether-to-retry.md)
 
 **Stories:**
 
@@ -1201,7 +1201,7 @@ The team states how long its provider keeps the prompt cache, once, on the model
 
 - **Design:** [2 A request only grows at its end](DESIGNS.md#2-a-request-only-grows-at-its-end)
 - **How it works:** [specs/model.md](specs/model.md)
-- **Why:** [042](plan/decisions/042-a-models-profile-is-its-own-value-apart-from-the-connection.md)
+- **Why:** [042 A model's profile is its own value](plan/decisions/042-a-models-profile-is-its-own-value-apart-from-the-connection.md)
 
 **Stories:**
 
@@ -1220,7 +1220,7 @@ Each layer of the bridge has a default a team can replace.
 
 - **Design:** [10 Each layer does one job, and each default can be replaced](DESIGNS.md#10-each-layer-does-one-job-and-each-default-can-be-replaced)
 - **How it works:** [specs/model.md](specs/model.md)
-- **Why:** [045](plan/decisions/045-the-gateway-is-layered-and-each-layer-can-be-replaced.md)
+- **Why:** [045 A model bridge in layers](plan/decisions/045-the-gateway-is-layered-and-each-layer-can-be-replaced.md)
 
 **Stories:**
 
@@ -1230,7 +1230,7 @@ Each layer of the bridge has a default a team can replace.
 |---|---|---|
 | wire API | the three above | its own encoder of a request and decoder of a reply |
 | connection | an HTTP client with a 10 s connect and a 60 s response-header timeout | a client that signs, refreshes a token or goes through a proxy |
-| retry | as in [F7.4](#f74-retries) | its own counts and waits, or none |
+| retry | as in [F7.4: Retries](#f74-retries) | its own counts and waits, or none |
 | meaning of an error | the default classifier | usually a function that calls the default and changes its answer |
 
 ## F8: Store
@@ -1247,7 +1247,7 @@ The memory store keeps Records in the process, for tests and short-lived program
 
 - **Design:** [1 The store is the only truth](DESIGNS.md#1-the-store-is-the-only-truth)
 - **How it works:** [specs/store.md](specs/store.md)
-- **Why:** [002](plan/decisions/002-the-store-is-the-truth-and-memory-is-a-cache.md)
+- **Why:** [002 The store is the truth](plan/decisions/002-the-store-is-the-truth-and-memory-is-a-cache.md)
 
 **Stories:**
 
@@ -1261,7 +1261,7 @@ The file store keeps Records on local disk for one process, and a crash never te
 
 - **Design:** [1 The store is the only truth](DESIGNS.md#1-the-store-is-the-only-truth)
 - **How it works:** [specs/store.md](specs/store.md)
-- **Why:** [002](plan/decisions/002-the-store-is-the-truth-and-memory-is-a-cache.md)
+- **Why:** [002 The store is the truth](plan/decisions/002-the-store-is-the-truth-and-memory-is-a-cache.md)
 
 **Stories:**
 
@@ -1278,7 +1278,7 @@ A team backs the store with the database it already runs. The contract is two se
 
 - **Design:** [6 Stay inside the boundary](DESIGNS.md#6-stay-inside-the-boundary), [10 Each layer does one job, and each default can be replaced](DESIGNS.md#10-each-layer-does-one-job-and-each-default-can-be-replaced)
 - **How it works:** [specs/store.md](specs/store.md)
-- **Why:** [003](plan/decisions/003-gotato-owns-the-shapes-and-adapters-own-storage.md), [027](plan/decisions/027-instances-coordinate-through-the-stores-conditional-writes.md), [049](plan/decisions/049-the-store-contract-holds-only-what-every-store-must-do.md)
+- **Why:** [003 Shapes and adapters](plan/decisions/003-gotato-owns-the-shapes-and-adapters-own-storage.md), [027 Conditional writes and liveness](plan/decisions/027-instances-coordinate-through-the-stores-conditional-writes.md), [049 The store contract](plan/decisions/049-the-store-contract-holds-only-what-every-store-must-do.md)
 
 **Stories:**
 
@@ -1296,7 +1296,7 @@ A suite runs every rule of the contract against an adapter, with several handles
 
 - **Design:** [1 The store is the only truth](DESIGNS.md#1-the-store-is-the-only-truth)
 - **How it works:** [specs/store.md](specs/store.md)
-- **Why:** [013](plan/decisions/013-a-conformance-suite-ships-with-the-store-contract.md)
+- **Why:** [013 A conformance suite](plan/decisions/013-a-conformance-suite-ships-with-the-store-contract.md)
 
 **Stories:**
 
@@ -1313,7 +1313,7 @@ Every step is appended as it happens, at a position the store never gives twice.
 
 - **Design:** [1 The store is the only truth](DESIGNS.md#1-the-store-is-the-only-truth)
 - **How it works:** [specs/record.md](specs/record.md), [specs/store.md](specs/store.md)
-- **Why:** [017](plan/decisions/017-the-record-is-an-append-only-log.md), [028](plan/decisions/028-every-step-is-written-as-facts-and-a-log.md)
+- **Why:** [017 An append-only Record](plan/decisions/017-the-record-is-an-append-only-log.md), [028 Facts and a log](plan/decisions/028-every-step-is-written-as-facts-and-a-log.md)
 
 **Stories:**
 
@@ -1330,7 +1330,7 @@ A Session ID is at most 100 bytes of valid UTF-8 with no control character, slas
 
 - **Design:** [1 The store is the only truth](DESIGNS.md#1-the-store-is-the-only-truth)
 - **How it works:** [specs/store.md](specs/store.md)
-- **Why:** [049](plan/decisions/049-the-store-contract-holds-only-what-every-store-must-do.md)
+- **Why:** [049 The store contract](plan/decisions/049-the-store-contract-holds-only-what-every-store-must-do.md)
 
 **Stories:**
 
@@ -1346,7 +1346,7 @@ A store with a lister gives a page of Session summaries, most recently updated f
 
 - **Design:** [9 A Session can be stopped and seen](DESIGNS.md#9-a-session-can-be-stopped-and-seen)
 - **How it works:** [specs/store.md](specs/store.md)
-- **Why:** [049](plan/decisions/049-the-store-contract-holds-only-what-every-store-must-do.md)
+- **Why:** [049 The store contract](plan/decisions/049-the-store-contract-holds-only-what-every-store-must-do.md)
 
 **Stories:**
 
@@ -1360,11 +1360,11 @@ A store with a lister gives a page of Session summaries, most recently updated f
 
 **Status:** ✅
 
-An optional store keeps profile and task documents by kind and name, and knows nothing of what they mean ([F3.1.2](#f312-register-from-a-store)).
+An optional store keeps profile and task documents by kind and name, and knows nothing of what they mean ([F3.1.2: Register from a store](#f312-register-from-a-store)).
 
 - **Design:** [10 Each layer does one job, and each default can be replaced](DESIGNS.md#10-each-layer-does-one-job-and-each-default-can-be-replaced)
 - **How it works:** [specs/store.md](specs/store.md), [specs/profile.md](specs/profile.md)
-- **Why:** [044](plan/decisions/044-an-agent-profile-and-a-task-spec-are-registered-inline-or-from-a-store.md)
+- **Why:** [044 A job only narrows its Agent](plan/decisions/044-an-agent-profile-and-a-task-spec-are-registered-inline-or-from-a-store.md)
 
 **Stories:**
 
@@ -1386,7 +1386,7 @@ The prompt, a model call before it is made, a streaming reply every second or 4 
 
 - **Design:** [1 The store is the only truth](DESIGNS.md#1-the-store-is-the-only-truth)
 - **How it works:** [specs/host.md](specs/host.md), [specs/record.md](specs/record.md)
-- **Why:** [002](plan/decisions/002-the-store-is-the-truth-and-memory-is-a-cache.md), [028](plan/decisions/028-every-step-is-written-as-facts-and-a-log.md)
+- **Why:** [002 The store is the truth](plan/decisions/002-the-store-is-the-truth-and-memory-is-a-cache.md), [028 Facts and a log](plan/decisions/028-every-step-is-written-as-facts-and-a-log.md)
 
 **Stories:**
 
@@ -1400,9 +1400,9 @@ The prompt, a model call before it is made, a streaming reply every second or 4 
 
 One instance writes a Session at a time, through a claim in the store. A second instance that tries stops before it calls the model.
 
-- **Design:** [8 No instance is special](DESIGNS.md#8-no-instance-is-special)
+- **Design:** [11 A Session has one writer at a time](DESIGNS.md#11-a-session-has-one-writer-at-a-time)
 - **How it works:** [specs/host.md](specs/host.md)
-- **Why:** [019](plan/decisions/019-one-writer-per-session-claimed-in-the-store.md), [027](plan/decisions/027-instances-coordinate-through-the-stores-conditional-writes.md)
+- **Why:** [019 One writer per Session](plan/decisions/019-one-writer-per-session-claimed-in-the-store.md), [027 Conditional writes and liveness](plan/decisions/027-instances-coordinate-through-the-stores-conditional-writes.md)
 
 **Stories:**
 
@@ -1416,9 +1416,9 @@ One instance writes a Session at a time, through a claim in the store. A second 
 
 When a Session's writer is gone or idle, any instance claims it, loads it from the last Checkpoint and serves the request.
 
-- **Design:** [8 No instance is special](DESIGNS.md#8-no-instance-is-special)
+- **Design:** [8 No instance is special](DESIGNS.md#8-no-instance-is-special), [11 A Session has one writer at a time](DESIGNS.md#11-a-session-has-one-writer-at-a-time)
 - **How it works:** [specs/host.md](specs/host.md)
-- **Why:** [020](plan/decisions/020-no-session-is-bound-to-an-instance.md)
+- **Why:** [020 No Session bound to an Instance](plan/decisions/020-no-session-is-bound-to-an-instance.md)
 
 **Stories:**
 
@@ -1432,9 +1432,9 @@ When a Session's writer is gone or idle, any instance claims it, loads it from t
 
 Each instance keeps one row in the store, timed by the store's clock. When the row expires, the instance's claims end with no write, so its Sessions are free.
 
-- **Design:** [8 No instance is special](DESIGNS.md#8-no-instance-is-special)
+- **Design:** [8 No instance is special](DESIGNS.md#8-no-instance-is-special), [11 A Session has one writer at a time](DESIGNS.md#11-a-session-has-one-writer-at-a-time)
 - **How it works:** [specs/host.md](specs/host.md)
-- **Why:** [027](plan/decisions/027-instances-coordinate-through-the-stores-conditional-writes.md)
+- **Why:** [027 Conditional writes and liveness](plan/decisions/027-instances-coordinate-through-the-stores-conditional-writes.md)
 
 **Stories:**
 
@@ -1450,9 +1450,9 @@ Each instance keeps one row in the store, timed by the store's clock. When the r
 
 Your load balancer should send every request for a Session to its writer, by a consistent hash on the `session-id` header. When it misses, the request still runs once.
 
-- **Design:** [8 No instance is special](DESIGNS.md#8-no-instance-is-special)
+- **Design:** [8 No instance is special](DESIGNS.md#8-no-instance-is-special), [11 A Session has one writer at a time](DESIGNS.md#11-a-session-has-one-writer-at-a-time)
 - **How it works:** [specs/host.md](specs/host.md)
-- **Why:** [020](plan/decisions/020-no-session-is-bound-to-an-instance.md), [037](plan/decisions/037-when-the-hash-missed-the-answer-names-the-writer.md)
+- **Why:** [020 No Session bound to an Instance](plan/decisions/020-no-session-is-bound-to-an-instance.md), [037 The answer names the writer](plan/decisions/037-when-the-hash-missed-the-answer-names-the-writer.md)
 
 **Stories:**
 
@@ -1468,7 +1468,7 @@ A Run for a Session in use by its live writer waits for the release up to a boun
 
 **Status:** ✅
 
-A Steer, Follow up, Interrupt, notice or Stop for a Run another instance writes is answered `not_writer`, not run and retryable, with the writer's address when the host has one. With no Run going the instance takes the Session over instead. Gotato never connects to the address itself; over HTTP it can forward ([F12.5](#f125-forward-to-the-writer)).
+A Steer, Follow up, Interrupt, notice or Stop for a Run another instance writes is answered `not_writer`, not run and retryable, with the writer's address when the host has one. With no Run going the instance takes the Session over instead. Gotato never connects to the address itself; over HTTP it can forward ([F12.5: Forward to the writer](#f125-forward-to-the-writer)).
 
 ### F9.6: Warm Sessions
 
@@ -1478,7 +1478,7 @@ After a Run the Session stays in memory with no claim, for 60 idle minutes by de
 
 - **Design:** [1 The store is the only truth](DESIGNS.md#1-the-store-is-the-only-truth)
 - **How it works:** [specs/host.md](specs/host.md)
-- **Why:** [036](plan/decisions/036-a-warm-copy-is-a-cache-not-a-lock.md)
+- **Why:** [036 A warm copy is a cache](plan/decisions/036-a-warm-copy-is-a-cache-not-a-lock.md)
 
 **Stories:**
 
@@ -1495,7 +1495,7 @@ The instance counts the Sessions it holds in memory, warm ones included. Past th
 
 - **Design:** [4 A failure stays local](DESIGNS.md#4-a-failure-stays-local)
 - **How it works:** [specs/host.md](specs/host.md)
-- **Why:** [036](plan/decisions/036-a-warm-copy-is-a-cache-not-a-lock.md), [048](plan/decisions/048-the-runner-and-the-session-are-built-from-parts-and-host-plumbing-is-internal.md)
+- **Why:** [036 A warm copy is a cache](plan/decisions/036-a-warm-copy-is-a-cache-not-a-lock.md), [048 Parts with one job](plan/decisions/048-the-runner-and-the-session-are-built-from-parts-and-host-plumbing-is-internal.md)
 
 **Stories:**
 
@@ -1512,7 +1512,7 @@ The host asks your rule whether a Run may start, with the caller's context and t
 
 - **Design:** [10 Each layer does one job, and each default can be replaced](DESIGNS.md#10-each-layer-does-one-job-and-each-default-can-be-replaced)
 - **How it works:** [specs/host.md](specs/host.md)
-- **Why:** [025](plan/decisions/025-callers-credentials-and-quotas-belong-to-the-service.md), [048](plan/decisions/048-the-runner-and-the-session-are-built-from-parts-and-host-plumbing-is-internal.md)
+- **Why:** [025 Callers, credentials, quotas](plan/decisions/025-callers-credentials-and-quotas-belong-to-the-service.md), [048 Parts with one job](plan/decisions/048-the-runner-and-the-session-are-built-from-parts-and-host-plumbing-is-internal.md)
 
 **Stories:**
 
@@ -1531,7 +1531,7 @@ On a stop signal, or a call from your endpoint, the instance stops taking new Ru
 
 - **Design:** [8 No instance is special](DESIGNS.md#8-no-instance-is-special)
 - **How it works:** [specs/host.md](specs/host.md)
-- **Why:** [020](plan/decisions/020-no-session-is-bound-to-an-instance.md)
+- **Why:** [020 No Session bound to an Instance](plan/decisions/020-no-session-is-bound-to-an-instance.md)
 
 **Stories:**
 
@@ -1555,7 +1555,7 @@ A stored Event is an entry of the Record, and its number is its position there, 
 
 - **Design:** [9 A Session can be stopped and seen](DESIGNS.md#9-a-session-can-be-stopped-and-seen), [1 The store is the only truth](DESIGNS.md#1-the-store-is-the-only-truth)
 - **How it works:** [specs/events.md](specs/events.md)
-- **Why:** [018](plan/decisions/018-events-are-typed-written-before-sent-and-never-awaited.md), [030](plan/decisions/030-every-entry-is-an-event.md)
+- **Why:** [018 Typed Events, written before sent](plan/decisions/018-events-are-typed-written-before-sent-and-never-awaited.md), [030 Every Entry is an Event](plan/decisions/030-every-entry-is-an-event.md)
 
 **Stories:**
 
@@ -1584,7 +1584,7 @@ A subscriber follows a Session from any stored Event's number, first from the Re
 
 - **Design:** [9 A Session can be stopped and seen](DESIGNS.md#9-a-session-can-be-stopped-and-seen)
 - **How it works:** [specs/events.md](specs/events.md)
-- **Why:** [018](plan/decisions/018-events-are-typed-written-before-sent-and-never-awaited.md)
+- **Why:** [018 Typed Events, written before sent](plan/decisions/018-events-are-typed-written-before-sent-and-never-awaited.md)
 
 **Stories:**
 
@@ -1602,7 +1602,7 @@ A slow subscriber never slows the Run. It catches up from the Record by number a
 
 - **Design:** [4 A failure stays local](DESIGNS.md#4-a-failure-stays-local)
 - **How it works:** [specs/events.md](specs/events.md)
-- **Why:** [018](plan/decisions/018-events-are-typed-written-before-sent-and-never-awaited.md)
+- **Why:** [018 Typed Events, written before sent](plan/decisions/018-events-are-typed-written-before-sent-and-never-awaited.md)
 
 **Stories:**
 
@@ -1616,7 +1616,7 @@ An instance's stream carries every Event of every Session on it, plus the instan
 
 - **Design:** [9 A Session can be stopped and seen](DESIGNS.md#9-a-session-can-be-stopped-and-seen)
 - **How it works:** [specs/events.md](specs/events.md)
-- **Why:** [048](plan/decisions/048-the-runner-and-the-session-are-built-from-parts-and-host-plumbing-is-internal.md)
+- **Why:** [048 Parts with one job](plan/decisions/048-the-runner-and-the-session-are-built-from-parts-and-host-plumbing-is-internal.md)
 
 **Stories:**
 
@@ -1631,9 +1631,9 @@ An instance's stream carries every Event of every Session on it, plus the instan
 
 A kind a later version adds reads back as an unknown Event, so an older reader never fails on a newer Record.
 
-- **Design:** [5 Keep subtracting](DESIGNS.md#5-keep-subtracting)
+- **Design:** [12 The contract is versioned, and a break is written down](DESIGNS.md#12-the-contract-is-versioned-and-a-break-is-written-down)
 - **How it works:** [specs/events.md](specs/events.md)
-- **Why:** [018](plan/decisions/018-events-are-typed-written-before-sent-and-never-awaited.md)
+- **Why:** [018 Typed Events, written before sent](plan/decisions/018-events-are-typed-written-before-sent-and-never-awaited.md)
 
 **Stories:**
 
@@ -1653,7 +1653,7 @@ Before every model call, with no tool call open, an extension may rewrite the Tr
 
 - **Design:** [10 Each layer does one job, and each default can be replaced](DESIGNS.md#10-each-layer-does-one-job-and-each-default-can-be-replaced)
 - **How it works:** [specs/session.md](specs/session.md)
-- **Why:** [009](plan/decisions/009-one-loop-extended-at-fixed-stages.md)
+- **Why:** [009 One Loop](plan/decisions/009-one-loop-extended-at-fixed-stages.md)
 
 **Stories:**
 
@@ -1667,7 +1667,7 @@ After the Context is built and before it is sent, an extension may change it, an
 
 - **Design:** [10 Each layer does one job, and each default can be replaced](DESIGNS.md#10-each-layer-does-one-job-and-each-default-can-be-replaced)
 - **How it works:** [specs/session.md](specs/session.md)
-- **Why:** [009](plan/decisions/009-one-loop-extended-at-fixed-stages.md)
+- **Why:** [009 One Loop](plan/decisions/009-one-loop-extended-at-fixed-stages.md)
 
 **Stories:**
 
@@ -1679,9 +1679,9 @@ After the Context is built and before it is sent, an extension may change it, an
 
 Before a tool runs, an extension may refuse the call, and the model reads why.
 
-- **Design:** [7 Serve purpose-built agents](DESIGNS.md#7-serve-purpose-built-agents)
+- **Design:** [7 What an Agent may do is read from its definition](DESIGNS.md#7-what-an-agent-may-do-is-read-from-its-definition)
 - **How it works:** [specs/session.md](specs/session.md)
-- **Why:** [005](plan/decisions/005-no-approval-system.md), [009](plan/decisions/009-one-loop-extended-at-fixed-stages.md)
+- **Why:** [005 No approval system](plan/decisions/005-no-approval-system.md), [009 One Loop](plan/decisions/009-one-loop-extended-at-fixed-stages.md)
 
 **Stories:**
 
@@ -1695,7 +1695,7 @@ After a tool runs, an extension sees the call and its result.
 
 - **Design:** [10 Each layer does one job, and each default can be replaced](DESIGNS.md#10-each-layer-does-one-job-and-each-default-can-be-replaced)
 - **How it works:** [specs/session.md](specs/session.md)
-- **Why:** [009](plan/decisions/009-one-loop-extended-at-fixed-stages.md)
+- **Why:** [009 One Loop](plan/decisions/009-one-loop-extended-at-fixed-stages.md)
 
 **Stories:**
 
@@ -1709,7 +1709,7 @@ At the end of a Turn an extension may stop the Run, and records why.
 
 - **Design:** [9 A Session can be stopped and seen](DESIGNS.md#9-a-session-can-be-stopped-and-seen)
 - **How it works:** [specs/session.md](specs/session.md)
-- **Why:** [009](plan/decisions/009-one-loop-extended-at-fixed-stages.md), [038](plan/decisions/038-a-limit-guards-a-real-failure.md)
+- **Why:** [009 One Loop](plan/decisions/009-one-loop-extended-at-fixed-stages.md), [038 A limit guards a real failure](plan/decisions/038-a-limit-guards-a-real-failure.md)
 
 **Stories:**
 
@@ -1723,7 +1723,7 @@ An extension marked advisory may fail without failing the Run; its failure is st
 
 - **Design:** [4 A failure stays local](DESIGNS.md#4-a-failure-stays-local)
 - **How it works:** [specs/session.md](specs/session.md)
-- **Why:** [009](plan/decisions/009-one-loop-extended-at-fixed-stages.md)
+- **Why:** [009 One Loop](plan/decisions/009-one-loop-extended-at-fixed-stages.md)
 
 **Stories:**
 
@@ -1743,7 +1743,7 @@ Every host call has a route.
 
 - **Design:** [6 Stay inside the boundary](DESIGNS.md#6-stay-inside-the-boundary)
 - **How it works:** [specs/http.md](specs/http.md)
-- **Why:** [025](plan/decisions/025-callers-credentials-and-quotas-belong-to-the-service.md)
+- **Why:** [025 Callers, credentials, quotas](plan/decisions/025-callers-credentials-and-quotas-belong-to-the-service.md)
 
 **Stories:**
 
@@ -1752,7 +1752,7 @@ Every host call has a route.
 | Routes | What they do |
 |---|---|
 | `GET /healthz`, `GET /readyz` | alive with the contract version; ready with the counts of Runs and Sessions, or 503 when draining or lapsed |
-| `GET /v1/agents`, `GET /v1/tasks` | the registered Agents and tasks ([F3.4](#f34-list-agents-and-tasks)) |
+| `GET /v1/agents`, `GET /v1/tasks` | the registered Agents and tasks ([F3.4: List Agents and tasks](#f34-list-agents-and-tasks)) |
 | `POST /v1/sessions`, `GET /v1/sessions` | create, with an Agent or a task; list a page |
 | `GET`, `DELETE /v1/sessions/{id}` | read, delete |
 | `POST …/fork` | fork |
@@ -1771,7 +1771,7 @@ A Run that settles failed, canceled or past its deadline still answers 200 with 
 
 - **Design:** [4 A failure stays local](DESIGNS.md#4-a-failure-stays-local)
 - **How it works:** [specs/http.md](specs/http.md)
-- **Why:** [035](plan/decisions/035-the-runtime-says-whether-an-error-ran-and-whether-to-retry.md)
+- **Why:** [035 Ran, and retry](plan/decisions/035-the-runtime-says-whether-an-error-ran-and-whether-to-retry.md)
 
 **Stories:**
 
@@ -1804,7 +1804,7 @@ A streamed Run sends each Event as a server-sent event and ends with the Run's r
 
 - **Design:** [9 A Session can be stopped and seen](DESIGNS.md#9-a-session-can-be-stopped-and-seen)
 - **How it works:** [specs/http.md](specs/http.md)
-- **Why:** [018](plan/decisions/018-events-are-typed-written-before-sent-and-never-awaited.md)
+- **Why:** [018 Typed Events, written before sent](plan/decisions/018-events-are-typed-written-before-sent-and-never-awaited.md)
 
 **Stories:**
 
@@ -1823,7 +1823,7 @@ A Session's stream sends the stored Events after a number, then the live ones ac
 
 - **Design:** [8 No instance is special](DESIGNS.md#8-no-instance-is-special)
 - **How it works:** [specs/http.md](specs/http.md)
-- **Why:** [030](plan/decisions/030-every-entry-is-an-event.md)
+- **Why:** [030 Every Entry is an Event](plan/decisions/030-every-entry-is-an-event.md)
 
 **Stories:**
 
@@ -1839,9 +1839,9 @@ A Session's stream sends the stored Events after a number, then the live ones ac
 
 When you turn it on, the handler forwards a message, notice or Stop for a Run on another instance to the writer, only to addresses your rule accepts.
 
-- **Design:** [8 No instance is special](DESIGNS.md#8-no-instance-is-special)
+- **Design:** [8 No instance is special](DESIGNS.md#8-no-instance-is-special), [11 A Session has one writer at a time](DESIGNS.md#11-a-session-has-one-writer-at-a-time)
 - **How it works:** [specs/http.md](specs/http.md)
-- **Why:** [037](plan/decisions/037-when-the-hash-missed-the-answer-names-the-writer.md)
+- **Why:** [037 The answer names the writer](plan/decisions/037-when-the-hash-missed-the-answer-names-the-writer.md)
 
 **Stories:**
 
@@ -1865,7 +1865,7 @@ A server connects over streamable HTTP, used without state so any instance can m
 
 - **Design:** [6 Stay inside the boundary](DESIGNS.md#6-stay-inside-the-boundary)
 - **How it works:** [specs/mcp.md](specs/mcp.md)
-- **Why:** [026](plan/decisions/026-gotato-ships-no-machine-no-client-and-no-tool-catalog.md), [039](plan/decisions/039-tools-load-one-by-one-from-a-catalog.md)
+- **Why:** [026 No machine, client or catalog](plan/decisions/026-gotato-ships-no-machine-no-client-and-no-tool-catalog.md), [039 Tools load from a catalog](plan/decisions/039-tools-load-one-by-one-from-a-catalog.md)
 
 **Stories:**
 
@@ -1882,9 +1882,9 @@ A server connects over streamable HTTP, used without state so any instance can m
 
 A tool's Effect comes from the server's annotations: read-only is `read`, non-destructive in a closed world is `write_local`, non-destructive in an open world is `write_external`, and anything else is `destructive`.
 
-- **Design:** [7 Serve purpose-built agents](DESIGNS.md#7-serve-purpose-built-agents)
+- **Design:** [7 What an Agent may do is read from its definition](DESIGNS.md#7-what-an-agent-may-do-is-read-from-its-definition)
 - **How it works:** [specs/mcp.md](specs/mcp.md)
-- **Why:** [011](plan/decisions/011-an-agents-bounds-are-its-tools-and-its-effect-cap.md)
+- **Why:** [011 Bounds and tool output](plan/decisions/011-an-agents-bounds-are-its-tools-and-its-effect-cap.md)
 
 **Stories:**
 
@@ -1902,7 +1902,7 @@ Authentication is your HTTP client: a fixed header, a refreshing token or mutual
 
 - **Design:** [6 Stay inside the boundary](DESIGNS.md#6-stay-inside-the-boundary)
 - **How it works:** [specs/mcp.md](specs/mcp.md)
-- **Why:** [025](plan/decisions/025-callers-credentials-and-quotas-belong-to-the-service.md)
+- **Why:** [025 Callers, credentials, quotas](plan/decisions/025-callers-credentials-and-quotas-belong-to-the-service.md)
 
 **Stories:**
 
@@ -1914,9 +1914,9 @@ Authentication is your HTTP client: a fixed header, a refreshing token or mutual
 
 A team leaves a tool out, or changes only the name the model sees, before the model sees either. The adapter reports the tools it left out and why.
 
-- **Design:** [7 Serve purpose-built agents](DESIGNS.md#7-serve-purpose-built-agents)
+- **Design:** [7 What an Agent may do is read from its definition](DESIGNS.md#7-what-an-agent-may-do-is-read-from-its-definition)
 - **How it works:** [specs/mcp.md](specs/mcp.md)
-- **Why:** [039](plan/decisions/039-tools-load-one-by-one-from-a-catalog.md)
+- **Why:** [039 Tools load from a catalog](plan/decisions/039-tools-load-one-by-one-from-a-catalog.md)
 
 **Stories:**
 
@@ -1932,14 +1932,14 @@ A server's result becomes what the model reads: text, images, structured content
 
 - **Design:** [4 A failure stays local](DESIGNS.md#4-a-failure-stays-local)
 - **How it works:** [specs/mcp.md](specs/mcp.md)
-- **Why:** [023](plan/decisions/023-a-mistake-the-model-can-fix-is-a-tool-result.md)
+- **Why:** [023 Mistakes and settling](plan/decisions/023-a-mistake-the-model-can-fix-is-a-tool-result.md)
 
 **Stories:**
 
 - A server returns a chart and a table, and the model reads both.
 
 - Progress reaches the Session as Events.
-- A large result is kept whole and read in pages ([F6.7](#f67-large-results)).
+- A large result is kept whole and read in pages ([F6.7: Large results](#f67-large-results)).
 - A tool that asks for input mid-call ends with a failed result; nothing waits.
 - Tested against the SDK's own server over HTTP and stdio; not yet against a server of the multi round-trip revision.
 
@@ -1957,7 +1957,7 @@ A small program builds an agent with a fake model and runs it in-process; a serv
 
 - **Design:** [5 Keep subtracting](DESIGNS.md#5-keep-subtracting)
 - **How it works:** [specs/ARCHITECTURE.md](specs/ARCHITECTURE.md)
-- **Why:** [010](plan/decisions/010-gotato-is-a-light-library-with-a-versioned-contract.md)
+- **Why:** [010 A light library](plan/decisions/010-gotato-is-a-light-library-with-a-versioned-contract.md)
 
 **Stories:**
 
@@ -1971,7 +1971,7 @@ Each package is one layer and imports only the layers below it, and a test fails
 
 - **Design:** [10 Each layer does one job, and each default can be replaced](DESIGNS.md#10-each-layer-does-one-job-and-each-default-can-be-replaced)
 - **How it works:** [specs/ARCHITECTURE.md](specs/ARCHITECTURE.md)
-- **Why:** [050](plan/decisions/050-each-package-is-one-layer-named-for-its-job.md)
+- **Why:** [050 A transport is an adapter](plan/decisions/050-each-package-is-one-layer-named-for-its-job.md)
 
 **Stories:**
 
@@ -1985,23 +1985,23 @@ The HTTP and MCP adapters are modules of their own, and no core package imports 
 
 - **Design:** [6 Stay inside the boundary](DESIGNS.md#6-stay-inside-the-boundary)
 - **How it works:** [specs/ARCHITECTURE.md](specs/ARCHITECTURE.md)
-- **Why:** [010](plan/decisions/010-gotato-is-a-light-library-with-a-versioned-contract.md), [050](plan/decisions/050-each-package-is-one-layer-named-for-its-job.md)
+- **Why:** [010 A light library](plan/decisions/010-gotato-is-a-light-library-with-a-versioned-contract.md), [050 A transport is an adapter](plan/decisions/050-each-package-is-one-layer-named-for-its-job.md)
 
 **Stories:**
 
 - A service adds the HTTP adapter and the MCP adapter as separate modules.
 
-- The core needs Go 1.24; the MCP adapter needs Go 1.25.
+- The Go version each module needs is in the install guide.
 
 ### F14.4: A small footprint
 
 **Status:** ✅
 
-A program that imports the agent, the host, the file store, the HTTP handler and the model bridge and does nothing else links 3 modules and builds to a 9.0 MB stripped binary (measured 2026-11-03, Go 1.27.2).
+A program that imports the agent, the host, the file store, the HTTP handler and the model bridge and does nothing else links a small fraction of the modules and packages that Google ADK for Go needs, into a smaller binary. GOALS.md keeps the measurement and its date.
 
 - **Design:** [5 Keep subtracting](DESIGNS.md#5-keep-subtracting)
 - **How it works:** [specs/ARCHITECTURE.md](specs/ARCHITECTURE.md)
-- **Why:** [010](plan/decisions/010-gotato-is-a-light-library-with-a-versioned-contract.md)
+- **Why:** [010 A light library](plan/decisions/010-gotato-is-a-light-library-with-a-versioned-contract.md)
 
 **Stories:**
 
@@ -2013,9 +2013,9 @@ A program that imports the agent, the host, the file store, the HTTP handler and
 
 The Go API, the HTTP contract and the shape of a saved Session change only through versioned breaks, each with a before-and-after note. The health route reports the HTTP contract version.
 
-- **Design:** [5 Keep subtracting](DESIGNS.md#5-keep-subtracting)
+- **Design:** [12 The contract is versioned, and a break is written down](DESIGNS.md#12-the-contract-is-versioned-and-a-break-is-written-down)
 - **How it works:** [specs/ARCHITECTURE.md](specs/ARCHITECTURE.md)
-- **Why:** [010](plan/decisions/010-gotato-is-a-light-library-with-a-versioned-contract.md)
+- **Why:** [010 A light library](plan/decisions/010-gotato-is-a-light-library-with-a-versioned-contract.md)
 
 **Stories:**
 
@@ -2029,7 +2029,7 @@ You test agents without a network or a paid model, and measure Gotato on a fixed
 
 - **Design:** [9 A Session can be stopped and seen](DESIGNS.md#9-a-session-can-be-stopped-and-seen)
 - **How it works:** [specs/testing.md](specs/testing.md)
-- **Why:** [010](plan/decisions/010-gotato-is-a-light-library-with-a-versioned-contract.md), [013](plan/decisions/013-a-conformance-suite-ships-with-the-store-contract.md)
+- **Why:** [010 A light library](plan/decisions/010-gotato-is-a-light-library-with-a-versioned-contract.md), [013 A conformance suite](plan/decisions/013-a-conformance-suite-ships-with-the-store-contract.md)
 
 **Stories:**
 
@@ -2049,29 +2049,29 @@ Every error answers three questions where it is made: its code says what happene
 
 | What you see | Not run | Retryable | Feature |
 |---|---|---|---|
-| `draining`: the instance takes no new Run | yes | yes, on another instance | [F9.9](#f99-drain) |
-| `overloaded`: past the memory limit | yes | yes, on another instance | [F9.7](#f97-the-memory-limit) |
-| `limit_exceeded` from your admission rule or the Run limit | yes | yes | [F9.8](#f98-admission) |
-| `busy`: the Session has a Run | yes | yes, after it | [F2.3](#f23-one-run-at-a-time) |
-| `not_writer`: a message for a Run another instance writes | yes | yes, at the writer named | [F9.5.2](#f952-a-message-for-a-run-elsewhere) |
-| `not_found`: the Session does not exist | yes | no | [F2.5](#f25-delete-a-session) |
-| `session_closing`, `session_closed`: the live Session takes no more calls | yes | no | [F1.1](#f11-run-an-agent) |
-| `already_exists`: the ID you chose is taken | not marked | no | [F2.1](#f21-create-a-session) |
-| `invalid_argument`: a bad request, a `gotato.` key, an unknown Agent or task | yes | no | [F2.4](#f24-your-own-metadata), [F3.2](#f32-a-default-agent) |
-| a task wider than its profile | yes | no | [F3.3.1](#f331-a-task-only-narrows) |
-| `store_failure`: the store could not write or read | unknown for a Run's write; yes for a load or a read | yes | [F8.3](#f83-your-own-store) |
-| `model_failure` the provider calls transient | no, it ran | yes | [F7.4](#f74-retries) |
-| `context_overflow`: still too long after a compaction | no | no | [F7.5](#f75-a-request-refused-as-too-long) |
-| `limit_exceeded` from the ceiling or a message over its size | no, it ran | no | [F5.4](#f54-the-ceiling), [F1.7](#f17-limits) |
-| a compaction part fails or breaks a rule | the compaction is dropped, the Run goes on | next trigger | [F5.6](#f56-replace-a-part) |
-| a compaction inside a Run cannot be written | the Run ends `store_failure` | yes | [F5.1](#f51-close-a-segment) |
-| a Recap fails | the Segment is kept without one | next compaction | [F5.1.4](#f514-the-recap) |
-| a tool fails or is called wrong | the Run goes on | the model may try again | [F6.3](#f63-mistakes-go-back-to-the-model) |
-| a tool the model had not loaded | the call did not run | the model calls again | [F6.6](#f66-tool-search) |
-| a tool set is down | the Run goes on without it | next Run | [F6.5.2](#f652-a-set-that-fails) |
-| a stream is cut after output | the reply is asked for again | within the retries | [F7.6](#f76-recover-a-cut-stream) |
-| the writer dies | the step in flight is lost | another instance continues | [F9.3](#f93-takeover) |
-| a stream cannot resume (`cannot_resume`) | not run | start over at 0 | [F12.4](#f124-watch-a-session-and-resume) |
+| `draining`: the instance takes no new Run | yes | yes, on another instance | [F9.9: Drain](#f99-drain) |
+| `overloaded`: past the memory limit | yes | yes, on another instance | [F9.7: The memory limit](#f97-the-memory-limit) |
+| `limit_exceeded` from your admission rule or the Run limit | yes | yes | [F9.8: Admission](#f98-admission) |
+| `busy`: the Session has a Run | yes | yes, after it | [F2.3: One Run at a time](#f23-one-run-at-a-time) |
+| `not_writer`: a message for a Run another instance writes | yes | yes, at the writer named | [F9.5.2: A message for a Run elsewhere](#f952-a-message-for-a-run-elsewhere) |
+| `not_found`: the Session does not exist | yes | no | [F2.5: Delete a Session](#f25-delete-a-session) |
+| `session_closing`, `session_closed`: the live Session takes no more calls | yes | no | [F1.1: Run an Agent](#f11-run-an-agent) |
+| `already_exists`: the ID you chose is taken | not marked | no | [F2.1: Create a Session](#f21-create-a-session) |
+| `invalid_argument`: a bad request, a `gotato.` key, an unknown Agent or task | yes | no | [F2.4: Your own metadata](#f24-your-own-metadata), [F3.2: A default Agent](#f32-a-default-agent) |
+| a task wider than its profile | yes | no | [F3.3.1: A task only narrows](#f331-a-task-only-narrows) |
+| `store_failure`: the store could not write or read | unknown for a Run's write; yes for a load or a read | yes | [F8.3: Your own store](#f83-your-own-store) |
+| `model_failure` the provider calls transient | no, it ran | yes | [F7.4: Retries](#f74-retries) |
+| `context_overflow`: still too long after a compaction | no | no | [F7.5: A request refused as too long](#f75-a-request-refused-as-too-long) |
+| `limit_exceeded` from the ceiling or a message over its size | no, it ran | no | [F5.4: The ceiling](#f54-the-ceiling), [F1.7: Limits](#f17-limits) |
+| a compaction part fails or breaks a rule | the compaction is dropped, the Run goes on | next trigger | [F5.6: Replace a part](#f56-replace-a-part) |
+| a compaction inside a Run cannot be written | the Run ends `store_failure` | yes | [F5.1: Close a Segment](#f51-close-a-segment) |
+| a Recap fails | the Segment is kept without one | next compaction | [F5.1.4: The Recap](#f514-the-recap) |
+| a tool fails or is called wrong | the Run goes on | the model may try again | [F6.3: Mistakes go back to the model](#f63-mistakes-go-back-to-the-model) |
+| a tool the model had not loaded | the call did not run | the model calls again | [F6.6: Tool search](#f66-tool-search) |
+| a tool set is down | the Run goes on without it | next Run | [F6.5.2: A set that fails](#f652-a-set-that-fails) |
+| a stream is cut after output | the reply is asked for again | within the retries | [F7.6: Recover a cut stream](#f76-recover-a-cut-stream) |
+| the writer dies | the step in flight is lost | another instance continues | [F9.3: Takeover](#f93-takeover) |
+| a stream cannot resume (`cannot_resume`) | not run | start over at 0 | [F12.4: Watch a Session and resume](#f124-watch-a-session-and-resume) |
 
 ## Later, if needed
 
@@ -2079,7 +2079,7 @@ Every error answers three questions where it is made: its code says what happene
 - **A model catalog:** model names and prices beside the providers, if teams keep copying the same facts; a window would still be stated, never looked up.
 - **Provider rate-limit information:** limits, remaining calls and reset time with the usage, when a service needs to pace itself.
 - **Idempotency keys:** a repeated request ID not run twice, when a caller cannot avoid repeats.
-- **Examples:** one-shot use, a persistent Session, compaction, forks and dynamic tools, once the API settles after 0.3.0.
+- **Examples:** one-shot use, a persistent Session, compaction, forks and dynamic tools, once the API settles.
 - **A token budget per Run:** a stop at the end of a Turn does it today; a built-in one if many teams write the same.
 - **Filtering the Session list:** by owner or metadata, when a service needs it beyond paging.
 - **Loading only the recent Transcript:** a load already starts at the last Checkpoint; less, when a measurement shows the cost.
@@ -2101,12 +2101,13 @@ Each belongs to the application, an MCP server, or the tools themselves. Look he
 - **A workflow language:** ordinary Go decides when to call an agent.
 - **Storage engines:** Gotato defines the store contract and ships two stores, and your adapter owns the schema.
 - **Tool catalogs:** file, Git and HTTP tools and skill formats come from MCP servers or the application.
-- **Context organization beyond full history:** retrieval, windows and summaries are your own Context builder ([F4.5](#f45-your-own-context)).
+- **Context organization beyond full history:** retrieval, windows and summaries are your own Context builder ([F4.5: Your own Context](#f45-your-own-context)).
 - **Telemetry backends:** Events have a stable shape, and mapping them is a subscriber in the application.
-- **Tool approval:** tools are allowed by name, the cap hides what is above it, a risky tool refuses its own arguments, and an extension can add a check ([F11.3](#f113-before-a-tool)).
+- **Tool approval:** tools are allowed by name, the cap hides what is above it, a risky tool refuses its own arguments, and an extension can add a check ([F11.3: Before a tool](#f113-before-a-tool)).
 - **A cloud coding agent:** coding stays on developers' machines ([PHILOSOPHY.md, question 2](PHILOSOPHY.md#2-what-belongs-in-a-cloud-session)).
 - **A remote dev environment, shell or sandbox:** work that needs a machine runs on a laptop, in CI or in a coding product, and a large result is read in pages.
 - **A general-purpose assistant:** Gotato is for purpose-built agents ([PHILOSOPHY.md, question 3](PHILOSOPHY.md#3-how-is-a-cloud-session-different-from-a-local-one)).
+- **An agent that changes production on its own:** it investigates and hands the decision back, and Gotato ships no tool that changes a system ([PHILOSOPHY.md, question 3](PHILOSOPHY.md#3-how-is-a-cloud-session-different-from-a-local-one)). A team that writes one owns the choice and bounds it with the Effect cap ([F6.2: Effect and the cap](#f62-effect-and-the-cap)).
 - **A separate platform:** a platform beside your services is a second system to run.
 - **Infrastructure:** discovery, routing, autoscaling and deployment already exist where you run.
 - **Ready-made clients:** bots, schedulers and front ends are the callers' code.
