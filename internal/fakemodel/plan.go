@@ -1,4 +1,4 @@
-package fakegateway
+package fakemodel
 
 import (
 	"crypto/sha256"
@@ -17,7 +17,7 @@ type plan struct {
 	output    int
 	id        string
 	outcome   func(string)
-	g         *Gateway
+	g         *Server
 	q         *quirks
 }
 
@@ -29,7 +29,7 @@ type toolCall struct {
 	search bool
 }
 
-func (g *Gateway) answer(p *parsed, text string, q *quirks, tokens int) *plan {
+func (g *Server) answer(p *parsed, text string, q *quirks, tokens int) *plan {
 	pl := &plan{input: tokens, id: shortHash(p.body)}
 	if v, ok := q.byName["cached"]; ok {
 		pl.cached, _ = strconv.Atoi(v)

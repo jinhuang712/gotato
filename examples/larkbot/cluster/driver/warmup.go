@@ -8,7 +8,7 @@ import (
 	"time"
 )
 
-// warmUp sends a throwaway message through the whole path (fakelark, a bot, the fake gateway, the card back)
+// warmUp sends a throwaway message through the whole path (fakelark, a bot, the fake model endpoint, the card back)
 // until a card arrives. Right after `up` a Service's rules may not be programmed yet although the rollout is
 // ready, so the first messages can fail inside the cluster. It then clears fakelark's cards. The throwaway
 // Session is in no thread, so no check sees it.

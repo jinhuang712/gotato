@@ -1,5 +1,5 @@
 # syntax=docker/dockerfile:1
-# One file, four images (--target larkbot | fakelark | fakemcp | fakegateway). The build context is the Gotato repo root,
+# One file, four images (--target larkbot | fakelark | fakemcp | fakemodel). The build context is the Gotato repo root,
 # because go.mod replaces Gotato and its adapter modules with the local checkout (../.., ../../adapter/*). From the root:
 #   docker build -f examples/larkbot/cluster/Dockerfile --target larkbot -t larkbot:dev .
 FROM golang:1.27 AS build
@@ -18,7 +18,7 @@ RUN --mount=type=cache,target=/go/pkg/mod --mount=type=cache,target=/root/.cache
     go build -ldflags=-s -o /out/larkbot . && \
     go build -ldflags=-s -o /out/fakelark ./cmd/fakelark && \
     go build -ldflags=-s -o /out/fakemcp ./cmd/fakemcp && \
-    go build -ldflags=-s -o /out/fakegateway github.com/jinhuang712/gotato/internal/fakegateway/cmd/fakegateway
+    go build -ldflags=-s -o /out/fakemodel github.com/jinhuang712/gotato/internal/fakemodel/cmd/fakemodel
 
 # No shell, no package manager: a static binary and CA certificates, run as 65532 (non-root).
 FROM scratch AS base
@@ -37,6 +37,6 @@ FROM base AS fakemcp
 COPY --from=build /out/fakemcp /fakemcp
 ENTRYPOINT ["/fakemcp"]
 
-FROM base AS fakegateway
-COPY --from=build /out/fakegateway /fakegateway
-ENTRYPOINT ["/fakegateway"]
+FROM base AS fakemodel
+COPY --from=build /out/fakemodel /fakemodel
+ENTRYPOINT ["/fakemodel"]

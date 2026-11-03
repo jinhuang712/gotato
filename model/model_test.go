@@ -14,7 +14,7 @@ import (
 	"testing"
 
 	"github.com/jinhuang712/gotato/gotato"
-	"github.com/jinhuang712/gotato/internal/fakegateway"
+	"github.com/jinhuang712/gotato/internal/fakemodel"
 	"github.com/jinhuang712/gotato/testkit"
 )
 
@@ -258,7 +258,7 @@ func TestEmptyFinishReasonIsNotAFinish(t *testing.T) {
 	}
 }
 
-// These tests point the Client at internal/fakegateway, which speaks each wire
+// These tests point the Client at internal/fakemodel, which speaks each wire
 // API from the providers' public documentation, so they check the Client's
 // adaptation against the format and not against its own decoder.
 
@@ -283,7 +283,7 @@ func drainFake(t *testing.T, client *Client, request gotato.ModelRequest) ([]got
 	}
 }
 
-func asGatewayError(t *testing.T, err error) *Error {
+func asModelError(t *testing.T, err error) *Error {
 	t.Helper()
 	var gerr *Error
 	if !errors.As(err, &gerr) {
@@ -348,12 +348,12 @@ func TestFakeCachedTokensAreCountedFromEachProvidersField(t *testing.T) {
 }
 
 func TestFakeRefusalAsTooLongIsContextOverflowOnEachWireAPI(t *testing.T) {
-	limits := map[string]int{fakegateway.APIAnthropic: 200000, fakegateway.APIResponses: 0, fakegateway.APIChat: 200000}
+	limits := map[string]int{fakemodel.APIAnthropic: 200000, fakemodel.APIResponses: 0, fakemodel.APIChat: 200000}
 	for _, wire := range fakeWires {
 		t.Run(wire.name, func(t *testing.T) {
 			fake, client := newFake(t, wire)
 			_, err := client.Stream(context.Background(), gotato.ModelRequest{Messages: []gotato.Message{gotato.UserMessage("hi [quirk:overflow]")}})
-			gerr := asGatewayError(t, err)
+			gerr := asModelError(t, err)
 			if !gerr.ContextOverflow() || gerr.Retryable() || gerr.StatusCode != 400 {
 				t.Fatalf("error = %+v", gerr)
 			}
@@ -370,10 +370,10 @@ func TestFakeRefusalAsTooLongIsContextOverflowOnEachWireAPI(t *testing.T) {
 func TestFakeMaxTokensAloneTooLargeIsNotAnOverflow(t *testing.T) {
 	for _, wire := range fakeWires {
 		t.Run(wire.name, func(t *testing.T) {
-			_, client := newFake(t, wire, fakegateway.WithMaxOutput(1000))
+			_, client := newFake(t, wire, fakemodel.WithMaxOutput(1000))
 			_, err := client.Stream(context.Background(), gotato.ModelRequest{
 				Messages: []gotato.Message{gotato.UserMessage("hi")}, Sampling: gotato.Sampling{MaxTokens: 99999}})
-			gerr := asGatewayError(t, err)
+			gerr := asModelError(t, err)
 			if gerr.ContextOverflow() || gerr.StatusCode != 400 || !strings.Contains(gerr.Message, "99999") {
 				t.Fatalf("error = %+v", gerr)
 			}
@@ -384,9 +384,9 @@ func TestFakeMaxTokensAloneTooLargeIsNotAnOverflow(t *testing.T) {
 func TestFakeRequestPastTheWindowIsContextOverflow(t *testing.T) {
 	for _, wire := range fakeWires {
 		t.Run(wire.name, func(t *testing.T) {
-			_, client := newFake(t, wire, fakegateway.WithWindow(200))
+			_, client := newFake(t, wire, fakemodel.WithWindow(200))
 			_, err := client.Stream(context.Background(), gotato.ModelRequest{Messages: []gotato.Message{gotato.UserMessage(strings.Repeat("word ", 400))}})
-			if gerr := asGatewayError(t, err); !gerr.ContextOverflow() {
+			if gerr := asModelError(t, err); !gerr.ContextOverflow() {
 				t.Fatalf("error = %+v", gerr)
 			}
 		})
@@ -451,9 +451,9 @@ func TestFakeStreamCutAfterTextAndInArgumentsIsRetriedAndSucceeds(t *testing.T) 
 // accepts it. The same loop without the reasoning is refused.
 func TestFakeReasoningIsReplayedAndTheFakeRefusesARequestThatDropsIt(t *testing.T) {
 	refusals := map[string]string{
-		fakegateway.APIAnthropic: "Expected `thinking` or `redacted_thinking`",
-		fakegateway.APIResponses: "without its required 'reasoning' item",
-		fakegateway.APIChat:      "`reasoning_content` in the thinking mode must be passed back",
+		fakemodel.APIAnthropic: "Expected `thinking` or `redacted_thinking`",
+		fakemodel.APIResponses: "without its required 'reasoning' item",
+		fakemodel.APIChat:      "`reasoning_content` in the thinking mode must be passed back",
 	}
 	for _, wire := range fakeWires {
 		t.Run(wire.name, func(t *testing.T) {
@@ -481,7 +481,7 @@ func TestFakeReasoningIsReplayedAndTheFakeRefusesARequestThatDropsIt(t *testing.
 				stripped = append(stripped, kept)
 			}
 			_, err = client.Stream(context.Background(), gotato.ModelRequest{Messages: stripped, Tools: session.Tools()})
-			if gerr := asGatewayError(t, err); gerr.StatusCode != 400 || !strings.Contains(gerr.Message, refusals[wire.name]) {
+			if gerr := asModelError(t, err); gerr.StatusCode != 400 || !strings.Contains(gerr.Message, refusals[wire.name]) {
 				t.Fatalf("a request without the reasoning: %v", err)
 			}
 			if n := len(fake.Requests()); n != 3 {

@@ -1,4 +1,4 @@
-package fakegateway
+package fakemodel
 
 import (
 	"net/http"
@@ -20,7 +20,7 @@ type wire interface {
 	authorize(h http.Header) *apiError
 	// parse decodes the body into the neutral form, refusing what the
 	// provider refuses by structure: a malformed tool loop, a missing field.
-	parse(g *Gateway, body []byte, h http.Header) (*parsed, *apiError)
+	parse(g *Server, body []byte, h http.Header) (*parsed, *apiError)
 	// invalid wraps a message of the fake's own in the provider's error form.
 	invalid(message string) *apiError
 	tooManyOutputTokens(p *parsed, limit int) *apiError
@@ -85,7 +85,7 @@ func (p *parsed) visibleTools() []toolDef {
 	return out
 }
 
-// wireName is a tool ID as the gateway names it for a provider: every
+// wireName is a tool ID as the model bridge names it for a provider: every
 // character outside [A-Za-z0-9_-] becomes "_".
 func wireName(id string) string {
 	return strings.Map(func(r rune) rune {

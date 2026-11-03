@@ -15,7 +15,7 @@ import (
 
 	"github.com/jinhuang712/gotato/gotato"
 	"github.com/jinhuang712/gotato/host"
-	"github.com/jinhuang712/gotato/internal/fakegateway"
+	"github.com/jinhuang712/gotato/internal/fakemodel"
 	"github.com/jinhuang712/gotato/internal/reftasks"
 	itext "github.com/jinhuang712/gotato/internal/text"
 	"github.com/jinhuang712/gotato/model"
@@ -326,13 +326,13 @@ type wireEncoder struct {
 	send func(gotato.ModelRequest)
 }
 
-// wireName is the name of a wire API as the fake gateway spells it.
+// wireName is the name of a wire API as the fake model endpoint spells it.
 type wireName string
 
 const (
-	apiAnthropic wireName = fakegateway.APIAnthropic
-	apiResponses wireName = fakegateway.APIResponses
-	apiChat      wireName = fakegateway.APIChat
+	apiAnthropic wireName = fakemodel.APIAnthropic
+	apiResponses wireName = fakemodel.APIResponses
+	apiChat      wireName = fakemodel.APIChat
 )
 
 // wireKind is a wire API with the model that speaks it: the facts are what a

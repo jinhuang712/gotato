@@ -13,7 +13,7 @@ import (
 
 	"github.com/jinhuang712/gotato/gotato"
 	"github.com/jinhuang712/gotato/host"
-	"github.com/jinhuang712/gotato/internal/fakegateway"
+	"github.com/jinhuang712/gotato/internal/fakemodel"
 	"github.com/jinhuang712/gotato/model"
 	"github.com/jinhuang712/gotato/profile"
 	"github.com/jinhuang712/gotato/record"
@@ -159,14 +159,14 @@ func TestDrainCancelsToolSetResolution(t *testing.T) {
 	}
 }
 
-// These tests run a Runner with a model.Client Agent against internal/fakegateway: the
+// These tests run a Runner with a model.Client Agent against internal/fakemodel: the
 // Phase 10 exit item "an overflow in each provider's form compacts and sends
 // again", and the same for a Session past its ceiling. The fake refuses a
 // request past its window in each provider's own words and status.
 
-// gatewaySetup is a wire API, its path on the fake endpoint and the model that
+// wireSetup is a wire API, its path on the fake endpoint and the model that
 // speaks it. The window is unknown: the tests set the ceiling in the policy.
-type gatewaySetup struct {
+type wireSetup struct {
 	wire  model.WireAPI
 	path  string
 	model gotato.ModelConfig
@@ -176,16 +176,16 @@ func unknownWindow(name string) gotato.ModelConfig {
 	return gotato.ModelConfig{Name: name, Facts: gotato.ModelFacts{Window: gotato.WindowUnknown()}}
 }
 
-var fakeGatewayWires = []struct {
+var fakeModelWires = []struct {
 	name   string
-	config gatewaySetup
+	config wireSetup
 }{
-	{fakegateway.APIAnthropic, gatewaySetup{model.AnthropicMessages{}, "/v1/messages", unknownWindow("claude-sonnet-5-5")}},
-	{fakegateway.APIResponses, gatewaySetup{model.Responses{}, "/v1/responses", unknownWindow("gpt-6.1-sol")}},
-	{fakegateway.APIChat, gatewaySetup{model.ChatCompletions{}, "/v1/chat/completions", unknownWindow("chat-model")}},
+	{fakemodel.APIAnthropic, wireSetup{model.AnthropicMessages{}, "/v1/messages", unknownWindow("claude-sonnet-5-5")}},
+	{fakemodel.APIResponses, wireSetup{model.Responses{}, "/v1/responses", unknownWindow("gpt-6.1-sol")}},
+	{fakemodel.APIChat, wireSetup{model.ChatCompletions{}, "/v1/chat/completions", unknownWindow("chat-model")}},
 }
 
-func gatewayRunner(t *testing.T, setup gatewaySetup, fake *fakegateway.Gateway, policy record.Compactor) *host.Runner {
+func modelRunner(t *testing.T, setup wireSetup, fake *fakemodel.Server, policy record.Compactor) *host.Runner {
 	t.Helper()
 	server := httptest.NewServer(fake)
 	t.Cleanup(server.Close)
@@ -218,7 +218,7 @@ func compactions(t *testing.T, runner *host.Runner, id string) []gotato.Compacti
 }
 
 // describe lists what the fake answered, without the bodies.
-func describe(requests []fakegateway.Request) string {
+func describe(requests []fakemodel.Request) string {
 	var out []string
 	for _, r := range requests {
 		out = append(out, fmt.Sprintf("%s/%d/%dB", r.Outcome, r.Status, len(r.Body)))
@@ -231,12 +231,12 @@ func describe(requests []fakegateway.Request) string {
 func prompt(word string) string { return word + " " + strings.Repeat(word+" ", 3000) }
 
 func TestOverflowOnEachWireAPICompactsAndSendsAgainOnce(t *testing.T) {
-	for _, wire := range fakeGatewayWires {
+	for _, wire := range fakeModelWires {
 		t.Run(wire.name, func(t *testing.T) {
 			// A window that holds three exchanges of this size and not four, and no
 			// ceiling: the refusal is the only thing that says the Context is too long.
-			fake := fakegateway.New(fakegateway.WithWindow(33_000))
-			runner := gatewayRunner(t, wire.config, fake, record.Compactor{CompactPolicy: record.CompactPolicy{CeilingTokens: -1}})
+			fake := fakemodel.New(fakemodel.WithWindow(33_000))
+			runner := modelRunner(t, wire.config, fake, record.Compactor{CompactPolicy: record.CompactPolicy{CeilingTokens: -1}})
 			ctx := context.Background()
 			id := ""
 			for _, word := range []string{"alpha", "bravo", "charlie"} {
@@ -269,10 +269,10 @@ func TestOverflowOnEachWireAPICompactsAndSendsAgainOnce(t *testing.T) {
 }
 
 func TestASecondRefusalInTheSameTurnEndsTheRunWithContextOverflowOnEachWireAPI(t *testing.T) {
-	for _, wire := range fakeGatewayWires {
+	for _, wire := range fakeModelWires {
 		t.Run(wire.name, func(t *testing.T) {
-			fake := fakegateway.New()
-			runner := gatewayRunner(t, wire.config, fake, record.Compactor{CompactPolicy: record.CompactPolicy{CeilingTokens: -1}})
+			fake := fakemodel.New()
+			runner := modelRunner(t, wire.config, fake, record.Compactor{CompactPolicy: record.CompactPolicy{CeilingTokens: -1}})
 			ctx := context.Background()
 			// Two Runs of history: the compaction keeps the latest Run before the
 			// one that starts as its tail, and closes the Run before that.
@@ -297,10 +297,10 @@ func TestASecondRefusalInTheSameTurnEndsTheRunWithContextOverflowOnEachWireAPI(t
 }
 
 func TestPastTheCeilingCompactsBeforeAnyRequestOnEachWireAPI(t *testing.T) {
-	for _, wire := range fakeGatewayWires {
+	for _, wire := range fakeModelWires {
 		t.Run(wire.name, func(t *testing.T) {
-			fake := fakegateway.New()
-			runner := gatewayRunner(t, wire.config, fake, record.Compactor{CompactPolicy: record.CompactPolicy{CeilingTokens: 12_000}})
+			fake := fakemodel.New()
+			runner := modelRunner(t, wire.config, fake, record.Compactor{CompactPolicy: record.CompactPolicy{CeilingTokens: 12_000}})
 			ctx := context.Background()
 			id := ""
 			for _, word := range []string{"alpha", "bravo", "charlie", "delta", "echo"} {
@@ -335,10 +335,10 @@ func TestPastTheCeilingCompactsBeforeAnyRequestOnEachWireAPI(t *testing.T) {
 // cannot be taken back (TODO.md, "Does every refusal as too long reach the
 // Loop before any output?"). The text received stays as a Cut-off reply.
 func TestAnOverflowInTheMiddleOfAReplyEndsTheRunAndKeepsTheCutOffTextOnEachWireAPI(t *testing.T) {
-	for _, wire := range fakeGatewayWires {
+	for _, wire := range fakeModelWires {
 		t.Run(wire.name, func(t *testing.T) {
-			fake := fakegateway.New()
-			runner := gatewayRunner(t, wire.config, fake, record.Compactor{CompactPolicy: record.CompactPolicy{CeilingTokens: -1}})
+			fake := fakemodel.New()
+			runner := modelRunner(t, wire.config, fake, record.Compactor{CompactPolicy: record.CompactPolicy{CeilingTokens: -1}})
 			ctx := context.Background()
 			id := ""
 			for _, word := range []string{"alpha", "bravo", "charlie"} {

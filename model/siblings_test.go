@@ -69,7 +69,7 @@ func TestProtocolSiblings(t *testing.T) {
 		Importer: emptyImporter{},
 		Error:    func(error) {},
 	}
-	pkg, _ := conf.Check("gateway", fset, files, info)
+	pkg, _ := conf.Check("model", fset, files, info)
 
 	seen := map[string]bool{}
 	for id, obj := range info.Uses {

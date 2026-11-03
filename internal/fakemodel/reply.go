@@ -1,4 +1,4 @@
-package fakegateway
+package fakemodel
 
 import (
 	"bytes"

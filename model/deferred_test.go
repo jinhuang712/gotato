@@ -10,7 +10,7 @@ import (
 	"testing"
 
 	"github.com/jinhuang712/gotato/gotato"
-	"github.com/jinhuang712/gotato/internal/fakegateway"
+	"github.com/jinhuang712/gotato/internal/fakemodel"
 	"github.com/jinhuang712/gotato/internal/reftasks"
 	"github.com/jinhuang712/gotato/profile"
 )
@@ -302,7 +302,7 @@ func toolsField(t *testing.T, body []byte) string {
 // TestFakeNativeDeferredToolsEndToEnd runs the tool_search task's tools (a base
 // tool and three ToolSets, one of them folded) through the native form of
 // deferred tools on each of the two wire APIs that have one, against the fake
-// gateway, which plays the documented shape of each (fakegateway, "Deferred
+// model endpoint, which plays the documented shape of each (fakemodel, "Deferred
 // tools"). It is not a real provider. The Session plays three Runs: the model
 // loads a tool and calls it, loads another one and calls it, and calls the first
 // again with no search. The fake refuses a request that is not shaped as the
@@ -399,21 +399,21 @@ func TestFakeNativeDeferredToolsEndToEnd(t *testing.T) {
 					t.Errorf("%s: defer_loading = %v (listed %v), want %v", name, got, ok, want)
 				}
 			}
-			if wire.name == fakegateway.APIAnthropic && deferred["search_tools"] || wire.name == fakegateway.APIResponses && deferred["tool_search"] {
+			if wire.name == fakemodel.APIAnthropic && deferred["search_tools"] || wire.name == fakemodel.APIResponses && deferred["tool_search"] {
 				t.Errorf("the search tool is deferred: %v", deferred)
 			}
 
 			// The load shows in the second request's history, in the wire API's own form.
 			second := string(requests[1].Body)
 			switch wire.name {
-			case fakegateway.APIAnthropic:
+			case fakemodel.APIAnthropic:
 				if !strings.Contains(second, `"type":"tool_reference"`) && !strings.Contains(second, `"type": "tool_reference"`) {
 					t.Errorf("no tool_reference in the second request: %.600s", second)
 				}
 				if !strings.Contains(second, `"tool_name":"shop_invoice"`) {
 					t.Errorf("the reference does not name shop_invoice: %.600s", second)
 				}
-			case fakegateway.APIResponses:
+			case fakemodel.APIResponses:
 				for _, want := range []string{`"type":"tool_search_call"`, `"type":"tool_search_output"`} {
 					if !strings.Contains(second, want) {
 						t.Errorf("no %s in the second request: %.600s", want, second)

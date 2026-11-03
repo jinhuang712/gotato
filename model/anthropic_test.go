@@ -270,14 +270,14 @@ func TestAnthropicStreamErrorEventAndTruncation(t *testing.T) {
 			}
 			defer func() { _ = stream.Close() }()
 			_, err = collectEvents(t, stream)
-			var gatewayErr *Error
+			var modelErr *Error
 			switch name {
 			case "error event":
-				if !errors.As(err, &gatewayErr) || !gatewayErr.Retryable() {
+				if !errors.As(err, &modelErr) || !modelErr.Retryable() {
 					t.Fatalf("err = %v", err)
 				}
 			case "truncated":
-				if !errors.As(err, &gatewayErr) || !gatewayErr.Retryable() || !strings.Contains(gatewayErr.Message, "stream interrupted") {
+				if !errors.As(err, &modelErr) || !modelErr.Retryable() || !strings.Contains(modelErr.Message, "stream interrupted") {
 					t.Fatalf("err = %v", err)
 				}
 			}

@@ -15,7 +15,7 @@ import (
 
 	"github.com/jinhuang712/gotato/gotato"
 	"github.com/jinhuang712/gotato/host"
-	"github.com/jinhuang712/gotato/internal/fakegateway"
+	"github.com/jinhuang712/gotato/internal/fakemodel"
 	"github.com/jinhuang712/gotato/profile"
 	"github.com/jinhuang712/gotato/store"
 	"github.com/jinhuang712/gotato/testkit"
@@ -395,12 +395,12 @@ func wireElements(t *testing.T, api string, body map[string]any) []string {
 		out = append(out, string(b))
 	}
 	switch api {
-	case fakegateway.APIResponses:
+	case fakemodel.APIResponses:
 		items, _ := body["input"].([]any)
 		for _, item := range items {
 			add(item)
 		}
-	case fakegateway.APIChat:
+	case fakemodel.APIChat:
 		messages, _ := body["messages"].([]any)
 		for _, m := range messages {
 			add(m)
@@ -445,11 +445,11 @@ func reasoningElements(api string, elements []string) int {
 	n := 0
 	for _, e := range elements {
 		switch api {
-		case fakegateway.APIAnthropic:
+		case fakemodel.APIAnthropic:
 			if strings.Contains(e, `"type":"thinking"`) || strings.Contains(e, `"type":"redacted_thinking"`) {
 				n++
 			}
-		case fakegateway.APIResponses:
+		case fakemodel.APIResponses:
 			if strings.Contains(e, `"type":"reasoning"`) {
 				n++
 			}
@@ -475,11 +475,11 @@ func withoutReasoning(t *testing.T, api string, elements []string) []string {
 			t.Fatal(err)
 		}
 		switch api {
-		case fakegateway.APIAnthropic:
+		case fakemodel.APIAnthropic:
 			if block, _ := v["block"].(map[string]any); block["type"] == "thinking" || block["type"] == "redacted_thinking" {
 				continue
 			}
-		case fakegateway.APIResponses:
+		case fakemodel.APIResponses:
 			if v["type"] == "reasoning" {
 				continue
 			}
@@ -518,7 +518,7 @@ func mustJSON(t *testing.T, v any) string {
 //   - everything else in the body (the instruction, the tool list, the options,
 //     the cache_control marks on both) is the same bytes in every pair.
 func TestFakeRequestOnlyGrowsAtItsEndWithReasoning(t *testing.T) {
-	roundOnly := map[string]bool{fakegateway.APIAnthropic: true, fakegateway.APIResponses: true}
+	roundOnly := map[string]bool{fakemodel.APIAnthropic: true, fakemodel.APIResponses: true}
 	for _, wire := range fakeWires {
 		t.Run(wire.name, func(t *testing.T) {
 			fake, client := newFake(t, wire)
@@ -546,7 +546,7 @@ func TestFakeRequestOnlyGrowsAtItsEndWithReasoning(t *testing.T) {
 					t.Fatalf("%s: outcomes %s, %s", pair, prev.Outcome, next.Outcome)
 				}
 				for key, value := range prev.JSON {
-					if key == "messages" && wire.name != fakegateway.APIResponses || key == "input" {
+					if key == "messages" && wire.name != fakemodel.APIResponses || key == "input" {
 						continue
 					}
 					if a, b := mustJSON(t, value), mustJSON(t, next.JSON[key]); a != b {

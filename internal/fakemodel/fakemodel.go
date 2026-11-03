@@ -1,15 +1,15 @@
-// Package fakegateway is a test-only server that speaks the three wire APIs a
-// Gotato gateway adapts to, and plays each provider's quirks on demand.
+// Package fakemodel is a test-only server that speaks the three wire APIs a
+// Gotato model bridge (package model) adapts to, and plays each provider's quirks on demand.
 //
 //	POST /v1/messages          Anthropic Messages, streamed as SSE
 //	POST /v1/responses         OpenAI Responses, streamed as SSE
 //	POST /v1/chat/completions  OpenAI Chat Completions, streamed as SSE
 //
 // It imports only Gotato's tag names (internal/text) and is built from the
-// providers' public wire formats, so a test that points a Gotato gateway at it checks the gateway
+// providers' public wire formats, so a test that points a Gotato model client at it checks the client
 // against the format and not against its own decoder. Use it from a test with
-// httptest.NewServer(fakegateway.New()), or serve it on a port with
-// internal/fakegateway/cmd/fakegateway.
+// httptest.NewServer(fakemodel.New()), or serve it on a port with
+// internal/fakemodel/cmd/fakemodel.
 //
 // # The model
 //
@@ -94,7 +94,7 @@
 // Every request is recorded: method, path, headers, the body as sent and as
 // decoded, the quirks it carried, and the positions of any system or
 // developer messages in the middle of the conversation.
-package fakegateway
+package fakemodel
 
 import (
 	"encoding/json"
@@ -104,7 +104,7 @@ import (
 	"time"
 )
 
-// The three wire APIs, named as Gotato's gateway names them.
+// The three wire APIs, named as Gotato's model bridge names them.
 const (
 	APIAnthropic = "anthropic-messages"
 	APIResponses = "openai-responses"
@@ -120,18 +120,18 @@ const (
 	defaultMaxOutput = 64_000
 )
 
-// Option configures a Gateway.
-type Option func(*Gateway)
+// Option configures a Server.
+type Option func(*Server)
 
 // WithWindow sets the model's context window in tokens, 200,000 by default.
 // A request whose estimated size is past it is refused as too long.
-func WithWindow(tokens int) Option { return func(g *Gateway) { g.window = tokens } }
+func WithWindow(tokens int) Option { return func(g *Server) { g.window = tokens } }
 
 // WithMaxOutput sets the most output tokens a request may ask for, 64,000 by
 // default. A request past it is refused, and the refusal is not an overflow.
-func WithMaxOutput(tokens int) Option { return func(g *Gateway) { g.maxOutput = tokens } }
+func WithMaxOutput(tokens int) Option { return func(g *Server) { g.maxOutput = tokens } }
 
-// Request is one request the Gateway received.
+// Request is one request the Server received.
 type Request struct {
 	// API is APIAnthropic, APIResponses or APIChat.
 	API    string
@@ -150,14 +150,14 @@ type Request struct {
 	// the request, of each system or developer message that follows a
 	// message of another role.
 	MidSystem []int
-	// Status is the HTTP status the Gateway answered.
+	// Status is the HTTP status the Server answered.
 	Status int
 	// Outcome is "ok", "refused", "overflow-midstream", "cut" or "error".
 	Outcome string
 }
 
-// Gateway is an http.Handler that plays the three wire APIs.
-type Gateway struct {
+// Server is an http.Handler that plays the three wire APIs.
+type Server struct {
 	window, maxOutput int
 
 	mu       sync.Mutex
@@ -165,9 +165,9 @@ type Gateway struct {
 	counts   map[string]int
 }
 
-// New returns a Gateway.
-func New(opts ...Option) *Gateway {
-	g := &Gateway{window: defaultWindow, maxOutput: defaultMaxOutput, counts: map[string]int{}}
+// New returns a Server.
+func New(opts ...Option) *Server {
+	g := &Server{window: defaultWindow, maxOutput: defaultMaxOutput, counts: map[string]int{}}
 	for _, opt := range opts {
 		opt(g)
 	}
@@ -175,7 +175,7 @@ func New(opts ...Option) *Gateway {
 }
 
 // Requests returns a copy of every request received, oldest first.
-func (g *Gateway) Requests() []Request {
+func (g *Server) Requests() []Request {
 	g.mu.Lock()
 	defer g.mu.Unlock()
 	out := make([]Request, len(g.requests))
@@ -186,7 +186,7 @@ func (g *Gateway) Requests() []Request {
 }
 
 // Reset forgets the recorded requests and the quirks' counts.
-func (g *Gateway) Reset() {
+func (g *Server) Reset() {
 	g.mu.Lock()
 	defer g.mu.Unlock()
 	g.requests = nil
@@ -194,7 +194,7 @@ func (g *Gateway) Reset() {
 }
 
 // ServeHTTP implements http.Handler.
-func (g *Gateway) ServeHTTP(w http.ResponseWriter, r *http.Request) {
+func (g *Server) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	var wire wire
 	switch r.URL.Path {
 	case "/v1/messages":
@@ -207,13 +207,13 @@ func (g *Gateway) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		_, _ = io.WriteString(w, "ok")
 		return
 	default:
-		writeJSON(w, http.StatusNotFound, map[string]any{"error": map[string]any{"message": "fakegateway: no such endpoint " + r.URL.Path, "type": "invalid_request_error"}})
+		writeJSON(w, http.StatusNotFound, map[string]any{"error": map[string]any{"message": "fakemodel: no such endpoint " + r.URL.Path, "type": "invalid_request_error"}})
 		return
 	}
 	g.handle(wire, w, r)
 }
 
-func (g *Gateway) handle(wr wire, w http.ResponseWriter, r *http.Request) {
+func (g *Server) handle(wr wire, w http.ResponseWriter, r *http.Request) {
 	body, _ := io.ReadAll(r.Body)
 	rec := &Request{API: wr.api(), Method: r.Method, Path: r.URL.Path, Header: r.Header.Clone(), Body: body, Quirks: map[string]string{}}
 	var decoded map[string]any
@@ -243,7 +243,7 @@ func (g *Gateway) handle(wr wire, w http.ResponseWriter, r *http.Request) {
 	}()
 
 	if r.Method != http.MethodPost {
-		refuse(&apiError{status: http.StatusMethodNotAllowed, body: wr.invalid("fakegateway: POST only").body})
+		refuse(&apiError{status: http.StatusMethodNotAllowed, body: wr.invalid("fakemodel: POST only").body})
 		return
 	}
 	if e := wr.authorize(r.Header); e != nil {
@@ -267,7 +267,7 @@ func (g *Gateway) handle(wr wire, w http.ResponseWriter, r *http.Request) {
 	rec.Quirks, rec.UserText = q.byName, text
 	g.mu.Unlock()
 	if !p.stream {
-		refuse(wr.invalid("fakegateway: only streamed requests are served; set stream to true"))
+		refuse(wr.invalid("fakemodel: only streamed requests are served; set stream to true"))
 		return
 	}
 	if e := wr.validateReasoning(p); e != nil && q.has("reasoning") {
