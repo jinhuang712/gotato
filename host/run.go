@@ -24,7 +24,7 @@ type RunRequest struct {
 	// with the TaskSpec's Background after the instruction, and the Record
 	// keeps the TaskSpec as it was, so every Instance rebuilds the Session the
 	// same after the registered one changes. It takes no SessionID and no Agent,
-	// and excludes TaskSpec.
+	// and excludes TaskSpec. CreateSession opens the same Session without a Run.
 	Task string
 	// TaskSpec is a TaskSpec the request carries, run as Task is. It excludes
 	// Task. It must only narrow its AgentProfile (profile.TaskSpec.Narrow).
@@ -234,7 +234,10 @@ func (r *Runner) runWith(ctx context.Context, request RunRequest, stream *runStr
 	// The Run registers as it is admitted, in one step, so the limits count it
 	// at once and Drain and AbortSession reach it even while it is still
 	// loading its Session.
-	task, err := r.resolveTask(ctx, request)
+	if request.SessionID != "" && (request.Task != "" || request.TaskSpec != nil) {
+		return RunResponse{}, notRunError(gotato.ErrorOf(gotato.CodeInvalidArgument, "host: a Run of a TaskSpec opens a new Session, so it takes no SessionID"))
+	}
+	task, err := r.resolveTask(ctx, request.Task, request.TaskSpec, request.Agent)
 	if err != nil {
 		return RunResponse{}, err
 	}

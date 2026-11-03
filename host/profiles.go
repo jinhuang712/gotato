@@ -18,30 +18,28 @@ type taskRun struct {
 	snapshot string
 }
 
-// resolveTask finds the TaskSpec a request runs: RunRequest.Task by name, or
-// RunRequest.TaskSpec as given, and nil for neither. A request that names both,
-// or that runs a TaskSpec on a Session that exists or under an Agent of its own,
-// is refused: a TaskSpec opens a new Session of its own AgentProfile. The spec
-// is checked against that AgentProfile when the Session is built, before
-// anything is written.
-func (r *Runner) resolveTask(ctx context.Context, request RunRequest) (*taskRun, error) {
-	if request.Task == "" && request.TaskSpec == nil {
+// resolveTask finds the TaskSpec a Session is opened for: the registered one
+// by name, or the value as given, and nil for neither. A Run with no Session and
+// CreateSession both ask, so the two write the same Record. Naming both, or an
+// Agent besides, is refused: a TaskSpec opens a Session of its own
+// AgentProfile. The spec is checked against that AgentProfile when the Session
+// is built (newSession), before anything is written.
+func (r *Runner) resolveTask(ctx context.Context, name string, value *profile.TaskSpec, agent string) (*taskRun, error) {
+	if name == "" && value == nil {
 		return nil, nil
 	}
 	switch {
-	case request.Task != "" && request.TaskSpec != nil:
-		return nil, notRunError(gotato.ErrorOf(gotato.CodeInvalidArgument, "host: Task and TaskSpec are exclusive: a Run names a registered TaskSpec or carries one"))
-	case request.SessionID != "":
-		return nil, notRunError(gotato.ErrorOf(gotato.CodeInvalidArgument, "host: a Run of a TaskSpec opens a new Session, so it takes no SessionID"))
-	case request.Agent != "":
-		return nil, notRunError(gotato.ErrorOf(gotato.CodeInvalidArgument, "host: a Run of a TaskSpec runs the TaskSpec's own AgentProfile, so it takes no Agent"))
+	case name != "" && value != nil:
+		return nil, notRunError(gotato.ErrorOf(gotato.CodeInvalidArgument, "host: Task and TaskSpec are exclusive: a request names a registered TaskSpec or carries one"))
+	case agent != "":
+		return nil, notRunError(gotato.ErrorOf(gotato.CodeInvalidArgument, "host: a Session of a TaskSpec runs the TaskSpec's own AgentProfile, so it takes no Agent"))
 	}
 	var spec profile.TaskSpec
-	if request.TaskSpec != nil {
-		spec = *request.TaskSpec
+	if value != nil {
+		spec = *value
 	} else {
 		var err error
-		if spec, err = r.profiles.TaskSpec(ctx, request.Task); err != nil {
+		if spec, err = r.profiles.TaskSpec(ctx, name); err != nil {
 			return nil, profileError(err)
 		}
 	}
