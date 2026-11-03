@@ -20,15 +20,6 @@
 - next: repeat the alternation on a quiet machine, and if the gap holds, profile `history_100` and `history_1000` and find what the layers added.
 - blocks: [CP4.2](ROADMAP.md#cp4-the-030-release), [B5](GOALS.md#b5-gotatos-time-per-turn), [B9](GOALS.md#b9-cpu-per-turn-at-10-100-and-1000-messages)
 
-### [P1][TASK] Say in the release procedure that the nested modules' `require` moves with the root
-
-- description: `adapter/mcp/go.mod` and `adapter/http/go.mod` both require the root at `v0.2.0` and point at `../..` with a `replace`, which a consumer ignores. `adapter/http` imports `host`, which `v0.2.0` does not have, so `go get` of `adapter/http@v0.3.0` alone would not build unless its `require` names the new root version. The steps of RUNBOOK.md (*Cut a release*) do not say to set it, and `adapter/http` has no tag yet. Recommendation: its first tag is `v0.3.0`, in step with the root and `adapter/mcp`.
-- created: 2026-11-03
-- status: open
-- found: reading the go.mod files while writing the 0.3.0 release steps.
-- next: add the step to RUNBOOK.md: in the release commit, set the `require` of each tagged nested module to the new root version, then tag all three on that commit.
-- blocks: [CP4.5](ROADMAP.md#cp4-the-030-release)
-
 ### [P2][TASK] Script the resident memory of the reference service
 
 - description: B8 cites the resident memory of `bench/refservice`, but no script or benchmark measures it; `footprint.sh` and `BenchmarkStartup` are the only ones. The two values on record, 12 and 16 MB on 2026-10-16 and 12.1 and 19.7 MB on 2026-11-03, were taken by hand with `ps`, the second after 200 health checks and 200 `POST /v1/sessions`, so they may not be the same procedure.

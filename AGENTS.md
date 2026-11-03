@@ -31,8 +31,8 @@ The module root holds the documents and the module files, and no Go code. The tr
 | Path | Holds |
 |---|---|
 | `PROPOSAL.md`, `PHILOSOPHY.md`, `DESIGNS.md`, `GLOSSARY.md`, `FEATURES.md`, `CHANGELOG.md` | The reasons and the contract, as in the read order |
-| `README.md`, `RUNBOOK.md` | The front page, and what to do when a service built on Gotato misbehaves |
-| `plan/` | `GOALS.md`, `ROADMAP.md`, `TODO.md`, `INTEGRATION-FEEDBACK.md` (findings from real use, checked against the code), and `decisions/` |
+| `README.md`, `RUNBOOK.md`, `CONTRIBUTING.md` | The front page, what to do when a service built on Gotato misbehaves, and how to change and release Gotato |
+| `plan/` | `GOALS.md`, `ROADMAP.md`, `TODO.md` and `decisions/` |
 | `specs/` | One spec per part |
 | `guides/` | How-to pages for people who use the library |
 | `scripts/` | `check.sh` runs every check, and `cli-scenario.sh` smoke-runs the test CLI |

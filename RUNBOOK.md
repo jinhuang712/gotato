@@ -15,7 +15,11 @@ This is a first version. No team has run Gotato in production yet, so it holds w
 | A Run ended `failed` with the cause `interrupted` | [A Run was interrupted](#a-run-was-interrupted) |
 | A service that does not start or answer | [Start an instance](#start-an-instance) |
 
-## Start an instance
+## Deploy
+
+Deploy an instance like any other copy of your service: start it with a Store and its definitions, and stop it with a drain, so a deploy loses no work.
+
+### Start an instance
 
 An instance is one copy of your service holding a `host.Runner`. It needs a Store and a Registry with at least one AgentProfile registered in code. Everything else has a default. These are the settings of `host.Config` an operator touches.
 
@@ -38,7 +42,7 @@ An instance is one copy of your service holding a `host.Runner`. It needs a Stor
 - **Route by the session ID.** Hash the `session-id` header at your load balancer. It is routing and not correctness: a miss still works.
 - **The test CLI.** `gotato serve` has `--addr`, `--max-runs`, `--max-sessions`, `--queue`, `--warm-ttl`, `--drain-timeout` and `--advertise`. It is a test tool with no contract.
 
-## Stop an instance
+### Stop an instance
 
 On SIGTERM drain first, then stop the HTTP server, then close the Runner. `Drain` marks the instance draining, so `/readyz` answers 503 and the load balancer stops sending work. It takes no new Run and no Session over, lets each Run finish, and saves and releases its Sessions. A Run still going at `DrainTimeout` is stopped, saved and released. `Close` last removes the liveness row.
 
@@ -54,7 +58,11 @@ Roll back the way you deploy, one instance at a time, with drain.
 - **A Run in flight finishes** on the instance that has it, or ends `interrupted` if that instance dies.
 - **A break in Go code or a Store adapter** comes with a before-and-after note in the changelog. Read it before you move a version.
 
-## A request is refused
+## Alerts
+
+Gotato raises no alert itself. Each section below starts from what you see, says what it means and what to do, and *On call* says when to escalate.
+
+### A request is refused
 
 An error carries two answers from the runtime, over HTTP as headers and in the body:
 
@@ -96,14 +104,14 @@ This is the one table of every error code. "By cause" means the place that makes
 
 The HTTP layer adds two codes to a body: `body_too_large` (413, a body over 1 MiB by default, `WithMaxBody`) and `forward_failed` (502, a forward to the writer failed, so the request may have reached it). A 400 from the HTTP layer itself (bad JSON, an unknown field, a `session-id` header that disagrees) carries `invalid_argument`. The test CLI also exits 4 when a Run did not complete.
 
-## An instance is draining
+### An instance is draining
 
 `/readyz` answers 503 with `"draining": true`: someone called `Drain`, as the stop procedure does.
 
 - **Leave it.** It is stopping. Replace it, do not wait for it to recover: a drain is never undone.
 - **If it should not be draining,** look for what sent the signal (a deploy, a platform eviction) and restart the process.
 
-## An instance lost its liveness row
+### An instance lost its liveness row
 
 `/readyz` answers 503 with `"lapsed": true`: the instance could not renew its row in time, usually because the store was out of reach. It refuses Runs with `conflict`, marked not run and not retryable, so `/readyz` is what moves traffic away.
 
@@ -111,7 +119,7 @@ The HTTP layer adds two codes to a body: `body_too_large` (413, a body over 1 Mi
 - **Its old writes cannot land.** Another instance may hold its Sessions by now, and the store refuses any write from the old name.
 - **If it does not recover** within a few TTLs, restart it and look at the store's logs.
 
-## An instance died
+### An instance died
 
 A dead instance cannot release its Sessions, but it holds them only through its liveness row. The row expires on its own; then every Claim of that instance ends and another instance may take its Sessions over.
 
@@ -119,22 +127,12 @@ A dead instance cannot release its Sessions, but it holds them only through its 
 - **A Session whose writer is alive** makes a request wait up to `Heartbeat.Wait`, then answers `busy`.
 - **A write from the old instance cannot corrupt the Record.** It wrote after a head that is no longer the last, so the store refuses it with a conflict.
 
-## A Run was interrupted
+### A Run was interrupted
 
 A `run_ended` with the status `failed` and the cause `interrupted` means the Run never ended on its own: its instance stopped, for example by a crash, before it finished. The next instance that opens the Session writes that `run_ended`. A tool call that had started is answered in the Transcript with a result that says the instance stopped and the outcome is unknown, so a tool may have done only part of its work. Gotato sends the model no notice about it.
 
 - **Read the Record** with `GET /v1/sessions/{id}/events` and check what the last tool call did before you start the Run again.
 - **A tool with an external effect** should be idempotent or check before it writes. Gotato does not undo a tool.
-
-## Cut a release
-
-The repository has more than one Go module: the root, and nested ones. `adapter/mcp` and `adapter/http` are the two a service imports, and each is tagged with its path, such as `adapter/mcp/v0.2.0`. The test CLI, the example and the benchmark are modules too, and they are not for `go get`. No release script exists, so the steps are manual.
-
-1. **Push the root tag first,** since each adapter requires the root module at a release.
-2. **Push the adapter tags** at once after it, and warm the proxy with a `.info` request for each tag, for example `curl https://proxy.golang.org/github.com/<owner>/gotato/adapter/mcp/@v/v0.3.0.info`.
-3. **Check from a clean module cache.** In a new module, with `GOMODCACHE` set to a temporary directory, run `go get` for the root and for each adapter at the new tag. Announce the release only when this passes.
-4. **Expect lag.** A new nested tag can take minutes, sometimes about an hour, to appear on proxy.golang.org.
-5. **Fallback.** A consumer can set `GOPROXY=direct` to fetch from the repository until the proxy has the tag.
 
 ## On call
 

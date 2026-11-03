@@ -102,6 +102,7 @@ Start with the proposal to see why Gotato exists, and with the architecture to s
 | [specs/errors.md](specs/errors.md) | what ran, and whether to retry |
 | [plan/decisions/README.md](plan/decisions/README.md) | the choices made, with the ways not taken |
 | [RUNBOOK.md](RUNBOOK.md) | keeping a service built on Gotato running |
+| [CONTRIBUTING.md](CONTRIBUTING.md) | changing Gotato itself, the checks, and cutting a release |
 | [guides/install.md](guides/install.md) | adding Gotato to your `go.mod` |
 | [guides/packages.md](guides/packages.md) | which packages to import, and what leaving one out costs |
 | [guides/getting-started.md](guides/getting-started.md) | a Session, a tool and the Events of a Run |

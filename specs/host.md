@@ -147,25 +147,9 @@ A message for a Run goes to the Writer; an Instance that is not the Writer says 
 
 `not_writer` is the answer for a Steer, a FollowUp, an Interrupt, a Notice, an Abort or a delete, because each takes effect in the Writer's own process. It says Not run, so the caller can send it again, to the address or through the Load balancer. Forwarding is an option of the HTTP layer: it goes only to an address the team allows, never follows a redirect, and never forwards a request that was forwarded already. A new Run on a Session another Instance is running is not answered `not_writer`: it waits for the Writer, up to `Heartbeat.Wait` (5 seconds by default, looking again after 20 milliseconds and then at doubling pauses up to 500), then gets `busy` with `retry_after_ms`. A second Run on a Session this Instance is already running fails with `busy` at once, or waits when `Bounds.Queue` says so.
 
-## The settings
+## Bounded writes
 
-Every setting of the host has a default, and a zero value takes it. The numbers below are the defaults; each is set on the host's configuration.
-
-| Setting | Default | What it bounds |
-|---|---|---|
-| `Heartbeat.TTL` | 10 s, renewed every third of it | how long a crashed instance's Sessions wait before another takes them |
-| `Heartbeat.Wait` | 5 s | how long a Run waits for a Session running on another instance before `busy` |
-| `Warm` | 60 idle minutes, with an idle compaction | how long an idle Session stays in memory |
-| `Bounds.MaxWarmSessions` | 10,000; negative is none | how many idle Sessions stay in memory; the longest idle leaves first |
-| `Bounds.MaxActiveSessions` | none | the Sessions in memory, running or warm; past it a Run evicts one or is refused `overloaded` |
-| `Bounds.Queue` | refuse | what a second Run on a busy Session does: refused `busy`, or waits |
-| `Admitter` | none | whether a Run may start; `Limits{MaxActiveRuns}` is the simple one |
-| `TimeAwayAfter` | 30 min; negative is off | when a message that starts a Run gets the time-away notice |
-| `DrainTimeout` | 10 s; negative is none | how long a drain lets Runs finish before it stops them |
-| `StreamPoll` | 1 s; negative is off | how often an idle Session stream looks for Events another instance wrote |
-| `ToolSetTimeout` | 10 s | how long a listing of tools waits for the tool sets |
-
-A write of the Writer is bounded too, by 10 seconds of its own, so a Run's last write outlives a canceled caller and a slow store fails the write as unknown instead of holding the Run.
+A write of the Writer is bounded by 10 seconds of its own, so a Run's last write outlives a canceled caller, and a slow store fails the write as unknown instead of holding the Run. The defaults of every setting of the host are listed for operators in RUNBOOK.md.
 
 ## What this buys you
 - A deploy or a crash loses at most the Step in flight and the messages that were only queued; every committed Step is in the Store.
