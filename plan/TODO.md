@@ -53,6 +53,14 @@
 - status: open
 - next: make each CI job call `scripts/check.sh <module>`.
 
+### [P2][TASK] Check the Go code of the wiki
+
+- description: the wiki holds 67 blocks of Go code. A few pages say which test runs them, such as `Example` in `gotato/example_test.go`, and the rest are not known to compile. The wiki's own rule says a block is run by a test the page names, or the page says it has not been run.
+- created: 2026-11-03
+- status: open
+- found: splitting the wiki into pages on 2026-11-03.
+- next: write a script in `scripts/` that extracts the blocks of each page, compiles them against the root module, and lists the pages whose blocks are not run; then name the test or mark the block.
+
 ### [P3][IDEA] Operators see little of an instance
 
 - description: Instance Events are readable only from Go, there is no hook for metrics, and `/readyz` reports four fields.
@@ -82,3 +90,11 @@
 - status: open
 - found: reading [FEATURES.md](../FEATURES.md) against its guide on 2026-11-03.
 - next: find each reason in the specs and decisions, and add it in one clause, or write down that there is none. RUNBOOK.md already holds the defaults of the host's settings, so FEATURES could say "a bound the host sets" and leave the number to RUNBOOK.md, which solves the missing reason and the second copy of the number together.
+
+### [P3][DISCUSSION] The layer order is written in four documents
+
+- description: the order `host`, `profile`, `store`, `record`, `gotato`, `ref` and the import rules are stated in AGENTS.md (*Hard architectural rules*), in specs/ARCHITECTURE.md, in wiki/reference/packages.md and in [R1: Each package imports only the layers below it](GOALS.md#r1-each-package-imports-only-the-layers-below-it). `gotato/layering_test.go` holds the truth. A change to the order has to be made in all four.
+- created: 2026-11-03
+- status: open
+- found: reading AGENTS.md against the skill's rules on 2026-11-03.
+- next: decide which document owns the rule, likely specs/ARCHITECTURE.md, and let the others point to it.

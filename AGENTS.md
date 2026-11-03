@@ -49,17 +49,18 @@ There are six Go modules: the root, `adapter/http`, `adapter/mcp`, `internal/cmd
 
 ## While you work
 
-- Before you change something, read the document that owns it.
+- Before you change something, read the document that owns it, in full, in your own window.
 - Track where the project stands by scanning `plan/TODO.md`, `plan/ROADMAP.md` and `plan/GOALS.md`.
+- Never hand a document to a subagent to read or write. A subagent may read the code.
 - Write a decision in `plan/decisions/` at once when a choice had another way open, may be undone later and has a reason the code does not show.
 - Add what cannot be handled now to `plan/TODO.md` at once, as a defect, a discussion or a check.
 - When the documents and the code disagree, tell the maintainer and let them decide.
-- Once other developers build on the project, tell the maintainer it may need a wiki, and leave its form to them.
+- Change a page of the wiki in the same change as the behavior it describes. A new page starts from `wiki/_template.md` and joins `wiki/README.md`, and the wiki holds no fact that another document owns.
 - When a change is done, update `CHANGELOG.md` and the feature's status in `FEATURES.md` in the same change.
 - When a todo is handled, delete it from `plan/TODO.md` in the same change.
 - After a change, check only what it touched against the rules, with `scripts/check.sh` on the modules it touched.
 - Check the goals at the end of a checkpoint or before a release, and never for a small change.
-- When the maintainer stops you, stop at once.
+- When the maintainer stops you, stop at once, with every agent you started and every agent those started.
 
 ## Hard architectural rules
 
@@ -204,8 +205,8 @@ When writing or rewriting a project document:
 - **Put the answer first.** Open a long document so a reader sees the whole of it at a glance, with a TL;DR outline or the few points the document is built around, and then write freely. [FEATURES.md](FEATURES.md) opens with its Summary tree of every group and feature, and each new feature takes the next number in its group.
 - **Explain in a short paragraph,** written as one block. Put separate points in a list, one sentence to a bullet, and never stack sentences line by line.
 - **Use tables and diagrams** where they read better than prose, and introduce each with a sentence that says what it shows.
-- **Hold no code chunk.** A command longer than two lines belongs in a script in `scripts/`, and the document names the script. A formula, a tree or a short command is fine.
-- **Write an ID with its name,** such as "T4: A short skill". Link an ID only where the document's place in the read order allows it.
+- **Hold no code chunk.** A command longer than two lines belongs in a script in `scripts/`, and the document names the script. A formula, a tree or a short command is fine. The wiki is the one exception: its pages hold the code a reader copies, and each block is run by a test the page names, or the page says it has not been run.
+- **Write an ID with its name,** such as "T4: A short skill". Make every reference to a document, a goal, a feature or a guideline a Markdown link wherever the table in *Where a document may link* allows it.
 - **List the items instead of giving a range,** and prefer a number to an adjective, with its source or left open.
 - **Write dates as `YYYY-MM-DD`.** Keep status marks out of headings, so the links to them stay stable.
 - **Check a claim before you write it.** Check a behavior claim by running it or mark it "not yet verified", and treat a goal as met only with a measurement or the maintainer's own report.
@@ -214,6 +215,25 @@ When writing or rewriting a project document:
 - **In [PROPOSAL.md](PROPOSAL.md),** the pain points come before the shift, and *What we want* describes needs without answering the pains one by one. The proposal is a pitch.
 - **Link other documents as Markdown links:** [PHILOSOPHY.md](PHILOSOPHY.md).
 - **Send an open point to `plan/TODO.md`** as a `DISCUSSION`, so the work can stop at any time.
+
+### Where a document may link
+
+A link points to what the document rests on, and a reference that the table allows is a link.
+
+| Document | May link to |
+|---|---|
+| `PHILOSOPHY.md` and `CHANGELOG.md` | nothing |
+| `PROPOSAL.md` | rarely anything |
+| `DESIGNS.md` | a few to `PHILOSOPHY.md`, and down to its decisions and specs |
+| `FEATURES.md` | the guidelines it rests on, a stance of `PHILOSOPHY.md` only where it forces a feature, and down to its specs and decisions |
+| `plan/GOALS.md`, `plan/ROADMAP.md`, `plan/TODO.md` | each other, `FEATURES.md` and `DESIGNS.md`; a goal up to the wants of `PROPOSAL.md` it serves; a checkpoint down to the features it delivers |
+| `specs/` | up to the document they serve, and down to their decisions |
+| `plan/decisions/` | up to the document they serve, never beside them; a link may be repaired when a document moves, and the words stay |
+| `README.md` | every document once in *Docs*, and the install page again from *Install* |
+| `AGENTS.md` | the documents in its read order |
+| `wiki/` | the specs and `FEATURES.md` it points to |
+
+### Status marks
 
 The status marks mean the same in every document:
 
