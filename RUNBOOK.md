@@ -54,7 +54,8 @@ On SIGTERM drain first, then stop the HTTP server, then close the Runner. `Drain
 
 Roll back the way you deploy, one instance at a time, with drain.
 
-- **Old and new instances share the store** while the roll goes on. Mixing versions in one fleet has not been tried. Roll one instance first and watch it. `GET /healthz` returns the HTTP contract version, so you can see which instances run which.
+- **Do not mix 0.2.0 and 0.3.0 over one store, and do not roll back across them.** 0.3.0 changed what a Store saves: the Header carries the Record's epoch, the listing columns and Gotato's own state apart, and the file store writes a different batch file, so a directory written by 0.2.0 is not read. An adapter of your own has to be rewritten to the new Records seam. The changelog gives no migration, so read its Store entries before you move.
+- **Between versions that keep the stored form,** old and new instances share the store while the roll goes on. Mixing versions in one fleet has not been tried: roll one instance first and watch it. `GET /healthz` returns the HTTP contract version, so you can see which instances run which.
 - **A Run in flight finishes** on the instance that has it, or ends `interrupted` if that instance dies.
 - **A break in Go code or a Store adapter** comes with a before-and-after note in the changelog. Read it before you move a version.
 

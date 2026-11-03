@@ -1,6 +1,6 @@
 # HTTP in five minutes
 
-By the end of this page you have a Gotato agent behind an HTTP endpoint, and you have started a Run with `curl`, watched its Events stream, and seen what a second Instance answers when a Session is busy elsewhere. You need the [first page](getting-started.md) and Go 1.24. No provider key is needed.
+By the end of this page you have a Gotato agent behind an HTTP endpoint, and you have started a Run with `curl`, watched its Events stream, and seen what a second Instance answers when a Session is busy elsewhere. You need the [first page](getting-started.md) and the Go version of [Install](install.md). No provider key is needed.
 
 - [1. Serve a Runner](#1-serve-a-runner)
 - [2. Create a Session and run a prompt](#2-create-a-session-and-run-a-prompt)

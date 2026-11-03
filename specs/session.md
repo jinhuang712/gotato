@@ -30,7 +30,7 @@ Read it top to bottom as "what is cheap to lose". The Agent is shared by many Se
 
 ## A Session is built from parts
 
-The live Session is one package and one goroutine, built from parts that each do one job ([decision 048](../plan/decisions/048-the-runner-and-the-session-are-built-from-parts-and-host-plumbing-is-internal.md)).
+The live Session is one package and one goroutine, built from parts that each do one job ([decision 048: Parts with one job](../plan/decisions/048-the-runner-and-the-session-are-built-from-parts-and-host-plumbing-is-internal.md)).
 
 ```text
  Session
@@ -128,7 +128,7 @@ The five endings are the final reply, the `ctx`, a `TurnStopper`, the compaction
 
 ## Limits
 
-Each limit guards one failure that a real Session can hit, and a team sets them on the Agent ([decision 038](../plan/decisions/038-a-limit-guards-a-real-failure.md)). A zero field means its default, so a team sets only the ones it changes.
+Each limit guards one failure that a real Session can hit, and a team sets them on the Agent ([decision 038: A limit guards a real failure](../plan/decisions/038-a-limit-guards-a-real-failure.md)). A zero field means its default, so a team sets only the ones it changes.
 
 ```text
  what could go wrong                      the limit that stops it           default
@@ -188,7 +188,7 @@ A message ends in one of three ways, each with its Event: committed, refused bef
 
 ## Extensions at fixed stages
 
-The Loop is one loop, and an extension adds behavior at one of six fixed stages instead of forking it ([decision 009](../plan/decisions/009-one-loop-extended-at-fixed-stages.md)).
+The Loop is one loop, and an extension adds behavior at one of six fixed stages instead of forking it ([decision 009: One Loop](../plan/decisions/009-one-loop-extended-at-fixed-stages.md)).
 
 ```text
  Turn ─▶ TurnPreparer ─▶ build the request ─▶ ContextTransformer ─▶ MessageConverter ─▶ model call
@@ -227,4 +227,4 @@ The Session has one Status at a time and takes one Run at a time: a second Promp
 - Steer, FollowUp and Interrupt let you change a long Run's course without a second Run or a lock of your own.
 
 ## See also
-[ARCHITECTURE.md](ARCHITECTURE.md), the guidelines [the store is the only truth](../DESIGNS.md#1-the-store-is-the-only-truth), [a failure stays local](../DESIGNS.md#4-a-failure-stays-local) and [a Session can be stopped and seen](../DESIGNS.md#9-a-session-can-be-stopped-and-seen), [FEATURES.md](../FEATURES.md) (F1: Runs, F2: Sessions, F11: Extensions), decisions [004](../plan/decisions/004-an-agent-is-a-definition-and-a-session-is-the-live-unit.md), [016](../plan/decisions/016-gotato-session-is-the-live-unit-and-session-record-is-what-the-store-keeps.md), [021](../plan/decisions/021-messages-reach-the-writer-and-take-effect-in-its-process.md), [022](../plan/decisions/022-a-session-is-a-goroutine-over-its-record.md), [028](../plan/decisions/028-every-step-is-written-as-facts-and-a-log.md), [038](../plan/decisions/038-a-limit-guards-a-real-failure.md), [047](../plan/decisions/047-a-value-a-layer-owns-is-set-only-through-that-layer.md) and [048](../plan/decisions/048-the-runner-and-the-session-are-built-from-parts-and-host-plumbing-is-internal.md).
+[ARCHITECTURE.md](ARCHITECTURE.md), the guidelines [the store is the only truth](../DESIGNS.md#1-the-store-is-the-only-truth), [a failure stays local](../DESIGNS.md#4-a-failure-stays-local), [a Session can be stopped and seen](../DESIGNS.md#9-a-session-can-be-stopped-and-seen) and [each layer does one job, and each default can be replaced](../DESIGNS.md#10-each-layer-does-one-job-and-each-default-can-be-replaced), [FEATURES.md](../FEATURES.md) ([F1: Runs](../FEATURES.md#f1-runs), [F2: Sessions](../FEATURES.md#f2-sessions), [F11: Extensions](../FEATURES.md#f11-extensions)), decisions [004: Agent and Session](../plan/decisions/004-an-agent-is-a-definition-and-a-session-is-the-live-unit.md), [016: Session and Record types](../plan/decisions/016-gotato-session-is-the-live-unit-and-session-record-is-what-the-store-keeps.md), [021: Messages reach the writer](../plan/decisions/021-messages-reach-the-writer-and-take-effect-in-its-process.md), [022: A Session is a goroutine](../plan/decisions/022-a-session-is-a-goroutine-over-its-record.md), [028: Facts and a log](../plan/decisions/028-every-step-is-written-as-facts-and-a-log.md), [038: A limit guards a real failure](../plan/decisions/038-a-limit-guards-a-real-failure.md), [047: A value set only through its layer, any other way refused](../plan/decisions/047-a-value-a-layer-owns-is-set-only-through-that-layer.md) and [048: Parts with one job](../plan/decisions/048-the-runner-and-the-session-are-built-from-parts-and-host-plumbing-is-internal.md).

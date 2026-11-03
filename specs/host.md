@@ -101,7 +101,7 @@ The copy holds no Claim, so another Instance can take the Session over at any ti
 
 ## A Runner is built from parts
 
-A Runner does seven jobs, and each is a part with its own lock and file, called in order ([decision 048](../plan/decisions/048-the-runner-and-the-session-are-built-from-parts-and-host-plumbing-is-internal.md)). The parts that guard the Instance are under `host/internal/`, so no part reaches into another.
+A Runner does seven jobs, and each is a part with its own lock and file, called in order ([decision 048: Parts with one job](../plan/decisions/048-the-runner-and-the-session-are-built-from-parts-and-host-plumbing-is-internal.md)). The parts that guard the Instance are under `host/internal/`, so no part reaches into another.
 
 ```text
  Runner
@@ -149,7 +149,7 @@ A message for a Run goes to the Writer; an Instance that is not the Writer says 
 
 ## Bounded writes
 
-A write of the Writer is bounded by 10 seconds of its own, so a Run's last write outlives a canceled caller, and a slow store fails the write as unknown instead of holding the Run. The defaults of every setting of the host are listed for operators in RUNBOOK.md.
+A write of the Writer is bounded by 10 seconds of its own, so a Run's last write outlives a canceled caller, and a slow store fails the write as unknown instead of holding the Run. The defaults of every setting of the host are listed for operators in [RUNBOOK.md](../RUNBOOK.md).
 
 ## What this buys you
 - A deploy or a crash loses at most the Step in flight and the messages that were only queued; every committed Step is in the Store.
@@ -157,4 +157,4 @@ A write of the Writer is bounded by 10 seconds of its own, so a Run's last write
 - A Session never has two Writers: a paused or cut-off Instance cannot write, and a caller can tell a safe retry from a risky one.
 
 ## See also
-[ARCHITECTURE.md](ARCHITECTURE.md), the guidelines [the store is the only truth](../DESIGNS.md#1-the-store-is-the-only-truth), [stay inside the boundary](../DESIGNS.md#6-stay-inside-the-boundary) and [no instance is special](../DESIGNS.md#8-no-instance-is-special), [FEATURES.md](../FEATURES.md) (F9: Many instances), decisions [002](../plan/decisions/002-the-store-is-the-truth-and-memory-is-a-cache.md), [019](../plan/decisions/019-one-writer-per-session-claimed-in-the-store.md), [020](../plan/decisions/020-no-session-is-bound-to-an-instance.md), [024](../plan/decisions/024-gotato-builds-no-infrastructure.md), [027](../plan/decisions/027-instances-coordinate-through-the-stores-conditional-writes.md), [036](../plan/decisions/036-a-warm-copy-is-a-cache-not-a-lock.md), [037](../plan/decisions/037-when-the-hash-missed-the-answer-names-the-writer.md) and [048](../plan/decisions/048-the-runner-and-the-session-are-built-from-parts-and-host-plumbing-is-internal.md).
+[ARCHITECTURE.md](ARCHITECTURE.md), the guidelines [the store is the only truth](../DESIGNS.md#1-the-store-is-the-only-truth), [stay inside the boundary](../DESIGNS.md#6-stay-inside-the-boundary), [no instance is special](../DESIGNS.md#8-no-instance-is-special) and [a Session has one writer at a time](../DESIGNS.md#11-a-session-has-one-writer-at-a-time), [FEATURES.md](../FEATURES.md) ([F9: Many instances](../FEATURES.md#f9-many-instances)), decisions [002: The store is the truth](../plan/decisions/002-the-store-is-the-truth-and-memory-is-a-cache.md), [019: One writer per Session](../plan/decisions/019-one-writer-per-session-claimed-in-the-store.md), [020: No Session bound to an Instance](../plan/decisions/020-no-session-is-bound-to-an-instance.md), [024: No infrastructure](../plan/decisions/024-gotato-builds-no-infrastructure.md), [027: Conditional writes and liveness](../plan/decisions/027-instances-coordinate-through-the-stores-conditional-writes.md), [036: A warm copy is a cache](../plan/decisions/036-a-warm-copy-is-a-cache-not-a-lock.md), [037: The answer names the writer](../plan/decisions/037-when-the-hash-missed-the-answer-names-the-writer.md) and [048: Parts with one job](../plan/decisions/048-the-runner-and-the-session-are-built-from-parts-and-host-plumbing-is-internal.md).

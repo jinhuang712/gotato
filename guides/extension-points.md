@@ -169,7 +169,7 @@ Gotato has no built-in approval and no waiting state in the Loop ([decision 005]
 - A `Before` that returns an error ends the Run with `CodeExtensionFailure`. To fail closed without ending the Run (a timeout, a "no"), return `PreToolDecision{Block: true, Reason: "..."}`: the model sees a blocked result and goes on.
 - A blocked call has a `tool_ended` Event and no `tool_started`. This is on purpose: `tool_started` says a tool began, and recovery relies on that.
 
-**Hand the step to a person from a tool.** A tool that opens a ticket, as decision 005 says, and returns at once. Use this when the wait is longer than a Run should live.
+**Hand the step to a person from a tool.** A tool that opens a ticket, as decision [005: No approval system](../plan/decisions/005-no-approval-system.md) says, and returns at once. Use this when the wait is longer than a Run should live.
 
 ### Admission
 
@@ -370,7 +370,7 @@ func (b countedSegments) Build(closed []gotato.Message, info record.SegmentInfo)
 }
 ```
 
-What the frame still guarantees: it stamps `Number`, `From`, `To`, `Source`, `Merged` and the Message IDs `segment-<n>-<i>`, appends the Recap escaped, and refuses what would break decisions 034 and 043: a Message that is not a plain user or assistant Message, a tagged Part (one of the four tags) whose text holds a tag or is not of the form `<tag ...>...</tag>`, and a ref that names nothing the Segment closed. The refs it checks are the two shapes `CodeSegments` writes: `[result:<call_id> ...]` ending a tool call line in `<tool_calls>`, and a line `ref msg:<message_id>` in `<segment>` (build them with package `ref`). A Builder that errs or panics drops the compaction.
+What the frame still guarantees: it stamps `Number`, `From`, `To`, `Source`, `Merged` and the Message IDs `segment-<n>-<i>`, appends the Recap escaped, and refuses what would break decisions [034: A Segment is written once](../plan/decisions/034-a-segment-is-written-once.md) and [043: Moved content stays readable](../plan/decisions/043-compaction-moves-content-out-and-never-makes-it-unreadable.md): a Message that is not a plain user or assistant Message, a tagged Part (one of the four tags) whose text holds a tag or is not of the form `<tag ...>...</tag>`, and a ref that names nothing the Segment closed. The refs it checks are the two shapes `CodeSegments` writes: `[result:<call_id> ...]` ending a tool call line in `<tool_calls>`, and a line `ref msg:<message_id>` in `<segment>` (build them with package `ref`). A Builder that errs or panics drops the compaction.
 
 A `Picker` says how many of the oldest Segments a merge replaces. It is asked only when the Segments pass their budget and there are at least two:
 

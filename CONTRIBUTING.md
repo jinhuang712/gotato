@@ -4,21 +4,21 @@ Gotato is a small library with a versioned contract, so a change is welcome when
 
 ## Before you start
 
-A change passes one test first: would a Go service that embeds an agent want this on its own? Anything else belongs to an application built on Gotato, and *Not planned* in FEATURES.md lists what was already ruled out, with the reason.
+A change passes one test first: would a Go service that embeds an agent want this on its own? Anything else belongs to an application built on Gotato, and *Not planned* in [FEATURES.md](FEATURES.md) lists what was already ruled out, with the reason.
 
 - **Ask first** in an issue for anything bigger than a fix, so the design is agreed before the code.
 - **A choice with another way open** becomes a decision in `plan/decisions/`, written when the choice is made.
-- **A break** of the Go API, the HTTP contract or a stored shape needs a before-and-after note in CHANGELOG.md.
+- **A break** of the Go API, the HTTP contract or a stored shape needs a before-and-after note in [CHANGELOG.md](CHANGELOG.md).
 
 ## Set up
 
-You need Go 1.24 or later for the root module and `adapter/http`, and Go 1.25 for `adapter/mcp`. The repository holds six Go modules: the root, `adapter/http`, `adapter/mcp`, `internal/cmd/gotato`, `examples/larkbot` and `bench/refservice`. Nothing else is needed: the tests run with no network and no model provider.
+You need the Go versions in [guides/install.md](guides/install.md), and the newest of them to run the checks in every module. The repository holds six Go modules: the root, `adapter/http`, `adapter/mcp`, `internal/cmd/gotato`, `examples/larkbot` and `bench/refservice`. Nothing else is needed: the tests run with no network and no model provider.
 
 ## Make a change
 
 - **One concern per branch,** named with a type prefix such as `fix/` or `feat/`, and one change per commit where it is practical.
 - **A fix comes with a test** that fails before it.
-- **The docs move with the code:** a change to what a user sees updates FEATURES.md and CHANGELOG.md in the same change, and a change to how a part works updates its spec.
+- **The docs move with the code:** a change to what a user sees updates [FEATURES.md](FEATURES.md) and [CHANGELOG.md](CHANGELOG.md) in the same change, and a change to how a part works updates its spec.
 - **Never rewrite shared history** or force-push `main`.
 
 AGENTS.md holds the full rules for this repository, for people and coding agents alike.

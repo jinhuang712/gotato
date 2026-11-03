@@ -30,17 +30,15 @@ An **Agent** is a definition: model, instruction, tools, limits. A **Session** i
 - 📡 **Events:** every step is a Go type, written before it is sent and resumable on any pod.
 - 🧪 **Testing:** fake models and tools, a fake endpoint for each wire API and a reference workload.
 
-Gotato is not a coding agent, a workflow language, a platform or infrastructure. It runs purpose-built agents inside your service, and your service owns routing, credentials, databases and screens. A program with the agent, runner, store and HTTP server links 3 modules and builds a 9.0 MB stripped binary, measured 2026-11-03 with `bench/refservice/footprint.sh`.
+Gotato is not a coding agent, a workflow language, a platform or infrastructure. It runs purpose-built agents inside your service, and your service owns routing, credentials, databases and screens. A program with the agent, runner, store and HTTP server links a small fraction of the modules and packages that Google ADK for Go needs, into a smaller binary; GOALS.md keeps the measurement and its date.
 
 ## Install
-
-Gotato needs Go 1.24.
 
 ```sh
 go get github.com/jinhuang712/gotato@v0.2.0
 ```
 
-The MCP adapter and the HTTP adapter are modules of their own, so a service that uses neither carries none of them. [guides/install.md](guides/install.md) has their commands and says what was never checked against a real provider.
+The MCP adapter and the HTTP adapter are modules of their own, so a service that uses neither carries none of them. [guides/install.md](guides/install.md) has their commands and the Go version each needs, and says what was never checked against a real provider.
 
 ## How to use
 
@@ -100,6 +98,9 @@ Start with the proposal to see why Gotato exists, and with the architecture to s
 | [specs/tools.md](specs/tools.md) | Effects, tool search, calls, MCP, large results |
 | [specs/model.md](specs/model.md) | the model bridge, its four layers and retries |
 | [specs/errors.md](specs/errors.md) | what ran, and whether to retry |
+| [specs/http.md](specs/http.md) | the HTTP API: routes, errors as statuses, streaming and resuming |
+| [specs/mcp.md](specs/mcp.md) | an MCP server's tools as a tool set |
+| [specs/testing.md](specs/testing.md) | fakes at three levels, the reference workload, faults on purpose |
 | [plan/decisions/README.md](plan/decisions/README.md) | the choices made, with the ways not taken |
 | [RUNBOOK.md](RUNBOOK.md) | keeping a service built on Gotato running |
 | [CONTRIBUTING.md](CONTRIBUTING.md) | changing Gotato itself, the checks, and cutting a release |
@@ -114,6 +115,10 @@ Start with the proposal to see why Gotato exists, and with the architecture to s
 | [guides/test-with-fakes.md](guides/test-with-fakes.md) | scripted models and tools, no network |
 | [guides/extension-points.md](guides/extension-points.md) | which seam changes what |
 | [guides/example-chat-bot.md](guides/example-chat-bot.md) | several instances behind a chat platform |
+| [examples/larkbot/README.md](examples/larkbot/README.md) | a Lark chat bot on several instances, and a local cluster to try it on |
+| [bench/refservice/README.md](bench/refservice/README.md) | the reference service that GOALS measures |
+| [internal/cmd/gotato/README.md](internal/cmd/gotato/README.md) | the maintainers' test tool |
+| [skills/gotato/SKILL.md](skills/gotato/SKILL.md) | a skill that helps a coding agent add Gotato to a Go project |
 | [AGENTS.md](AGENTS.md) | how to work in this repository |
 | [CHANGELOG.md](CHANGELOG.md) | what changed, newest first |
 

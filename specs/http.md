@@ -14,20 +14,7 @@ The handler is a standard `http.Handler`. A service mounts it on its own mux, be
                                   └─ a stream: Events as server-sent events
 ```
 
-A request names its Session in the path. The `session-id` header, when present and not blank, must name the same Session, so a load balancer that hashes on the header and a handler that reads the path never disagree; a create carries no header and answers with the new ID in it. The routes are:
-
-| Route | Host call |
-|---|---|
-| `GET /healthz`, `GET /readyz` | alive with the contract version; ready, or 503 while draining or lapsed, with the counts of Runs and Sessions |
-| `GET /v1/agents`, `GET /v1/tasks` | the registered profiles with their Effect caps; the registered tasks with the profile each runs |
-| `POST /v1/sessions` | create, with `agent` or `task`, `id` and `metadata` |
-| `GET /v1/sessions` | a page, by `limit` and `cursor` |
-| `GET`, `DELETE /v1/sessions/{id}` | read the Session's document; delete it |
-| `POST …/fork` | fork |
-| `POST …/runs`, `POST …/runs/stream` | a Run, answered when it settles, or streamed |
-| `POST …/messages`, `POST …/notices`, `POST …/abort` | a Steer, Follow up or Interrupt; a notice; a Stop |
-| `POST …/compact`, `GET …/context` | a compaction on demand; the report of the next request |
-| `GET …/events`, `GET …/stream` | the stored Events as JSON lines; the Session's stream |
+A request names its Session in the path. The `session-id` header, when present and not blank, must name the same Session, so a load balancer that hashes on the header and a handler that reads the path never disagree; a create carries no header and answers with the new ID in it. Every host call has a route, listed in [F12.1: Routes](../FEATURES.md#f121-routes).
 
 A run request carries a prompt or `continue`, may set a timeout and may name an Agent, which binds the Session to it from then on and repairs a Session whose stored Agent is no longer registered. Who may choose the Agent is the middleware's to decide.
 
@@ -91,4 +78,4 @@ The address comes from the store, and anyone who can write that row can name it,
 - A dropped stream resumes on any instance, by one number.
 
 ## See also
-[ARCHITECTURE.md](ARCHITECTURE.md), the guidelines [stay inside the boundary](../DESIGNS.md#6-stay-inside-the-boundary) and [no instance is special](../DESIGNS.md#8-no-instance-is-special), [FEATURES.md](../FEATURES.md) (F12: HTTP API), decisions [025](../plan/decisions/025-callers-credentials-and-quotas-belong-to-the-service.md), [030](../plan/decisions/030-every-entry-is-an-event.md), [035](../plan/decisions/035-the-runtime-says-whether-an-error-ran-and-whether-to-retry.md) and [037](../plan/decisions/037-when-the-hash-missed-the-answer-names-the-writer.md).
+[ARCHITECTURE.md](ARCHITECTURE.md), the guidelines [stay inside the boundary](../DESIGNS.md#6-stay-inside-the-boundary), [no instance is special](../DESIGNS.md#8-no-instance-is-special) and [the contract is versioned, and a break is written down](../DESIGNS.md#12-the-contract-is-versioned-and-a-break-is-written-down), [FEATURES.md](../FEATURES.md) ([F12: HTTP API](../FEATURES.md#f12-http-api)), decisions [025: Callers, credentials, quotas](../plan/decisions/025-callers-credentials-and-quotas-belong-to-the-service.md), [030: Every Entry is an Event](../plan/decisions/030-every-entry-is-an-event.md), [035: Ran, and retry](../plan/decisions/035-the-runtime-says-whether-an-error-ran-and-whether-to-retry.md) and [037: The answer names the writer](../plan/decisions/037-when-the-hash-missed-the-answer-names-the-writer.md).

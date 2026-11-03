@@ -172,7 +172,7 @@ Exported names follow one set of rules, so a reader can guess a name before look
 | a pre-populated Session Record | `testkit.NewRecord("q", "a", ...)` |
 | a provider's wire API and its quirks over HTTP: a refusal as too long (before output and mid-stream), a cut stream, cached tokens, a reasoning replay, a mid-conversation `system` or `developer` message, a slow reply | `fakemodel.New()` in `internal/fakemodel` behind `httptest.NewServer`; quirks by `[quirk:name]` in the last user text or the `X-Fake-Quirk` header; `g.Requests()` records every request; `go run ./internal/fakemodel/cmd/fakemodel` serves it on a port |
 | the echo and demo models used by the CLI and the reference service | `testkit.EchoModel`, `testkit.DemoModel`, `testkit.DemoEchoTool()` |
-| the reference workload's tasks, with their fake models and checks | `reftasks.ReferenceTasks()` in `internal/reftasks`; `reftasks.ToolSearchTask()` is the one whose tools load, with `Task.Options` for its ToolSets and `reftasks.WithLoadedToolsOf` to copy a history with its loads; `reftasks.LongSession(turns, perRun, resultBytes, window, recap)` builds a Session that compacts and merges, and `LongSessionTask()` is the 2,000-Turn task of O4, played only when named |
+| the reference workload's tasks, with their fake models and checks | `reftasks.ReferenceTasks()` in `internal/reftasks`; `reftasks.ToolSearchTask()` is the one whose tools load, with `Task.Options` for its ToolSets and `reftasks.WithLoadedToolsOf` to copy a history with its loads; `reftasks.LongSession(turns, perRun, resultBytes, window, recap)` builds a Session that compacts and merges, and `LongSessionTask()` is the 2,000-Turn task of [O4: A long Session stays within its window](plan/GOALS.md#o4-a-long-session-stays-within-its-window-), played only when named |
 | play tasks through a Runner and measure them ([plan/GOALS.md](plan/GOALS.md)) | `workload.Run` in `internal/workload`; `go run ./internal/cmd/gotato-workload` prints the report |
 
 ## CLI scenario loop
@@ -197,11 +197,11 @@ When the maintainer points out a change to a document, re-read the whole documen
 When writing or rewriting a project document:
 
 - **Give every fact one home.** Put it in the document that owns it, and let another document say less about it. When a fact changes, update its summaries in the same change.
-- **Use the GLOSSARY.md terms.** One name per thing, and explain a term the first time a reader meets it.
+- **Use the [GLOSSARY.md](GLOSSARY.md) terms.** One name per thing, and explain a term the first time a reader meets it.
 - **Keep the tone calm, pragmatic and narrative.** State Gotato's own stance ("we consider …"), and never claim what other people or teams want or do.
 - **Name no organization.** Say "you", "your", "the team" or "the service". Examples stay generic, with no real organization's names or internal details.
 - **Use plain words, not slogans.** Bold a stance line only when the maintainer said it.
-- **Put the answer first.** Open a long document so a reader sees the whole of it at a glance, with a TL;DR outline or the few points the document is built around, and then write freely. FEATURES.md opens with its Summary tree of every group and feature, and each new feature takes the next number in its group.
+- **Put the answer first.** Open a long document so a reader sees the whole of it at a glance, with a TL;DR outline or the few points the document is built around, and then write freely. [FEATURES.md](FEATURES.md) opens with its Summary tree of every group and feature, and each new feature takes the next number in its group.
 - **Explain in a short paragraph,** written as one block. Put separate points in a list, one sentence to a bullet, and never stack sentences line by line.
 - **Use tables and diagrams** where they read better than prose, and introduce each with a sentence that says what it shows.
 - **Hold no code chunk.** A command longer than two lines belongs in a script in `scripts/`, and the document names the script. A formula, a tree or a short command is fine.
@@ -211,7 +211,7 @@ When writing or rewriting a project document:
 - **Check a claim before you write it.** Check a behavior claim by running it or mark it "not yet verified", and treat a goal as met only with a measurement or the maintainer's own report.
 - **Quote only where the quote does real work,** and check every quote word for word against the original.
 - **Never describe Gotato by another project's name** ("X-like", "the Go version of X").
-- **In PROPOSAL.md,** the pain points come before the shift, and *What we want* describes needs without answering the pains one by one. The proposal is a pitch.
+- **In [PROPOSAL.md](PROPOSAL.md),** the pain points come before the shift, and *What we want* describes needs without answering the pains one by one. The proposal is a pitch.
 - **Link other documents as Markdown links:** [PHILOSOPHY.md](PHILOSOPHY.md).
 - **Send an open point to `plan/TODO.md`** as a `DISCUSSION`, so the work can stop at any time.
 
