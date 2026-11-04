@@ -15,6 +15,11 @@ set -euo pipefail
 root=$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)
 cd "$root"
 
+# Each checkout lints with a cache of its own: a shared cache keeps the
+# results of a worktree by its absolute paths, so once that worktree is
+# removed another checkout reports its files and cannot read their nolint.
+export GOLANGCI_LINT_CACHE="$root/.cache/golangci-lint"
+
 all_modules=(. adapter/http adapter/mcp internal/cmd/gotato examples/larkbot bench/refservice)
 
 if [ "$#" -gt 0 ]; then

@@ -35,6 +35,9 @@ gateway.yaml
 # Benchmark binary built by bench/refservice/footprint.sh
 /bench/refservice/refservice
 
+# The lint cache of this checkout (scripts/check.sh)
+/.cache/
+
 # Work notes: never committed (AGENTS.md → Generated Files)
 /notes/
 
