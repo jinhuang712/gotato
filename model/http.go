@@ -36,7 +36,7 @@ func (c *Client) send(ctx context.Context, body []byte, header http.Header) (*ht
 			failure := Failure{Message: transportMessage, Err: err}
 			verdict := c.classify(failure)
 			if verdict.Retryable && attempt < c.retry.Max {
-				delay := withJitter(c.retry.Backoff * time.Duration(attempt+1))
+				delay := c.retryWait(nil, attempt)
 				// The error text can name hosts, and Events reach clients.
 				gotato.ReportModelRetry(ctx, gotato.ModelRetry{Attempt: attempt + 1, Wait: delay, Error: "the request could not be sent"})
 				if err := wait(ctx, delay); err != nil {

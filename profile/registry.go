@@ -181,14 +181,14 @@ func (r *Registry) Narrowed(ctx context.Context, t TaskSpec) (AgentProfile, erro
 func (r *Registry) AgentProfiles() []string {
 	r.mu.RLock()
 	defer r.mu.RUnlock()
-	return slices.Sorted(maps.Keys(r.agents))
+	return sortedNames(r.agents)
 }
 
 // TaskSpecs lists the registered TaskSpec names, sorted.
 func (r *Registry) TaskSpecs() []string {
 	r.mu.RLock()
 	defer r.mu.RUnlock()
-	return slices.Sorted(maps.Keys(r.tasks))
+	return sortedNames(r.tasks)
 }
 
 // loadFailed says a registered name has no document, or the store failed.
@@ -197,4 +197,12 @@ func loadFailed(kind, name string, err error) error {
 		return fmt.Errorf("%w: %s %q has no document in its store", ErrNotRegistered, kind, name)
 	}
 	return fmt.Errorf("profile: load %s %q: %w", kind, name, err)
+}
+
+// sortedNames lists the keys of m, sorted; an empty m gives an empty list, which
+// a JSON answer writes as [] and not null.
+func sortedNames[V any](m map[string]V) []string {
+	names := slices.AppendSeq(make([]string, 0, len(m)), maps.Keys(m))
+	slices.Sort(names)
+	return names
 }

@@ -63,6 +63,7 @@ Grouped by area; each entry says whether it breaks, changes, adds or fixes. Pack
 - Added: **The `profile` package**, optional and between `service` and `session`: `profile.AgentProfile`, `profile.TaskSpec` with its narrowing check (`TaskSpec.Narrow`, `TaskSpec.Apply`, `*profile.WidenError` and `*profile.UnknownNameError`), the `profile.Catalog` (`profile.NewCatalog`), and the `profile.Registry` (`profile.NewRegistry`) with four registrations: `RegisterAgentProfileInline`, `RegisterTaskSpecInline`, `RegisterAgentProfileWithStore` and `RegisterTaskSpecWithStore`. A definition kept in a store is a document of data only (`profile.AgentProfileDoc`, `profile.TaskSpecDoc`, with `Encode…` and `Decode…`) that names a model and Tools of the Catalog and never adds to it. A TaskSpec is a job that runs again: its AgentProfile, a Background, and bounds that only narrow it.
 - Added: `service.RunRequest.Task` (a registered TaskSpec by name) and `RunRequest.TaskSpec` (one as a value), exclusive: a Run of a TaskSpec opens a new Session, appends the Background once after the instruction, and keeps the TaskSpec in the Session metadata `gotato.task_spec`, so every Instance builds the Session the same after the registered spec changes. `service.Admission` gained `Task`, the TaskSpec's name, and an Admitter that ignores it is unaffected.
 - Added: `profile.AgentProfile.ReadBack`: a hosted Agent may replace the read-back tool the Runner installs; nil keeps the default.
+- Fixed: `GET /v1/agents` with no AgentProfiles answers `"agents": []`, as `GET /v1/sessions` answers `[]`. Before, it answered `null`.
 
 ### Context
 
@@ -203,6 +204,7 @@ Grouped by area; each entry says whether it breaks, changes, adds or fixes. Pack
   - After: `cache_creation_input_tokens` goes into `CacheWriteTokens` (capped at the input that is not a cache read), and `cache_read_input_tokens` into `CacheReadTokens` (the larger of it and the other cache counts, capped at the input). A cost sum over `Usage` changes for such a gateway: price the cache parts at their own rates, as FEATURES.md says.
 - Added: Four layers a team can replace, each with a default: `WireAPI` (`ChatCompletions`, `Responses`, `AnthropicMessages`, or your own), `Connection` with `NewHTTPClient`, `Retry` with `DefaultRetry` and `WithRetry`, and `Classifier` with `Failure`, `Verdict`, `DefaultClassifier` and `WithClassifier`. `gotato.ModelConfig`, `ModelFacts`, `Sampling` and `Window` describe the model once; `Model.Config()` returns it, and `gateway.New(wire, connection, model, opts...)` takes it.
 - Added: The chat wire reads `cache_read_input_tokens` and `cache_creation_input_tokens`.
+- Fixed: A retry after a request that could not be sent waits at most `Retry.MaxWait`, as a retry after a refused response does. Before, it waited the whole backoff: 2.4 s with a 2 s backoff and a 20 ms `MaxWait`.
 
 ### Store
 
@@ -238,6 +240,8 @@ Grouped by area; each entry says whether it breaks, changes, adds or fixes. Pack
 - Breaking: **`Agent.Warm` and `Agent.TimeAwayAfter` are `Config.Warm` and `Config.TimeAwayAfter`**.
   - Before: `service.Agent{Warm: service.WarmPolicy{TTL: 10 * time.Minute}, TimeAwayAfter: time.Hour}`, set for each Agent.
   - After: `service.Config{Warm: service.WarmPolicy{TTL: 10 * time.Minute}, TimeAwayAfter: time.Hour}`, set once for the Runner: how a host keeps its Sessions is the host's, not an Agent's. The defaults (60 idle minutes, 30 minutes away) and the negative values that turn them off are unchanged. Two Agents that had different values now share one.
+- Fixed: `Runner.Notice` on a draining Runner returns `host.ErrDraining`. Before, it returned an error with the same code and text that `errors.Is(err, host.ErrDraining)` did not match.
+- Fixed: A 5xx answer of the HTTP API names its own status. Before, every 5xx said "Internal Server Error", so a failed forward answered 502 with that text instead of "Bad Gateway".
 
 ### Events
 

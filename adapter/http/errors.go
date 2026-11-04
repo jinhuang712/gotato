@@ -137,7 +137,7 @@ func notSavedStatus(err error) int {
 // log.
 func notSaved(err error) errorResponse {
 	out, _ := codedBody(err)
-	out.Message = internalError(err).Message
+	out.Message = internalError(http.StatusInternalServerError, err).Message
 	return out
 }
 
@@ -167,7 +167,7 @@ func writeFailure(w http.ResponseWriter, err error) {
 func writeError(w http.ResponseWriter, status int, err error) {
 	var resp errorResponse
 	if status >= http.StatusInternalServerError {
-		resp = internalError(err)
+		resp = internalError(status, err)
 	} else {
 		resp.Message = err.Error()
 	}
@@ -184,8 +184,7 @@ func writeError(w http.ResponseWriter, status int, err error) {
 
 // internalError logs the detailed cause and returns a stable body for a 5xx
 // response, so store or filesystem internals never reach the client.
-func internalError(err error) errorResponse {
-	log.Printf("adapter/http: internal error: %v", err)
-	message := http.StatusText(http.StatusInternalServerError)
-	return errorResponse{Message: message}
+func internalError(status int, err error) errorResponse {
+	log.Printf("adapter/http: %d %s: %v", status, http.StatusText(status), err)
+	return errorResponse{Message: http.StatusText(status)}
 }

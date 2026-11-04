@@ -70,7 +70,7 @@ func (r *Runner) Notice(ctx context.Context, request NoticeRequest) (NoticeResul
 		return NoticeResult{}, notRunError(gotato.ErrorOf(gotato.CodeInvalidArgument, "host: notice text is required"))
 	}
 	if r.Draining() {
-		return NoticeResult{}, notRunError(errorOf(CodeDraining, "host: draining"))
+		return NoticeResult{}, ErrDraining
 	}
 	result := NoticeResult{SessionID: request.SessionID}
 	handle, err := r.liveRun(ctx, request.SessionID)
