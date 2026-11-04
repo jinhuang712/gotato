@@ -49,7 +49,10 @@ func (c *sessionConfig) once(option string) error {
 // its own, so the host that built it, such as a host.Runner, can offer
 // the Session's stream across Runs. The host owns the Feed and closes it; it
 // also sets the Feed's source, which is where a subscriber that falls behind
-// catches up.
+// catches up. The Feed has one sender of stored Events: when the Transcript is
+// a Journal, it is the host's, a store.Writer whose publisher is this Feed, and
+// the Session sends only its deltas; otherwise the Session numbers its Events
+// and sends them all.
 func withFeed(feed *Feed) SessionOption {
 	return func(c *sessionConfig) error {
 		if err := c.once("WithFeed"); err != nil {

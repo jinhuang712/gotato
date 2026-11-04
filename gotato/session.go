@@ -111,6 +111,9 @@ func NewSession(ctx context.Context, options ...SessionOption) (*Session, error)
 		a.events.journal = journal
 	}
 	a.events.feed = cfg.feed
+	// A host's Feed is sent its stored Events by the host's Journal; the
+	// Session sends only those it numbers itself (see sessionEvents.sendStored).
+	a.events.sendStored = cfg.feed == nil || caps.Journal == nil
 	if a.events.feed == nil {
 		a.events.feed = newFeed(nil)
 		a.events.ownFeed = true

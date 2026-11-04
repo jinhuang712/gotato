@@ -125,7 +125,7 @@ Four rules make it safe.
 - **It stops at its first failed write.** A conflict says another writer took the Record, and any other failure leaves the outcome unknown. Every later `Flush` returns the same error.
 - **A guard runs before every write.** The host gives it a check of its own Liveness row, so an Instance whose row may have expired does not write.
 - **A write is not canceled with its caller.** It is bounded by `WriteTimeout` (10 seconds) and a canceled Run still writes its last Steps, so a slow Store cannot hold a Run for good.
-- **Publishing follows storing.** An Event is handed to the publisher only after the write that holds it succeeded.
+- **Publishing follows storing.** An Event is handed to the publisher only after the write that holds it succeeded, and every Event the Writer writes, a live Session's included, is handed over by the Writer, so a Session's stored Events have one sender.
 
 `Open` loads a Record from its facts for reading (everything a Run needs), and `View` loads the whole log, with Run records, usage and Events. `StoredEvents` reads Events by number for a subscriber that fell behind, with a spilled body left out.
 

@@ -26,6 +26,8 @@ package hostlink
 var (
 	// WithFeed is func(*gotato.Feed) gotato.SessionOption: the Session
 	// publishes its Events to a Feed the host owns instead of one of its own.
+	// When the Transcript is a Journal, that Journal (a store.Writer) is the
+	// Feed's one sender of stored Events, and the Session sends its deltas.
 	WithFeed any
 	// WithRunStart is func(func(gotato.RunID)) gotato.SessionOption: the
 	// Session calls it with each Run's ID as the Run starts.

@@ -164,10 +164,12 @@ func (f *Feed) Subscribe(ctx context.Context, options ...SubscribeOption) (Subsc
 }
 
 // Publish puts an Event in every subscriber's queue, and returns at once. A
-// stored Event is published only after its write succeeded. Writers on
-// different goroutines can publish out of order, or an Event can be missing;
-// each subscriber notices a number that is not the next one and reads what it
-// missed from the Record, and ignores one it has already seen.
+// stored Event is published only after its write succeeded, by the one sender
+// a Session's Feed has, which holds the lock that numbers them: so they come
+// in the order of their numbers. An Event can still be missing, when another
+// Instance wrote it; each subscriber notices a number that is not the next one
+// and reads what it missed from the Record, and ignores one it has already
+// read from there.
 func (f *Feed) publish(event Event) {
 	f.mu.Lock()
 	label := f.label
@@ -203,7 +205,8 @@ func (f *Feed) publishLabeled(event Event, label string) {
 }
 
 // retain keeps a stored Event for catch-up when the Feed has no source. The
-// caller holds the lock.
+// caller holds the lock. A Feed without a source is a Session's own, whose one
+// sender publishes in the order of the numbers, so the ring stays in order.
 func (f *Feed) retain(event Event) {
 	if f.source != nil {
 		return
@@ -214,17 +217,7 @@ func (f *Feed) retain(event Event) {
 		f.ring = f.ring[:kept]
 		f.dropped = true
 	}
-	// Keep the ring in the order of the numbers, whatever order they came in.
-	at := len(f.ring)
-	for at > 0 && f.ring[at-1].Head().Number > event.Head().Number {
-		at--
-	}
-	if at > 0 && f.ring[at-1].Head().Number == event.Head().Number {
-		return
-	}
-	f.ring = append(f.ring, nil)
-	copy(f.ring[at+1:], f.ring[at:])
-	f.ring[at] = event
+	f.ring = append(f.ring, event)
 }
 
 // hasSource reports whether a subscriber that falls behind can read again.

@@ -53,13 +53,15 @@ A stored Event reaches a subscriber only after the Journal has written it.
    │ Write(events) ───▶ │ number them 42, 43, 44
    │                    │ Append(after=41) ─▶ │
    │                    │ ◀────── ok ──────── │
+   │                    │ Publish(42, 43, 44) ────────────▶ queued
    │ ◀─ numbered Events │
-   │ Publish(42, 43, 44) ─────────────────────────────▶ queued
    │ text_delta ──────────────────────────────────────▶ queued at once, not written
    │            if Write fails: the Run fails, nothing of the Step is sent
 ```
 
 A client never holds an Event the Record lacks, so a resumed stream never shows one number with two meanings. The cost is that an Event waits for the write of its step. Most ride that write. The few between steps, such as a retry, an Abort request or a queued message, get a write of their own because they are rare. A crash between the write and the send loses nothing: the Event is in the Record, and a reader finds it by its number. The Journal is the seam. A Session with no Journal, in library use, numbers its Events in memory and stores none.
+
+A stored Event reaches the Feed from one place: the Writer that wrote it. A Run's Steps, and what the host writes between Runs (a claim, a release, a notice, a compaction), go through the same Writer, so a Session's stored Events have one sender, in the order of their numbers. The Session sends only its deltas, which are never written. In library use, with no Writer, the Session sends its stored Events itself ([056: A stored Event is sent by the Writer that wrote it](../plan/decisions/056-a-stored-event-is-sent-by-the-writer-that-wrote-it.md)).
 
 ## Order and numbering
 
@@ -79,14 +81,15 @@ The number counts the whole Record, not one Run, so two Instances give the same 
 A Feed fans each Event out to Subscriptions, and publishing never blocks.
 
 ```text
- Session ── Publish ──▶ Session's Feed ──▶ Run's stream        one Run, first to last Event
+ Writer (stored)  ┐
+ Session (deltas) ┴──▶ Session's Feed ──▶ Run's stream        one Run, first to last Event
                             │          └──▶ Session's stream    across Runs, from any number
                             └── mirror ──▶ Instance's Feed ──▶ Instance's stream
  Instance Events ───────────────────────────▶ Instance's Feed    every saved Session, plus these
                       each Subscription has its own queue and one goroutine, in order
 ```
 
-The calls that publish to a Feed, mirror one into another and label it belong to the host that runs the Session, and the core hands them to `host` and `testkit` through `internal/hostlink`, not through its API: a Feed's methods are `Subscribe` and `Close`. The Session puts the Event in each queue and moves on, so one slow reader slows only itself. A Run's stream and a Session's stream carry the Session's numbers. An Instance's stream mixes many Sessions, so it has no single number and cannot be read again. When its subscriber falls behind it skips Events and says how many in an `events_skipped` Event. Each stored Event names its Session and number, so the subscriber can read what it missed from the Record. Instance Events are not in a Run's stream.
+The calls that publish to a Feed, mirror one into another and label it belong to the host that runs the Session, and the core hands them to `host` and `testkit` through `internal/hostlink`, not through its API: a Feed's methods are `Subscribe` and `Close`. Publishing puts the Event in each queue and moves on, so one slow reader slows only itself. A Run's stream and a Session's stream carry the Session's numbers. An Instance's stream mixes many Sessions, so it has no single number and cannot be read again. When its subscriber falls behind it skips Events and says how many in an `events_skipped` Event. Each stored Event names its Session and number, so the subscriber can read what it missed from the Record. Instance Events are not in a Run's stream.
 
 ## A subscriber that falls behind
 

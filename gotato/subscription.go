@@ -239,8 +239,8 @@ func (s *subscription) offer(event Event, label string) {
 			}
 			if number > s.cursor+1 {
 				// An Event was written that this Feed was not given: another
-				// Instance wrote it, or a write whose outcome was unknown
-				// landed. Read it, and what follows, from the Record.
+				// Instance wrote it. Read it, and what follows, from the
+				// Record.
 				s.behind, s.resume = true, s.cursor
 				s.signal()
 				return
@@ -403,24 +403,17 @@ func (s *subscription) popQueued() (event Event, ok bool, state queueState) {
 // counts the reads in a row that found nothing the Feed had published. ended
 // is true when the stream ended without an error.
 func (s *subscription) catchUp(ctx context.Context, resume uint64, pending *[]Event, empty *int) (ended bool, err error) {
-	batch, err := s.feed.eventsAfter(ctx, resume, catchUpBatch)
+	batch, kept, err := s.read(ctx, resume)
 	if err != nil {
 		return false, err
 	}
 	if len(batch) > 0 {
-		if err := s.check(ctx); err != nil {
-			return false, err
-		}
 		s.mu.Lock()
 		s.resume = batch[len(batch)-1].Head().Number
 		s.cursor = max(s.cursor, s.resume)
 		s.mu.Unlock()
-		for _, event := range batch {
-			keep, err := s.passes(event)
-			if err != nil {
-				return false, err
-			}
-			if keep {
+		for i, event := range batch {
+			if kept[i] {
 				*pending = append(*pending, event)
 			}
 		}
@@ -493,25 +486,12 @@ func (s *subscription) look(ctx context.Context) error {
 	}
 	after := s.cursor
 	s.mu.Unlock()
-	batch, err := s.feed.eventsAfter(ctx, after, catchUpBatch)
+	batch, kept, err := s.read(ctx, after)
 	if err != nil {
 		return err
 	}
-	if len(batch) > 0 {
-		if err := s.check(ctx); err != nil {
-			return err
-		}
-	}
-	// [CONCURRENCY] the filter runs before s.mu is taken, so it may call End or Close; an Event that a live publish queued meanwhile is skipped below by its number.
-	kept := make([]bool, len(batch))
-	for i, event := range batch {
-		if event.Head().Number > after {
-			var err error
-			if kept[i], err = s.passes(event); err != nil {
-				return err
-			}
-		}
-	}
+	// An Event that a live publish queued during the read is skipped below by
+	// its number.
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	if s.behind {
@@ -533,6 +513,28 @@ func (s *subscription) look(ctx context.Context) error {
 		}
 	}
 	return nil
+}
+
+// read is the one read of the Feed's source, which a catch-up and the tail
+// share: the next batch of stored Events after number after, checked with
+// SubscribeVerify when it holds any, and kept[i] says batch[i] passes the
+// filter.
+// [CONCURRENCY] no lock of the subscription is held, so the filter and the check may call End or Close.
+func (s *subscription) read(ctx context.Context, after uint64) (batch []Event, kept []bool, err error) {
+	batch, err = s.feed.eventsAfter(ctx, after, catchUpBatch)
+	if err != nil || len(batch) == 0 {
+		return nil, nil, err
+	}
+	if err := s.check(ctx); err != nil {
+		return nil, nil, err
+	}
+	kept = make([]bool, len(batch))
+	for i, event := range batch {
+		if kept[i], err = s.passes(event); err != nil {
+			return nil, nil, err
+		}
+	}
+	return batch, kept, nil
 }
 
 // Next implements Subscription.

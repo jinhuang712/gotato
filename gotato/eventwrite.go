@@ -14,15 +14,23 @@ type sessionEvents struct {
 	// journal keeps the Session's stored Events: the Transcript's Journal when
 	// it declares one, and a numbering of its own otherwise.
 	journal Journal
-	// feed sends them, and the deltas. ownFeed says the Session made it and so
-	// closes it.
+	// feed is where the Session's Events go. ownFeed says the Session made it
+	// and so closes it.
 	feed    *Feed
 	ownFeed bool
+	// sendStored says the Session sends the stored Events it writes to feed.
+	// A Feed has one sender of stored Events, the one that holds the lock that
+	// numbers them: the Session, for a Feed of its own or for Events it numbers
+	// in memory, and otherwise the host's Journal, a store.Writer, which sends
+	// every Event it writes, the Session's among them, under its own lock.
+	// Deltas are always the Session's to send.
+	sendStored bool
 	// staged holds the stored Events of the step in progress, on the Session
 	// goroutine. They are written, and then sent, by flush.
 	staged []Event
 	// mu makes a write and its sending one step, so Events reach subscribers in
-	// the order of their numbers, whichever goroutine writes them.
+	// the order of their numbers, whichever goroutine of the Session writes
+	// them.
 	mu sync.Mutex
 	// last is the number of the last stored Event the Session wrote.
 	last atomic.Uint64
@@ -51,8 +59,9 @@ func (a *Session) stage(events ...Event) {
 	a.events.staged = append(a.events.staged, events...)
 }
 
-// flush writes the staged Events, and then sends them. A failed write fails
-// the Run: nothing that was not stored is sent.
+// flush writes the staged Events, and then sends them (see
+// sessionEvents.sendStored). A failed write fails the Run: nothing that was not
+// stored is sent.
 func (a *Session) flush(ctx context.Context) *RuntimeError {
 	if len(a.events.staged) == 0 {
 		return nil
@@ -90,7 +99,8 @@ func (a *Session) writeNow(ctx context.Context, events ...Event) *RuntimeError {
 }
 
 // write keeps events in the Journal and sends every Event it wrote, under one
-// lock, so that Events are sent in the order of their numbers.
+// lock, so that Events are sent in the order of their numbers. When the host's
+// Journal sends them, it has done so by the time Write returns.
 func (a *Session) write(ctx context.Context, events []Event) *RuntimeError {
 	_, err := a.writeEvents(ctx, events)
 	return err
@@ -117,7 +127,9 @@ func (a *Session) writeEvents(ctx context.Context, events []Event) ([]Event, *Ru
 		if number := event.Head().Number; number > a.events.last.Load() {
 			a.events.last.Store(number)
 		}
-		a.events.feed.publish(WithoutBody(event))
+		if a.events.sendStored {
+			a.events.feed.publish(WithoutBody(event))
+		}
 	}
 	return written, nil
 }

@@ -146,9 +146,8 @@ func (r *Runner) noticeBetweenRuns(ctx context.Context, request NoticeRequest) (
 				MessageID: message.ID, NoticeKind: request.Kind, Source: gotato.NoticeSourceService, Text: request.Text,
 			}})
 		}
-		publish := r.publisher(feedKey{writer.ID(), writer.Record().RecordEpoch()}, agentName)
+		// The Writer has sent what it wrote, to the publisher publishOpened set.
 		for _, event := range written {
-			publish(gotato.WithoutBody(event))
 			if queued, ok := event.(gotato.NoticeQueued); ok {
 				number = queued.Number
 			}

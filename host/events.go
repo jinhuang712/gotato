@@ -88,8 +88,11 @@ func (r *Runner) publisher(key feedKey, agent string) func(gotato.Event) {
 	}
 }
 
-// publishOpened hands the Events that open wrote, and every later write of
-// writer, to the Feed of the Record it opened.
+// publishOpened makes the Feed of the Record writer opened the one place its
+// Events go: it hands that Feed the Events the open wrote, which waited until
+// the load told the Record's epoch, and sets it as the Writer's publisher, so
+// the Writer sends every later write there itself, a live Session's among
+// them.
 func (r *Runner) publishOpened(writer *store.Writer, early []gotato.Event, agent string) {
 	publish := r.publisher(feedKey{writer.ID(), writer.Record().RecordEpoch()}, agent)
 	writer.SetPublisher(publish)

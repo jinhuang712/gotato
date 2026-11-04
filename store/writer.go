@@ -18,9 +18,9 @@ import (
 // A Writer is also a gotato.Transcript and a gotato.Journal: given to a live
 // Session as its Transcript, it writes the Events of every step of a Run as
 // they happen, so a crash loses at most the step in flight, and returns them
-// numbered, for the Session to send. The Events the Record queues itself, such
-// as a claim or a release, are written by Flush and Release, and handed to the
-// Writer's publisher, if it has one, once they are stored.
+// numbered. Every Event it writes, a live Session's and the ones the Record
+// queues itself, such as a claim or a release, is handed to the Writer's
+// publisher, if it has one, once it is stored, in the order of the numbers.
 //
 // A Writer stops at its first failed write: a conflict means another writer
 // took the Record, and any other failure leaves the outcome unknown. Every
@@ -58,13 +58,12 @@ func WithIdle() WriterOption {
 	return func(c *writerConfig) { c.idle = true }
 }
 
-// WithPublisher has the Writer hand every Event that Flush, Release, CreateWriter
-// and OpenWriter write to publish, in order, once its write has succeeded.
-// The Events a live Session writes through Write are returned to it instead,
-// and it sends them, so the Events the Writer publishes and the ones the
-// Session publishes may interleave; each Event carries its number, which
-// orders them. Flush, Release and OpenWriter call publish under the Writer's
-// lock, which orders their writes; CreateWriter calls it after the write, before it
+// WithPublisher has the Writer hand every Event it writes to publish, in the
+// order of their numbers, once its write has succeeded: what CreateWriter,
+// OpenWriter, Flush and Release write, and what a live Session writes through
+// Write, so publish is the one sender of the Record's Events on this Instance.
+// Write, Flush, Release and OpenWriter call publish under the Writer's lock,
+// which orders their writes; CreateWriter calls it after the write, before it
 // returns the Writer. publish must not block, or call back into the Writer.
 //
 // It is for hosts that run Sessions on many Instances.
@@ -290,8 +289,9 @@ func (w *Writer) Messages() []gotato.Message { return w.rec.Messages() }
 func (w *Writer) Append(message gotato.Message) error { return w.rec.Append(message) }
 
 // Write implements gotato.Journal: it numbers events as the next Events of the
-// Record, writes them with everything the Record had queued, and returns every
-// Event written, so the step is durable when Write returns.
+// Record, writes them with everything the Record had queued, hands them to the
+// publisher, and returns every Event written, so the step is durable, and
+// sent, when Write returns.
 func (w *Writer) Write(ctx context.Context, events []gotato.Event) ([]gotato.Event, error) {
 	// [CONCURRENCY] numbering and writing are one step under w.mu, so a Flush from another goroutine cannot take these events in between; the lock order is w.mu, then record.mu.
 	w.mu.Lock()
@@ -299,7 +299,7 @@ func (w *Writer) Write(ctx context.Context, events []gotato.Event) ([]gotato.Eve
 	if _, err := w.rec.Write(ctx, events); err != nil {
 		return nil, err
 	}
-	return w.flushLocked(ctx, false)
+	return w.flushLocked(ctx)
 }
 
 // EventsAfter implements gotato.EventSource: the stored Events after number
@@ -337,7 +337,9 @@ const WriteTimeout = 10 * time.Second
 // Flush writes the Record's queued Events, if any, in one write, and hands
 // them to the publisher.
 func (w *Writer) Flush(ctx context.Context) error {
-	_, err := w.flush(ctx, true)
+	w.mu.Lock()
+	defer w.mu.Unlock()
+	_, err := w.flushLocked(ctx)
 	return err
 }
 
@@ -353,17 +355,11 @@ func (w *Writer) send(events []gotato.Event) {
 	}
 }
 
-// flush writes the Record's queued Events in one write and returns them. With
-// publish, it hands them to the publisher before it lets go of the lock that
-// orders writes, so Events are published in the order they were written.
-func (w *Writer) flush(ctx context.Context, publish bool) ([]gotato.Event, error) {
-	w.mu.Lock()
-	defer w.mu.Unlock()
-	return w.flushLocked(ctx, publish)
-}
-
-// flushLocked is flush for a caller that holds w.mu.
-func (w *Writer) flushLocked(ctx context.Context, publish bool) ([]gotato.Event, error) {
+// flushLocked writes the Record's queued Events in one write and returns
+// them. It hands them to the publisher before the caller lets go of w.mu, the
+// lock that orders writes, so Events are published in the order they were
+// written.
+func (w *Writer) flushLocked(ctx context.Context) ([]gotato.Event, error) {
 	// [DATA-LOSS] a write the caller canceled still lands whole, and a stalled Store cannot hold it for good.
 	ctx, cancel := context.WithTimeout(context.WithoutCancel(ctx), WriteTimeout)
 	defer cancel()
@@ -395,7 +391,7 @@ func (w *Writer) flushLocked(ctx context.Context, publish bool) ([]gotato.Event,
 		return nil, err
 	}
 	w.rec.Stored(entries[len(entries)-1].Seq)
-	if publish && w.publish != nil {
+	if w.publish != nil {
 		for _, event := range events {
 			w.publish(gotato.WithoutBody(event))
 		}

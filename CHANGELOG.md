@@ -255,6 +255,9 @@ Grouped by area; each entry says whether it breaks, changes, adds or fixes. Pack
   - Before: `gotato.RunRejected`, `gotato.EventKindRunRejected`; `gotato.UnmarshalEvent` decoded them to their types.
   - After: `service.RunRejected`, `service.EventKindRunRejected`, and the same for the other eight. Their kinds and JSON fields are unchanged, so no HTTP client sees a difference. A Go program that read the Instance stream switches on `service.RunRejected` and the others; `gotato.UnmarshalEvent` reads their JSON as an `UnknownEvent`, since Gotato ships no Go client that needs more. Encode one with `gotato.MarshalEvent`: `encoding/json` alone leaves the kind out. `SessionUnloaded` and `EventsSkipped`, which the core publishes itself, stay in `gotato`.
 - Added: **`message_dropped` has the why `commit_failed`.** It closes the one message a Run took and could not commit (it would fail again in the next Run); the messages behind it go back to the queue.
+- Breaking: **A stored Event is sent by the Writer that wrote it** (D-056). The publisher of a `store.Writer` (`WithPublisher`, `SetPublisher`) now gets every Event the Writer writes, those a live Session writes through `Write` included, and a Session given a host's Feed sends only its deltas.
+  - Before: a live Session sent its stored Events to its Feed, and the Writer's publisher got only what `Flush`, `Release` and `CreateWriter` wrote, so two senders fed one Feed.
+  - After: one sender. A publisher that also forwarded a Session's own Events now gets them twice: drop the forwarding. A Session with no Writer, in library use, still sends its stored Events itself.
 
 ### MCP adapter
 

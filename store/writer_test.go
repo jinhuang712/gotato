@@ -210,8 +210,8 @@ func TestPublisherSeesEventsInWriteOrder(t *testing.T) {
 }
 
 // The publisher gets Events after their write has succeeded, in order: what
-// Create, Flush and Release write, and not what a live Session writes through
-// Write, which it is handed back to send itself.
+// Create, Flush and Release write, and what a live Session writes through
+// Write, so it is the one sender of the Record's Events.
 func TestPublisherReceivesWhatWasWrittenAfterTheWrite(t *testing.T) {
 	ctx := context.Background()
 	st := store.NewMemoryStore()
@@ -238,15 +238,16 @@ func TestPublisherReceivesWhatWasWrittenAfterTheWrite(t *testing.T) {
 	if got := kindsOf(published); len(got) != 3 || got[2] != gotato.EventKindMetadataChanged {
 		t.Fatalf("Flush published %v", got)
 	}
-	// What a live Session writes through Write comes back to it, not to the publisher.
+	// What a live Session writes through Write is returned to it, and sent by
+	// the publisher before Write returns.
 	events, err := writer.Write(ctx, []gotato.Event{messageEvent(gotato.UserMessage("hi"))})
 	if err != nil || len(events) != 1 {
 		t.Fatalf("Write = %v, %v", events, err)
 	}
-	if len(published) != 3 {
-		t.Fatalf("Write reached the publisher: %v", kindsOf(published))
+	if got := kindsOf(published); len(got) != 4 || got[3] != gotato.EventKindMessageCommitted {
+		t.Fatalf("Write published %v", got)
 	}
-	if err := writer.Flush(ctx); err != nil || len(published) != 3 {
+	if err := writer.Flush(ctx); err != nil || len(published) != 4 {
 		t.Fatalf("a Flush with nothing queued published %v, %v", kindsOf(published), err)
 	}
 	for i, event := range published {

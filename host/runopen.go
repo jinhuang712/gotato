@@ -165,10 +165,7 @@ func (st *runState) announceOpen(spec profile.AgentProfile, known bool, early []
 	}
 	setLabel(st.feed, label)
 	if st.writer != nil {
-		st.writer.SetPublisher(st.r.publisher(st.acquired, label))
-	}
-	for _, event := range early {
-		publish(st.feed, event)
+		st.r.publishOpened(st.writer, early, label)
 	}
 	if !reused {
 		st.r.notice(loadedEvent(st.sessionID, st.s.Len(), loadTime, nil), label)

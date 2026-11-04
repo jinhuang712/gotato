@@ -414,32 +414,6 @@ func TestAGapInTheNumbersIsReadFromTheSource(t *testing.T) {
 	}
 }
 
-// Writers on two goroutines can publish out of order; the stream is still in
-// order, and misses nothing.
-func TestEventsPublishedOutOfOrderAreDeliveredInOrder(t *testing.T) {
-	source := &sliceSource{}
-	feed := newFeed(source)
-	for n := uint64(1); n <= 2; n++ {
-		source.add(storedEvent(n))
-		feed.publish(storedEvent(n))
-	}
-	sub, err := feed.Subscribe(context.Background(), SubscribeAfter(2))
-	if err != nil {
-		t.Fatal(err)
-	}
-	defer func() { _ = sub.Close() }()
-	live(t, sub)
-	for n := uint64(3); n <= 5; n++ {
-		source.add(storedEvent(n))
-	}
-	feed.publish(storedEvent(4))
-	feed.publish(storedEvent(3))
-	feed.publish(storedEvent(5))
-	if got := numbers(t, sub, 3); !reflect.DeepEqual(got, []uint64{3, 4, 5}) {
-		t.Fatalf("stream = %v, want 3 4 5", got)
-	}
-}
-
 // A Feed without a source drops the Events it trims from memory, not only from
 // its slice.
 func TestRetainZeroesTheTrimmedTail(t *testing.T) {
