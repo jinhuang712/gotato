@@ -1,7 +1,6 @@
 package store
 
 import (
-	"bytes"
 	"encoding/base64"
 	"encoding/json"
 	"fmt"
@@ -87,10 +86,10 @@ func cloneEntries(entries []record.Entry) []record.Entry {
 }
 
 // loadedFrom returns what Load returns of entries: the facts from the last
-// Checkpoint on and every Entry from logFrom (0 for none), each once and in
-// order, and the segment_closed Entries before that Checkpoint, which the
-// Checkpoint may list. It is the whole of what a Store reads of an Entry.
-func loadedFrom(entries []record.Entry, logFrom uint64) (out, segments []record.Entry) {
+// Checkpoint on, in order, and the segment_closed Entries before that
+// Checkpoint, which the Checkpoint may list. It is the whole of what a Store
+// reads of an Entry.
+func loadedFrom(entries []record.Entry) (out, segments []record.Entry) {
 	start := 0
 	for i, entry := range slices.Backward(entries) {
 		if entry.IsCheckpoint() {
@@ -104,7 +103,7 @@ func loadedFrom(entries []record.Entry, logFrom uint64) (out, segments []record.
 		}
 	}
 	for _, entry := range entries[start:] {
-		if entry.Layer == record.LayerFact || (logFrom != 0 && entry.Seq >= logFrom) {
+		if entry.Layer == record.LayerFact {
 			out = append(out, entry)
 		}
 	}
@@ -114,7 +113,6 @@ func loadedFrom(entries []record.Entry, logFrom uint64) (out, segments []record.
 // cloneHeader copies h, so a store and its caller never share bytes.
 func cloneHeader(h record.Header) record.Header {
 	h.Info = cloneInfo(h.Info)
-	h.State = bytes.Clone(h.State)
 	return h
 }
 

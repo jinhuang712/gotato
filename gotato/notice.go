@@ -26,18 +26,6 @@ func ReservedNoticeKind(kind string) bool {
 	return false
 }
 
-// PendingNotice is a notice that was queued and not yet committed or dropped:
-// what a Record keeps of it, so the next Run on any instance can queue it
-// again (record.Record.PendingNotices).
-type PendingNotice struct {
-	MessageID MessageID    `json:"message_id"`
-	Kind      string       `json:"kind"`
-	Source    NoticeSource `json:"source"`
-	Text      string       `json:"text"`
-	// Number is the number of its notice_queued Event.
-	Number uint64 `json:"number"`
-}
-
 // Queued returns the queue entry of the pending notice, for requeue.
 func (p PendingNotice) Queued() Queued {
 	message := NewNotice(p.Source, p.Kind, p.Text)

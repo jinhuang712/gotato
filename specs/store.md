@@ -81,13 +81,13 @@ The old Writer is refused even when the new log is as long as its own, because t
                    │      │            └── Facts from here on ──┘
                    └──────┴── segment_closed Entries before the Checkpoint
 
- Records.Load  ─▶  Entries   the Facts from the last Checkpoint on, and every Entry from Header.LogFrom
+ Records.Load  ─▶  Entries   the Facts from the last Checkpoint on
                    Segments  the segment_closed Entries before it
                    Seq       the position of the last Entry
                    Header    the Header of the last write
 ```
 
-A Checkpoint holds the state of the Facts at one point, so a load starts at the last one and skips everything before it, except the Segments that Checkpoint lists by number. This is why a Session that has lived for weeks opens as fast as a new one. `Log` is the other read: every Entry, facts and log, after a position.
+A Checkpoint holds the state of the Facts at one point, the Record's totals included (its Runs, usage, last Run end, pending notices and the Run in flight), so a load starts at the last one and skips everything before it, except the Segments that Checkpoint lists by number. Every Entry a rebuild reads is a fact: the Run's start and end, the release of the Session, the queued messages and notices, and the parts of a reply that was streaming, so a Run that never ended is rebuilt with a Cut-off reply from the facts alone ([054: Every Entry a rebuild reads is a fact](../plan/decisions/054-every-entry-a-rebuild-reads-is-a-fact.md)). This is why a Session that has lived for weeks opens as fast as a new one. `Log` is the other read: every Entry, facts and log, after a position.
 
 ## The Header
 
@@ -96,11 +96,9 @@ A write passes a `Header` with its Entries, and the Store keeps the last one wit
 ```text
  Header   Epoch    the Record epoch: the fence, read by every store
           Info     listing columns: ID, parent, times, Messages, Runs, Usage, metadata   (read by a Lister)
-          State    Gotato's bytes: the Run in flight, busy, notices, the last Run end, base counts   (read by no store)
-          LogFrom  from where Load also returns the log Entries; 0 for none
 ```
 
-`Info` holds what a service lists and a database may index, and nothing a rebuild needs. `State` is Gotato's own JSON, kept as an Entry's `Data` is. So a store keeps the Header as it is, and a later field of `Info` or `State` needs no change to an adapter that stores the whole value. While a Run is in flight the Record sets `LogFrom` to the last Checkpoint's position, so a load also returns the log Entries since then, which rebuild a reply that was streaming as a Cut-off reply if the Run never ended.
+`Info` holds what a service lists and a database may index, and nothing a rebuild needs. So a store keeps the Header as it is, and a later field of `Info` needs no change to an adapter that stores the whole value.
 
 ## Listing
 
@@ -157,4 +155,4 @@ A write goes to a temporary file, is synced, and is then linked to its name. Lin
 - An adapter that passes the suites keeps what the multi-instance design relies on, with no test of its own to write.
 
 ## See also
-[ARCHITECTURE.md](ARCHITECTURE.md), the guidelines [the store is the only truth](../DESIGNS.md#1-the-store-is-the-only-truth), [no instance is special](../DESIGNS.md#8-no-instance-is-special), [a Session has one writer at a time](../DESIGNS.md#11-a-session-has-one-writer-at-a-time) and [the contract is versioned, and a break is written down](../DESIGNS.md#12-the-contract-is-versioned-and-a-break-is-written-down), [FEATURES.md](../FEATURES.md) ([F8: Store](../FEATURES.md#f8-store)), decisions [002: The store is the truth](../plan/decisions/002-the-store-is-the-truth-and-memory-is-a-cache.md), [013: A conformance suite](../plan/decisions/013-a-conformance-suite-ships-with-the-store-contract.md), [017: An append-only Record](../plan/decisions/017-the-record-is-an-append-only-log.md), [019: One writer per Session](../plan/decisions/019-one-writer-per-session-claimed-in-the-store.md), [027: Conditional writes and liveness](../plan/decisions/027-instances-coordinate-through-the-stores-conditional-writes.md), [049: The store contract](../plan/decisions/049-the-store-contract-holds-only-what-every-store-must-do.md) and [050: A transport is an adapter](../plan/decisions/050-each-package-is-one-layer-named-for-its-job.md).
+[ARCHITECTURE.md](ARCHITECTURE.md), the guidelines [the store is the only truth](../DESIGNS.md#1-the-store-is-the-only-truth), [no instance is special](../DESIGNS.md#8-no-instance-is-special), [a Session has one writer at a time](../DESIGNS.md#11-a-session-has-one-writer-at-a-time) and [the contract is versioned, and a break is written down](../DESIGNS.md#12-the-contract-is-versioned-and-a-break-is-written-down), [FEATURES.md](../FEATURES.md) ([F8: Store](../FEATURES.md#f8-store)), decisions [002: The store is the truth](../plan/decisions/002-the-store-is-the-truth-and-memory-is-a-cache.md), [013: A conformance suite](../plan/decisions/013-a-conformance-suite-ships-with-the-store-contract.md), [017: An append-only Record](../plan/decisions/017-the-record-is-an-append-only-log.md), [019: One writer per Session](../plan/decisions/019-one-writer-per-session-claimed-in-the-store.md), [027: Conditional writes and liveness](../plan/decisions/027-instances-coordinate-through-the-stores-conditional-writes.md), [049: The store contract](../plan/decisions/049-the-store-contract-holds-only-what-every-store-must-do.md), [050: A transport is an adapter](../plan/decisions/050-each-package-is-one-layer-named-for-its-job.md) and [054: Every Entry a rebuild reads is a fact](../plan/decisions/054-every-entry-a-rebuild-reads-is-a-fact.md).

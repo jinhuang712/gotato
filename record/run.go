@@ -43,8 +43,8 @@ func (s *Record) Runs() []RunInfo {
 }
 
 // LastRunEnd returns when the last Run that ended did: the Session's last busy
-// time. It is the zero time when no Run has ended. A Record loaded from its
-// facts reads it from the Info, so it does not need the log.
+// time. It is the zero time when no Run has ended. A Checkpoint keeps it, so a
+// Record loaded from its last Checkpoint knows it too.
 func (s *Record) LastRunEnd() time.Time {
 	s.mu.RLock()
 	defer s.mu.RUnlock()
@@ -66,6 +66,9 @@ func (s *Record) endRun(run RunInfo) {
 		break
 	}
 	if !found {
+		// A Run whose start was not read started before the Checkpoint the
+		// Record was loaded from, which counts it already.
+		s.baseRuns--
 		s.runs = append(s.runs, run)
 	}
 	if s.running == run.RunID {
@@ -86,14 +89,6 @@ func (s *Record) endRun(run RunInfo) {
 func (s *Record) interruptRun(runID gotato.RunID) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
-	known := false
-	for _, run := range s.runs {
-		known = known || run.RunID == runID
-	}
-	if !known && s.baseRuns > 0 {
-		// The Run is counted in baseRuns already; ending it adds its record.
-		s.baseRuns--
-	}
 	header := s.header()
 	header.RunID = runID
 	ended := gotato.RunEnded{Header: header, Status: gotato.RunStatusFailed, Cause: "interrupted"}

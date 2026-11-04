@@ -141,7 +141,7 @@ func TestActivationLimitRefusesANewSessionBeforeItRuns(t *testing.T) {
 		if err != nil {
 			t.Fatal(err)
 		}
-		if stateOf(loaded).Busy {
+		if heldOf(loaded) {
 			active = summary.ID
 			break
 		}

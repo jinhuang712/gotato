@@ -3,7 +3,6 @@ package http_test
 import (
 	"bufio"
 	"context"
-	"encoding/json"
 	"fmt"
 	"math/rand/v2"
 	"net/http"
@@ -643,13 +642,7 @@ func TestProxyRetriesAFullInstancesRefusalElsewhere(t *testing.T) {
 		if err != nil {
 			t.Fatal(err)
 		}
-		var state struct {
-			Busy bool `json:"busy"`
-		}
-		if err := json.Unmarshal(loaded.Header.State, &state); err != nil {
-			t.Fatal(err)
-		}
-		return state.Busy
+		return heldOf(loaded)
 	}
 	ran := map[string]bool{}
 	for _, id := range ids {

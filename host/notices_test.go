@@ -554,8 +554,8 @@ func TestFailedWriteOfAnyExitIsRepairedByTheHeartbeat(t *testing.T) {
 			if err != nil {
 				t.Fatal(err)
 			}
-			if stateOf(loaded).Busy || stateOf(loaded).Running != "" {
-				t.Fatalf("the Session is still held after the store recovered: busy=%v running=%q", stateOf(loaded).Busy, stateOf(loaded).Running)
+			if heldOf(loaded) {
+				t.Fatal("the Session is still held after the store recovered")
 			}
 			if _, err := b.Run(ctx, host.RunRequest{SessionID: rec.ID, Prompt: "on the other instance"}); err != nil {
 				t.Fatalf("the other Instance cannot run the Session: %v", err)

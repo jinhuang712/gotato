@@ -9,12 +9,10 @@ import (
 )
 
 // Layer says what an Entry is for. A fact is part of what the Session is: a
-// rebuild reads the facts and nothing else. A log Entry records what
-// happened, for people and telemetry, and is not read to rebuild, with one
-// exception: while a Run is in flight, a load also returns the log since the
-// last Checkpoint (Header.LogFrom), for the reply parts of that Run
-// (reply_part_kept), to rebuild the Cut-off reply it had reached if the Run
-// never ends.
+// rebuild reads the facts and nothing else, so every Event whose loss would
+// change the rebuilt Record is a fact, the parts of a reply that was streaming
+// included. A log Entry records what happened, for people and telemetry, and
+// is never read to rebuild.
 type Layer string
 
 // The two layers of an Entry.
@@ -30,37 +28,38 @@ const (
 // test that ranges over the stored kinds, and is never quietly a log Entry that
 // a load would leave out.
 var storedLayers = map[gotato.EventKind]Layer{
-	// facts
+	// facts: the Messages and the Context
 	gotato.EventKindSessionCreated:      LayerFact,
 	gotato.EventKindCompactionEnded:     LayerFact,
+	gotato.EventKindSegmentClosed:       LayerFact,
 	gotato.EventKindMessageCommitted:    LayerFact,
 	gotato.EventKindNoticeCommitted:     LayerFact,
 	gotato.EventKindReplyEnded:          LayerFact,
 	gotato.EventKindReplyCutOff:         LayerFact,
+	gotato.EventKindReplyPartKept:       LayerFact,
 	gotato.EventKindToolResultCommitted: LayerFact,
 	gotato.EventKindToolStarted:         LayerFact,
 	gotato.EventKindMetadataChanged:     LayerFact,
 	gotato.EventKindToolLoaded:          LayerFact,
 	gotato.EventKindToolUnloaded:        LayerFact,
-	gotato.EventKindSegmentClosed:       LayerFact,
-	gotato.EventKindSessionClaimed:      LayerFact,
+	// facts: the Runs, the queue and the writer
+	gotato.EventKindRunStarted:      LayerFact,
+	gotato.EventKindRunEnded:        LayerFact,
+	gotato.EventKindMessageQueued:   LayerFact,
+	gotato.EventKindMessageDropped:  LayerFact,
+	gotato.EventKindNoticeQueued:    LayerFact,
+	gotato.EventKindSessionClaimed:  LayerFact,
+	gotato.EventKindSessionReleased: LayerFact,
 	// log entries
-	gotato.EventKindRunStarted:        LayerLog,
-	gotato.EventKindRunEnded:          LayerLog,
 	gotato.EventKindTurnStarted:       LayerLog,
 	gotato.EventKindTurnEnded:         LayerLog,
 	gotato.EventKindContextBuilt:      LayerLog,
 	gotato.EventKindReplyStarted:      LayerLog,
-	gotato.EventKindReplyPartKept:     LayerLog,
 	gotato.EventKindModelRetried:      LayerLog,
 	gotato.EventKindToolEnded:         LayerLog,
 	gotato.EventKindToolResultSpilled: LayerLog,
-	gotato.EventKindMessageQueued:     LayerLog,
-	gotato.EventKindMessageDropped:    LayerLog,
-	gotato.EventKindNoticeQueued:      LayerLog,
 	gotato.EventKindMessageRejected:   LayerLog,
 	gotato.EventKindAbortRequested:    LayerLog,
-	gotato.EventKindSessionReleased:   LayerLog,
 	gotato.EventKindCompactionStarted: LayerLog,
 	gotato.EventKindCompactionFailed:  LayerLog,
 	gotato.EventKindExtensionFailed:   LayerLog,

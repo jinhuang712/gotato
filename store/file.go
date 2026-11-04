@@ -242,7 +242,7 @@ func (f *FileStore) Load(ctx context.Context, id string) (record.Loaded, error) 
 		entries = append(entries, batch.Entries...)
 	}
 	last := tail[len(tail)-1].Header
-	entries, segments := loadedFrom(entries, last.LogFrom)
+	entries, segments := loadedFrom(entries)
 	return record.Loaded{Entries: entries, Segments: segments, Seq: lastSeq(tail), Header: last}, nil
 }
 

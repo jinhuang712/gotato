@@ -4,10 +4,10 @@
 //   - RunRecords checks store.Records: a Record is an append-only log, every
 //     write is all or nothing, a position is written once, a stale writer is
 //     refused, the epoch is checked before the position, a Load reads the
-//     Record in one read (the facts from the last Checkpoint, every Entry from
-//     the Header's LogFrom, the segment_closed Entries before it, the position
-//     of the last Entry and the Header of the last write), and a store keeps
-//     the Header and every field of an Entry as it was written.
+//     Record in one read (the facts from the last Checkpoint, the
+//     segment_closed Entries before it, the position of the last Entry and
+//     the Header of the last write), and a store keeps the Header and every
+//     field of an Entry as it was written.
 //   - RunLiveness checks store.Liveness: rows expire by the store's clock,
 //     an expired row never comes back, and a row its Instance ended is removed.
 //   - RunDefinitions checks store.Definitions: a document is kept byte for
@@ -115,10 +115,8 @@ type livenessCheck struct {
 var recordsChecks = []check{
 	{"Create then Load returns the facts and Log returns every Entry", checkCreateLoad},
 	{"Create of a taken ID is ErrExists", checkCreateTwice},
-	{"the Header's Epoch, Info and State are kept as written through Create, Append and Load", checkHeaderKept},
 	{"Append adds Entries after the head, seen by Log and Load", checkAppend},
 	{"Load starts at the last Checkpoint", checkLastCheckpoint},
-	{"Load returns every Entry from the Header's LogFrom, each once, and LogFrom is the last write's", checkLogFrom},
 	{"Load returns the segment_closed Entries from before the last Checkpoint apart", checkSegments},
 	{"a large log Entry is kept whole, read by Log, and left out of Load", checkSpilledEntry},
 	{"a Load racing Appends reads the Record in one read", checkLoadRacingAppends},

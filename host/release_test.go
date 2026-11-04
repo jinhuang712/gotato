@@ -130,7 +130,7 @@ func TestAClaimThatLandedWithNoWriterIsGivenBackByTheRepair(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if stateOf(loaded).Busy || stateOf(loaded).Running != "" {
+	if heldOf(loaded) {
 		t.Fatalf("the Session is still held after the repair: %+v", loaded.Header.Info)
 	}
 }

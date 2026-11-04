@@ -124,7 +124,7 @@ func (m *MemoryStore) Load(ctx context.Context, id string) (record.Loaded, error
 	if !ok {
 		return record.Loaded{}, record.ErrNotFound
 	}
-	entries, segments := loadedFrom(rec.entries, rec.header.LogFrom)
+	entries, segments := loadedFrom(rec.entries)
 	return record.Loaded{Entries: cloneEntries(entries), Segments: cloneEntries(segments), Seq: uint64(len(rec.entries)), Header: cloneHeader(rec.header)}, nil
 }
 

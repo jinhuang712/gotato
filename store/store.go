@@ -53,8 +53,7 @@ type Store struct {
 // The rules an adapter is most likely to miss:
 //
 //  1. Load returns, in one read of the Record, the facts from the last
-//     Checkpoint on and every Entry from Header.LogFrom; Log returns every
-//     Entry, facts and log, in order.
+//     Checkpoint on; Log returns every Entry, facts and log, in order.
 //  2. A write continues the log: its Entries have the Seqs after+1, after+2
 //     and so on, and a Record starts with a Checkpoint at Seq 1. A batch that
 //     does not is refused with CodeInvalidArgument; an Append whose after is
@@ -100,8 +99,7 @@ type Records interface {
 	// the Record's last position.
 	Append(ctx context.Context, id string, after uint64, entries []record.Entry, h record.Header) error
 	// Load returns, from one read of the Record, the Entries of Layer fact
-	// from the last Checkpoint on, and every Entry from the Header's LogFrom
-	// (Loaded.Entries); the segment_closed Entries before that Checkpoint
+	// from the last Checkpoint on (Loaded.Entries); the segment_closed Entries before that Checkpoint
 	// (Loaded.Segments), which it may list by number; the last position; and
 	// the Header of the last write. An adapter reads the Entry's Kind for the
 	// Segments, as it reads it for the Checkpoint.

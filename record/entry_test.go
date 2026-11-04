@@ -91,7 +91,7 @@ func TestEntriesRebuildEveryChange(t *testing.T) {
 	want := map[gotato.EventKind]record.Layer{
 		gotato.EventKindSessionCreated: record.LayerFact, gotato.EventKindMessageCommitted: record.LayerFact,
 		gotato.EventKindMetadataChanged: record.LayerFact, gotato.EventKindReplyEnded: record.LayerFact,
-		gotato.EventKindRunStarted: record.LayerLog, gotato.EventKindRunEnded: record.LayerLog,
+		gotato.EventKindRunStarted: record.LayerFact, gotato.EventKindRunEnded: record.LayerFact,
 	}
 	if !reflect.DeepEqual(got, want) {
 		t.Fatalf("entry layers = %v, want %v", got, want)
@@ -138,8 +138,8 @@ func TestFactsAloneRebuildTheTranscript(t *testing.T) {
 	if !reflect.DeepEqual(rebuilt.Messages(), r.Messages()) || !reflect.DeepEqual(rebuilt.Metadata(), r.Metadata()) {
 		t.Fatalf("facts rebuilt %+v / %v", rebuilt.Messages(), rebuilt.Metadata())
 	}
-	if len(rebuilt.Runs()) != 0 {
-		t.Fatalf("facts alone rebuilt Runs: %+v", rebuilt.Runs())
+	if !reflect.DeepEqual(rebuilt.Runs(), r.Runs()) {
+		t.Fatalf("facts alone rebuilt the Runs %+v, want %+v", rebuilt.Runs(), r.Runs())
 	}
 }
 

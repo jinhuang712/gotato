@@ -69,13 +69,13 @@ func TestCreateIsBusyUntilReleasedUnlessIdle(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if loaded, err := st.Load(ctx, "busy"); err != nil || !stateOf(t, loaded).Busy || loaded.Seq != 2 {
+	if loaded, err := st.Load(ctx, "busy"); err != nil || !heldOf(t, loaded) || loaded.Seq != 2 {
 		t.Fatalf("a new Record = %+v, %v; want busy at head 2", loaded.Header.Info, err)
 	}
 	if err := busy.Release(ctx); err != nil {
 		t.Fatal(err)
 	}
-	if loaded, err := st.Load(ctx, "busy"); err != nil || stateOf(t, loaded).Busy || loaded.Seq != 3 {
+	if loaded, err := st.Load(ctx, "busy"); err != nil || heldOf(t, loaded) || loaded.Seq != 3 {
 		t.Fatalf("after Release = %+v, %v; want idle at head 3", loaded.Header.Info, err)
 	}
 	if kinds := storedKinds(t, st, "busy", 0); len(kinds) != 3 || kinds[2] != gotato.EventKindSessionReleased {
@@ -86,7 +86,7 @@ func TestCreateIsBusyUntilReleasedUnlessIdle(t *testing.T) {
 	if _, err := store.CreateWriter(ctx, st, record.New(record.WithID("idle")), "instance-a", store.WithIdle(), store.WithPublisher(func(e gotato.Event) { published = append(published, e) })); err != nil {
 		t.Fatal(err)
 	}
-	if loaded, err := st.Load(ctx, "idle"); err != nil || stateOf(t, loaded).Busy || loaded.Seq != 3 {
+	if loaded, err := st.Load(ctx, "idle"); err != nil || heldOf(t, loaded) || loaded.Seq != 3 {
 		t.Fatalf("an idle Record = %+v, %v; want idle at head 3", loaded.Header.Info, err)
 	}
 	if len(published) != 3 || published[2].Kind() != gotato.EventKindSessionReleased || published[2].Head().Number != 3 {
@@ -126,8 +126,8 @@ func TestResumeClaimsAReleasedRecordAgainWhileItsHeadIsCurrent(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if loaded.Seq != writer.Record().Head() || stateOf(t, loaded).Busy {
-		t.Fatalf("store head %d busy %v, want the copy's head %d, idle", loaded.Seq, stateOf(t, loaded).Busy, writer.Record().Head())
+	if loaded.Seq != writer.Record().Head() || heldOf(t, loaded) {
+		t.Fatalf("store head %d busy %v, want the copy's head %d, idle", loaded.Seq, heldOf(t, loaded), writer.Record().Head())
 	}
 
 	other, err := store.OpenWriter(ctx, st, id, "instance-b")
@@ -412,13 +412,13 @@ func TestReopeningByTheHolderWritesTheClaimAgain(t *testing.T) {
 		t.Fatalf("event = %+v, want session_claimed, epoch 1, idle", events[0])
 	}
 	after, err := st.Load(ctx, id)
-	if err != nil || !stateOf(t, after).Busy {
+	if err != nil || !heldOf(t, after) {
 		t.Fatalf("summary = %+v, %v; want busy", after.Header.Info, err)
 	}
 	if err := reopened.Release(ctx); err != nil {
 		t.Fatal(err)
 	}
-	if released, err := st.Load(ctx, id); err != nil || stateOf(t, released).Busy {
+	if released, err := st.Load(ctx, id); err != nil || heldOf(t, released) {
 		t.Fatalf("summary after Release = %+v, %v; want idle", released.Header.Info, err)
 	}
 	if _, err := store.View(ctx, st, id); err != nil {

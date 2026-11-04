@@ -63,32 +63,28 @@ type Record struct {
 	// of the last Event numbered, stored or not. logging turns on once the
 	// Record is stored; from then on every change queues its Event in
 	// pending, until a write takes it.
-	head uint64
-	last uint64
-	// checkpointSeq is the position of the last Checkpoint written or loaded:
-	// where a load that must read the log starts (Header.LogFrom).
-	checkpointSeq uint64
-	logging       bool
-	pending       []gotato.Event
+	head    uint64
+	last    uint64
+	logging bool
+	pending []gotato.Event
 	// instance names the Instance whose writes this Record's Entries are,
 	// and claim the Record's writer as its facts last named it.
 	instance string
 	claim    Claim
 	// running is the Run that started and has not ended. baseRuns counts
-	// the Runs of a Record loaded from its facts alone, whose Run records
-	// are in the log and were not read.
+	// the Runs of a Record loaded from its last Checkpoint whose Run records
+	// are before it and were not read.
 	running gotato.RunID
 	busy    bool
-	// notices are the notices queued and neither committed nor dropped; the
-	// Header's State keeps them, so a Record loaded from its facts knows them too.
+	// notices are the notices queued and neither committed nor dropped; a
+	// Checkpoint keeps them, so a Record loaded from it knows them too.
 	notices []gotato.PendingNotice
 	// queued are the user messages queued (message_queued) and neither
-	// committed nor dropped in the log read since the last Checkpoint. They are
-	// read only when the last Writer stopped in the middle of a Run, to be
-	// dropped by the Writer that takes the Record over (takeOver).
+	// committed nor dropped in the facts read since the last Checkpoint, for
+	// the Writer that takes the Record over to drop (TakeOver).
 	queued []gotato.MessageQueued
-	// lastRunEnd is when the last Run that ended did; it is kept in the
-	// Header's State, so a Record loaded from its facts knows it too.
+	// lastRunEnd is when the last Run that ended did; a Checkpoint keeps it,
+	// so a Record loaded from it knows it too.
 	lastRunEnd time.Time
 	baseRuns   int
 	// started and openParts hold, while a log is read, the Tool calls that

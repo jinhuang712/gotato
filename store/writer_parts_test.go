@@ -2,6 +2,8 @@ package store_test
 
 import (
 	"context"
+	"reflect"
+	"slices"
 	"strings"
 	"testing"
 	"time"
@@ -81,14 +83,18 @@ func TestTakeoverRebuildsTheCutOffReplyFromItsParts(t *testing.T) {
 	<-sent
 	waitStored(t, st, rec.ID(), gotato.EventKindReplyPartKept, 1)
 
-	// While the Run is in flight the Header asks a load for the log from the
-	// last Checkpoint (session_created, at 1), and the Run is in the State.
+	// While the Run is in flight a load holds its run_started and the parts
+	// of the reply, as facts.
 	inFlight, err := st.Load(ctx, rec.ID())
 	if err != nil {
 		t.Fatal(err)
 	}
-	if state := stateOf(t, inFlight); inFlight.Header.LogFrom != 1 || state.Running == "" {
-		t.Fatalf("Header of a Record with a Run in flight: LogFrom %d, Running %q; want 1 and a Run", inFlight.Header.LogFrom, state.Running)
+	var kinds []gotato.EventKind
+	for _, entry := range inFlight.Entries {
+		kinds = append(kinds, entry.Kind)
+	}
+	if !slices.Contains(kinds, gotato.EventKindRunStarted) || !slices.Contains(kinds, gotato.EventKindReplyPartKept) || !heldOf(t, inFlight) {
+		t.Fatalf("a load of a Record with a Run in flight holds %v (held %v), want run_started and reply_part_kept, and the Record held", kinds, heldOf(t, inFlight))
 	}
 
 	// The Instance that held the Session stopped: another one takes it over,
@@ -226,12 +232,14 @@ func TestViewRebuildsACutOffReplyFromItsParts(t *testing.T) {
 	if len(messages) != 3 || messages[1].StopReason != gotato.StopReasonCutOff || gotato.TextOf(messages[1]) != "half an answer" || gotato.TextOf(messages[2]) != "again" {
 		t.Fatalf("view = %+v, want the cut-off reply between the two prompts", messages)
 	}
+	// The parts are facts: the takeover read them and wrote the Cut-off
+	// reply, so a load holds what the whole log holds.
 	facts, err := store.Open(ctx, st, writer.ID())
 	if err != nil {
 		t.Fatal(err)
 	}
-	if facts.Len() != 2 {
-		t.Fatalf("facts = %+v, want the two prompts only: reply parts are log", facts.Messages())
+	if !reflect.DeepEqual(facts.Messages(), messages) {
+		t.Fatalf("facts = %+v, want what the whole log holds, %+v", facts.Messages(), messages)
 	}
 }
 

@@ -9,6 +9,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/jinhuang712/gotato/gotato"
 	"github.com/jinhuang712/gotato/record"
 
 	"github.com/jinhuang712/gotato/store"
@@ -221,8 +222,8 @@ func TestTheSuiteCatchesAStoreThatDropsTheEpoch(t *testing.T) {
 	}
 }
 
-// columns maps a Header to the columns it knew, and drops the rest: LogFrom
-// stands for a field added later, and State for bytes it does not understand.
+// columns maps a Header to the columns it knew, and drops the rest: the usage
+// stands for a field added later.
 type columns struct {
 	*store.MemoryStore
 	drop func(*record.Header)
@@ -240,19 +241,10 @@ func (s columns) Append(ctx context.Context, id string, after uint64, entries []
 
 func TestTheSuiteCatchesAStoreThatDropsAField(t *testing.T) {
 	problems := storetest.CheckRecords(context.Background(), recordsOf(func(m *store.MemoryStore) store.Records {
-		return columns{m, func(h *record.Header) { h.LogFrom = 0 }}
+		return columns{m, func(h *record.Header) { h.Info.Usage = gotato.Usage{} }}
 	}))
 	if !mentions(problems, "every field of Header, Info and Entry is kept") {
 		t.Fatalf("problems = %v, want the field check to fail", problems)
-	}
-}
-
-func TestTheSuiteCatchesAStoreThatDropsTheState(t *testing.T) {
-	problems := storetest.CheckRecords(context.Background(), recordsOf(func(m *store.MemoryStore) store.Records {
-		return columns{m, func(h *record.Header) { h.State = nil }}
-	}))
-	if !mentions(problems, "the Header's Epoch, Info and State are kept as written through Create, Append and Load") {
-		t.Fatalf("problems = %v, want the header check to fail", problems)
 	}
 }
 
@@ -326,28 +318,6 @@ func TestTheSuiteCatchesALoadThatDoesNotReadInOneRead(t *testing.T) {
 	})
 	if !mentions(problems, "a Load racing Appends reads the Record in one read") {
 		t.Fatalf("problems = %v, want the racing load check to fail", problems)
-	}
-}
-
-// ignoringLogFrom returns the facts only, whatever the Header asks for.
-type ignoringLogFrom struct{ *store.MemoryStore }
-
-func (s ignoringLogFrom) Load(ctx context.Context, id string) (record.Loaded, error) {
-	loaded, err := s.MemoryStore.Load(ctx, id)
-	facts := loaded.Entries[:0]
-	for _, entry := range loaded.Entries {
-		if entry.Layer == record.LayerFact {
-			facts = append(facts, entry)
-		}
-	}
-	loaded.Entries = facts
-	return loaded, err
-}
-
-func TestTheSuiteCatchesALoadThatIgnoresLogFrom(t *testing.T) {
-	problems := storetest.CheckRecords(context.Background(), recordsOf(func(m *store.MemoryStore) store.Records { return ignoringLogFrom{m} }))
-	if !mentions(problems, "Load returns every Entry from the Header's LogFrom, each once, and LogFrom is the last write's") {
-		t.Fatalf("problems = %v, want the LogFrom check to fail", problems)
 	}
 }
 

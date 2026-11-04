@@ -177,7 +177,7 @@ func TestDrainDeadlineStopsRunsAndSaysReconnect(t *testing.T) {
 			// released.
 			var busy []string
 			for _, id := range ids {
-				if loaded, err := st.Records.Load(ctx, id); err != nil || stateOf(loaded).Busy {
+				if loaded, err := st.Records.Load(ctx, id); err != nil || heldOf(loaded) {
 					busy = append(busy, id)
 				}
 			}
@@ -322,7 +322,7 @@ func TestDrainMustWaitForACompactionInFlight(t *testing.T) {
 	select {
 	case err := <-drained:
 		loaded, loadErr := store.Load(ctx, s.ID)
-		t.Errorf("Drain returned (%v) while a compaction still holds the Claim (busy=%v, load error %v)", err, stateOf(loaded).Busy, loadErr)
+		t.Errorf("Drain returned (%v) while a compaction still holds the Claim (busy=%v, load error %v)", err, heldOf(loaded), loadErr)
 	case <-time.After(300 * time.Millisecond):
 	}
 	close(hold.proceed)

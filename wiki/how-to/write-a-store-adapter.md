@@ -12,7 +12,7 @@ A `store.Store` is a struct of two seams, `Store{Records: …, Liveness: …}`, 
 
 The contract is in two packages, and the line between them is "does it exist without being saved?". Package `store` holds the contract (`Store`, `Records`, `Liveness`, `Lister`, `Definitions`), the checks every store makes (`CheckID`, `CheckBatch`), the errors `ErrExists`, `ErrConflict`, `ErrExpired` and `ErrInvalidID`, `InstanceRow` and `InstanceState`, and the suite, `store/storetest`. Package `record` holds what an adapter keeps and returns: `Entry`, `Header`, `Info`, `Loaded`, and `ErrNotFound`, which a store returns for a Record that is not there. An adapter imports both; `store` imports `record`, never the reverse.
 
-- **`Records`** keeps Records: a Record is a Session's append-only log of Entries (see [GLOSSARY.md](../../GLOSSARY.md#core)). An Entry is one line: a `Seq` (its position, from 1, with no gap), a `Kind` (the Event kind), a `Layer` (`fact` or `log`), the time, the Instance that wrote it, and its `Data` as JSON. Next to the log the store keeps the `Header` of the last write: the Record's `Epoch`, an `Info` of listing columns (ID, counts, times, metadata), a `State` that is Gotato's own bytes, and `LogFrom`. It has five methods: `Create`, `Append`, `Load`, `Log` and `Delete`. Every write is one conditional write: a batch of Entries goes in all or nothing, and only to positions that are still free. An adapter maps that to an insert on a unique `(session, seq)` key.
+- **`Records`** keeps Records: a Record is a Session's append-only log of Entries (see [GLOSSARY.md](../../GLOSSARY.md#core)). An Entry is one line: a `Seq` (its position, from 1, with no gap), a `Kind` (the Event kind), a `Layer` (`fact` or `log`), the time, the Instance that wrote it, and its `Data` as JSON. Next to the log the store keeps the `Header` of the last write: the Record's `Epoch` and an `Info` of listing columns (ID, counts, times, metadata). It has five methods: `Create`, `Append`, `Load`, `Log` and `Delete`. Every write is one conditional write: a batch of Entries goes in all or nothing, and only to positions that are still free. An adapter maps that to an insert on a unique `(session, seq)` key.
 - **`Liveness`** keeps one row per running Instance, renewed on a heartbeat and timed by the store's clock. When a row expires, every Claim of that Instance ends at once. This is how another Instance knows it may take a Session over. It has two methods: `Beat` and `Instance`.
 - **`Lister`** is optional, on `Records`: `List(ctx, ListQuery{Limit, Cursor}) (ListPage{Infos, Next}, error)`. The runtime never lists, so an adapter that does not implement it still runs every Session; only `Runner.Sessions` (and `GET /v1/sessions`) then answers `not_supported`. Write it when your service lists Sessions.
 
@@ -22,7 +22,7 @@ These are the rules an adapter is most likely to miss. The suite has a check for
 
 For `Records`:
 
-1. **Load reads the Record once.** It returns the Entries of Layer `fact` from the last Checkpoint on (`Entry.IsCheckpoint`: `session_created` or `compaction_ended`), plus every Entry, log Entries too, from `Header.LogFrom` when that is not 0; the `segment_closed` Entries from before the Checkpoint, apart; the position of the last Entry (`Loaded.Seq`); and the Header of the last write. All of it comes from one read, so a `Load` that races an `Append` returns the Entries and the Header of the same write. `Log` returns every Entry, facts and log, in order.
+1. **Load reads the Record once.** It returns the Entries of Layer `fact` from the last Checkpoint on (`Entry.IsCheckpoint`: `session_created` or `compaction_ended`); the `segment_closed` Entries from before the Checkpoint, apart; the position of the last Entry (`Loaded.Seq`); and the Header of the last write. All of it comes from one read, so a `Load` that races an `Append` returns the Entries and the Header of the same write. `Log` returns every Entry, facts and log, in order.
 2. **A write continues the log.** The Entries have the Seqs `after+1`, `after+2` and so on, and a Record starts with a Checkpoint at Seq 1. A batch that does not is refused with `invalid_argument`. An `Append` whose `after` is not the Record's last position is refused with `store.ErrConflict`. Of writers racing for one position, exactly one wins.
 3. **The Record epoch is required.** `Header.Epoch` must be set on `Create` and `Append`; a write without it is `invalid_argument`. `Append` checks it before the position. An epoch that is not the stored Record's is `ErrNotFound`, not `ErrConflict`: the Record was deleted and created again, and the writer belongs to the old one.
 4. **Delete of an unknown Record is `ErrNotFound`,** and so is every later `Append`, `Load` and `Log` of it.
@@ -38,7 +38,7 @@ For `Lister`:
 
 ### What a Store does not do
 
-- **It reads an Entry's `Seq`, `Kind` and `Layer`, and `IsCheckpoint` to find where a load starts, and the Header's `Epoch` (and `LogFrom`, in `Load`).** The rest of an Entry, its `Data`, the Header's `State` and its `Info` are kept as they are. The store never reads what Gotato's `State` holds.
+- **It reads an Entry's `Seq`, `Kind` and `Layer`, and `IsCheckpoint` to find where a load starts, and the Header's `Epoch`.** The rest of an Entry, its `Data`, and the Header's `Info` are kept as they are.
 - **It keeps every field.** `Header`, `Info`, `Entry` and `InstanceRow` gain fields over time. An adapter that maps them to columns must round-trip every field, also those it was written before; the suite fills each field by reflection and fails an adapter that drops one. Storing the whole value as JSON next to the columns you index keeps a later field for free.
 - **`Records` gains no methods after 0.3.0.** A later capability is an optional interface that a caller finds by type assertion, as `Lister` is, so an adapter written today keeps compiling. Wrap neither seam in a type that hides what it wraps: a wrapper around a `Records` must pass on `List` if the caller is to find it.
 - **What `Load`, `Log` and `List` return is the caller's to read and the store's to keep.** A caller must not modify it, and an adapter with a cache may return it without a copy. `MemoryStore` returns copies.
@@ -176,7 +176,7 @@ func (r *Records) Append(ctx context.Context, id string, after uint64, entries [
 
 ### Load and Log
 
-`Load` reads the Record once: it finds the last Checkpoint, returns the facts from there and every Entry from `LogFrom`, returns the `segment_closed` Entries before it apart, and the Header of the last write. `Log` is `WHERE seq > after ORDER BY seq LIMIT limit`.
+`Load` reads the Record once: it finds the last Checkpoint, returns the facts from there, returns the `segment_closed` Entries before it apart, and the Header of the last write. `Log` is `WHERE seq > after ORDER BY seq LIMIT limit`.
 
 ```go
 func (r *Records) Load(ctx context.Context, id string) (record.Loaded, error) {
@@ -210,7 +210,7 @@ func (r *Records) Load(ctx context.Context, id string) (record.Loaded, error) {
 		}
 	}
 	for _, e := range all[start:] {
-		if e.Layer == record.LayerFact || (out.Header.LogFrom != 0 && e.Seq >= out.Header.LogFrom) {
+		if e.Layer == record.LayerFact {
 			out.Entries = append(out.Entries, e)
 		}
 	}
@@ -240,7 +240,7 @@ func (r *Records) Log(ctx context.Context, id string, after uint64, limit int) (
 ```
 
 - **A `limit` of 0 or less means every Entry.** A caller that needs one Entry or one page passes a limit so that the Record is not read to its end.
-- **A large Entry stays whole** in `Log`, and stays out of `Load` when it is a log Entry before `LogFrom`. Nothing in the adapter truncates `Data`.
+- **A large Entry stays whole** in `Log`, and stays out of `Load` when it is a log Entry. Nothing in the adapter truncates `Data`.
 - **`Load` is one read.** In SQL, take the Header and the Entries in one transaction (or one statement that joins them), so that a write landing between two selects cannot give a Header newer than the Entries. The suite writes while it loads to catch this.
 
 ### List and Delete

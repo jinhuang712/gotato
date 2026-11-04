@@ -11,7 +11,7 @@ import (
 const (
 	ruleLog       = "Log must return every Entry, facts and log, in order, unchanged"
 	ruleLogLimit  = "Log must return at most limit Entries, from the first one after the position, and every Entry when limit is 0 or less"
-	ruleLoadFacts = "Load must return in Loaded.Entries the Entries of Layer fact from the last Checkpoint on (and, with a LogFrom, every Entry from it), in order, unchanged"
+	ruleLoadFacts = "Load must return in Loaded.Entries the Entries of Layer fact from the last Checkpoint on, in order, unchanged"
 	ruleSegments  = "Load must return the segment_closed Entries from before the last Checkpoint in Loaded.Segments, and Entries from the Checkpoint on stay in Loaded.Entries"
 	ruleAtomic    = "a refused write must leave the Record as it was, and a write is all or nothing"
 )

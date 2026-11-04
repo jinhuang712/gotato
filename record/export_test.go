@@ -1,7 +1,6 @@
 package record
 
 import (
-	"encoding/json"
 	"time"
 
 	"github.com/jinhuang712/gotato/gotato"
@@ -25,16 +24,6 @@ var (
 	TaggedPart             = taggedPart
 	NumberAttr             = numberAttr
 )
-
-// RecordState is recordState: what a Header's State holds.
-type RecordState = recordState
-
-// DecodeState decodes the State of h.
-func DecodeState(h Header) (RecordState, error) {
-	var state recordState
-	err := json.Unmarshal(h.State, &state)
-	return state, err
-}
 
 // CloseWithoutCheckpoint is Record.closeSegment.
 func (s *Record) CloseWithoutCheckpoint(segment gotato.Segment) (gotato.Segment, error) {

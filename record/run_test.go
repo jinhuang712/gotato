@@ -39,13 +39,13 @@ func TestTakeoverEndsAnInterruptedRun(t *testing.T) {
 	if list := page.Infos; err != nil || len(list) != 1 || list[0].Runs != 1 {
 		t.Fatalf("summary = %+v, %v; want one Run", list, err)
 	}
-	loaded, err := st.Load(ctx, id)
+	// A load reads the same from the facts: one Run, ended, none in flight.
+	opened, err := store.Open(ctx, st, id)
 	if err != nil {
 		t.Fatal(err)
 	}
-	state, err := record.DecodeState(loaded.Header)
-	if err != nil || state.Running != "" || state.Runs != 1 || loaded.Header.LogFrom != 0 {
-		t.Fatalf("state = %+v, LogFrom %d, %v; want one Run, none running, no LogFrom", state, loaded.Header.LogFrom, err)
+	if runs := opened.Runs(); len(runs) != 1 || runs[0].Status != gotato.RunStatusFailed || opened.Info().Runs != 1 {
+		t.Fatalf("a load holds the Runs %+v and counts %d, want run-1 ended as interrupted, counted once", runs, opened.Info().Runs)
 	}
 }
 

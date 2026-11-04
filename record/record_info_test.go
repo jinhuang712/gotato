@@ -50,9 +50,9 @@ func TestRecordInfoTimesSurviveASaveAndLoad(t *testing.T) {
 	}
 }
 
-// The State of a Writer's write carries the last Run's end, the Run count and
-// the usage, and the Record loaded from it knows them.
-func TestStateTimesSurviveASaveAndLoad(t *testing.T) {
+// The facts of a Writer's writes carry the last Run's end, the Run count and
+// the usage, and the Record loaded from them knows them.
+func TestRunTotalsSurviveASaveAndLoad(t *testing.T) {
 	ctx := context.Background()
 	st, err := store.NewFileStore(t.TempDir())
 	if err != nil {
@@ -79,13 +79,6 @@ func TestStateTimesSurviveASaveAndLoad(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	state, err := record.DecodeState(loaded.Header)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if !state.LastRunEnd.Equal(ended) || state.Runs != 1 || state.Usage.InputTokens != 7 || state.Running != "" || state.Busy {
-		t.Fatalf("State = %+v, want the last Run end %v, one Run, 7 input tokens, nothing running, not busy", state, ended)
-	}
 	if loaded.Header.Info.Runs != 1 || loaded.Header.Info.Usage.InputTokens != 7 {
 		t.Fatalf("Info = %+v, want the listing columns for one Run and 7 input tokens", loaded.Header.Info)
 	}
@@ -93,8 +86,8 @@ func TestStateTimesSurviveASaveAndLoad(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if !opened.LastRunEnd().Equal(ended) {
-		t.Fatalf("LastRunEnd of the loaded Record = %v, want %v", opened.LastRunEnd(), ended)
+	if _, held := opened.Holder(); !opened.LastRunEnd().Equal(ended) || opened.Info().Runs != 1 || opened.Usage().InputTokens != 7 || held {
+		t.Fatalf("the loaded Record: LastRunEnd %v, Runs %d, Usage %+v, held %v; want %v, one Run, 7 input tokens, not held", opened.LastRunEnd(), opened.Info().Runs, opened.Usage(), held, ended)
 	}
 }
 

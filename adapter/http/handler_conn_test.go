@@ -530,7 +530,7 @@ func TestDrainEndsStreamsInOrder(t *testing.T) {
 	}
 	// By then its Session is released.
 	loaded, err := store.Records.Load(ctx, stopped.ID)
-	if err != nil || stateOf(loaded).Busy {
+	if err != nil || heldOf(loaded) {
 		t.Fatalf("the stopped Run's Session = %+v, %v; want released", loaded.Header, err)
 	}
 }

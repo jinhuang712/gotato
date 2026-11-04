@@ -2,13 +2,11 @@ package http_test
 
 import (
 	"context"
-	"encoding/json"
 	"errors"
 	"testing"
 
 	"github.com/jinhuang712/gotato/record"
 
-	"github.com/jinhuang712/gotato/gotato"
 	"github.com/jinhuang712/gotato/store"
 )
 
@@ -54,20 +52,13 @@ func (p parts) List(ctx context.Context, q store.ListQuery) (store.ListPage, err
 	return lister.List(ctx, q)
 }
 
-// recordState is the part of a Header's State these tests read: Gotato's own
-// bytes, which no store reads, so a test decodes them itself.
-type recordState struct {
-	Running gotato.RunID `json:"running"`
-	Busy    bool         `json:"busy"`
-}
-
-// stateOf decodes the State of a Loaded Record's Header.
-func stateOf(loaded record.Loaded) recordState {
-	var state recordState
-	if len(loaded.Header.State) > 0 {
-		if err := json.Unmarshal(loaded.Header.State, &state); err != nil {
-			panic(err)
-		}
+// heldOf rebuilds a Loaded Record from its facts and reports whether its
+// writer holds it: busy, or with a Run in flight.
+func heldOf(loaded record.Loaded) bool {
+	rec, err := record.FromLoaded(loaded)
+	if err != nil {
+		panic(err)
 	}
-	return state
+	_, held := rec.Holder()
+	return held
 }

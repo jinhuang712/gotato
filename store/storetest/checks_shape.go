@@ -2,7 +2,6 @@ package storetest
 
 import (
 	"context"
-	"encoding/json"
 	"errors"
 	"fmt"
 	"reflect"
@@ -42,9 +41,10 @@ func checkEmptyEpoch(ctx context.Context, open Open) error {
 }
 
 // checkFieldsKept round-trips every field of Header (Info included) and
-// Entry through the store, found by reflection: a field added to one of them
-// later is filled by this check without a change here, so an adapter that maps
-// the fields it knew to columns, and drops a new one, fails.
+// Entry through the store, found by reflection, after Create and after
+// Append: a field added to one of them later is filled by this check without a
+// change here, so an adapter that maps the fields it knew to columns, and
+// drops a new one, fails.
 func checkFieldsKept(ctx context.Context, open Open) error {
 	store := open()
 	data := []byte(`{"filled":true}`)
@@ -57,23 +57,29 @@ func checkFieldsKept(ctx context.Context, open Open) error {
 		}
 		entry.Seq, entry.Kind, entry.Layer, entry.Data = seq, kind, record.LayerFact, data
 	}
-	filledHeader := func(state string) (record.Header, error) {
+	filledHeader := func() (record.Header, error) {
 		h := record.Header{}
-		if err := fillAll(reflect.ValueOf(&h).Elem(), "Header", map[string]bool{"State": true}); err != nil {
+		if err := fillAll(reflect.ValueOf(&h).Elem(), "Header", nil); err != nil {
 			return h, err
 		}
-		h.State = json.RawMessage(state)
 		h.Info.ID = "shape"
 		return h, nil
 	}
-	first, err := filledHeader(`{"filled":"first"}`)
+	first, err := filledHeader()
 	if err != nil {
 		return err
 	}
 	if err := store.Create(ctx, "shape", entries[:1], first); err != nil {
 		return fmt.Errorf("create: %w", err)
 	}
-	next, err := filledHeader(`{"filled":"next"}`)
+	created, err := open().Load(ctx, "shape")
+	if err != nil {
+		return fmt.Errorf("load: %w", err)
+	}
+	if diff := differ(reflect.ValueOf(created.Header), reflect.ValueOf(first), "Load.Header after Create"); diff != "" {
+		return failf("%s: a store must keep every field of the Header of the last write", diff)
+	}
+	next, err := filledHeader()
 	if err != nil {
 		return err
 	}
@@ -103,7 +109,6 @@ func checkFieldsKept(ctx context.Context, open Open) error {
 			return failf("%s: a store must keep every field of an Entry", diff)
 		}
 	}
-	// The filled LogFrom is past the Record, so Load returns the facts alone.
 	if len(loaded.Entries) != len(entries) {
 		return failf("Load returned the Entries %v, want %v", seqs(loaded.Entries), seqs(entries))
 	}

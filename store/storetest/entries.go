@@ -43,17 +43,15 @@ func segment(seq uint64, writer string) record.Entry {
 }
 
 // header is the Header of a write of Record id that leaves it at seq: its
-// Epoch is "epoch-"+id, its Info the listing columns, and its State bytes of
-// Gotato's own that no store reads and every store must give back as they were.
+// Epoch is "epoch-"+id, and its Info the listing columns, with seq as
+// Info.Messages.
 func header(id string, seq uint64, updated string) record.Header {
-	state, _ := json.Marshal(map[string]any{"seq": seq, "running": "run-1", "notices": []string{"one", "two"}})
 	return record.Header{
 		Epoch: "epoch-" + id,
 		Info: record.Info{
 			ID: id, CreatedAt: infoTime("2026-10-17T00:00:00.000Z"), UpdatedAt: infoTime(updated),
 			Messages: int(seq), Metadata: map[string]string{"k": "v"},
 		},
-		State: state,
 	}
 }
 

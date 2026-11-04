@@ -35,6 +35,9 @@ func (s *Record) startLog() {
 		LoadedTools: slices.Clone(s.loaded),
 		Segments:    slices.Clone(s.used),
 		Tail:        tailPositions(tail, s.positions),
+		Runs:        s.baseRuns + len(s.runs),
+		Usage:       s.usage,
+		LastRunEnd:  s.lastRunEnd,
 	}
 	created.Time = s.createdAt
 	if s.parentID != "" {
@@ -68,17 +71,8 @@ func (s *Record) TakePending() ([]Entry, []gotato.Event, Header, error) {
 		}
 		entries[i] = entry
 	}
-	for _, entry := range entries {
-		if entry.IsCheckpoint() {
-			s.checkpointSeq = entry.Seq
-		}
-	}
-	header, err := s.headerLocked()
-	if err != nil {
-		return nil, nil, Header{}, err
-	}
 	s.pending = nil
-	return entries, events, header, nil
+	return entries, events, Header{Epoch: s.epoch, Info: s.infoLocked()}, nil
 }
 
 // Stored records that the store now holds every Entry up to seq.
@@ -114,10 +108,10 @@ func (s *Record) checkpoint(why gotato.CompactionWhy, messages []gotato.Message,
 }
 
 // fromEntries rebuilds a Record from its log, starting at a Checkpoint: the
-// facts a Store loads, or the whole log. The Entries must be in Seq order. Log
-// Entries are applied when present: the facts alone rebuild everything a Run
-// needs, and the log adds Runs, usage and Events. An Entry of an unknown kind
-// is refused rather than misread.
+// facts a Store loads, or the whole log. The Entries must be in Seq order. The
+// facts alone rebuild the whole Record, and log Entries, when present, add
+// only Events to its window. An Entry of an unknown kind is refused rather
+// than misread.
 func fromEntries(entries []Entry) (*Record, error) {
 	return rebuildRecord(entries, true, nil)
 }
@@ -185,14 +179,21 @@ func (s *Record) apply(entry Entry) error {
 			s.parentID, s.parentSeq = string(e.ForkedFrom.SessionID), e.ForkedFrom.Number
 		}
 		s.restore(e.Messages, e.Metadata, e.Compactions, e.LoadedTools, e.Segments, e.Tail)
+		s.restoreTotals(e.Runs, e.Usage, e.LastRunEnd)
 	case gotato.CompactionEnded:
 		if s.id == "" {
 			// A load that starts at this Checkpoint has not read session_created.
 			s.id = string(e.SessionID)
 		}
 		s.restore(e.Messages, e.Metadata, e.History, e.LoadedTools, e.Segments, e.Tail)
+		s.restoreTotals(e.Runs, e.Usage, e.LastRunEnd)
+		s.notices = slices.Clone(e.Notices)
+		s.running = e.Running
 		if e.Instance != "" {
+			// The writer that holds the Session writes its Checkpoint, so the
+			// Session is busy until a session_released after it says otherwise.
 			s.claim = Claim{Instance: e.Instance, Epoch: e.Epoch}
+			s.busy = true
 		}
 	case gotato.SegmentClosed:
 		s.closeLocked(e.Segment)
@@ -268,6 +269,15 @@ func (s *Record) restore(messages []gotato.Message, metadata map[string]string, 
 	s.startContext(segments, tail)
 	s.started = nil
 	s.openParts = nil
+}
+
+// restoreTotals sets the totals a Checkpoint holds. The Runs it counts that
+// the rebuild has not read are counted in baseRuns: all of them for a load that
+// starts at the Checkpoint, none for a rebuild of the whole log.
+func (s *Record) restoreTotals(runs int, usage gotato.Usage, lastRunEnd time.Time) {
+	s.baseRuns = runs - len(s.runs)
+	s.usage = usage
+	s.lastRunEnd = lastRunEnd.UTC()
 }
 
 // startContext begins the Context a Checkpoint holds: the Segments it lists,

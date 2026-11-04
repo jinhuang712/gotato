@@ -77,105 +77,72 @@ func TestCheckBatch(t *testing.T) {
 	}
 }
 
-// Header.LogFrom is the last Checkpoint's position while a Run is in flight,
-// follows a Checkpoint written in the middle of the Run, and is 0 once the Run
-// ended.
-func TestWriterSetsLogFromWhileARunIsInFlight(t *testing.T) {
+// A Checkpoint written in the middle of a Run keeps what the Entries before it
+// said: the Run in flight, the Runs and usage so far, when the last Run ended
+// and the notices pending. A writer that takes the Record over from a load
+// that starts at that Checkpoint ends the Run as interrupted, counts it once,
+// and keeps the notice and the totals.
+func TestACheckpointInTheMiddleOfARunKeepsWhatCameBefore(t *testing.T) {
 	ctx := context.Background()
 	st := store.NewMemoryStore()
-	writer, err := store.CreateWriter(ctx, st, record.New(record.WithID("lf")), "a")
+	writer, err := store.CreateWriter(ctx, st, record.New(record.WithID("cp")), "a")
 	if err != nil {
 		t.Fatal(err)
 	}
-	load := func() record.Loaded {
-		t.Helper()
-		loaded, err := st.Load(ctx, "lf")
-		if err != nil {
-			t.Fatal(err)
-		}
-		return loaded
-	}
-	if loaded := load(); loaded.Header.LogFrom != 0 {
-		t.Fatalf("LogFrom with no Run = %d, want 0", loaded.Header.LogFrom)
-	}
-	if _, err := writer.Write(ctx, []gotato.Event{gotato.RunStarted{Header: gotato.NewHeader("", "run-1", 0)}}); err != nil {
+	usage := gotato.Usage{InputTokens: 7, OutputTokens: 3, TotalTokens: 10}
+	ended := time.Date(2026, 10, 17, 1, 0, 0, 0, time.UTC)
+	runEnded := gotato.RunEnded{Header: gotato.NewHeader("", "run-0", 0), Status: gotato.RunStatusCompleted, Usage: usage}
+	runEnded.Time = ended
+	notice := gotato.NoticeQueued{Header: gotato.NewHeader("", "run-0", 0), MessageID: "n1", NoticeKind: "deploy", Source: gotato.NoticeSourceService, Text: "a deploy is under way"}
+	if _, err := writer.Write(ctx, []gotato.Event{gotato.RunStarted{Header: gotato.NewHeader("", "run-0", 0)}, notice, runEnded, gotato.RunStarted{Header: gotato.NewHeader("", "run-1", 0)}}); err != nil {
 		t.Fatal(err)
 	}
 	commit(t, writer, gotato.UserMessage("hi"))
-	loaded := load()
-	if loaded.Header.LogFrom != 1 || stateOf(t, loaded).Running != "run-1" {
-		t.Fatalf("LogFrom = %d, Running %q, want 1 (session_created) and run-1", loaded.Header.LogFrom, stateOf(t, loaded).Running)
-	}
-	// The Load holds the log Entries of the Run: run_started is one.
-	var kinds []gotato.EventKind
-	for _, e := range loaded.Entries {
-		kinds = append(kinds, e.Kind)
-	}
-	if !slices.Contains(kinds, gotato.EventKindRunStarted) {
-		t.Fatalf("Load of a Run in flight returned %v, want the log Entries from the Checkpoint on, run_started among them", kinds)
-	}
 	if _, err := writer.Record().CloseSegment(gotato.CompactionWhyOnDemand, gotato.Segment{Messages: []gotato.Message{gotato.UserMessage("hi")}}, nil, nil); err != nil {
 		t.Fatal(err)
 	}
 	if err := writer.Flush(ctx); err != nil {
 		t.Fatal(err)
 	}
-	loaded = load()
-	if loaded.Header.LogFrom != loaded.Entries[0].Seq || !loaded.Entries[0].IsCheckpoint() || loaded.Entries[0].Seq == 1 {
-		t.Fatalf("LogFrom = %d with Entries starting at %d (%s), want the new Checkpoint's position", loaded.Header.LogFrom, loaded.Entries[0].Seq, loaded.Entries[0].Kind)
-	}
-	if _, err := writer.Write(ctx, []gotato.Event{gotato.RunEnded{Header: gotato.NewHeader("", "run-1", 0), Status: gotato.RunStatusCompleted}}); err != nil {
-		t.Fatal(err)
-	}
-	if loaded := load(); loaded.Header.LogFrom != 0 || stateOf(t, loaded).Running != "" {
-		t.Fatalf("LogFrom after the Run ended = %d, Running %q, want 0 and none", loaded.Header.LogFrom, stateOf(t, loaded).Running)
-	}
-}
-
-// Both reference stores return every Entry from LogFrom with the facts, and
-// each Entry once, though a fact may be after LogFrom too.
-func TestReferenceStoresLoadHonorsLogFrom(t *testing.T) {
-	ctx := context.Background()
-	files, err := store.NewFileStore(t.TempDir())
+	loaded, err := st.Load(ctx, "cp")
 	if err != nil {
 		t.Fatal(err)
 	}
-	for name, st := range map[string]store.Records{"memory": store.NewMemoryStore(), "file": files} {
-		h := fileSummary(1)
-		if err := st.Create(ctx, "r", []record.Entry{fileEntry(1, gotato.EventKindSessionCreated)}, h); err != nil {
-			t.Fatal(err)
-		}
-		more := []record.Entry{
-			{Seq: 2, Kind: gotato.EventKindRunStarted, Layer: record.LayerLog, Data: []byte(`{}`)},
-			fileEntry(3, gotato.EventKindMessageCommitted),
-			{Seq: 4, Kind: gotato.EventKindReplyPartKept, Layer: record.LayerLog, Data: []byte(`{}`)},
-		}
-		h = fileSummary(4)
-		h.LogFrom = 1
-		if err := st.Append(ctx, "r", 1, more, h); err != nil {
-			t.Fatal(err)
-		}
-		loaded, err := st.Load(ctx, "r")
-		if err != nil || loaded.Seq != 4 || fmt.Sprint(seqsOf(loaded.Entries)) != "[1 2 3 4]" || loaded.Header.LogFrom != 1 {
-			t.Fatalf("%s: Load with LogFrom 1 = Seq %d, Entries %v, LogFrom %d (%v), want [1 2 3 4]", name, loaded.Seq, seqsOf(loaded.Entries), loaded.Header.LogFrom, err)
-		}
-		h = fileSummary(5)
-		if err := st.Append(ctx, "r", 4, []record.Entry{fileEntry(5, gotato.EventKindMessageCommitted)}, h); err != nil {
-			t.Fatal(err)
-		}
-		loaded, err = st.Load(ctx, "r")
-		if err != nil || fmt.Sprint(seqsOf(loaded.Entries)) != "[1 3 5]" {
-			t.Fatalf("%s: Load with no LogFrom = Entries %v (%v), want the facts [1 3 5]", name, seqsOf(loaded.Entries), err)
+	for _, entry := range loaded.Entries {
+		if entry.Kind == gotato.EventKindRunStarted || entry.Kind == gotato.EventKindNoticeQueued {
+			t.Fatalf("the load holds %s at %d, want it to start at the Checkpoint after it", entry.Kind, entry.Seq)
 		}
 	}
-}
-
-func seqsOf(entries []record.Entry) []uint64 {
-	out := make([]uint64, len(entries))
-	for i, e := range entries {
-		out[i] = e.Seq
+	if !heldOf(t, loaded) {
+		t.Fatal("a load from the Checkpoint does not see the Run in flight")
 	}
-	return out
+	other, err := store.OpenWriter(ctx, st, "cp", "b")
+	if err != nil {
+		t.Fatal(err)
+	}
+	rec := other.Record()
+	if runs := rec.Runs(); len(runs) != 1 || runs[0].RunID != "run-1" || runs[0].Status != gotato.RunStatusFailed || runs[0].Error != "interrupted" {
+		t.Fatalf("the Runs after the takeover = %+v, want run-1 ended as interrupted", runs)
+	}
+	if info := rec.Info(); info.Runs != 2 || info.Usage != usage {
+		t.Fatalf("Info after the takeover = Runs %d, Usage %+v; want 2 Runs and %+v", info.Runs, info.Usage, usage)
+	}
+	if notices := rec.PendingNotices(); len(notices) != 1 || notices[0].MessageID != "n1" {
+		t.Fatalf("PendingNotices after the takeover = %+v, want n1", notices)
+	}
+	if !rec.LastRunEnd().After(ended) {
+		t.Fatalf("LastRunEnd after the takeover = %v, want the interrupted Run's end, after %v", rec.LastRunEnd(), ended)
+	}
+	if err := other.Release(ctx); err != nil {
+		t.Fatal(err)
+	}
+	again, err := store.Open(ctx, st, "cp")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, held := again.Holder(); held || again.Info().Runs != 2 || again.Info().Usage != usage || len(again.PendingNotices()) != 1 {
+		t.Fatalf("a load after the release: held %v, Info %+v, notices %+v; want idle, 2 Runs, the usage and n1", held, again.Info(), again.PendingNotices())
+	}
 }
 
 // A FileStore pages its listing by Limit and Cursor, the most recently updated

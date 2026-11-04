@@ -233,8 +233,9 @@ func (w *Writer) Stale(ctx context.Context) (bool, error) {
 	return len(entries) > 0, nil
 }
 
-// Open loads a Record from its facts, for reading only: everything a Run
-// needs, without its Run records and Events.
+// Open loads a Record from its facts since the last Checkpoint, for reading
+// only: everything a Run needs, with the Run records since that Checkpoint and
+// none of its log Entries.
 func Open(ctx context.Context, store Records, id string) (*record.Record, error) {
 	loaded, err := store.Load(ctx, id)
 	if err != nil {
@@ -243,8 +244,8 @@ func Open(ctx context.Context, store Records, id string) (*record.Record, error)
 	return record.FromLoaded(loaded)
 }
 
-// View loads a Record from its whole log, for reading only: its facts, and
-// its Run records, usage and Events.
+// View loads a Record from its whole log, for reading only: its facts, every
+// Run record, and its Events.
 func View(ctx context.Context, store Records, id string) (*record.Record, error) {
 	entries, err := store.Log(ctx, id, 0, 0)
 	if err != nil {

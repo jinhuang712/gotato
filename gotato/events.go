@@ -522,6 +522,12 @@ type SessionCreated struct {
 	Segments []int `json:"segments,omitempty"`
 	// Tail says where Messages were committed, when it is known.
 	Tail []MessagePosition `json:"tail,omitempty"`
+	// Runs, Usage and LastRunEnd are the Record's totals it starts from: the
+	// Runs it counts, its usage and when its last Run ended. A fork inherits
+	// the usage alone.
+	Runs       int       `json:"runs,omitempty"`
+	Usage      Usage     `json:"usage,omitzero"`
+	LastRunEnd time.Time `json:"last_run_end,omitzero"`
 }
 
 // MetadataChanged is published when a setting in the Session's metadata
@@ -538,10 +544,23 @@ type CompactionStarted struct {
 	Why CompactionWhy `json:"why"`
 }
 
+// PendingNotice is a notice that was queued and not yet committed or dropped:
+// what a Record keeps of it, so the next Run on any instance can queue it
+// again (record.Record.PendingNotices).
+type PendingNotice struct {
+	MessageID MessageID    `json:"message_id"`
+	Kind      string       `json:"kind"`
+	Source    NoticeSource `json:"source"`
+	Text      string       `json:"text"`
+	// Number is the number of its notice_queued Event.
+	Number uint64 `json:"number"`
+}
+
 // CompactionEnded is published when a compaction appends its Checkpoint: the
 // Segments by number, the Messages and metadata the Session continues with,
-// every compaction so far, and the Claim in force, so that a load that starts
-// here still knows the Writer and its Epoch.
+// every compaction so far, the Claim in force, and the totals and pending
+// notices of the Record, so that a load that starts here needs nothing before
+// it.
 type CompactionEnded struct {
 	Header
 	Instance   string            `json:"instance,omitempty"`
@@ -561,6 +580,16 @@ type CompactionEnded struct {
 	// Tail says where the Messages the Checkpoint keeps, which follow the
 	// Segments, were committed: their IDs, Entry numbers and times.
 	Tail []MessagePosition `json:"tail,omitempty"`
+	// Runs, Usage and LastRunEnd are the Record's totals so far: the Runs it
+	// counts (the one in flight too), its usage and when its last Run ended.
+	Runs       int       `json:"runs,omitempty"`
+	Usage      Usage     `json:"usage,omitzero"`
+	LastRunEnd time.Time `json:"last_run_end,omitzero"`
+	// Running is the Run in flight when the Checkpoint was written, if any: a
+	// compaction between the Turns of a Run writes one.
+	Running RunID `json:"running,omitempty"`
+	// Notices are the notices queued and neither committed nor dropped.
+	Notices []PendingNotice `json:"notices,omitempty"`
 }
 
 // SegmentClosed is published when a compaction closes a Segment. It is written

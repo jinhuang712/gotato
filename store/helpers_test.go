@@ -2,7 +2,6 @@ package store_test
 
 import (
 	"context"
-	"encoding/json"
 	"sync"
 	"testing"
 	"time"
@@ -105,21 +104,16 @@ func (c *fakeClock) advance(d time.Duration) {
 	c.at += d
 }
 
-// headerState is the part of a Header's State these tests read: the Run in
-// flight, and whether the writer holds the Session.
-type headerState struct {
-	Running gotato.RunID `json:"running"`
-	Busy    bool         `json:"busy"`
-}
-
-// stateOf decodes the State of the Header a Load returned.
-func stateOf(t *testing.T, loaded record.Loaded) headerState {
+// heldOf rebuilds a Loaded Record from its facts and reports whether its
+// writer holds it: busy, or with a Run in flight.
+func heldOf(t *testing.T, loaded record.Loaded) bool {
 	t.Helper()
-	var state headerState
-	if err := json.Unmarshal(loaded.Header.State, &state); err != nil {
+	rec, err := record.FromLoaded(loaded)
+	if err != nil {
 		t.Fatal(err)
 	}
-	return state
+	_, held := rec.Holder()
+	return held
 }
 
 func fileEntry(seq uint64, kind gotato.EventKind) record.Entry {

@@ -20,7 +20,7 @@ The Record is one line of Entries numbered from 1, and each Entry is a Fact or a
  Seq     1             2            3          4              5           6          7
          session_      session_     run_       message_       reply_      reply_     tool_
          created       claimed      started    committed      started     ended      started
- layer   FACT          FACT         log        FACT           log         FACT       FACT
+ layer   FACT          FACT         FACT       FACT           log         FACT       FACT
          └ Checkpoint
 ```
 
@@ -28,13 +28,14 @@ Facts are what a rebuild reads, and one table in the code says which kinds they 
 
 | Facts | Log entries |
 |---|---|
-| `session_created`, `session_claimed` | `session_released`, `run_started`, `run_ended`, `turn_started`, `turn_ended` |
-| `message_committed`, `notice_committed` | `message_queued`, `notice_queued`, `message_dropped`, `message_rejected`, `abort_requested` |
-| `reply_ended`, `reply_cut_off` | `context_built`, `reply_started`, `reply_part_kept`, `model_retried` |
+| `session_created`, `session_claimed`, `session_released` | `turn_started`, `turn_ended` |
+| `run_started`, `run_ended` | `abort_requested` |
+| `message_committed`, `notice_committed`, `message_queued`, `notice_queued`, `message_dropped` | `message_rejected` |
+| `reply_ended`, `reply_cut_off`, `reply_part_kept` | `context_built`, `reply_started`, `model_retried` |
 | `tool_started`, `tool_result_committed`, `tool_loaded`, `tool_unloaded` | `tool_ended`, `tool_result_spilled` |
 | `metadata_changed`, `segment_closed`, `compaction_ended` (a Checkpoint) | `compaction_started`, `compaction_failed`, `extension_failed` |
 
- Log entries tell what happened, for people and telemetry: a Run's start and end, usage, model calls, the parts of a streaming reply. Splitting them keeps a load cheap, because its cost follows the state of the Session and not how chatty its Runs were. One exception: while a Run is in flight a load also returns the Log entries since the last Checkpoint, to rebuild the reply that was streaming as a Cut-off reply if the Run never ended. An Entry has a position, a kind (the Event's kind), a layer, a time, the Instance that wrote it and its data. A store reads nothing in it but the position, the kind and the layer.
+A kind is a Fact when a rebuild that missed it would build another Session: a Run's start and end, whether the Session is held, the queued messages and notices, and the parts of a reply that was streaming, which rebuild it as a Cut-off reply if the Run never ended ([054: Every Entry a rebuild reads is a fact](../plan/decisions/054-every-entry-a-rebuild-reads-is-a-fact.md)). Log entries only tell what happened, for people and telemetry: Turns, model calls, a built Context, a large body. Splitting them keeps a load cheap, because its cost follows the state of the Session and not how chatty its Runs were. An Entry has a position, a kind (the Event's kind), a layer, a time, the Instance that wrote it and its data. A store reads nothing in it but the position, the kind and the layer.
 
 ## What a rebuild does
 
@@ -43,7 +44,8 @@ A Checkpoint stands in for everything before it, so a load starts at the last on
 ```text
  Record   1 ... [seg 3][seg 4][CP 5: lists 3, 4 + tail] 6 ... 71 (head)
                                     └── Facts from here on ──┘
- rebuild  the Messages and metadata from the Checkpoint, then each later Fact
+ rebuild  the Messages, metadata and totals (Runs, usage, last Run end, pending notices,
+          the Run in flight) from the Checkpoint, then each later Fact
           the Segments the Checkpoint lists, by number, from their segment_closed Entries
           a Claim: the Instance and its Epoch; busy or released
           a Run that started and never ended: ended as failed, cause `interrupted`
@@ -90,7 +92,7 @@ A Tool Result over one page is stored whole as an Entry of its own, and the Mess
  read_result(ref, page) ─▶ Records.Log(after=11, limit=1) ─▶ the body, one page at a time
 ```
 
-The body is written before the Message, so the Message can name its position. A crash between the two leaves a Log entry nobody points to, and nothing else. It is a Log entry, so a load does not read it, except while a Run is in flight, when the load also returns the Log entries since the last Checkpoint. A Session with many large results therefore loads as fast as one with none. The Message is written once and stays small, so the bytes already sent do not change. A fork keeps the parent's Session and epoch in the pointer, so a parent that was deleted and created again reads as pruned and not as another body. The body is left out of the Events a subscriber gets and is read only by `read_result`.
+The body is written before the Message, so the Message can name its position. A crash between the two leaves a Log entry nobody points to, and nothing else. It is a Log entry, so a load does not read it. A Session with many large results therefore loads as fast as one with none. The Message is written once and stays small, so the bytes already sent do not change. A fork keeps the parent's Session and epoch in the pointer, so a parent that was deleted and created again reads as pruned and not as another body. The body is left out of the Events a subscriber gets and is read only by `read_result`.
 
 ## What this buys you
 - Any Instance rebuilds the same Session from the Store, at the cost of the part since the last Checkpoint.
@@ -98,4 +100,4 @@ The body is written before the Message, so the Message can name its position. A 
 - A Session knows what a crash left: a Run that never ended, and a Tool call whose outcome is unknown.
 
 ## See also
-[ARCHITECTURE.md](ARCHITECTURE.md), the guidelines [the store is the only truth](../DESIGNS.md#1-the-store-is-the-only-truth), [no instance is special](../DESIGNS.md#8-no-instance-is-special) and [a Session has one writer at a time](../DESIGNS.md#11-a-session-has-one-writer-at-a-time), [FEATURES.md](../FEATURES.md) ([F8: Store](../FEATURES.md#f8-store), [F3.3.4: A task Session keeps its spec](../FEATURES.md#f334-a-task-session-keeps-its-spec), [F6.7: Large results](../FEATURES.md#f67-large-results)), decisions [002: The store is the truth](../plan/decisions/002-the-store-is-the-truth-and-memory-is-a-cache.md), [017: An append-only Record](../plan/decisions/017-the-record-is-an-append-only-log.md), [028: Facts and a log](../plan/decisions/028-every-step-is-written-as-facts-and-a-log.md), [030: Every Entry is an Event](../plan/decisions/030-every-entry-is-an-event.md), [040: Large results are spilled](../plan/decisions/040-a-large-tool-result-is-spilled-and-read-in-pages.md), [044: A job only narrows its Agent](../plan/decisions/044-an-agent-profile-and-a-task-spec-are-registered-inline-or-from-a-store.md) and [050: A transport is an adapter](../plan/decisions/050-each-package-is-one-layer-named-for-its-job.md).
+[ARCHITECTURE.md](ARCHITECTURE.md), the guidelines [the store is the only truth](../DESIGNS.md#1-the-store-is-the-only-truth), [no instance is special](../DESIGNS.md#8-no-instance-is-special) and [a Session has one writer at a time](../DESIGNS.md#11-a-session-has-one-writer-at-a-time), [FEATURES.md](../FEATURES.md) ([F8: Store](../FEATURES.md#f8-store), [F3.3.4: A task Session keeps its spec](../FEATURES.md#f334-a-task-session-keeps-its-spec), [F6.7: Large results](../FEATURES.md#f67-large-results)), decisions [002: The store is the truth](../plan/decisions/002-the-store-is-the-truth-and-memory-is-a-cache.md), [017: An append-only Record](../plan/decisions/017-the-record-is-an-append-only-log.md), [028: Facts and a log](../plan/decisions/028-every-step-is-written-as-facts-and-a-log.md), [030: Every Entry is an Event](../plan/decisions/030-every-entry-is-an-event.md), [040: Large results are spilled](../plan/decisions/040-a-large-tool-result-is-spilled-and-read-in-pages.md), [044: A job only narrows its Agent](../plan/decisions/044-an-agent-profile-and-a-task-spec-are-registered-inline-or-from-a-store.md), [050: A transport is an adapter](../plan/decisions/050-each-package-is-one-layer-named-for-its-job.md) and [054: Every Entry a rebuild reads is a fact](../plan/decisions/054-every-entry-a-rebuild-reads-is-a-fact.md).

@@ -631,7 +631,7 @@ func checkReleased(t *testing.T, st store.Store, id, instance string) {
 	if runEnd.Seq == 0 || release.Seq < runEnd.Seq || !isInstance(release.Instance, instance) {
 		t.Fatalf("Session %s: run_ended at %d, release at %d by %q; want a release by %s after the Run", id, runEnd.Seq, release.Seq, release.Instance, instance)
 	}
-	if loaded, err := st.Records.Load(ctx, id); err != nil || stateOf(loaded).Busy || stateOf(loaded).Running != "" {
+	if loaded, err := st.Records.Load(ctx, id); err != nil || heldOf(loaded) {
 		t.Fatalf("Session %s summary = %+v, %v; want idle", id, loaded.Header.Info, err)
 	}
 }

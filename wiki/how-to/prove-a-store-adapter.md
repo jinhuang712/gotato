@@ -64,7 +64,7 @@ func TestLiveness(t *testing.T) {
 ```
 
 - **`Open` returns a new handle on the same backing store each time it is called.** Two handles are two Instances sharing one database; the suite uses them to prove that one sees what the other wrote and that racing writers lose.
-- **For a real database,** create a schema (or a database) in the first function and drop it in the cleanup function. The suite makes one backing store per check: 26 for `RunRecords`, 5 for `RunLister` and 7 for `RunLiveness` today.
+- **For a real database,** create a schema (or a database) in the first function and drop it in the cleanup function. The suite makes one backing store per check: 24 for `RunRecords`, 5 for `RunLister` and 7 for `RunLiveness` today.
 - **`storetest.CheckRecords`, `CheckLister` and `CheckLiveness(ctx, backing)`** do the same without `testing` and return the problems, for a tool that checks a store at startup.
 - **Without `WithAdvance`,** `RunLiveness` sleeps past a short ttl, which works when the store's clock is the machine's and fails when it is a fake one you did not give it.
 
@@ -73,7 +73,7 @@ func TestLiveness(t *testing.T) {
 ```text
 --- PASS: TestRecords/Create_then_Load_returns_the_facts_and_Log_returns_every_Entry
 --- PASS: TestRecords/Create_of_a_taken_ID_is_ErrExists
---- PASS: TestRecords/Load_returns_every_Entry_from_the_Header's_LogFrom,_each_once,_and_LogFrom_is_the_last_write's
+--- PASS: TestRecords/Load_starts_at_the_last_Checkpoint
 --- PASS: TestRecords/a_Load_racing_Appends_reads_the_Record_in_one_read
 --- PASS: TestRecords/a_stale_writer_is_refused_with_ErrConflict_and_writes_nothing
 --- PASS: TestRecords/of_writers_racing_for_one_position,_exactly_one_wins

@@ -1,10 +1,6 @@
 package record
 
 import (
-	"encoding/json"
-	"fmt"
-	"slices"
-
 	"github.com/jinhuang712/gotato/gotato"
 )
 
@@ -102,8 +98,8 @@ func (s *Record) Release() {
 	}
 }
 
-// View rebuilds a Record from its whole log, for reading only: its facts, and
-// its Run records, usage and Events. The Entries must start at a Checkpoint
+// View rebuilds a Record from its whole log, for reading only: its facts, every
+// Run record, and its Events. The Entries must start at a Checkpoint
 // and be in Seq order. A Record that View returns keeps no pending Events, so
 // it is never written.
 func View(entries []Entry) (*Record, error) {
@@ -117,33 +113,21 @@ func View(entries []Entry) (*Record, error) {
 	return r, nil
 }
 
-// FromLoaded rebuilds a Record from one load of it: its facts, and its Run
-// count, usage and what was in flight from the Header's State, since the Run
-// records are in the log. When the Header's LogFrom is set, a Run started and
-// never ended, and the load held the log from the last Checkpoint on too: it
-// holds the parts of a reply that was streaming, which become a Cut-off reply,
-// so a crash loses at most the last part. It all comes from the one read, so
-// there is nothing for it to disagree with.
+// FromLoaded rebuilds a Record from one load of it: its facts from the last
+// Checkpoint on, which hold the Runs, the usage, the notices and the Claim as
+// well as the Messages. A Run that started and never ended left the parts of
+// the reply that was streaming, which become a Cut-off reply, so a crash loses
+// at most the last part. It all comes from the one read, so there is nothing
+// for it to disagree with.
 func FromLoaded(loaded Loaded) (*Record, error) {
-	var state recordState
-	if len(loaded.Header.State) > 0 {
-		if err := json.Unmarshal(loaded.Header.State, &state); err != nil {
-			return nil, fmt.Errorf("record: the state of the Record: %w", err)
-		}
-	}
 	r, err := rebuildRecord(loaded.Entries, false, loaded.Segments)
 	if err != nil {
 		return nil, err
 	}
 	r.mu.Lock()
 	defer r.mu.Unlock()
-	if loaded.Header.LogFrom != 0 {
-		// The log was read for its parts only: its Runs are in the state.
-		r.runs, r.eventHead = nil, 0
-	}
 	r.head = loaded.Seq
 	r.last = loaded.Seq
-	r.checkpointSeq = loaded.Entries[0].Seq
 	// A load that starts at a compaction_ended Checkpoint has not read
 	// session_created: what it held comes from the Header.
 	if r.createdAt.IsZero() {
@@ -154,14 +138,6 @@ func FromLoaded(loaded Loaded) (*Record, error) {
 	}
 	if r.epoch == "" {
 		r.epoch = loaded.Header.Epoch
-	}
-	r.baseRuns = state.Runs
-	r.usage = state.Usage
-	r.running = state.Running
-	r.busy = state.Busy
-	r.notices = slices.Clone(state.Notices)
-	if !state.LastRunEnd.IsZero() {
-		r.lastRunEnd = state.LastRunEnd.UTC()
 	}
 	r.logging = false
 	r.retainRead = true

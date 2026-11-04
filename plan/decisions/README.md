@@ -77,3 +77,4 @@ Decided: YYYY-MM-DD    Status: current | superseded by NNN
 | [051](051-a-session-is-opened-for-a-task-spec-when-it-is-created.md) | 2026-11-03 | A Session is opened for a TaskSpec when it is created |
 | [052](052-the-footprint-is-a-measure-and-has-no-limit.md) | 2026-11-03 | The footprint is a measure, with no limit |
 | [053](053-minimal-is-measured-in-what-a-user-learns-and-depends-on.md) | 2026-11-03 | Minimal is measured in what a user learns and depends on, not in lines |
+| [054](054-every-entry-a-rebuild-reads-is-a-fact.md) | 2026-11-04 | Every Entry a rebuild reads is a fact |
