@@ -5,7 +5,6 @@ import (
 	"fmt"
 	"maps"
 	"net/http"
-	"strings"
 )
 
 // OpenAI Chat Completions, from
@@ -65,20 +64,8 @@ func (chatWire) tooLong(tokens, window int) *apiError {
 
 func chatContentText(raw json.RawMessage) string {
 	var s string
-	if json.Unmarshal(raw, &s) == nil {
-		return s
-	}
-	var parts []map[string]any
-	if json.Unmarshal(raw, &parts) == nil {
-		var out []string
-		for _, p := range parts {
-			if t, ok := p["text"].(string); ok {
-				out = append(out, t)
-			}
-		}
-		return strings.Join(out, "\n")
-	}
-	return ""
+	_ = json.Unmarshal(raw, &s)
+	return s
 }
 
 func (c chatWire) parse(_ *Server, body []byte, h http.Header) (*parsed, *apiError) {
