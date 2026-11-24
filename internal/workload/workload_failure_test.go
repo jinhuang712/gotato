@@ -317,6 +317,14 @@ func (r *rig) wantUsable(id string, before []gotato.Message) {
 	}
 }
 
+// TestFailureLeavesTheSessionUsable checks GOALS.md O5 fault by fault: a
+// provider error (before a reply and mid-reply, on the first call and after
+// a tool step), a tool that panics, a tool that hangs until the Run's
+// deadline or until the Run is canceled, a store write that fails once, a
+// subscriber that stops reading and a stream sink that stops reading. After
+// each fault the Run settles, with a cause when the fault failed it
+// (wantSettled), the Record keeps the steps committed before it, and the
+// next Run on the Session succeeds (wantUsable).
 func TestFailureLeavesTheSessionUsable(t *testing.T) {
 	t.Run("a provider error", func(t *testing.T) {
 		for _, tc := range []struct {
