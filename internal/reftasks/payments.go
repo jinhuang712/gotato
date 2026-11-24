@@ -202,21 +202,30 @@ func requestText(messages []gotato.Message) string {
 	return b.String()
 }
 
-// paymentsFacts maps a word of a question to the fact that answers it, and the
-// line of the log or tool result where a request holds it.
-var paymentsFacts = []struct{ keyword, fact string }{
-	{"processor reference", "ref_Kq3910"},
-	{"charge ID", "C-5521"},
-	{"How many charges", "412"},
-	{"time out", "23:41:07"},
-	{"amount of order", "12900"},
+// paymentsFact is a word of a question, the fact that answers it, and the
+// field of the log line or Tool Result where a request holds the fact.
+type paymentsFact struct{ keyword, fact, field string }
+
+// paymentsFacts returns the facts the questions of the check ask for. The
+// field is what answerFrom looks for: the bare fact also turns up by chance
+// elsewhere in a request, such as "412" in the ID of a Message that a Segment
+// refers to.
+func paymentsFacts() []paymentsFact {
+	return []paymentsFact{
+		{"processor reference", "ref_Kq3910", `"processor_ref":"ref_Kq3910"`},
+		{"charge ID", "C-5521", `"charge_id":"C-5521"`},
+		{"How many charges", "412", `"charges":412,`},
+		{"time out", "23:41:07", `"at":"2026-10-18T23:41:07+08:00"`},
+		{"amount of order", "12900", `"amount_cents":12900}`},
+	}
 }
 
-// answerFrom answers a question with its fact when the request still holds it.
+// answerFrom answers a question with its fact when the request still holds the
+// field the fact is in.
 func answerFrom(question, held string) string {
-	for _, f := range paymentsFacts {
+	for _, f := range paymentsFacts() {
 		if strings.Contains(question, f.keyword) {
-			if strings.Contains(held, f.fact) {
+			if strings.Contains(held, f.field) {
 				return "It is " + f.fact + "."
 			}
 			return "unknown"
