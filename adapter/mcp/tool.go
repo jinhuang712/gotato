@@ -165,38 +165,50 @@ func slimNode(node map[string]any, redundantTitle string) {
 		delete(node, "title")
 	}
 	for _, key := range []string{"properties", "patternProperties", "$defs", "definitions", "dependentSchemas"} {
-		if members, ok := node[key].(map[string]any); ok {
-			for name, member := range members {
-				if child, ok := member.(map[string]any); ok {
-					title := ""
-					if key == "properties" {
-						title = name
-					}
-					slimNode(child, title)
-				}
-			}
-		}
+		slimMembers(node, key)
 	}
 	for _, key := range []string{"items", "additionalProperties", "not", "if", "then", "else", "contains", "propertyNames", "unevaluatedItems", "unevaluatedProperties"} {
-		if child, ok := node[key].(map[string]any); ok {
-			slimNode(child, "")
-		}
+		slimChild(node[key])
 	}
 	for _, key := range []string{"anyOf", "oneOf", "allOf", "prefixItems"} {
-		if list, ok := node[key].([]any); ok {
-			for _, member := range list {
-				if child, ok := member.(map[string]any); ok {
-					slimNode(child, "")
-				}
+		slimList(node[key])
+	}
+	slimList(node["items"])
+}
+
+// slimMembers slims each schema in the map under key; a member of
+// "properties" drops a title equal to its own name.
+func slimMembers(node map[string]any, key string) {
+	members, ok := node[key].(map[string]any)
+	if !ok {
+		return
+	}
+	for name, member := range members {
+		if child, ok := member.(map[string]any); ok {
+			title := ""
+			if key == "properties" {
+				title = name
 			}
+			slimNode(child, title)
 		}
 	}
-	if list, ok := node["items"].([]any); ok {
-		for _, member := range list {
-			if child, ok := member.(map[string]any); ok {
-				slimNode(child, "")
-			}
-		}
+}
+
+// slimChild slims value when it is a schema object.
+func slimChild(value any) {
+	if child, ok := value.(map[string]any); ok {
+		slimNode(child, "")
+	}
+}
+
+// slimList slims each schema object in value when it is a list.
+func slimList(value any) {
+	list, ok := value.([]any)
+	if !ok {
+		return
+	}
+	for _, member := range list {
+		slimChild(member)
 	}
 }
 
