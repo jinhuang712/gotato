@@ -346,33 +346,16 @@ const (
 // for them: every load works them out the same way, with the same IDs.
 func repair(messages []gotato.Message, started map[gotato.ToolCallID]bool) []gotato.Message {
 	var out []gotato.Message
-	for i := 0; i < len(messages); i++ {
+	for i := 0; i < len(messages); {
 		message := messages[i]
 		if message.Role != gotato.RoleAssistant || len(message.ToolCalls) == 0 {
 			if out != nil {
 				out = append(out, message)
 			}
+			i++
 			continue
 		}
-		answered := map[gotato.ToolCallID]bool{}
-		end := i + 1
-		for ; end < len(messages) && messages[end].Role == gotato.RoleToolResult; end++ {
-			if result := messages[end].ToolResult; result != nil {
-				answered[result.CallID] = true
-			}
-		}
-		missing := unanswered(message.ToolCalls, answered)
-		if len(missing) == 0 && out == nil {
-			continue
-		}
-		if out == nil {
-			out = append(make([]gotato.Message, 0, len(messages)+len(missing)), messages[:i]...)
-		}
-		out = append(out, messages[i:end]...)
-		for _, call := range missing {
-			out = append(out, repairResult(call, started[call.ID]))
-		}
-		i = end - 1
+		out, i = repairCalls(out, messages, i, started)
 	}
 	if out == nil {
 		return messages
@@ -380,15 +363,41 @@ func repair(messages []gotato.Message, started map[gotato.ToolCallID]bool) []got
 	return out
 }
 
-// unanswered returns the calls that have no result among answered.
-func unanswered(calls []gotato.ToolCall, answered map[gotato.ToolCallID]bool) []gotato.ToolCall {
-	var missing []gotato.ToolCall
-	for _, call := range calls {
+// repairCalls answers the calls of messages[i] that have no result: it appends
+// messages[i], the Tool Results right after it and a result for each missing
+// call to out, and returns out and the position to go on from. out stays nil
+// while nothing needed an answer.
+func repairCalls(out, messages []gotato.Message, i int, started map[gotato.ToolCallID]bool) ([]gotato.Message, int) {
+	missing, end := missingResults(messages, i)
+	if len(missing) == 0 && out == nil {
+		return nil, i + 1
+	}
+	if out == nil {
+		out = append(make([]gotato.Message, 0, len(messages)+len(missing)), messages[:i]...)
+	}
+	out = append(out, messages[i:end]...)
+	for _, call := range missing {
+		out = append(out, repairResult(call, started[call.ID]))
+	}
+	return out, end
+}
+
+// missingResults returns the calls of messages[i] that the Tool Results right
+// after it do not answer, and the position past those results.
+func missingResults(messages []gotato.Message, i int) (missing []gotato.ToolCall, end int) {
+	answered := map[gotato.ToolCallID]bool{}
+	end = i + 1
+	for ; end < len(messages) && messages[end].Role == gotato.RoleToolResult; end++ {
+		if result := messages[end].ToolResult; result != nil {
+			answered[result.CallID] = true
+		}
+	}
+	for _, call := range messages[i].ToolCalls {
 		if !answered[call.ID] {
 			missing = append(missing, call)
 		}
 	}
-	return missing
+	return missing, end
 }
 
 // repairResult is the failed result repair adds for a call: stopped when it
