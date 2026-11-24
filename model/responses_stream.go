@@ -109,33 +109,38 @@ func (s *responsesDecoder) processResponsesEvent(event responsesEvent, raw []byt
 		if event.Response != nil && event.Response.Model != "" {
 			s.model = event.Response.Model
 		}
+	case "response.completed", "response.incomplete":
+		s.finishResponsesResponse(event.Response)
+	case "response.failed":
+		message, code := responsesFailure(event)
+		s.finishWithError(Failure{Message: "Responses response failed: " + message, Code: code})
+	case "error":
+		s.finishWithError(Failure{Message: "Responses stream error: " + responsesErrorMessage(event), Code: event.Code})
+	default:
+		s.processResponsesOutput(event, raw)
+	}
+}
+
+// processResponsesOutput handles an event about one output item: its text,
+// its reasoning, its call's arguments, or the item whole.
+func (s *responsesDecoder) processResponsesOutput(event responsesEvent, raw []byte) {
+	switch event.Type {
 	case "response.output_item.added":
 		if event.Item == nil {
 			return
 		}
 		s.ensureResponsesCall(event.OutputIndex, event.Item)
 	case "response.output_text.delta", "response.refusal.delta":
-		if event.Delta != "" {
-			s.texts[event.OutputIndex] = true
-			s.queue = append(s.queue, gotato.ModelEvent{Kind: gotato.ModelEventKindTextDelta, Text: event.Delta})
-		}
+		s.queueResponsesText(event)
 	case "response.reasoning_summary_text.delta", "response.reasoning_text.delta":
 		if event.Delta != "" {
 			s.queue = append(s.queue, gotato.ModelEvent{Kind: gotato.ModelEventKindReasoningDelta, Text: event.Delta})
 		}
 	case "response.function_call_arguments.delta":
-		call := s.calls[event.OutputIndex]
-		if call == nil {
-			call = &responsesCall{}
-			s.calls[event.OutputIndex] = call
-		}
+		call := s.responsesCallAt(event.OutputIndex)
 		call.arguments += event.Delta
 	case "response.function_call_arguments.done":
-		call := s.calls[event.OutputIndex]
-		if call == nil {
-			call = &responsesCall{}
-			s.calls[event.OutputIndex] = call
-		}
+		call := s.responsesCallAt(event.OutputIndex)
 		call.arguments = event.Arguments
 		call.argumentsDone = true
 	case "response.output_item.done":
@@ -144,34 +149,52 @@ func (s *responsesDecoder) processResponsesEvent(event responsesEvent, raw []byt
 		}
 		itemRaw := responsesItemRaw(raw)
 		s.finishResponsesItem(event.OutputIndex, *event.Item, itemRaw)
-	case "response.completed", "response.incomplete":
-		s.finishResponsesResponse(event.Response)
-	case "response.failed":
-		message := event.Message
-		if event.Response != nil && event.Response.Error != nil {
-			message = event.Response.Error.Message
-			if message == "" {
-				message = event.Response.Error.Code
-			}
-		}
-		if message == "" {
-			message = "Responses response failed"
-		}
-		code := ""
-		if event.Response != nil && event.Response.Error != nil {
-			code = event.Response.Error.Code
-		}
-		s.finishWithError(Failure{Message: "Responses response failed: " + message, Code: code})
-	case "error":
-		message := event.Message
-		if message == "" {
-			message = event.Code
-		}
-		if message == "" {
-			message = "Responses stream error"
-		}
-		s.finishWithError(Failure{Message: "Responses stream error: " + message, Code: event.Code})
 	}
+}
+
+// queueResponsesText queues a text delta and records that its item streamed text.
+func (s *responsesDecoder) queueResponsesText(event responsesEvent) {
+	if event.Delta != "" {
+		s.texts[event.OutputIndex] = true
+		s.queue = append(s.queue, gotato.ModelEvent{Kind: gotato.ModelEventKindTextDelta, Text: event.Delta})
+	}
+}
+
+// responsesCallAt returns the call at an output index, starting one if there is none.
+func (s *responsesDecoder) responsesCallAt(index int) *responsesCall {
+	call := s.calls[index]
+	if call == nil {
+		call = &responsesCall{}
+		s.calls[index] = call
+	}
+	return call
+}
+
+// responsesFailure returns the message and the code of a response.failed event.
+func responsesFailure(event responsesEvent) (message, code string) {
+	message = event.Message
+	if event.Response != nil && event.Response.Error != nil {
+		message = event.Response.Error.Message
+		if message == "" {
+			message = event.Response.Error.Code
+		}
+		code = event.Response.Error.Code
+	}
+	if message == "" {
+		message = "Responses response failed"
+	}
+	return message, code
+}
+
+// responsesErrorMessage returns the message of an error event.
+func responsesErrorMessage(event responsesEvent) string {
+	if event.Message != "" {
+		return event.Message
+	}
+	if event.Code != "" {
+		return event.Code
+	}
+	return "Responses stream error"
 }
 
 func responsesItemRaw(event []byte) []byte {
