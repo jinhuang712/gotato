@@ -74,7 +74,7 @@ type recordEvent struct {
 	Why      string    `json:"why"`
 	From     string    `json:"from"`
 	Status   string    `json:"status"`
-	ToolID   string    `json:"tool_id"` // those, tool_loaded and tool_unloaded (the qualified ID)
+	ToolID   string    `json:"tool_id"` // tool_started, tool_ended, tool_loaded and tool_unloaded (the qualified ID)
 	Stage    string    `json:"stage"`   // extension_failed: such as toolset:crm
 	Code     string    `json:"code"`
 }
@@ -84,7 +84,7 @@ type recordPart struct {
 	Metadata map[string]string `json:"metadata"` // a Segment's tag text carries gotato.tag (segment, tool_calls, recap)
 }
 
-// recordMessage is a Transcript message: a user or assistant text, an assistant's tool calls, or a tool result.
+// recordMessage is a Transcript message. The driver reads its role and its text only.
 type recordMessage struct {
 	Role  string       `json:"role"`
 	Parts []recordPart `json:"parts"`
