@@ -99,72 +99,98 @@ func (t *searchTool) Execute(ctx context.Context, use ToolUse, progress ToolProg
 	if len(input.Names) == 0 && len(input.Queries) == 0 && strings.TrimSpace(input.Toolset) == "" {
 		return ToolResult{}, runtimeError(CodeToolArgumentFailure, SearchToolName, "pass names, queries or toolset", nil)
 	}
-	var loaded, already, unavailable, notFound, found []string
-	add := func(list *[]string, id string) {
-		if !slices.Contains(*list, id) {
-			*list = append(*list, id)
-		}
+	var outcome searchOutcome
+	outcome.byNames(t.registry, input.Names)
+	if err := outcome.byQueries(ctx, t.registry, input.Queries); err != nil {
+		return ToolResult{}, err
 	}
-	for _, name := range input.Names {
+	outcome.found = slices.DeleteFunc(outcome.found, func(id string) bool { return slices.Contains(outcome.loaded, id) })
+	return ToolResult{
+		Status:      ToolResultStatusOK,
+		Content:     []ContentPart{{Kind: ContentKindText, Text: outcome.text(t.registry, input.Toolset)}},
+		LoadedTools: outcome.loaded,
+	}, nil
+}
+
+// searchOutcome is what one search_tools call came to, list by list.
+type searchOutcome struct {
+	loaded, already, unavailable, notFound, found, noMatch []string
+}
+
+// addUnique appends id to list unless list holds it already.
+func addUnique(list *[]string, id string) {
+	if !slices.Contains(*list, id) {
+		*list = append(*list, id)
+	}
+}
+
+// byNames sorts each of names into the list its loadable state puts it in.
+func (o *searchOutcome) byNames(registry *toolRegistry, names []string) {
+	for _, name := range names {
 		name = strings.TrimSpace(name)
-		switch t.registry.loadable(name) {
+		switch registry.loadable(name) {
 		case loadOK:
-			add(&loaded, name)
+			addUnique(&o.loaded, name)
 		case loadAlready:
-			add(&already, name)
+			addUnique(&o.already, name)
 		case loadUnavailable:
-			add(&unavailable, name)
+			addUnique(&o.unavailable, name)
 		default:
-			add(&notFound, name)
+			addUnique(&o.notFound, name)
 		}
 	}
-	var noMatch []string
-	for _, query := range input.Queries {
-		ranked, err := t.registry.rank(ctx, query, loaded)
+}
+
+// byQueries ranks the Tools against each of queries, loads the top matches
+// and lists the next ones.
+func (o *searchOutcome) byQueries(ctx context.Context, registry *toolRegistry, queries []string) error {
+	for _, query := range queries {
+		ranked, err := registry.rank(ctx, query, o.loaded)
 		if err != nil {
-			return ToolResult{}, err
+			return err
 		}
 		if len(ranked) == 0 {
-			noMatch = append(noMatch, query)
+			o.noMatch = append(o.noMatch, query)
 			continue
 		}
 		for i, id := range ranked {
 			switch {
 			case i < searchLoadCount:
-				add(&loaded, id)
+				addUnique(&o.loaded, id)
 			case i < searchLoadCount+searchListCount:
-				add(&found, id)
+				addUnique(&o.found, id)
 			}
 		}
 	}
-	found = slices.DeleteFunc(found, func(id string) bool { return slices.Contains(loaded, id) })
+	return nil
+}
+
+// text is the result the Model reads: each list that is not empty, then the
+// ToolSet named by toolset.
+func (o *searchOutcome) text(registry *toolRegistry, toolset string) string {
 	var parts []string
-	if len(loaded) > 0 {
-		parts = append(parts, "Loaded: "+strings.Join(loaded, ", ")+".")
+	if len(o.loaded) > 0 {
+		parts = append(parts, "Loaded: "+strings.Join(o.loaded, ", ")+".")
 	}
-	if len(already) > 0 {
-		parts = append(parts, "Already available: "+strings.Join(already, ", ")+".")
+	if len(o.already) > 0 {
+		parts = append(parts, "Already available: "+strings.Join(o.already, ", ")+".")
 	}
-	if len(unavailable) > 0 {
-		parts = append(parts, "Unavailable now, its ToolSet is unavailable; try again in a later Run: "+strings.Join(unavailable, ", ")+".")
+	if len(o.unavailable) > 0 {
+		parts = append(parts, "Unavailable now, its ToolSet is unavailable; try again in a later Run: "+strings.Join(o.unavailable, ", ")+".")
 	}
-	if len(found) > 0 {
-		parts = append(parts, "Found but not loaded, so do not call them yet; call search_tools with these names first: "+strings.Join(found, ", ")+".")
+	if len(o.found) > 0 {
+		parts = append(parts, "Found but not loaded, so do not call them yet; call search_tools with these names first: "+strings.Join(o.found, ", ")+".")
 	}
-	if len(notFound) > 0 {
-		parts = append(parts, "Not found: "+strings.Join(notFound, ", ")+".")
+	if len(o.notFound) > 0 {
+		parts = append(parts, "Not found: "+strings.Join(o.notFound, ", ")+".")
 	}
-	if len(noMatch) > 0 {
-		parts = append(parts, fmt.Sprintf("No tool matches: %s.", strings.Join(noMatch, "; ")))
+	if len(o.noMatch) > 0 {
+		parts = append(parts, fmt.Sprintf("No tool matches: %s.", strings.Join(o.noMatch, "; ")))
 	}
-	if name := strings.TrimSpace(input.Toolset); name != "" {
-		parts = append(parts, t.registry.describeSet(name))
+	if name := strings.TrimSpace(toolset); name != "" {
+		parts = append(parts, registry.describeSet(name))
 	}
-	return ToolResult{
-		Status:      ToolResultStatusOK,
-		Content:     []ContentPart{{Kind: ContentKindText, Text: strings.Join(parts, " ")}},
-		LoadedTools: loaded,
-	}, nil
+	return strings.Join(parts, " ")
 }
 
 // loadWhy says why a committed Tool Result of call loaded id: search_tools
