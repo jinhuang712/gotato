@@ -217,10 +217,7 @@ func (r *Runner) compactIdleLocked(ctx context.Context, entry *warm.Entry, why g
 	}
 	kept := copyOf(entry)
 	writer := kept.writer
-	if stale, err := writer.Stale(ctx); err != nil || stale {
-		if ctx.Err() == nil && r.warm.Remove(entry) {
-			r.unloaded(entry.ID, entry.Agent, "taken_over")
-		}
+	if r.dropStaleIdle(ctx, entry, writer) {
 		return
 	}
 	rec := writer.Record()
@@ -233,23 +230,56 @@ func (r *Runner) compactIdleLocked(ctx context.Context, entry *warm.Entry, why g
 	if minTokens > 0 && record.EstimateTokens(rec.Tail()) < minTokens {
 		return
 	}
-	if err := writer.Resume(ctx); err != nil {
-		if !lostRace(err) {
-			r.settle(writer, err)
-		}
-		if r.warm.Remove(entry) {
-			reason := "failed"
-			if lostRace(err) {
-				reason = "taken_over"
-			}
-			r.noteFailure(err, entry.ID, entry.Agent)
-			r.unloaded(entry.ID, entry.Agent, reason)
-		}
+	if !r.resumeIdle(ctx, entry, writer) {
 		return
 	}
+	r.compactIdle(ctx, rec, spec, minTokens, why)
+	r.releaseIdle(ctx, entry, writer)
+}
+
+// dropStaleIdle drops the warm copy when another Instance wrote the Record or
+// the store cannot say, and reports whether it is stale.
+func (r *Runner) dropStaleIdle(ctx context.Context, entry *warm.Entry, writer *store.Writer) bool {
+	if stale, err := writer.Stale(ctx); err != nil || stale {
+		if ctx.Err() == nil && r.warm.Remove(entry) {
+			r.unloaded(entry.ID, entry.Agent, "taken_over")
+		}
+		return true
+	}
+	return false
+}
+
+// resumeIdle resumes the entry's Writer. When it cannot, it drops the copy and
+// reports false.
+func (r *Runner) resumeIdle(ctx context.Context, entry *warm.Entry, writer *store.Writer) bool {
+	err := writer.Resume(ctx)
+	if err == nil {
+		return true
+	}
+	if !lostRace(err) {
+		r.settle(writer, err)
+	}
+	if r.warm.Remove(entry) {
+		reason := "failed"
+		if lostRace(err) {
+			reason = "taken_over"
+		}
+		r.noteFailure(err, entry.ID, entry.Agent)
+		r.unloaded(entry.ID, entry.Agent, reason)
+	}
+	return false
+}
+
+// compactIdle compacts the Record of a warm entry, with the recap of its Agent.
+func (r *Runner) compactIdle(ctx context.Context, rec *record.Record, spec profile.AgentProfile, minTokens int, why gotato.CompactionWhy) {
 	compactOpts := []record.CompactOption{record.WithCompactionWhy(why), record.WithRecapContext(r.recapContext(spec, rec))}
 	// The result needs no report: the compaction's Events say what it did.
 	_, _ = record.Compact(ctx, rec, compactorFor(spec), record.CompactConfig{MinTokens: minTokens}, compactOpts...)
+}
+
+// releaseIdle saves and releases the entry's Writer, and drops the copy when
+// that failed.
+func (r *Runner) releaseIdle(ctx context.Context, entry *warm.Entry, writer *store.Writer) {
 	saveCtx, cancelSave := persistContext(ctx)
 	releaseErr := r.releaseWriter(saveCtx, writer)
 	cancelSave()
