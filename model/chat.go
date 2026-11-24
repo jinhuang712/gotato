@@ -231,36 +231,45 @@ type chatChunk struct {
 		Code    json.RawMessage `json:"code"`
 		Type    string          `json:"type"`
 	} `json:"error"`
-	Choices []struct {
-		Delta struct {
-			Content          string `json:"content"`
-			ReasoningContent string `json:"reasoning_content"`
-			ToolCalls        []struct {
-				Index    *int   `json:"index"`
-				ID       string `json:"id"`
-				Function struct {
-					Name      string `json:"name"`
-					Arguments string `json:"arguments"`
-				} `json:"function"`
-				ExtraContent json.RawMessage `json:"extra_content"`
-			} `json:"tool_calls"`
-		} `json:"delta"`
-		FinishReason *string `json:"finish_reason"`
-	} `json:"choices"`
-	Usage *struct {
-		PromptTokens        uint64 `json:"prompt_tokens"`
-		CompletionTokens    uint64 `json:"completion_tokens"`
-		TotalTokens         uint64 `json:"total_tokens"`
-		PromptTokensDetails *struct {
-			CachedTokens uint64 `json:"cached_tokens"`
-		} `json:"prompt_tokens_details,omitempty"`
-		// PromptCacheHitTokens is DeepSeek's name for cached prompt tokens.
-		PromptCacheHitTokens uint64 `json:"prompt_cache_hit_tokens,omitempty"`
-		// CacheReadInputTokens and CacheCreationInputTokens are Anthropic's
-		// names, passed through by a proxy in front of an Anthropic model.
-		CacheReadInputTokens     uint64 `json:"cache_read_input_tokens,omitempty"`
-		CacheCreationInputTokens uint64 `json:"cache_creation_input_tokens,omitempty"`
-	} `json:"usage"`
+	Choices []chatChoice `json:"choices"`
+	Usage   *chatUsage   `json:"usage"`
+}
+
+// chatChoice is one choice of a chunk.
+type chatChoice struct {
+	Delta struct {
+		Content          string              `json:"content"`
+		ReasoningContent string              `json:"reasoning_content"`
+		ToolCalls        []chatToolCallDelta `json:"tool_calls"`
+	} `json:"delta"`
+	FinishReason *string `json:"finish_reason"`
+}
+
+// chatToolCallDelta is one piece of a Tool call in a choice's delta.
+type chatToolCallDelta struct {
+	Index    *int   `json:"index"`
+	ID       string `json:"id"`
+	Function struct {
+		Name      string `json:"name"`
+		Arguments string `json:"arguments"`
+	} `json:"function"`
+	ExtraContent json.RawMessage `json:"extra_content"`
+}
+
+// chatUsage is the usage a chunk reports.
+type chatUsage struct {
+	PromptTokens        uint64 `json:"prompt_tokens"`
+	CompletionTokens    uint64 `json:"completion_tokens"`
+	TotalTokens         uint64 `json:"total_tokens"`
+	PromptTokensDetails *struct {
+		CachedTokens uint64 `json:"cached_tokens"`
+	} `json:"prompt_tokens_details,omitempty"`
+	// PromptCacheHitTokens is DeepSeek's name for cached prompt tokens.
+	PromptCacheHitTokens uint64 `json:"prompt_cache_hit_tokens,omitempty"`
+	// CacheReadInputTokens and CacheCreationInputTokens are Anthropic's
+	// names, passed through by a proxy in front of an Anthropic model.
+	CacheReadInputTokens     uint64 `json:"cache_read_input_tokens,omitempty"`
+	CacheCreationInputTokens uint64 `json:"cache_creation_input_tokens,omitempty"`
 }
 
 // Decode reads one chunk. A stream that ends with no finish_reason is handed
@@ -318,44 +327,63 @@ func (s *chatDecoder) processChunk(chunk chatChunk) error {
 		s.model = chunk.Model
 	}
 	if chunk.Usage != nil {
-		s.usage = gotato.Usage{InputTokens: chunk.Usage.PromptTokens, OutputTokens: chunk.Usage.CompletionTokens, TotalTokens: chunk.Usage.TotalTokens}
-		cached := max(chunk.Usage.PromptCacheHitTokens, chunk.Usage.CacheReadInputTokens)
-		if d := chunk.Usage.PromptTokensDetails; d != nil && d.CachedTokens > cached {
-			cached = d.CachedTokens
-		}
-		s.usage.CacheReadTokens = min(cached, s.usage.InputTokens)
-		s.usage.CacheWriteTokens = min(chunk.Usage.CacheCreationInputTokens, s.usage.InputTokens-s.usage.CacheReadTokens)
-		s.queue = append(s.queue, gotato.ModelEvent{Kind: gotato.ModelEventKindUsage, Usage: s.usage})
+		s.addUsage(chunk.Usage)
 	}
 	for _, choice := range chunk.Choices {
-		if choice.Delta.ReasoningContent != "" {
-			s.queue = append(s.queue, gotato.ModelEvent{Kind: gotato.ModelEventKindReasoningDelta, Text: choice.Delta.ReasoningContent})
-		}
-		if choice.Delta.Content != "" {
-			s.queue = append(s.queue, gotato.ModelEvent{Kind: gotato.ModelEventKindTextDelta, Text: choice.Delta.Content})
-		}
-		for _, delta := range choice.Delta.ToolCalls {
-			call := s.callFor(delta.Index, delta.ID)
-			if delta.ID != "" {
-				call.id = delta.ID
-			}
-			if delta.Function.Name != "" {
-				call.name += delta.Function.Name
-			}
-			call.arguments += delta.Function.Arguments
-			if isJSONObject(delta.ExtraContent) {
-				call.extra = delta.ExtraContent
-			}
-		}
-		if choice.FinishReason != nil && *choice.FinishReason != "" {
-			stop, ok := chatStopReason(*choice.FinishReason)
-			if !ok {
-				return protocolFailure("Chat Completions stream ended with the unknown finish_reason %q", *choice.FinishReason)
-			}
-			s.finish = stop
+		if err := s.processChoice(choice); err != nil {
+			return err
 		}
 	}
 	return nil
+}
+
+// addUsage records a chunk's usage and queues it.
+func (s *chatDecoder) addUsage(usage *chatUsage) {
+	s.usage = gotato.Usage{InputTokens: usage.PromptTokens, OutputTokens: usage.CompletionTokens, TotalTokens: usage.TotalTokens}
+	cached := max(usage.PromptCacheHitTokens, usage.CacheReadInputTokens)
+	if d := usage.PromptTokensDetails; d != nil && d.CachedTokens > cached {
+		cached = d.CachedTokens
+	}
+	s.usage.CacheReadTokens = min(cached, s.usage.InputTokens)
+	s.usage.CacheWriteTokens = min(usage.CacheCreationInputTokens, s.usage.InputTokens-s.usage.CacheReadTokens)
+	s.queue = append(s.queue, gotato.ModelEvent{Kind: gotato.ModelEventKindUsage, Usage: s.usage})
+}
+
+// processChoice queues a choice's reasoning and text, adds its Tool call
+// pieces and records its finish_reason.
+func (s *chatDecoder) processChoice(choice chatChoice) error {
+	if choice.Delta.ReasoningContent != "" {
+		s.queue = append(s.queue, gotato.ModelEvent{Kind: gotato.ModelEventKindReasoningDelta, Text: choice.Delta.ReasoningContent})
+	}
+	if choice.Delta.Content != "" {
+		s.queue = append(s.queue, gotato.ModelEvent{Kind: gotato.ModelEventKindTextDelta, Text: choice.Delta.Content})
+	}
+	for _, delta := range choice.Delta.ToolCalls {
+		s.addToolCallDelta(delta)
+	}
+	if choice.FinishReason != nil && *choice.FinishReason != "" {
+		stop, ok := chatStopReason(*choice.FinishReason)
+		if !ok {
+			return protocolFailure("Chat Completions stream ended with the unknown finish_reason %q", *choice.FinishReason)
+		}
+		s.finish = stop
+	}
+	return nil
+}
+
+// addToolCallDelta adds one piece to the Tool call it belongs to.
+func (s *chatDecoder) addToolCallDelta(delta chatToolCallDelta) {
+	call := s.callFor(delta.Index, delta.ID)
+	if delta.ID != "" {
+		call.id = delta.ID
+	}
+	if delta.Function.Name != "" {
+		call.name += delta.Function.Name
+	}
+	call.arguments += delta.Function.Arguments
+	if isJSONObject(delta.ExtraContent) {
+		call.extra = delta.ExtraContent
+	}
 }
 
 // callFor returns the Tool call a delta adds to. The chat API names each
