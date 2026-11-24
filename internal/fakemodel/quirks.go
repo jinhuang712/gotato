@@ -34,38 +34,47 @@ func hasFlag(value, flag string) bool {
 // extractQuirks reads the directives of the last user text.
 func extractQuirks(p *parsed, _ http.Header, api string) (*quirks, string, error) {
 	q := &quirks{byName: map[string]string{}}
-	add := func(name, value string) error {
-		if !knownQuirks[name] {
-			return fmt.Errorf("fakemodel: unknown quirk %q", name)
-		}
-		switch name {
-		case "delay":
-			if _, err := time.ParseDuration(value); err != nil {
-				return fmt.Errorf("fakemodel: quirk delay=%q is not a duration", value)
-			}
-		case "cached":
-			if value == "" {
-				return fmt.Errorf("fakemodel: quirk cached needs a count, as cached=1200")
-			}
-			if n, err := strconv.Atoi(value); err != nil || n < 0 {
-				return fmt.Errorf("fakemodel: quirk %s=%q is not a count", name, value)
-			}
-		}
-		q.byName[name] = value
-		return nil
+	i := p.lastUser()
+	if i < 0 {
+		return q, "", nil
 	}
-	text := ""
-	if i := p.lastUser(); i >= 0 {
-		raw := p.events[i].text
-		for _, m := range directive.FindAllStringSubmatch(raw, -1) {
-			if err := add(m[1], m[2]); err != nil {
-				return nil, "", err
-			}
+	raw := p.events[i].text
+	for _, m := range directive.FindAllStringSubmatch(raw, -1) {
+		if err := checkQuirk(m[1], m[2]); err != nil {
+			return nil, "", err
 		}
-		text = strings.TrimSpace(directive.ReplaceAllString(raw, ""))
-		q.key = api + "|" + raw
+		q.byName[m[1]] = m[2]
 	}
-	return q, text, nil
+	q.key = api + "|" + raw
+	return q, strings.TrimSpace(directive.ReplaceAllString(raw, "")), nil
+}
+
+// checkQuirk refuses a quirk the fake does not know, or a value it does not
+// understand, so a typo fails loudly.
+func checkQuirk(name, value string) error {
+	if !knownQuirks[name] {
+		return fmt.Errorf("fakemodel: unknown quirk %q", name)
+	}
+	switch name {
+	case "delay":
+		if _, err := time.ParseDuration(value); err != nil {
+			return fmt.Errorf("fakemodel: quirk delay=%q is not a duration", value)
+		}
+	case "cached":
+		return checkCount(name, value)
+	}
+	return nil
+}
+
+// checkCount refuses a value that is not a count.
+func checkCount(name, value string) error {
+	if value == "" {
+		return fmt.Errorf("fakemodel: quirk cached needs a count, as cached=1200")
+	}
+	if n, err := strconv.Atoi(value); err != nil || n < 0 {
+		return fmt.Errorf("fakemodel: quirk %s=%q is not a count", name, value)
+	}
+	return nil
 }
 
 // times reports whether a quirk that plays a limited number of times plays
