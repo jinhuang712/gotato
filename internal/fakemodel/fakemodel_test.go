@@ -142,7 +142,7 @@ func TestPlainReplyOnEachWireAPI(t *testing.T) {
 
 func TestUnknownDirectiveAndBadValuesAreA400(t *testing.T) {
 	for _, api := range apis {
-		for _, text := range []string{"hi [quirk:overflw]", "hi [quirk:delay=soon]", "hi [quirk:cached]", "hi [quirk:cut-after-text=x]"} {
+		for _, text := range []string{"hi [quirk:overflw]", "hi [quirk:delay=soon]", "hi [quirk:cached]"} {
 			srv := httptest.NewServer(fakemodel.New())
 			r := post(t, srv, api.path, nil, api.body(text, nil))
 			srv.Close()

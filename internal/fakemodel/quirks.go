@@ -43,13 +43,12 @@ func extractQuirks(p *parsed, _ http.Header, api string) (*quirks, string, error
 			if _, err := time.ParseDuration(value); err != nil {
 				return fmt.Errorf("fakemodel: quirk delay=%q is not a duration", value)
 			}
-		case "cached", "cut-after-text", "cut-in-args":
-			if value != "" {
-				if n, err := strconv.Atoi(value); err != nil || n < 0 {
-					return fmt.Errorf("fakemodel: quirk %s=%q is not a count", name, value)
-				}
-			} else if name == "cached" {
+		case "cached":
+			if value == "" {
 				return fmt.Errorf("fakemodel: quirk cached needs a count, as cached=1200")
+			}
+			if n, err := strconv.Atoi(value); err != nil || n < 0 {
+				return fmt.Errorf("fakemodel: quirk %s=%q is not a count", name, value)
 			}
 		}
 		q.byName[name] = value
@@ -84,15 +83,10 @@ func (g *Server) times(q *quirks, name string, limit int) bool {
 
 // cutNow reports whether the cut quirk plays now.
 func (pl *plan) cutNow(name string) bool {
-	v, ok := pl.q.byName[name]
-	if !ok {
+	if !pl.q.has(name) {
 		return false
 	}
-	n := 1
-	if v != "" {
-		n, _ = strconv.Atoi(v)
-	}
-	return pl.g.times(pl.q, name, n)
+	return pl.g.times(pl.q, name, 1)
 }
 
 // midOverflow reports whether the mid-stream overflow plays now.

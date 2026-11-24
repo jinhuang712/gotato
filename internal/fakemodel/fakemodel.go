@@ -33,9 +33,9 @@
 //	                           error event (flag "failed": Responses sends
 //	                           response.failed instead); flag "once" plays it
 //	                           the first time only
-//	cut-after-text[=N]         close the connection after some text, N times
-//	                           (default 1), then answer normally
-//	cut-in-args[=N]            the same, in the middle of a tool call's
+//	cut-after-text             close the connection after some text, the first
+//	                           time only, then answer normally
+//	cut-in-args                the same, in the middle of a tool call's
 //	                           arguments
 //	cached=N                   report N cached input tokens, in the provider's
 //	                           own usage field
