@@ -131,79 +131,121 @@ func structSchema(typ reflect.Type, visiting map[reflect.Type]bool) (map[string]
 
 func collectFields(typ reflect.Type, visiting map[reflect.Type]bool, properties map[string]any, required *[]any) error {
 	for i := 0; i < typ.NumField(); i++ {
-		field := typ.Field(i)
-		tag := field.Tag.Get("json")
-		if tag == "-" {
-			continue
-		}
-		name, options, _ := strings.Cut(tag, ",")
-		for option := range strings.SplitSeq(options, ",") {
-			switch option {
-			case "", "omitempty", "omitzero":
-			default:
-				// encoding/json options other than omitempty and omitzero (notably
-				// ",string") change how a field is encoded but have no
-				// representation in the generated Schema. Reject them at
-				// construction rather than emit a Schema the decoder rejects.
-				return fmt.Errorf("unsupported json option %q on field %s", option, field.Name)
-			}
-		}
-		if field.Anonymous && name == "" {
-			embedded := field.Type
-			for embedded.Kind() == reflect.Pointer {
-				embedded = embedded.Elem()
-			}
-			if embedded.Kind() == reflect.Struct {
-				// encoding/json promotes the exported fields of an embedded
-				// struct even when the embedded type itself is unexported, so
-				// traverse it before the exported-field check.
-				if visiting[embedded] {
-					return fmt.Errorf("recursive struct type %s", embedded.String())
-				}
-				visiting[embedded] = true
-				err := collectFields(embedded, visiting, properties, required)
-				delete(visiting, embedded)
-				if err != nil {
-					return err
-				}
-				continue
-			}
-		}
-		if !field.IsExported() {
-			continue
-		}
-		if name == "" {
-			name = field.Name
-		}
-		if _, duplicate := properties[name]; duplicate {
-			return fmt.Errorf("duplicate property name %q", name)
-		}
-		child, err := valueSchema(field.Type, visiting)
-		if err != nil {
-			return fmt.Errorf("field %s: %w", field.Name, err)
-		}
-		if description := field.Tag.Get("description"); description != "" {
-			child["description"] = description
-		}
-		if enum := field.Tag.Get("enum"); enum != "" {
-			values := make([]any, 0)
-			for value := range strings.SplitSeq(enum, ",") {
-				value = strings.TrimSpace(value)
-				if value != "" {
-					values = append(values, value)
-				}
-			}
-			if len(values) > 0 {
-				child["enum"] = values
-			}
-		}
-		properties[name] = child
-		optional := field.Type.Kind() == reflect.Pointer || strings.Contains(options, "omitempty") || strings.Contains(options, "omitzero")
-		if !optional {
-			*required = append(*required, name)
+		if err := collectField(typ.Field(i), visiting, properties, required); err != nil {
+			return err
 		}
 	}
 	return nil
+}
+
+// collectField adds one struct field to properties and required, following encoding/json.
+func collectField(field reflect.StructField, visiting map[reflect.Type]bool, properties map[string]any, required *[]any) error {
+	tag := field.Tag.Get("json")
+	if tag == "-" {
+		return nil
+	}
+	name, options, _ := strings.Cut(tag, ",")
+	if err := checkJSONOptions(options, field.Name); err != nil {
+		return err
+	}
+	if embedded, ok := embeddedStruct(field, name); ok {
+		// encoding/json promotes the exported fields of an embedded
+		// struct even when the embedded type itself is unexported, so
+		// traverse it before the exported-field check.
+		return collectEmbedded(embedded, visiting, properties, required)
+	}
+	if !field.IsExported() {
+		return nil
+	}
+	if name == "" {
+		name = field.Name
+	}
+	if _, duplicate := properties[name]; duplicate {
+		return fmt.Errorf("duplicate property name %q", name)
+	}
+	child, err := fieldSchema(field, visiting)
+	if err != nil {
+		return err
+	}
+	properties[name] = child
+	if !fieldOptional(field, options) {
+		*required = append(*required, name)
+	}
+	return nil
+}
+
+// checkJSONOptions rejects a json tag option the generated Schema cannot represent.
+func checkJSONOptions(options, fieldName string) error {
+	for option := range strings.SplitSeq(options, ",") {
+		switch option {
+		case "", "omitempty", "omitzero":
+		default:
+			// encoding/json options other than omitempty and omitzero (notably
+			// ",string") change how a field is encoded but have no
+			// representation in the generated Schema. Reject them at
+			// construction rather than emit a Schema the decoder rejects.
+			return fmt.Errorf("unsupported json option %q on field %s", option, fieldName)
+		}
+	}
+	return nil
+}
+
+// embeddedStruct returns the struct type of an untagged embedded field, if it is one.
+func embeddedStruct(field reflect.StructField, name string) (reflect.Type, bool) {
+	if !field.Anonymous || name != "" {
+		return nil, false
+	}
+	embedded := field.Type
+	for embedded.Kind() == reflect.Pointer {
+		embedded = embedded.Elem()
+	}
+	return embedded, embedded.Kind() == reflect.Struct
+}
+
+// collectEmbedded collects the promoted fields of an embedded struct, failing on recursion.
+func collectEmbedded(embedded reflect.Type, visiting map[reflect.Type]bool, properties map[string]any, required *[]any) error {
+	if visiting[embedded] {
+		return fmt.Errorf("recursive struct type %s", embedded.String())
+	}
+	visiting[embedded] = true
+	err := collectFields(embedded, visiting, properties, required)
+	delete(visiting, embedded)
+	return err
+}
+
+// fieldSchema derives a field's Schema with its description and enum tags.
+func fieldSchema(field reflect.StructField, visiting map[reflect.Type]bool) (map[string]any, error) {
+	child, err := valueSchema(field.Type, visiting)
+	if err != nil {
+		return nil, fmt.Errorf("field %s: %w", field.Name, err)
+	}
+	if description := field.Tag.Get("description"); description != "" {
+		child["description"] = description
+	}
+	if values := enumValues(field.Tag.Get("enum")); len(values) > 0 {
+		child["enum"] = values
+	}
+	return child, nil
+}
+
+// enumValues splits an enum tag into its non-empty, trimmed values.
+func enumValues(enum string) []any {
+	if enum == "" {
+		return nil
+	}
+	values := make([]any, 0)
+	for value := range strings.SplitSeq(enum, ",") {
+		value = strings.TrimSpace(value)
+		if value != "" {
+			values = append(values, value)
+		}
+	}
+	return values
+}
+
+// fieldOptional reports whether a field may be left out of the arguments.
+func fieldOptional(field reflect.StructField, options string) bool {
+	return field.Type.Kind() == reflect.Pointer || strings.Contains(options, "omitempty") || strings.Contains(options, "omitzero")
 }
 
 func valueSchema(typ reflect.Type, visiting map[reflect.Type]bool) (map[string]any, error) {
