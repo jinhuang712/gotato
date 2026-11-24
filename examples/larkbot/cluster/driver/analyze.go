@@ -16,7 +16,6 @@ type msg struct {
 	replyTo string
 	sent    sent
 	err     error
-	at      time.Time
 }
 
 // thread is one Lark thread: one chat, one Session.
@@ -39,7 +38,7 @@ const (
 
 // say sends one message into a thread (the first one starts it).
 func (e *env) say(ctx context.Context, t *thread, tag, directive string) *msg {
-	m := &msg{tag: "T[" + tag + "]", at: time.Now()}
+	m := &msg{tag: "T[" + tag + "]"}
 	t.mu.Lock()
 	m.replyTo = t.root
 	t.mu.Unlock()
