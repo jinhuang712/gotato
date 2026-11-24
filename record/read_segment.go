@@ -71,38 +71,17 @@ func refsOf(segments []gotato.Segment) (refs []segmentRef, merged map[int][]int)
 }
 
 func (r ReadBack) readSegment(ctx context.Context, in readSegmentInput) (string, error) {
-	// With the Segments listed, a number no Segment has is answered with the
-	// numbers one can read, and a merged Segment's own number with the ones it
-	// stands for.
-	var found *segmentRef
-	segments, listed := r.segments()
-	refs, merged := refsOf(segments)
-	if listed {
-		for i := range refs {
-			if refs[i].number == in.Segment {
-				found = &refs[i]
-			}
-		}
-		if found == nil {
-			numbers := make([]int, len(refs))
-			for i, at := range refs {
-				numbers[i] = at.number
-			}
-			if standsFor, ok := merged[in.Segment]; ok {
-				return "", readErrorf("segment %d is the merge of segments %s; read one of them by its own number", in.Segment, rangeLabel(standsFor))
-			}
-			return "", readErrorf("there is no segment %d in this conversation; the segments you can read are %s", in.Segment, rangeLabel(numbers))
-		}
+	found, err := r.findRef(in.Segment)
+	if err != nil {
+		return "", err
 	}
 	page := max(in.Page, 1)
 
-	messages, complete, err := r.Originals.Segment(ctx, in.Segment)
-	switch {
-	case errors.Is(err, ErrNoOriginal):
-		return "", readErrorf("there is no segment %d in this conversation", in.Segment)
-	case err != nil && !errors.Is(err, ErrRemoved):
-		return "", readErrorf("segment %d could not be read", in.Segment)
-	case len(messages) == 0:
+	messages, complete, err := r.readOriginals(ctx, in.Segment)
+	if err != nil {
+		return "", err
+	}
+	if len(messages) == 0 {
 		return fmt.Sprintf("The messages of segment %d were removed from the Record, so only what the conversation keeps of it is left: its recap and its tool call lines.", in.Segment), nil
 	}
 
@@ -117,13 +96,7 @@ func (r ReadBack) readSegment(ctx context.Context, in readSegmentInput) (string,
 	}
 
 	var b strings.Builder
-	fmt.Fprintf(&b, "Segment %d", in.Segment)
-	if found != nil && !found.from.IsZero() {
-		fmt.Fprintf(&b, ", %s", found.from.In(loc).Format(time.RFC3339))
-		if !found.to.IsZero() {
-			fmt.Fprintf(&b, " to %s", found.to.In(loc).Format(time.RFC3339))
-		}
-	}
+	writeRefHeading(&b, in.Segment, found, loc)
 	fmt.Fprintf(&b, ". Its messages as they were, tool calls and tool results included; reasoning is left out. Page %d of %d.\n", page, len(pages))
 	if !complete {
 		b.WriteString("Some of this segment's messages were removed from the Record, so the first ones may be missing.\n")
@@ -135,6 +108,62 @@ func (r ReadBack) readSegment(ctx context.Context, in readSegmentInput) (string,
 		fmt.Fprintf(&b, "\nEnd of segment %d.", in.Segment)
 	}
 	return b.String(), nil
+}
+
+// findRef is the Segment numbered segment among those the Context stands
+// for, or the error that tells the model which numbers it can read. It is nil,
+// with no error, when the Segments are not listed.
+func (r ReadBack) findRef(segment int) (*segmentRef, error) {
+	// With the Segments listed, a number no Segment has is answered with the
+	// numbers one can read, and a merged Segment's own number with the ones it
+	// stands for.
+	var found *segmentRef
+	segments, listed := r.segments()
+	refs, merged := refsOf(segments)
+	if !listed {
+		return nil, nil
+	}
+	for i := range refs {
+		if refs[i].number == segment {
+			found = &refs[i]
+		}
+	}
+	if found != nil {
+		return found, nil
+	}
+	numbers := make([]int, len(refs))
+	for i, at := range refs {
+		numbers[i] = at.number
+	}
+	if standsFor, ok := merged[segment]; ok {
+		return nil, readErrorf("segment %d is the merge of segments %s; read one of them by its own number", segment, rangeLabel(standsFor))
+	}
+	return nil, readErrorf("there is no segment %d in this conversation; the segments you can read are %s", segment, rangeLabel(numbers))
+}
+
+// readOriginals reads the Messages of the Segment numbered segment back from
+// the Originals, and whether they are all there; none when they were removed.
+func (r ReadBack) readOriginals(ctx context.Context, segment int) ([]gotato.Message, bool, error) {
+	messages, complete, err := r.Originals.Segment(ctx, segment)
+	switch {
+	case errors.Is(err, ErrNoOriginal):
+		return nil, false, readErrorf("there is no segment %d in this conversation", segment)
+	case err != nil && !errors.Is(err, ErrRemoved):
+		return nil, false, readErrorf("segment %d could not be read", segment)
+	}
+	return messages, complete, nil
+}
+
+// writeRefHeading writes the number of the Segment and, when found knows
+// them, the times it covers.
+func writeRefHeading(b *strings.Builder, segment int, found *segmentRef, loc *time.Location) {
+	fmt.Fprintf(b, "Segment %d", segment)
+	if found != nil && !found.from.IsZero() {
+		fmt.Fprintf(b, ", %s", found.from.In(loc).Format(time.RFC3339))
+		if !found.to.IsZero() {
+			fmt.Fprintf(b, " to %s", found.to.In(loc).Format(time.RFC3339))
+		}
+	}
 }
 
 // rolePrefix matches the start of a line that looks like the prefix of a
