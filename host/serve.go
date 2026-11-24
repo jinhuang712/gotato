@@ -50,29 +50,13 @@ func (r *Runner) serve(ctx, runCtx context.Context, request RunRequest, stream *
 	// outlive them.
 	st := &runState{r: r, request: request, stream: stream, handle: handle, follow: follow, track: &tracker{}, sessionID: request.SessionID}
 	// The Run's stream ends with the Run: what is queued is still delivered.
-	defer func() {
-		if stream != nil && stream.sub != nil {
-			stream.sub.End()
-		}
-	}()
+	defer st.endStream()
 	// A Record's Feed is shared and counted; a Run that is not saved has a
 	// Feed of its own, since its Events are in no Record.
-	defer func() {
-		if st.acquired != (feedKey{}) {
-			r.releaseFeed(st.acquired)
-		}
-	}()
+	defer st.releaseAcquired()
 	if st.sessionID == "" {
 		if request.SkipSave {
-			// No persistence: build an in-memory Session for this Run only.
-			st.s = record.New()
-			for key, value := range request.Metadata {
-				st.s.Set(key, value)
-			}
-			if request.task != nil {
-				st.s.Set(metaTask, request.task.snapshot)
-			}
-			st.feed = newFeed(nil)
+			st.newMemorySession()
 			defer st.feed.Close()
 			if err := r.streamTo(ctx, st.feed, stream, st.track); err != nil {
 				return RunResponse{}, err
@@ -88,25 +72,62 @@ func (r *Runner) serve(ctx, runCtx context.Context, request RunRequest, stream *
 
 	// One Run per Session at a time. Every Session mutation goes through
 	// withSessionLock; the admission policy decides the busy behavior.
-	created := request.SessionID == "" && !request.SkipSave
 	// A Run that follows another waits for the Session whatever the busy policy.
 	lockErr := r.sessionLock(runCtx, st.sessionID, follow != nil || handle.wait, func() error {
 		return st.serveLocked(ctx, runCtx)
 	})
 	if lockErr != nil {
-		st.dropFollow(runCtx)
-		if created && !st.started {
-			lockErr = st.cleanupUnstarted(ctx, lockErr)
-		}
-		// [CONTRACT] a Run canceled while it waits for the Session lock settles as a canceled Run.
-		if errors.Is(lockErr, context.Canceled) || errors.Is(lockErr, context.DeadlineExceeded) {
-			// Canceled while waiting for the Session lock: report a settled
-			// canceled Run rather than a bare error.
-			return canceledRunResult(st.sessionID, request.Agent, lockErr), lockErr
-		}
-		return RunResponse{}, lockErr
+		return st.settleLockErr(ctx, runCtx, lockErr)
 	}
 	return st.out, st.runErr
+}
+
+// endStream ends the Run's stream, when it has one. What is queued is still
+// delivered.
+func (st *runState) endStream() {
+	if st.stream != nil && st.stream.sub != nil {
+		st.stream.sub.End()
+	}
+}
+
+// releaseAcquired releases the shared Feed the Run holds, when it holds one.
+func (st *runState) releaseAcquired() {
+	if st.acquired != (feedKey{}) {
+		st.r.releaseFeed(st.acquired)
+	}
+}
+
+// newMemorySession builds the in-memory Session of a Run that saves nothing,
+// with a Feed of its own. The caller closes the Feed.
+func (st *runState) newMemorySession() {
+	// No persistence: build an in-memory Session for this Run only.
+	st.s = record.New()
+	for key, value := range st.request.Metadata {
+		st.s.Set(key, value)
+	}
+	if st.request.task != nil {
+		st.s.Set(metaTask, st.request.task.snapshot)
+	}
+	st.feed = newFeed(nil)
+}
+
+// settleLockErr settles a Run that failed under, or while it waited for, the
+// Session lock: it drops what a following Run was to take, removes the Session
+// of a one-shot Run that never started, and reports a canceled wait as a
+// settled canceled Run.
+func (st *runState) settleLockErr(ctx, runCtx context.Context, lockErr error) (RunResponse, error) {
+	st.dropFollow(runCtx)
+	created := st.request.SessionID == "" && !st.request.SkipSave
+	if created && !st.started {
+		lockErr = st.cleanupUnstarted(ctx, lockErr)
+	}
+	// [CONTRACT] a Run canceled while it waits for the Session lock settles as a canceled Run.
+	if errors.Is(lockErr, context.Canceled) || errors.Is(lockErr, context.DeadlineExceeded) {
+		// Canceled while waiting for the Session lock: report a settled
+		// canceled Run rather than a bare error.
+		return canceledRunResult(st.sessionID, st.request.Agent, lockErr), lockErr
+	}
+	return RunResponse{}, lockErr
 }
 
 // serveLocked is the part of a Run that holds the Session lock: open the
