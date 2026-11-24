@@ -133,32 +133,49 @@ func (s *Record) FindSpilled(ctx context.Context, log EntryLog, call gotato.Tool
 	}
 	segments := s.Segments()
 	for _, segment := range slices.Backward(segments) {
-		sources := []gotato.SegmentSource{segment.Source}
-		if len(segment.Merged) > 0 {
-			sources = sources[:0]
-			for _, merged := range slices.Backward(segment.Merged) {
-				sources = append(sources, merged.Source)
+		for _, source := range segmentSources(segment) {
+			spilled, ok, err = s.findInSource(ctx, log, source, call)
+			if err != nil || ok {
+				return spilled, ok, err
 			}
 		}
-		for _, source := range sources {
-			from := string(source.SessionID)
-			if from == "" || from == s.ID() {
-				continue
-			}
-			if same, err := SameRecord(ctx, log, from, source.RecordEpoch); err != nil {
-				return gotato.SpilledResult{}, false, err
-			} else if !same {
-				continue
-			}
-			spilled, ok, err = findSpilled(ctx, log, from, call, source.ToNumber)
-			if err != nil && !errors.Is(err, ErrNotFound) {
-				return gotato.SpilledResult{}, false, err
-			}
-			if ok {
-				spilled.SessionID, spilled.RecordEpoch = source.SessionID, source.RecordEpoch
-				return spilled, true, nil
-			}
+	}
+	return gotato.SpilledResult{}, false, nil
+}
+
+// segmentSources lists the sources of segment to search, newest first: its
+// own source, or the sources of the Segments it merged.
+func segmentSources(segment gotato.Segment) []gotato.SegmentSource {
+	sources := []gotato.SegmentSource{segment.Source}
+	if len(segment.Merged) > 0 {
+		sources = sources[:0]
+		for _, merged := range slices.Backward(segment.Merged) {
+			sources = append(sources, merged.Source)
 		}
+	}
+	return sources
+}
+
+// findInSource finds the spilled result of call in the log of the Session that
+// source names, within the Entries it covers. ok is false, with no error, when
+// source is this Record, is another Record now, or holds no such result.
+func (s *Record) findInSource(ctx context.Context, log EntryLog, source gotato.SegmentSource, call gotato.ToolCallID) (spilled gotato.SpilledResult, ok bool, err error) {
+	from := string(source.SessionID)
+	if from == "" || from == s.ID() {
+		return gotato.SpilledResult{}, false, nil
+	}
+	if same, err := SameRecord(ctx, log, from, source.RecordEpoch); err != nil {
+		return gotato.SpilledResult{}, false, err
+	} else if !same {
+		return gotato.SpilledResult{}, false, nil
+	}
+	spilled, ok, err = findSpilled(ctx, log, from, call, source.ToNumber)
+	if err != nil && !errors.Is(err, ErrNotFound) {
+		return gotato.SpilledResult{}, false, err
+	}
+	if ok {
+		spilled.SessionID, spilled.RecordEpoch = source.SessionID, source.RecordEpoch
+		return spilled, true, nil
 	}
 	return gotato.SpilledResult{}, false, nil
 }
