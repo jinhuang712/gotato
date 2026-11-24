@@ -238,87 +238,124 @@ func playToolSearch(request gotato.ModelRequest) testkit.Script {
 	if !ok {
 		return testkit.Text("Noted.")
 	}
-	// What the Run has done so far: the calls after the last prompt, with
-	// the results they got.
-	var run []gotato.Message
-	for i, v := range slices.Backward(request.Messages) {
-		if v.Role == gotato.RoleUser {
-			run = request.Messages[i+1:]
-			break
-		}
+	// The maps are made here, not in a helper that returns them, so that
+	// they stay on the stack.
+	messages := sinceLastPrompt(request.Messages)
+	run := toolSearchRun{
+		calls:   toolCallsByID(messages),
+		results: map[gotato.ToolCallID]gotato.ToolResult{},
+		visible: map[string]bool{},
+		n:       len(request.Messages) + 1,
 	}
-	calls := toolCallsByID(run)
-	results := map[gotato.ToolCallID]gotato.ToolResult{}
-	for _, message := range run {
-		if message.ToolResult != nil {
-			results[message.ToolResult.CallID] = *message.ToolResult
-		}
-	}
-	succeeded := func(tool string) (string, bool) {
-		for id, call := range calls {
-			if result, ok := results[id]; ok && call.ToolID == tool && result.Status == gotato.ToolResultStatusOK {
-				return resultText(result), true
-			}
-		}
-		return "", false
-	}
-	searched := func(key, value string) bool {
-		for _, call := range calls {
-			if call.ToolID != gotato.SearchToolName {
-				continue
-			}
-			var in map[string]json.RawMessage
-			if json.Unmarshal(call.Arguments, &in) == nil && strings.Contains(string(in[key]), value) {
-				return true
-			}
-		}
-		return false
-	}
-	tried := func(tool string) bool {
-		for _, call := range calls {
-			if call.ToolID == tool {
-				return true
-			}
-		}
-		return false
-	}
-	visible := map[string]bool{}
-	for _, spec := range request.Tools {
-		visible[spec.ID] = true
-	}
-	n := len(request.Messages) + 1
-	call := func(tool, arguments string) testkit.Script {
-		return testkit.ToolCalls(gotato.ToolCall{ID: gotato.ToolCallID("call-" + strconv.Itoa(n)), ToolID: tool, Arguments: []byte(arguments)})
-	}
-	search := func(key string, value any) testkit.Script {
-		encoded, _ := json.Marshal(map[string]any{key: value})
-		return call(gotato.SearchToolName, string(encoded))
-	}
-
+	run.read(messages, request.Tools)
 	var facts []string
 	for _, need := range plan.needs {
-		if text, done := succeeded(need.tool); done {
+		if text, done := run.succeeded(need.tool); done {
 			facts = append(facts, summarize(text))
 			continue
 		}
-		if visible[need.tool] {
-			return call(need.tool, need.args)
-		}
-		set, _, _ := strings.Cut(need.tool, ".")
-		switch {
-		case need.reach == reachCareless && !tried(need.tool):
-			return call(need.tool, need.args)
-		case need.reach == reachQuery && !searched("queries", need.query):
-			return search("queries", []string{need.query})
-		case need.reach == reachExpand && !searched("toolset", set):
-			return search("toolset", set)
-		}
-		return search("names", []string{need.tool})
+		return run.reach(need)
 	}
 	if plan.answer != "" {
 		return testkit.Text(plan.answer)
 	}
 	return testkit.Text("Done: " + strings.Join(facts, "; ") + ".")
+}
+
+// toolSearchRun is what the Model reads from one request: the Run's calls
+// and their results, the Tools it sees, and the number of its next call.
+type toolSearchRun struct {
+	calls   map[gotato.ToolCallID]gotato.ToolCall
+	results map[gotato.ToolCallID]gotato.ToolResult
+	visible map[string]bool
+	n       int
+}
+
+// sinceLastPrompt returns what the Run has done so far: the calls after the
+// last prompt, with the results they got.
+func sinceLastPrompt(messages []gotato.Message) []gotato.Message {
+	for i, v := range slices.Backward(messages) {
+		if v.Role == gotato.RoleUser {
+			return messages[i+1:]
+		}
+	}
+	return nil
+}
+
+// read fills r's results from the Run's messages and its visible Tools from
+// tools.
+func (r toolSearchRun) read(messages []gotato.Message, tools []gotato.ToolSpec) {
+	for _, message := range messages {
+		if message.ToolResult != nil {
+			r.results[message.ToolResult.CallID] = *message.ToolResult
+		}
+	}
+	for _, spec := range tools {
+		r.visible[spec.ID] = true
+	}
+}
+
+// reach returns the next step toward a need the Run has not met: call the
+// Tool when it is visible, or search for it the way the need says.
+func (r toolSearchRun) reach(need toolSearchNeed) testkit.Script {
+	if r.visible[need.tool] {
+		return r.call(need.tool, need.args)
+	}
+	set, _, _ := strings.Cut(need.tool, ".")
+	switch {
+	case need.reach == reachCareless && !r.tried(need.tool):
+		return r.call(need.tool, need.args)
+	case need.reach == reachQuery && !r.searched("queries", need.query):
+		return r.search("queries", []string{need.query})
+	case need.reach == reachExpand && !r.searched("toolset", set):
+		return r.search("toolset", set)
+	}
+	return r.search("names", []string{need.tool})
+}
+
+// succeeded returns the text of a call of tool that succeeded in the Run.
+func (r toolSearchRun) succeeded(tool string) (string, bool) {
+	for id, call := range r.calls {
+		if result, ok := r.results[id]; ok && call.ToolID == tool && result.Status == gotato.ToolResultStatusOK {
+			return resultText(result), true
+		}
+	}
+	return "", false
+}
+
+// searched reports whether the Run called search_tools with value in key.
+func (r toolSearchRun) searched(key, value string) bool {
+	for _, call := range r.calls {
+		if call.ToolID != gotato.SearchToolName {
+			continue
+		}
+		var in map[string]json.RawMessage
+		if json.Unmarshal(call.Arguments, &in) == nil && strings.Contains(string(in[key]), value) {
+			return true
+		}
+	}
+	return false
+}
+
+// tried reports whether the Run called tool.
+func (r toolSearchRun) tried(tool string) bool {
+	for _, call := range r.calls {
+		if call.ToolID == tool {
+			return true
+		}
+	}
+	return false
+}
+
+// call returns the Script that calls tool with arguments.
+func (r toolSearchRun) call(tool, arguments string) testkit.Script {
+	return testkit.ToolCalls(gotato.ToolCall{ID: gotato.ToolCallID("call-" + strconv.Itoa(r.n)), ToolID: tool, Arguments: []byte(arguments)})
+}
+
+// search returns the Script that calls search_tools with key set to value.
+func (r toolSearchRun) search(key string, value any) testkit.Script {
+	encoded, _ := json.Marshal(map[string]any{key: value})
+	return r.call(gotato.SearchToolName, string(encoded))
 }
 
 // summarize turns a JSON result of string fields into "key=value" pairs in key
