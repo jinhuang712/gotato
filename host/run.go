@@ -140,68 +140,91 @@ func (r *Runner) StreamRunAdmitted(ctx context.Context, request RunRequest, admi
 	if ctx == nil {
 		ctx = context.Background()
 	}
-	type outcome struct {
-		result RunResponse
-		err    error
-	}
 	subs := make(chan gotato.Subscription, 1)
 	admit := make(chan struct{}, 1)
-	done := make(chan outcome, 1)
+	done := make(chan streamOutcome, 1)
 	go func() {
 		result, err := r.run(ctx, request, &runStream{ready: func(sub gotato.Subscription) { subs <- sub }, admitted: admit})
-		done <- outcome{result, err}
+		done <- streamOutcome{result, err}
 	}()
-	var finished *outcome
-	called := false
-	call := func() {
-		called = true
-		if admitted != nil {
-			admitted()
-		}
-	}
-	select {
-	case <-admit:
-		call()
-	case o := <-done:
-		finished = &o
-		select {
-		case <-admit:
-			call()
-		default:
-		}
-	}
-	if finished != nil {
+	finished, ended, called := awaitAdmission(admit, done, admitted)
+	if ended {
 		// The Run ended: it may have handed over its stream first. A Run that
 		// was refused before it started (no call, no result) delivers none of
 		// it: the caller has answered with a status of its own.
-		select {
-		case sub := <-subs:
-			if called || finished.result.SessionID != "" || finished.err == nil {
-				deliver(ctx, sub, sink)
-			} else {
-				_ = sub.Close()
-			}
-		default:
+		if called || finished.result.SessionID != "" || finished.err == nil {
+			deliverHanded(ctx, subs, sink)
+		} else {
+			closeHanded(subs)
 		}
 		return finished.result, finished.err
 	}
+	return deliverLive(ctx, subs, done, sink)
+}
+
+// streamOutcome is what the goroutine of a streamed Run returns.
+type streamOutcome struct {
+	result RunResponse
+	err    error
+}
+
+// awaitAdmission waits until the streamed Run is admitted or ended, and makes
+// the admitted call on admission. ended reports a Run that ended, with its
+// outcome; called reports that the call was made.
+func awaitAdmission(admit <-chan struct{}, done <-chan streamOutcome, admitted func()) (finished streamOutcome, ended, called bool) {
+	select {
+	case <-admit:
+		callAdmitted(admitted)
+		return streamOutcome{}, false, true
+	case o := <-done:
+		select {
+		case <-admit:
+			callAdmitted(admitted)
+			return o, true, true
+		default:
+		}
+		return o, true, false
+	}
+}
+
+// callAdmitted makes the admitted call, when there is one.
+func callAdmitted(admitted func()) {
+	if admitted != nil {
+		admitted()
+	}
+}
+
+// deliverHanded delivers the stream the Run handed over, if it did.
+func deliverHanded(ctx context.Context, subs <-chan gotato.Subscription, sink func(gotato.Event) error) {
+	select {
+	case sub := <-subs:
+		deliver(ctx, sub, sink)
+	default:
+	}
+}
+
+// closeHanded closes the stream the Run handed over, if it did.
+func closeHanded(subs <-chan gotato.Subscription) {
+	select {
+	case sub := <-subs:
+		_ = sub.Close()
+	default:
+	}
+}
+
+// deliverLive delivers the stream of an admitted Run as it is produced, and
+// returns the Run's outcome once it settles.
+func deliverLive(ctx context.Context, subs <-chan gotato.Subscription, done <-chan streamOutcome, sink func(gotato.Event) error) (RunResponse, error) {
 	select {
 	case sub := <-subs:
 		deliver(ctx, sub, sink)
 	case o := <-done:
-		finished = &o
 		// A Run that ended may have handed over its stream first.
-		select {
-		case sub := <-subs:
-			deliver(ctx, sub, sink)
-		default:
-		}
+		deliverHanded(ctx, subs, sink)
+		return o.result, o.err
 	}
-	if finished == nil {
-		o := <-done
-		finished = &o
-	}
-	return finished.result, finished.err
+	o := <-done
+	return o.result, o.err
 }
 
 func (r *Runner) run(ctx context.Context, request RunRequest, stream *runStream) (RunResponse, error) {
