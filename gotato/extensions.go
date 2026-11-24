@@ -271,6 +271,21 @@ func (s extensionSet) beforeTool(ctx context.Context, use ToolUse) (PreToolDecis
 	return PreToolDecision{}, nil
 }
 
+// blockedResult is the Result of the call callID that a Pre decision blocked:
+// the decision's own Result, when it gives one, marked blocked.
+func blockedResult(callID ToolCallID, decision PreToolDecision) ToolResult {
+	result := ToolResult{CallID: callID, Status: ToolResultStatusBlocked, SafeError: decision.Reason, Executed: false}
+	if decision.Result != nil {
+		replacement := ownResult(decision.Result.Clone(), ToolResult{CallID: callID})
+		replacement.Status = ToolResultStatusBlocked
+		if replacement.SafeError == "" {
+			replacement.SafeError = decision.Reason
+		}
+		result = replacement
+	}
+	return result
+}
+
 // afterTool runs the Post chain in reverse installation order over every
 // outcome, then restores the fields Core owns (ownResult).
 func (s extensionSet) afterTool(ctx context.Context, result ToolResult) (ToolResult, *RuntimeError) {

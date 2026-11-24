@@ -388,45 +388,10 @@ func (a *Session) preflightTools(ctx context.Context, runID RunID, turn TurnNumb
 	plans := make([]toolPlan, 0, len(calls))
 	for sourceIndex, call := range calls {
 		*toolCalls++
-		// A call the Model got wrong (an unknown Tool, malformed or
-		// schema-invalid arguments) settles as a failed Tool Result the Model
-		// can read and correct; it never ends the Run (GOALS.md O8: every
-		// failed tool call returns its reason to the model).
-		entry, found := a.tools.registry.lookup(call.ToolID)
-		if !found {
-			// A catalog Tool the Model has not loaded does not run: it is
-			// loaded now, and the Model calls it again.
-			if status := a.tools.registry.loadable(call.ToolID); status == loadOK || status == loadAlready {
-				plans = append(plans, a.rejectedPlan(sourceIndex, call, CodeToolNotLoaded, fmt.Sprintf("%s was not loaded, so this call did not run. It is loaded now; call it again.", call.ToolID), call.ToolID))
-				continue
-			}
-			plans = append(plans, a.rejectedPlan(sourceIndex, call, CodeToolResolutionFailure, a.unresolvedToolText(call.ToolID)))
+		plan, valid := a.planCall(runID, turn, sourceIndex, call)
+		if !valid {
+			plans = append(plans, plan)
 			continue
-		}
-		if !json.Valid(call.Arguments) {
-			plans = append(plans, a.rejectedPlan(sourceIndex, call, CodeToolArgumentFailure, fmt.Sprintf("%s: arguments for %s are not valid JSON", CodeToolArgumentFailure, call.ToolID)))
-			continue
-		}
-		spec := entry.spec
-		if err := validateToolSchema(spec.InputSchema, call.Arguments); err != nil {
-			plans = append(plans, a.rejectedPlan(sourceIndex, call, CodeToolArgumentFailure, fmt.Sprintf("%s: %s: %v", CodeToolArgumentFailure, call.ToolID, err)))
-			continue
-		}
-		plan := toolPlan{
-			index:      sourceIndex,
-			call:       call,
-			tool:       entry.tool,
-			sequential: spec.Sequential,
-			use: ToolUse{
-				SessionID:   a.def.id,
-				RunID:       runID,
-				Turn:        turn,
-				CallID:      call.ID,
-				ToolID:      call.ToolID,
-				Arguments:   slices.Clone(call.Arguments),
-				SourceIndex: uint32(sourceIndex),
-				Effect:      spec.Effect,
-			},
 		}
 		decision, preErr := a.def.extensions.beforeTool(ctx, plan.use)
 		if preErr != nil {
@@ -434,19 +399,53 @@ func (a *Session) preflightTools(ctx context.Context, runID RunID, turn TurnNumb
 		}
 		if decision.Block {
 			plan.blocked = true
-			plan.result = ToolResult{CallID: call.ID, Status: ToolResultStatusBlocked, SafeError: decision.Reason, Executed: false}
-			if decision.Result != nil {
-				replacement := ownResult(decision.Result.Clone(), ToolResult{CallID: call.ID})
-				replacement.Status = ToolResultStatusBlocked
-				if replacement.SafeError == "" {
-					replacement.SafeError = decision.Reason
-				}
-				plan.result = replacement
-			}
+			plan.result = blockedResult(call.ID, decision)
 		}
 		plans = append(plans, plan)
 	}
 	return plans, nil
+}
+
+// planCall resolves the Tool of call and validates its arguments, and returns
+// its plan. When the call cannot run, the plan is the rejected one and valid
+// is false.
+func (a *Session) planCall(runID RunID, turn TurnNumber, sourceIndex int, call ToolCall) (plan toolPlan, valid bool) {
+	// A call the Model got wrong (an unknown Tool, malformed or
+	// schema-invalid arguments) settles as a failed Tool Result the Model
+	// can read and correct; it never ends the Run (GOALS.md O8: every
+	// failed tool call returns its reason to the model).
+	entry, found := a.tools.registry.lookup(call.ToolID)
+	if !found {
+		// A catalog Tool the Model has not loaded does not run: it is
+		// loaded now, and the Model calls it again.
+		if status := a.tools.registry.loadable(call.ToolID); status == loadOK || status == loadAlready {
+			return a.rejectedPlan(sourceIndex, call, CodeToolNotLoaded, fmt.Sprintf("%s was not loaded, so this call did not run. It is loaded now; call it again.", call.ToolID), call.ToolID), false
+		}
+		return a.rejectedPlan(sourceIndex, call, CodeToolResolutionFailure, a.unresolvedToolText(call.ToolID)), false
+	}
+	if !json.Valid(call.Arguments) {
+		return a.rejectedPlan(sourceIndex, call, CodeToolArgumentFailure, fmt.Sprintf("%s: arguments for %s are not valid JSON", CodeToolArgumentFailure, call.ToolID)), false
+	}
+	spec := entry.spec
+	if err := validateToolSchema(spec.InputSchema, call.Arguments); err != nil {
+		return a.rejectedPlan(sourceIndex, call, CodeToolArgumentFailure, fmt.Sprintf("%s: %s: %v", CodeToolArgumentFailure, call.ToolID, err)), false
+	}
+	return toolPlan{
+		index:      sourceIndex,
+		call:       call,
+		tool:       entry.tool,
+		sequential: spec.Sequential,
+		use: ToolUse{
+			SessionID:   a.def.id,
+			RunID:       runID,
+			Turn:        turn,
+			CallID:      call.ID,
+			ToolID:      call.ToolID,
+			Arguments:   slices.Clone(call.Arguments),
+			SourceIndex: uint32(sourceIndex),
+			Effect:      spec.Effect,
+		},
+	}, true
 }
 
 // executeToolSafely runs a Tool and turns a panic into a failure of the call.
