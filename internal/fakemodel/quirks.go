@@ -31,8 +31,8 @@ func hasFlag(value, flag string) bool {
 	return slices.Contains(strings.Split(value, "+"), flag)
 }
 
-// extractQuirks reads the directives of the last user text and the header.
-func extractQuirks(p *parsed, h http.Header, api string) (*quirks, string, error) {
+// extractQuirks reads the directives of the last user text.
+func extractQuirks(p *parsed, _ http.Header, api string) (*quirks, string, error) {
 	q := &quirks{byName: map[string]string{}}
 	add := func(name, value string) error {
 		if !knownQuirks[name] {
@@ -65,16 +65,6 @@ func extractQuirks(p *parsed, h http.Header, api string) (*quirks, string, error
 		}
 		text = strings.TrimSpace(directive.ReplaceAllString(raw, ""))
 		q.key = api + "|" + raw
-	}
-	for field := range strings.SplitSeq(h.Get(QuirkHeader), ",") {
-		field = strings.TrimSpace(field)
-		if field == "" {
-			continue
-		}
-		name, value, _ := strings.Cut(field, "=")
-		if err := add(strings.TrimSpace(name), strings.TrimSpace(value)); err != nil {
-			return nil, "", err
-		}
 	}
 	return q, text, nil
 }

@@ -150,12 +150,6 @@ func TestUnknownDirectiveAndBadValuesAreA400(t *testing.T) {
 				t.Errorf("%s %q: %d %s", api.name, text, r.status, r.body)
 			}
 		}
-		srv := httptest.NewServer(fakemodel.New())
-		r := post(t, srv, api.path, map[string]string{fakemodel.QuirkHeader: "nonsense"}, api.body("hi", nil))
-		srv.Close()
-		if r.status != 400 {
-			t.Errorf("%s header typo: %d %s", api.name, r.status, r.body)
-		}
 	}
 }
 
@@ -178,10 +172,6 @@ func TestOverflowIsRefusedInEachProvidersWords(t *testing.T) {
 				if !strings.Contains(r.body, w) {
 					t.Errorf("refusal lacks %q: %s", w, r.body)
 				}
-			}
-			// The header does the same.
-			if r := post(t, srv, api.path, map[string]string{fakemodel.QuirkHeader: "overflow"}, api.body("hi", nil)); r.status != 400 {
-				t.Errorf("header: %d", r.status)
 			}
 			if got := g.Requests(); got[0].Outcome != "refused" || got[0].UserText != "hi" || got[0].Quirks["overflow"] != "" {
 				t.Errorf("recorded %+v", got[0])

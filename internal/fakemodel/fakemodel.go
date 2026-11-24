@@ -22,10 +22,8 @@
 // # Quirks
 //
 // A quirk is switched on by a directive in the last user text, such as
-// [quirk:overflow], or by the X-Fake-Quirk request header, a comma-separated
-// list of the same names and values (X-Fake-Quirk: delay=8s,cached=1200).
-// Directives are removed from the text the model echoes. A directive the fake
-// does not know is a 400, so a typo fails loudly.
+// [quirk:overflow]. Directives are removed from the text the model echoes. A
+// directive the fake does not know is a 400, so a typo fails loudly.
 //
 //	overflow[=once]            refuse the request as too long, before any
 //	                           output, in the provider's own words and status
@@ -110,10 +108,6 @@ const (
 	APIResponses = "openai-responses"
 	APIChat      = "openai-chat-completions"
 )
-
-// QuirkHeader is the request header that switches quirks on, as an
-// alternative to a directive in the last user text.
-const QuirkHeader = "X-Fake-Quirk"
 
 const (
 	defaultWindow    = 200_000
