@@ -15,9 +15,6 @@ import (
 // .../build-with-claude/mid-conversation-system-messages and
 // .../build-with-claude/thinking.
 
-// betaBinding is the beta header block_binding needs.
-const betaBinding = "thinking-binding-controls-2026-08-01"
-
 // midSystemModels are the models that take a system message in the middle of
 // the conversation (the mid-conversation system messages page). Sonnet 5 is
 // not one.
@@ -37,87 +34,6 @@ func takesMidSystem(model string) bool {
 	return false
 }
 
-type anthropicWire struct{}
-
-type anthropicRequest struct {
-	Model     string          `json:"model"`
-	MaxTokens *int            `json:"max_tokens"`
-	System    json.RawMessage `json:"system"`
-	Messages  []anthropicMsg  `json:"messages"`
-	Tools     []anthropicTool `json:"tools"`
-	Stream    bool            `json:"stream"`
-	Thinking  *anthropicThink `json:"thinking"`
-
-	blocks [][]map[string]any
-}
-
-type anthropicThink struct {
-	Type         string `json:"type"`
-	BlockBinding *struct {
-		PrefixMismatchBehavior string `json:"prefix_mismatch_behavior"`
-	} `json:"block_binding"`
-}
-
-type anthropicMsg struct {
-	Role    string          `json:"role"`
-	Content json.RawMessage `json:"content"`
-}
-
-type anthropicTool struct {
-	Name         string         `json:"name"`
-	InputSchema  map[string]any `json:"input_schema"`
-	DeferLoading bool           `json:"defer_loading"`
-	CacheControl map[string]any `json:"cache_control"`
-}
-
-func (anthropicWire) api() string { return APIAnthropic }
-
-func anthropicErr(status int, kind, message string) *apiError {
-	return &apiError{status: status, body: map[string]any{
-		"type":       "error",
-		"error":      map[string]any{"type": kind, "message": message},
-		"request_id": "req_fake",
-	}}
-}
-
-func (anthropicWire) invalid(message string) *apiError {
-	return anthropicErr(http.StatusBadRequest, "invalid_request_error", message)
-}
-
-func (anthropicWire) authorize(h http.Header) *apiError {
-	if h.Get("x-api-key") == "" {
-		return anthropicErr(http.StatusUnauthorized, "authentication_error", "x-api-key header is required")
-	}
-	if h.Get("anthropic-version") == "" {
-		return anthropicErr(http.StatusBadRequest, "invalid_request_error", "anthropic-version: header is required")
-	}
-	return nil
-}
-
-func (anthropicWire) tooManyOutputTokens(p *parsed, limit int) *apiError {
-	return anthropicErr(http.StatusBadRequest, "invalid_request_error",
-		fmt.Sprintf("max_tokens: %d > %d, which is the maximum allowed number of output tokens for %s", p.maxOutput, limit, p.model))
-}
-
-func (anthropicWire) tooLong(tokens, window int) *apiError {
-	return anthropicErr(http.StatusBadRequest, "invalid_request_error",
-		fmt.Sprintf("prompt is too long: %d tokens > %d maximum", tokens, window))
-}
-
-// contentBlocks turns a message's content, a string or a list of blocks, into
-// blocks.
-func contentBlocks(raw json.RawMessage) ([]map[string]any, error) {
-	var s string
-	if json.Unmarshal(raw, &s) == nil {
-		return []map[string]any{{"type": "text", "text": s}}, nil
-	}
-	var blocks []map[string]any
-	if err := json.Unmarshal(raw, &blocks); err != nil {
-		return nil, fmt.Errorf("content must be a string or a list of content blocks")
-	}
-	return blocks, nil
-}
-
 func (a anthropicWire) parse(_ *Server, body []byte, h http.Header) (*parsed, *apiError) {
 	var req anthropicRequest
 	if err := json.Unmarshal(body, &req); err != nil {
@@ -125,22 +41,55 @@ func (a anthropicWire) parse(_ *Server, body []byte, h http.Header) (*parsed, *a
 	}
 	var raw map[string]any
 	_ = json.Unmarshal(body, &raw)
-	if req.MaxTokens == nil {
-		return nil, a.invalid("max_tokens: Field required")
-	}
-	if len(req.Messages) == 0 {
-		return nil, a.invalid("messages: at least one message is required")
-	}
-	if req.Messages[0].Role != "user" {
-		return nil, a.invalid(`messages: first message must use the "user" role`)
-	}
-	if req.Thinking != nil && req.Thinking.BlockBinding != nil && !strings.Contains(h.Get("anthropic-beta"), betaBinding) {
-		return nil, a.invalid("thinking.block_binding: Extra inputs are not permitted")
+	if e := a.checkRequest(&req, h); e != nil {
+		return nil, e
 	}
 	p := &parsed{model: req.Model, stream: req.Stream, maxOutput: *req.MaxTokens, header: h, raw: raw, request: &req, body: body}
 	p.loaded = map[string]bool{}
+	deferredTools, e := a.readTools(p, req.Tools)
+	if e != nil {
+		return nil, e
+	}
+	if e := a.decodeBlocks(&req); e != nil {
+		return nil, e
+	}
+	if e := a.checkToolLoop(&req); e != nil {
+		return nil, e
+	}
+	if e := a.checkMidSystem(p, &req); e != nil {
+		return nil, e
+	}
+	r := &anthropicEvents{p: p, deferred: deferredTools, useNames: map[string]string{}}
+	if e := r.readEvents(&req); e != nil {
+		return nil, e
+	}
+	return p, nil
+}
+
+// checkRequest refuses a request that lacks a required field, opens with a
+// message that is not the user's, or asks for block_binding without its beta.
+func (a anthropicWire) checkRequest(req *anthropicRequest, h http.Header) *apiError {
+	if req.MaxTokens == nil {
+		return a.invalid("max_tokens: Field required")
+	}
+	if len(req.Messages) == 0 {
+		return a.invalid("messages: at least one message is required")
+	}
+	if req.Messages[0].Role != "user" {
+		return a.invalid(`messages: first message must use the "user" role`)
+	}
+	if req.Thinking != nil && req.Thinking.BlockBinding != nil && !strings.Contains(h.Get("anthropic-beta"), betaBinding) {
+		return a.invalid("thinking.block_binding: Extra inputs are not permitted")
+	}
+	return nil
+}
+
+// readTools records the request's tools and its search tool, and returns the
+// deferred ones by name. It refuses a deferred tool with cache_control, and a
+// list whose tools are all deferred.
+func (a anthropicWire) readTools(p *parsed, tools []anthropicTool) (map[string]bool, *apiError) {
 	deferredTools, plainTools := map[string]bool{}, 0
-	for i, t := range req.Tools {
+	for i, t := range tools {
 		p.tools = append(p.tools, toolDef{name: t.Name, schema: t.InputSchema, deferred: t.DeferLoading})
 		if t.DeferLoading {
 			deferredTools[t.Name] = true
@@ -157,144 +106,205 @@ func (a anthropicWire) parse(_ *Server, body []byte, h http.Header) (*parsed, *a
 	if len(deferredTools) > 0 && plainTools == 0 {
 		return nil, a.invalid("tools: at least one tool must be non-deferred (defer_loading true is set on every tool)")
 	}
+	return deferredTools, nil
+}
+
+// decodeBlocks checks each message's role and decodes its content blocks.
+func (a anthropicWire) decodeBlocks(req *anthropicRequest) *apiError {
 	req.blocks = make([][]map[string]any, len(req.Messages))
 	for i, m := range req.Messages {
 		switch m.Role {
 		case "user", "assistant", "system":
 		default:
-			return nil, a.invalid(fmt.Sprintf("messages.%d.role: Input should be 'user' or 'assistant'", i))
+			return a.invalid(fmt.Sprintf("messages.%d.role: Input should be 'user' or 'assistant'", i))
 		}
 		blocks, err := contentBlocks(m.Content)
 		if err != nil {
-			return nil, a.invalid(fmt.Sprintf("messages.%d.content: %s", i, err))
+			return a.invalid(fmt.Sprintf("messages.%d.content: %s", i, err))
 		}
 		req.blocks[i] = blocks
 	}
+	return nil
+}
+
+// blockIDs returns the field of each block of the kind, "" where it is
+// missing.
+func blockIDs(blocks []map[string]any, kind, field string) []string {
+	var ids []string
+	for _, b := range blocks {
+		if b["type"] == kind {
+			id, _ := b[field].(string)
+			ids = append(ids, id)
+		}
+	}
+	return ids
+}
+
+// checkToolLoop refuses a malformed tool loop.
+func (a anthropicWire) checkToolLoop(req *anthropicRequest) *apiError {
 	// Tool loop: each tool_use is answered by a tool_result in the next
 	// message, and each tool_result answers a tool_use of the previous one.
 	for i, m := range req.Messages {
-		if m.Role == "system" {
-			continue
+		var e *apiError
+		switch m.Role {
+		case "assistant":
+			e = a.checkUsesAnswered(req, i)
+		case "user":
+			e = a.checkResultsAnswer(req, i)
 		}
-		var uses, results []string
-		for _, b := range req.blocks[i] {
-			switch b["type"] {
-			case "tool_use":
-				id, _ := b["id"].(string)
-				uses = append(uses, id)
-			case "tool_result":
-				id, _ := b["tool_use_id"].(string)
-				results = append(results, id)
-			}
-		}
-		if m.Role == "assistant" && len(uses) > 0 {
-			answered := map[string]bool{}
-			if i+1 < len(req.Messages) {
-				next := i + 1
-				for next < len(req.Messages) && req.Messages[next].Role == "system" {
-					next++
-				}
-				if next < len(req.Messages) {
-					for _, b := range req.blocks[next] {
-						if b["type"] == "tool_result" {
-							id, _ := b["tool_use_id"].(string)
-							answered[id] = true
-						}
-					}
-				}
-			}
-			var missing []string
-			for _, id := range uses {
-				if !answered[id] {
-					missing = append(missing, id)
-				}
-			}
-			if len(missing) > 0 {
-				return nil, a.invalid(fmt.Sprintf("messages.%d: `tool_use` ids were found without `tool_result` blocks immediately after: %s. Each `tool_use` block must have a corresponding `tool_result` block in the next message.", i, strings.Join(missing, ", ")))
-			}
-		}
-		if m.Role == "user" && len(results) > 0 {
-			prev := map[string]bool{}
-			for j := i - 1; j >= 0; j-- {
-				if req.Messages[j].Role == "system" {
-					continue
-				}
-				if req.Messages[j].Role == "assistant" {
-					for _, b := range req.blocks[j] {
-						if b["type"] == "tool_use" {
-							id, _ := b["id"].(string)
-							prev[id] = true
-						}
-					}
-				}
-				break
-			}
-			for _, id := range results {
-				if !prev[id] {
-					return nil, a.invalid(fmt.Sprintf("messages.%d.content.0: unexpected `tool_use_id` found in `tool_result` blocks: %s. Each `tool_result` block must have a corresponding `tool_use` block in the previous message.", i, id))
-				}
-			}
+		if e != nil {
+			return e
 		}
 	}
+	return nil
+}
+
+// checkUsesAnswered refuses an assistant message i whose tool_use blocks have
+// no tool_result in the next message that is not a system message.
+func (a anthropicWire) checkUsesAnswered(req *anthropicRequest, i int) *apiError {
+	answered := map[string]bool{}
+	next := i + 1
+	for next < len(req.Messages) && req.Messages[next].Role == "system" {
+		next++
+	}
+	if next < len(req.Messages) {
+		for _, id := range blockIDs(req.blocks[next], "tool_result", "tool_use_id") {
+			answered[id] = true
+		}
+	}
+	var missing []string
+	for _, id := range blockIDs(req.blocks[i], "tool_use", "id") {
+		if !answered[id] {
+			missing = append(missing, id)
+		}
+	}
+	if len(missing) > 0 {
+		return a.invalid(fmt.Sprintf("messages.%d: `tool_use` ids were found without `tool_result` blocks immediately after: %s. Each `tool_use` block must have a corresponding `tool_result` block in the next message.", i, strings.Join(missing, ", ")))
+	}
+	return nil
+}
+
+// checkResultsAnswer refuses a user message i with a tool_result that answers
+// no tool_use of the previous message that is not a system message.
+func (a anthropicWire) checkResultsAnswer(req *anthropicRequest, i int) *apiError {
+	prev := map[string]bool{}
+	j := i - 1
+	for j >= 0 && req.Messages[j].Role == "system" {
+		j--
+	}
+	if j >= 0 && req.Messages[j].Role == "assistant" {
+		for _, id := range blockIDs(req.blocks[j], "tool_use", "id") {
+			prev[id] = true
+		}
+	}
+	for _, id := range blockIDs(req.blocks[i], "tool_result", "tool_use_id") {
+		if !prev[id] {
+			return a.invalid(fmt.Sprintf("messages.%d.content.0: unexpected `tool_use_id` found in `tool_result` blocks: %s. Each `tool_result` block must have a corresponding `tool_use` block in the previous message.", i, id))
+		}
+	}
+	return nil
+}
+
+// checkMidSystem refuses a system message in the middle that the model does
+// not take or that breaks the placement rules, and records the position of
+// each one.
+func (a anthropicWire) checkMidSystem(p *parsed, req *anthropicRequest) *apiError {
 	// System messages in the middle: placement and model.
 	for i, m := range req.Messages {
 		if m.Role != "system" {
 			continue
 		}
-		if !takesMidSystem(req.Model) {
-			return nil, a.invalid(fmt.Sprintf("messages.%d.role: Input should be 'user' or 'assistant'", i))
-		}
-		for _, b := range req.blocks[i] {
-			if b["type"] != "text" {
-				return nil, a.invalid(fmt.Sprintf("messages.%d.content: a system message holds text blocks only", i))
-			}
-		}
-		afterUser := i > 0 && (req.Messages[i-1].Role == "user" || req.Messages[i-1].Role == "system")
-		beforeAssistant := i == len(req.Messages)-1 || req.Messages[i+1].Role == "assistant" || req.Messages[i+1].Role == "system"
-		if !afterUser || !beforeAssistant {
-			return nil, a.invalid(fmt.Sprintf("messages.%d: a system message must immediately follow a user turn, and must be the last message or be followed by an assistant turn", i))
+		if e := a.checkSystemAt(req, i); e != nil {
+			return e
 		}
 		p.midSystem = append(p.midSystem, i)
 	}
-	useNames := map[string]string{}
+	return nil
+}
+
+// checkSystemAt refuses the system message i when the model does not take
+// one, it holds a block that is not text, or it is out of place.
+func (a anthropicWire) checkSystemAt(req *anthropicRequest, i int) *apiError {
+	if !takesMidSystem(req.Model) {
+		return a.invalid(fmt.Sprintf("messages.%d.role: Input should be 'user' or 'assistant'", i))
+	}
+	for _, b := range req.blocks[i] {
+		if b["type"] != "text" {
+			return a.invalid(fmt.Sprintf("messages.%d.content: a system message holds text blocks only", i))
+		}
+	}
+	afterUser := i > 0 && (req.Messages[i-1].Role == "user" || req.Messages[i-1].Role == "system")
+	beforeAssistant := i == len(req.Messages)-1 || req.Messages[i+1].Role == "assistant" || req.Messages[i+1].Role == "system"
+	if !afterUser || !beforeAssistant {
+		return a.invalid(fmt.Sprintf("messages.%d: a system message must immediately follow a user turn, and must be the last message or be followed by an assistant turn", i))
+	}
+	return nil
+}
+
+// anthropicEvents reads the conversation's events from the blocks of an
+// Anthropic request.
+type anthropicEvents struct {
+	p        *parsed
+	deferred map[string]bool
+	// useNames holds the tool name of each tool_use, by id.
+	useNames map[string]string
+}
+
+// readEvents reads the events of every message that is not a system message.
+func (r *anthropicEvents) readEvents(req *anthropicRequest) *apiError {
 	for i, m := range req.Messages {
 		if m.Role == "system" {
 			continue
 		}
 		for j, b := range req.blocks[i] {
-			switch b["type"] {
-			case "text":
-				if m.Role == "user" {
-					text, _ := b["text"].(string)
-					p.events = append(p.events, event{text: text})
-				}
-			case "tool_use":
-				id, _ := b["id"].(string)
-				name, _ := b["name"].(string)
-				useNames[id] = name
-			case "tool_reference":
-				return nil, a.invalid(fmt.Sprintf("messages.%d.content.%d: a tool_reference block belongs in the content of a tool_result", i, j))
-			case "tool_result":
-				id, _ := b["tool_use_id"].(string)
-				ev := event{toolResult: true, text: toolResultText(b["content"]), search: p.searchName != "" && useNames[id] == p.searchName}
-				content, _ := b["content"].([]any)
-				for _, c := range content {
-					ref, _ := c.(map[string]any)
-					if ref["type"] != "tool_reference" {
-						continue
-					}
-					name, _ := ref["tool_name"].(string)
-					if !deferredTools[name] {
-						return nil, a.invalid(fmt.Sprintf("messages.%d.content.%d: tool reference '%s' is not a deferred tool in the tools list", i, j, name))
-					}
-					p.loaded[name] = true
-					ev.search = true
-				}
-				p.events = append(p.events, ev)
+			if e := r.block(i, j, m.Role, b); e != nil {
+				return e
 			}
 		}
 	}
-	return p, nil
+	return nil
+}
+
+// block reads block j of message i.
+func (r *anthropicEvents) block(i, j int, role string, b map[string]any) *apiError {
+	switch b["type"] {
+	case "text":
+		if role == "user" {
+			text, _ := b["text"].(string)
+			r.p.events = append(r.p.events, event{text: text})
+		}
+	case "tool_use":
+		id, _ := b["id"].(string)
+		name, _ := b["name"].(string)
+		r.useNames[id] = name
+	case "tool_reference":
+		return anthropicWire{}.invalid(fmt.Sprintf("messages.%d.content.%d: a tool_reference block belongs in the content of a tool_result", i, j))
+	case "tool_result":
+		return r.toolResult(i, j, b)
+	}
+	return nil
+}
+
+// toolResult reads the tool_result block j of message i, and loads the
+// deferred tools its tool_reference blocks name.
+func (r *anthropicEvents) toolResult(i, j int, b map[string]any) *apiError {
+	id, _ := b["tool_use_id"].(string)
+	ev := event{toolResult: true, text: toolResultText(b["content"]), search: r.p.searchName != "" && r.useNames[id] == r.p.searchName}
+	content, _ := b["content"].([]any)
+	for _, c := range content {
+		ref, _ := c.(map[string]any)
+		if ref["type"] != "tool_reference" {
+			continue
+		}
+		name, _ := ref["tool_name"].(string)
+		if !r.deferred[name] {
+			return anthropicWire{}.invalid(fmt.Sprintf("messages.%d.content.%d: tool reference '%s' is not a deferred tool in the tools list", i, j, name))
+		}
+		r.p.loaded[name] = true
+		ev.search = true
+	}
+	r.p.events = append(r.p.events, ev)
+	return nil
 }
 
 func toolResultText(content any) string {
