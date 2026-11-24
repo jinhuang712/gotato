@@ -66,84 +66,134 @@ func main() {
 }
 
 func run(ctx context.Context, args []string, stdout, stderr io.Writer, getenv func(string) string) int {
+	c, code, ok := parseFlags(args, stderr)
+	if !ok {
+		return code
+	}
+	price, err := parsePrice(c.price)
+	if err != nil {
+		fmt.Fprintln(stderr, "gotato-workload:", err)
+		return exitUsage
+	}
+	tasks, err := selectTasks(c.tasks)
+	if err != nil {
+		fmt.Fprintln(stderr, "gotato-workload:", err)
+		return exitUsage
+	}
+
+	cfg := workload.Config{Price: price, Plays: c.plays, Concurrency: c.concurrency, SkipContextCheck: c.skipContext}
+	if code, ok := configure(&cfg, c, getenv, stderr); !ok {
+		return code
+	}
+
+	if c.recapCheck {
+		return runRecapCheck(ctx, workload.RecapCheckConfig{Model: cfg.Model, ModelName: cfg.ModelName, Store: cfg.Store, MaxTokens: uint32(min(c.recapTokens, 1<<31))}, c.minShare, stdout, stderr)
+	}
+	return runTasks(ctx, cfg, tasks, stdout, stderr)
+}
+
+// config holds the command's flags.
+type config struct {
+	live          bool
+	gatewayConfig string
+	price         string
+	tasks         string
+	plays         int
+	concurrency   int
+	storeDir      string
+	recapCheck    bool
+	minShare      float64
+	recapTokens   uint
+	skipContext   bool
+}
+
+// parseFlags reads and checks the flags. When ok is false the command exits
+// with code.
+func parseFlags(args []string, stderr io.Writer) (c config, code int, ok bool) {
 	flags := flag.NewFlagSet("gotato-workload", flag.ContinueOnError)
 	flags.SetOutput(stderr)
-	live := flags.Bool("live", false, "play the tasks against the provider in the gateway configuration")
-	gatewayConfig := flags.String("gateway-config", "", "gateway YAML for -live (default $GOTATO_GATEWAY_CONFIG or gateway.yaml)")
-	priceFlag := flags.String("price", "", "the model's price in USD per million tokens: input,output,cache_read,cache_write")
-	taskNames := flags.String("tasks", "", "comma-separated tasks to play (default all)")
-	plays := flags.Int("plays", 1, "how many times each task is played")
-	concurrency := flags.Int("concurrency", 1, "how many plays of a task run at once")
-	storeDir := flags.String("store", "", "keep Sessions in a file store in this directory (default in memory)")
-	recapCheck := flags.Bool("recap-check", false, "run the payments check of B12 instead of the tasks: compact with the model's Recap and ask what only Tool Results held")
-	minShare := flags.Float64("min-share", 0, "with -recap-check: exit 3 when the share answered after the compaction is below this (0 to 1)")
-	recapTokens := flags.Uint("recap-max-tokens", 0, "with -recap-check: the Recap's output limit (default 8192)")
-	skipContext := flags.Bool("skip-context-check", false, "do not compare each Turn's Context with an inspection")
+	flags.BoolVar(&c.live, "live", false, "play the tasks against the provider in the gateway configuration")
+	flags.StringVar(&c.gatewayConfig, "gateway-config", "", "gateway YAML for -live (default $GOTATO_GATEWAY_CONFIG or gateway.yaml)")
+	flags.StringVar(&c.price, "price", "", "the model's price in USD per million tokens: input,output,cache_read,cache_write")
+	flags.StringVar(&c.tasks, "tasks", "", "comma-separated tasks to play (default all)")
+	flags.IntVar(&c.plays, "plays", 1, "how many times each task is played")
+	flags.IntVar(&c.concurrency, "concurrency", 1, "how many plays of a task run at once")
+	flags.StringVar(&c.storeDir, "store", "", "keep Sessions in a file store in this directory (default in memory)")
+	flags.BoolVar(&c.recapCheck, "recap-check", false, "run the payments check of B12 instead of the tasks: compact with the model's Recap and ask what only Tool Results held")
+	flags.Float64Var(&c.minShare, "min-share", 0, "with -recap-check: exit 3 when the share answered after the compaction is below this (0 to 1)")
+	flags.UintVar(&c.recapTokens, "recap-max-tokens", 0, "with -recap-check: the Recap's output limit (default 8192)")
+	flags.BoolVar(&c.skipContext, "skip-context-check", false, "do not compare each Turn's Context with an inspection")
 	if err := flags.Parse(args); err != nil {
 		if errors.Is(err, flag.ErrHelp) {
-			return exitOK
+			return c, exitOK, false
 		}
-		return exitUsage
+		return c, exitUsage, false
 	}
 	if flags.NArg() > 0 {
 		fmt.Fprintf(stderr, "gotato-workload: unexpected argument %q\n", flags.Arg(0))
-		return exitUsage
+		return c, exitUsage, false
 	}
-	if *minShare < 0 || *minShare > 1 {
+	if c.minShare < 0 || c.minShare > 1 {
 		fmt.Fprintln(stderr, "gotato-workload: -min-share is between 0 and 1")
-		return exitUsage
+		return c, exitUsage, false
 	}
-	if *plays < 1 || *concurrency < 1 {
+	if c.plays < 1 || c.concurrency < 1 {
 		fmt.Fprintln(stderr, "gotato-workload: -plays and -concurrency must be at least 1")
-		return exitUsage
+		return c, exitUsage, false
 	}
-	price, err := parsePrice(*priceFlag)
-	if err != nil {
-		fmt.Fprintln(stderr, "gotato-workload:", err)
-		return exitUsage
-	}
-	tasks, err := selectTasks(*taskNames)
-	if err != nil {
-		fmt.Fprintln(stderr, "gotato-workload:", err)
-		return exitUsage
-	}
+	return c, exitOK, true
+}
 
-	cfg := workload.Config{Price: price, Plays: *plays, Concurrency: *concurrency, SkipContextCheck: *skipContext}
-	if *live {
-		path := *gatewayConfig
-		if path == "" {
-			path = getenv("GOTATO_GATEWAY_CONFIG")
-		}
-		if path == "" {
-			path = "gateway.yaml"
-		}
-		config, err := gatewayconf.Load(path)
-		if err != nil {
-			fmt.Fprintln(stderr, "gotato-workload: the live run needs a gateway configuration:", err)
-			return exitError
-		}
-		client, err := config.New()
-		if err != nil {
-			fmt.Fprintln(stderr, "gotato-workload:", err)
-			return exitError
-		}
-		cfg.Model, cfg.ModelName = client, config.Model.Name
-		if price == (workload.Price{}) {
-			fmt.Fprintln(stderr, "gotato-workload: no -price, so the report has no cost")
+// configure sets the live Model and the file store the flags ask for. When ok
+// is false the command exits with code.
+func configure(cfg *workload.Config, c config, getenv func(string) string, stderr io.Writer) (code int, ok bool) {
+	if c.live {
+		if code, ok := setLiveModel(cfg, c.gatewayConfig, getenv, stderr); !ok {
+			return code, false
 		}
 	}
-	if *storeDir != "" {
-		st, err := store.NewFileStore(*storeDir)
+	if c.storeDir != "" {
+		st, err := store.NewFileStore(c.storeDir)
 		if err != nil {
 			fmt.Fprintln(stderr, "gotato-workload:", err)
-			return exitError
+			return exitError, false
 		}
 		cfg.Store = store.Store{Records: st, Liveness: st}
 	}
+	return exitOK, true
+}
 
-	if *recapCheck {
-		return runRecapCheck(ctx, workload.RecapCheckConfig{Model: cfg.Model, ModelName: cfg.ModelName, Store: cfg.Store, MaxTokens: uint32(min(*recapTokens, 1<<31))}, *minShare, stdout, stderr)
+// setLiveModel sets the Model of the gateway configuration at path, or at
+// $GOTATO_GATEWAY_CONFIG or gateway.yaml when path is empty. When ok is false
+// the command exits with code.
+func setLiveModel(cfg *workload.Config, path string, getenv func(string) string, stderr io.Writer) (code int, ok bool) {
+	if path == "" {
+		path = getenv("GOTATO_GATEWAY_CONFIG")
 	}
+	if path == "" {
+		path = "gateway.yaml"
+	}
+	config, err := gatewayconf.Load(path)
+	if err != nil {
+		fmt.Fprintln(stderr, "gotato-workload: the live run needs a gateway configuration:", err)
+		return exitError, false
+	}
+	client, err := config.New()
+	if err != nil {
+		fmt.Fprintln(stderr, "gotato-workload:", err)
+		return exitError, false
+	}
+	cfg.Model, cfg.ModelName = client, config.Model.Name
+	if cfg.Price == (workload.Price{}) {
+		fmt.Fprintln(stderr, "gotato-workload: no -price, so the report has no cost")
+	}
+	return exitOK, true
+}
+
+// runTasks plays the tasks and prints the report. It exits 3 when a failure
+// was caused by Gotato or the store, or a Turn's Context differed from its
+// inspection.
+func runTasks(ctx context.Context, cfg workload.Config, tasks []reftasks.Task, stdout, stderr io.Writer) int {
 	report, err := workload.Run(ctx, cfg, tasks)
 	if err != nil {
 		fmt.Fprintln(stderr, "gotato-workload:", err)
