@@ -123,22 +123,15 @@ func reportRoll(roll mcpRoll, ok, errs map[string]int, full map[string][]string)
 	return faults
 }
 
-// errorsByPhase groups the model's tool-error reports by phase: counts by text cut to 110 characters (to
-// print), and the full texts (to look inside).
-func errorsByPhase(ts []*thread, rec func(*thread) record) (cut map[string]map[string]int, full map[string][]string) {
-	cut, full = map[string]map[string]int{}, map[string][]string{}
+// errorsByPhase groups the model's tool-error reports by phase: the full texts, to look inside.
+func errorsByPhase(ts []*thread, rec func(*thread) record) map[string][]string {
+	full := map[string][]string{}
 	for _, t := range ts {
 		for ph, texts := range errorTextsByPhase(rec(t)) {
-			if cut[ph] == nil {
-				cut[ph] = map[string]int{}
-			}
-			for _, text := range texts {
-				cut[ph][trunc(text, 110)]++
-				full[ph] = append(full[ph], text)
-			}
+			full[ph] = append(full[ph], texts...)
 		}
 	}
-	return cut, full
+	return full
 }
 
 // countIn counts the texts that contain sub.

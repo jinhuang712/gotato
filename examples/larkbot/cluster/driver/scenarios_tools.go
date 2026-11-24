@@ -83,6 +83,46 @@ func (e *env) s7(ctx context.Context) bool {
 			sleep(ctx, gap)
 		}
 	}
+	p, out, err := e.s7KillMCP(ctx, st, mk, sendAll)
+	if err != nil {
+		return verdict("s7", false, out)
+	}
+	if out, err := e.s7DeployBot(ctx, st, mk, sendAll); err != nil {
+		return verdict("s7", false, out)
+	}
+	e.waitQuiet(ctx, all, 10*time.Second, 120*time.Second)
+
+	// G, H, N, G2: a graceful roll of the MCP server.
+	roll, out, err := e.rollMCP(ctx, st, mk, sendAll)
+	if err != nil {
+		return verdict("s7", false, out)
+	}
+	fmt.Printf("%s waiting for the Runs to settle\n", st.at())
+	e.waitQuiet(ctx, all, 20*time.Second, 120*time.Second)
+
+	fmt.Printf("\n%s results\n", st.at())
+	faults := e.report(ctx, all)
+	for _, s := range storeErrors(e.readLogs()) {
+		faults++
+		fmt.Printf("  %s store error in a bot log: %s\n", fault, s)
+	}
+	tl := e.s7Tally(ctx, all)
+	e.s7PrintTally(ctx, tl, p, statsBefore)
+	ok, errs, stuck, unanswered, emptyErr := tl.ok, tl.errs, tl.stuck, tl.unanswered, tl.emptyErr
+	full := errorsByPhase(all, func(t *thread) record { r, _ := e.record(ctx, t.session()); return r })
+	faults += reportRoll(roll, ok, errs, full)
+	faults += stuck + emptyErr
+	if unanswered > 0 {
+		faults += unanswered
+		fmt.Printf("  %s %d thread(s) end on a user message with no reply\n", fault, unanswered)
+	}
+	return verdict("s7", faults == 0, fmt.Sprintf("%d GOTATO-FAULT", faults))
+}
+
+// s7KillMCP plays s7's phases around the SIGKILL of the MCP server (W, A, B, R, P, A2) and returns the P threads;
+// out and err say why the kill failed.
+func (e *env) s7KillMCP(ctx context.Context, st stamper, mk func(string, int) []*thread,
+	sendAll func(ts []*thread, phase, suffix, directive string, gap time.Duration)) (p []*thread, out string, err error) {
 	// W: every pod connects to the MCP server and loads its tools.
 	w := mk("W", 9)
 	sendAll(w, "W", "a", "[script:mcp=100ms]", 100*time.Millisecond)
@@ -96,7 +136,7 @@ func (e *env) s7(ctx context.Context) bool {
 	// drains on SIGTERM (phase G) would finish its calls and not show what an abrupt end costs.
 	fmt.Printf("%s SIGKILL of the fakemcp container (crictl stop -t 0); it restarts in its pod\n", st.at())
 	if out, err := e.killContainer(ctx, "fakemcp"); err != nil {
-		return verdict("s7", false, out)
+		return nil, out, err
 	}
 	// B: new threads while the server is down or starting: the Runs resolve the ToolSet and call at once.
 	b := mk("B", 6)
@@ -107,7 +147,7 @@ func (e *env) s7(ctx context.Context) bool {
 	r := mk("R", 6)
 	sendAll(r, "R", "a", "[script:mcp=2s]", 200*time.Millisecond)
 	// P: one new thread a second, to see when the calls start to work again on the bot pods.
-	p := mk("P", 15)
+	p = mk("P", 15)
 	for i, t := range p {
 		m := e.say(ctx, t, fmt.Sprintf("s7-P-%02d-a", i+1), "[script:mcp=100ms]")
 		if m.err != nil {
@@ -119,13 +159,19 @@ func (e *env) s7(ctx context.Context) bool {
 	// A2: a message in each thread whose call was cut, once the server is back.
 	sendAll(a, "A2", "b", "[script:mcp=2s]", 200*time.Millisecond)
 	e.waitQuiet(ctx, a, 6*time.Second, 60*time.Second)
+	return p, "", nil
+}
 
+// s7DeployBot plays s7's phases around a rolling deploy of the bot (C, D, C2); out and err say why the
+// rollout could not start.
+func (e *env) s7DeployBot(ctx context.Context, st stamper, mk func(string, int) []*thread,
+	sendAll func(ts []*thread, phase, suffix, directive string, gap time.Duration)) (out string, err error) {
 	// C: calls of 8 s are in flight when the bot is deployed.
 	c := mk("C", 6)
 	sendAll(c, "C", "a", "[script:mcp=8s]", 200*time.Millisecond)
 	fmt.Printf("%s kubectl rollout restart deployment/larkbot\n", st.at())
 	if out, err := e.kubectl(ctx, "rollout", "restart", "deployment/larkbot"); err != nil {
-		return verdict("s7", false, out)
+		return out, err
 	}
 	rolled := make(chan error, 1)
 	go func() {
@@ -151,58 +197,69 @@ func (e *env) s7(ctx context.Context) bool {
 	}
 	fmt.Printf("%s rollout done\n", st.at())
 	sendAll(c, "C2", "b", "[script:mcp=2s]", 200*time.Millisecond) // pods that never saw these threads
-	e.waitQuiet(ctx, all, 10*time.Second, 120*time.Second)
+	return "", nil
+}
 
-	// G, H, N, G2: a graceful roll of the MCP server.
-	roll, out, err := e.rollMCP(ctx, st, mk, sendAll)
-	if err != nil {
-		return verdict("s7", false, out)
-	}
-	fmt.Printf("%s waiting for the Runs to settle\n", st.at())
-	e.waitQuiet(ctx, all, 20*time.Second, 120*time.Second)
+// s7Tally is what s7 counts over the Records of its threads.
+type s7Tally struct {
+	ok, errs                    map[string]int
+	stuck, unanswered, emptyErr int
+	errTexts                    map[string]int
+	resolveFail                 map[string]int // extension_failed events of the ToolSet, by phase and message
+	failedRuns                  int
+}
 
-	fmt.Printf("\n%s results\n", st.at())
-	faults := e.report(ctx, all)
-	for _, s := range storeErrors(e.readLogs()) {
-		faults++
-		fmt.Printf("  %s store error in a bot log: %s\n", fault, s)
-	}
-	ok, errs := map[string]int{}, map[string]int{}
-	stuck, unanswered, emptyErr := 0, 0, 0
-	errTexts := map[string]int{}
-	resolveFail := map[string]int{} // extension_failed events of the ToolSet, by phase and message
-	failedRuns := 0
+// s7Tally reads the Record of every thread and counts its tool calls, errors and Runs.
+func (e *env) s7Tally(ctx context.Context, all []*thread) s7Tally {
+	tl := s7Tally{ok: map[string]int{}, errs: map[string]int{}, errTexts: map[string]int{}, resolveFail: map[string]int{}}
 	for _, t := range all {
 		r, err := e.record(ctx, t.session())
 		if err != nil {
 			continue
 		}
-		a := checkMCP(r)
-		a.tally(ok, errs)
-		for _, text := range a.Texts {
-			errTexts[trunc(text, 110)]++
-			if strings.TrimSpace(strings.TrimPrefix(text, ansMCPError)) == "" {
-				emptyErr++
-			}
-		}
-		for _, ev := range r.Events {
-			if ev.Kind == "extension_failed" && strings.HasPrefix(ev.Stage, "toolset:") {
-				resolveFail[ev.Stage+" "+ev.Code]++
-			}
-		}
-		for _, run := range r.Runs {
-			if run.Status != "completed" {
-				failedRuns++
-			}
-		}
-		if inFlight(r) > 0 {
-			stuck++
-			fmt.Printf("  %s %s: a Run has not ended\n", fault, t.session())
-		}
-		if r.unanswered() {
-			unanswered++
+		tl.add(t, r)
+	}
+	return tl
+}
+
+// add counts one thread's Record.
+func (tl *s7Tally) add(t *thread, r record) {
+	a := checkMCP(r)
+	a.tally(tl.ok, tl.errs)
+	tl.addTexts(a.Texts)
+	for _, ev := range r.Events {
+		if ev.Kind == "extension_failed" && strings.HasPrefix(ev.Stage, "toolset:") {
+			tl.resolveFail[ev.Stage+" "+ev.Code]++
 		}
 	}
+	for _, run := range r.Runs {
+		if run.Status != "completed" {
+			tl.failedRuns++
+		}
+	}
+	if inFlight(r) > 0 {
+		tl.stuck++
+		fmt.Printf("  %s %s: a Run has not ended\n", fault, t.session())
+	}
+	if r.unanswered() {
+		tl.unanswered++
+	}
+}
+
+// addTexts counts the texts of the tool errors the model reported, and those with no text.
+func (tl *s7Tally) addTexts(texts []string) {
+	for _, text := range texts {
+		tl.errTexts[trunc(text, 110)]++
+		if strings.TrimSpace(strings.TrimPrefix(text, ansMCPError)) == "" {
+			tl.emptyErr++
+		}
+	}
+}
+
+// s7PrintTally prints what s7 counted, phase P one thread a second, and the bot log's toolset errors.
+func (e *env) s7PrintTally(ctx context.Context, tl s7Tally, p []*thread, statsBefore string) {
+	ok, errs, errTexts, resolveFail := tl.ok, tl.errs, tl.errTexts, tl.resolveFail
+	stuck, unanswered, emptyErr, failedRuns := tl.stuck, tl.unanswered, tl.emptyErr, tl.failedRuns
 	phases := []string{"W", "A", "B", "R", "P", "A2", "C", "D", "C2", "G", "H", "N", "G2"}
 	okN, errN := 0, 0
 	for _, p := range phases {
@@ -228,14 +285,6 @@ func (e *env) s7(ctx context.Context) bool {
 	fmt.Printf("  Runs that did not complete: %d\n", failedRuns)
 	fmt.Printf("  Runs not ended %d, threads that end on a user message %d, tool errors with no text %d\n", stuck, unanswered, emptyErr)
 	fmt.Printf("  fakemcp now: %s (before: %s)\n", e.mcpStats(ctx), statsBefore)
-	_, full := errorsByPhase(all, func(t *thread) record { r, _ := e.record(ctx, t.session()); return r })
-	faults += reportRoll(roll, ok, errs, full)
-	faults += stuck + emptyErr
-	if unanswered > 0 {
-		faults += unanswered
-		fmt.Printf("  %s %d thread(s) end on a user message with no reply\n", fault, unanswered)
-	}
-	return verdict("s7", faults == 0, fmt.Sprintf("%d GOTATO-FAULT", faults))
 }
 
 // waitMCP waits until fakemcp answers /stats through its Service, and returns what it says.
