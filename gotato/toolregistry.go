@@ -372,27 +372,34 @@ func (r *toolRegistry) indexable(entry *catalogTool) bool {
 	return !r.hidden(entry.spec) && !r.refused(entry.id)
 }
 
+// visibleTools is the visible Tool set as rebuild gathers it.
+type visibleTools struct {
+	byQualified map[string]toolEntry
+	specs       []ToolSpec
+}
+
+// add makes a Tool visible under its qualified ID, with a Name that is never empty.
+func (v *visibleTools) add(qualified string, tool Tool, spec ToolSpec) {
+	visible := cloneToolSpec(spec)
+	visible.ID = qualified
+	if visible.Name == "" {
+		visible.Name = spec.ID
+	}
+	v.byQualified[qualified] = toolEntry{tool: tool, spec: visible}
+	v.specs = append(v.specs, visible)
+}
+
 // rebuild recomputes the visible Tool set. Ordering is deterministic: Tools
 // sort by qualified ID. A Tool above the Effect cap is left out entirely, so
 // it is neither offered nor resolvable by any name. It cannot fail: intake
 // checked every Tool, and no two of them share an ID (rootName, install).
 func (r *toolRegistry) rebuild() {
-	byQualified := map[string]toolEntry{}
-	specs := make([]ToolSpec, 0, len(r.rootTools))
-	register := func(qualified string, tool Tool, spec ToolSpec) {
-		visible := cloneToolSpec(spec)
-		visible.ID = qualified
-		if visible.Name == "" {
-			visible.Name = spec.ID
-		}
-		byQualified[qualified] = toolEntry{tool: tool, spec: visible}
-		specs = append(specs, visible)
-	}
+	visible := visibleTools{byQualified: map[string]toolEntry{}, specs: make([]ToolSpec, 0, len(r.rootTools))}
 	for _, entry := range r.staticTools() {
 		if r.hidden(entry.spec) {
 			continue
 		}
-		register(entry.spec.ID, entry.tool, entry.spec)
+		visible.add(entry.spec.ID, entry.tool, entry.spec)
 	}
 	// search_tools stays while a catalog ToolSet is installed, even one that
 	// is unavailable now or whose Tools are all hidden: the Model reads the
@@ -400,24 +407,34 @@ func (r *toolRegistry) rebuild() {
 	hasCatalog := slices.ContainsFunc(r.sets, func(state *toolSetState) bool { return state.mode != modeActive })
 	for i := range r.catalog {
 		entry := &r.catalog[i]
-		if entry.set.mode == modeActive {
-			if r.hidden(entry.spec) || r.refused(entry.id) {
-				continue
-			}
-			register(entry.id, entry.tool, entry.spec)
-			continue
-		}
-		if r.indexable(entry) && slices.Contains(r.loaded, entry.id) {
-			register(entry.id, entry.tool, entry.spec)
+		if r.catalogVisible(entry) {
+			visible.add(entry.id, entry.tool, entry.spec)
 		}
 	}
 	if hasCatalog {
 		r.search.setDescription(r.catalogText())
-		register(r.qualify("", SearchToolName), r.search, r.search.Spec())
+		visible.add(r.qualify("", SearchToolName), r.search, r.search.Spec())
 	}
+	specs := visible.specs
 	sort.Slice(specs, func(i, j int) bool { return specs[i].ID < specs[j].ID })
-	r.byQualified = byQualified
+	r.byQualified = visible.byQualified
 	r.specs = specs
+	r.aliasStatic()
+}
+
+// catalogVisible reports whether a catalog Tool is offered: every Tool of an
+// active ToolSet that the cap and the filter let through, and a loaded Tool
+// the Model may find.
+func (r *toolRegistry) catalogVisible(entry *catalogTool) bool {
+	if entry.set.mode == modeActive {
+		return !r.hidden(entry.spec) && !r.refused(entry.id)
+	}
+	return r.indexable(entry) && slices.Contains(r.loaded, entry.id)
+}
+
+// aliasStatic lets the ID and the Name of every visible static Tool resolve
+// too, where no visible Tool holds them already.
+func (r *toolRegistry) aliasStatic() {
 	// A local Tool name stays reachable when it is unambiguous, so a Model
 	// that answers with the bare name still resolves.
 	for _, entry := range r.staticTools() {
@@ -425,13 +442,18 @@ func (r *toolRegistry) rebuild() {
 			continue
 		}
 		for _, alias := range []string{entry.spec.ID, entry.spec.Name} {
-			if alias == "" {
-				continue
-			}
-			if _, taken := r.byQualified[alias]; !taken {
-				r.byQualified[alias] = entry
-			}
+			r.alias(alias, entry)
 		}
+	}
+}
+
+// alias lets name resolve to entry, unless name is empty or taken.
+func (r *toolRegistry) alias(name string, entry toolEntry) {
+	if name == "" {
+		return
+	}
+	if _, taken := r.byQualified[name]; !taken {
+		r.byQualified[name] = entry
 	}
 }
 
@@ -442,67 +464,6 @@ func (r *toolRegistry) staticTools() []toolEntry {
 		return r.rootTools
 	}
 	return slices.Concat(r.rootTools, r.sourceTools)
-}
-
-func (r *toolRegistry) hasSources() bool { return len(r.sources) > 0 }
-
-// collectSources asks every ToolSource for its Tools and takes them in. A
-// failure, a panic or a bad Tool of any ToolSource fails them all together, as
-// one source. It asks them concurrently and takes no lock, as resolveAll does:
-// a ToolSource may be slow. The Tools keep the order of the ToolSources.
-func (r *toolRegistry) collectSources(ctx context.Context) ([]toolEntry, error) {
-	supplied := make([][]Tool, len(r.sources))
-	failures := make([]error, len(r.sources))
-	var wg sync.WaitGroup
-	for i, source := range r.sources {
-		wg.Add(1)
-		go func() {
-			defer wg.Done()
-			failures[i] = callHost("ToolSource", func() (failure error) {
-				supplied[i], failure = source.Tools(ctx)
-				return failure
-			})
-		}()
-	}
-	wg.Wait()
-	for _, sourceErr := range failures {
-		if sourceErr == nil {
-			continue
-		}
-		if failure := contextFailure(ctx, "ToolSource"); failure != nil {
-			return nil, failure
-		}
-		return nil, runtimeError(CodeToolResolutionFailure, "ToolSource", PublicText(sourceErr, "ToolSource failed"), sourceErr)
-	}
-	return intake("ToolSource", slices.Concat(supplied...), r.rootTools, r.rootName)
-}
-
-// rootName refuses a name a Tool of the root surface (WithTools, a ToolSource)
-// cannot take, by its ID or its Name: search_tools, or a name under the
-// namespace of an installed ToolSet. A dotted name of your own, outside every
-// namespace, is allowed.
-// [CONTRACT] a name the Model calls resolves to one Tool: a root Tool can neither collide with a ToolSet's Tool nor capture a call meant for it.
-func (r *toolRegistry) rootName(spec ToolSpec) error {
-	for _, name := range []string{spec.ID, spec.Name} {
-		if name == SearchToolName {
-			return runtimeError(CodeInvalidArgument, "Tool", "Tool name "+SearchToolName+" is reserved", nil)
-		}
-		for _, state := range r.sets {
-			if strings.HasPrefix(name, state.spec.Name+".") {
-				return runtimeError(CodeInvalidArgument, "Tool", "Tool name "+name+" is in the namespace of ToolSet "+state.spec.Name, nil)
-			}
-		}
-	}
-	return nil
-}
-
-// refreshSources swaps in the Tools collectSources took in and the filter's
-// answer kept, and rebuilds visibility.
-func (r *toolRegistry) refreshSources(entries []toolEntry, kept map[string]bool) {
-	r.mu.Lock()
-	defer r.mu.Unlock()
-	r.sourceTools, r.kept = entries, kept
-	r.rebuild()
 }
 
 func (r *toolRegistry) qualify(namespace, local string) string {

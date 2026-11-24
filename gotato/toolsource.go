@@ -2,7 +2,10 @@ package gotato
 
 import (
 	"context"
+	"slices"
 	"sort"
+	"strings"
+	"sync"
 )
 
 // ToolSource supplies Tools whose set may change between Turns. The Session
@@ -74,4 +77,65 @@ func (a *Session) ToolSets() []ToolSetStatus {
 	a.tools.mu.Lock()
 	defer a.tools.mu.Unlock()
 	return a.tools.registry.toolSetStatus()
+}
+
+func (r *toolRegistry) hasSources() bool { return len(r.sources) > 0 }
+
+// collectSources asks every ToolSource for its Tools and takes them in. A
+// failure, a panic or a bad Tool of any ToolSource fails them all together, as
+// one source. It asks them concurrently and takes no lock, as resolveAll does:
+// a ToolSource may be slow. The Tools keep the order of the ToolSources.
+func (r *toolRegistry) collectSources(ctx context.Context) ([]toolEntry, error) {
+	supplied := make([][]Tool, len(r.sources))
+	failures := make([]error, len(r.sources))
+	var wg sync.WaitGroup
+	for i, source := range r.sources {
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			failures[i] = callHost("ToolSource", func() (failure error) {
+				supplied[i], failure = source.Tools(ctx)
+				return failure
+			})
+		}()
+	}
+	wg.Wait()
+	for _, sourceErr := range failures {
+		if sourceErr == nil {
+			continue
+		}
+		if failure := contextFailure(ctx, "ToolSource"); failure != nil {
+			return nil, failure
+		}
+		return nil, runtimeError(CodeToolResolutionFailure, "ToolSource", PublicText(sourceErr, "ToolSource failed"), sourceErr)
+	}
+	return intake("ToolSource", slices.Concat(supplied...), r.rootTools, r.rootName)
+}
+
+// rootName refuses a name a Tool of the root surface (WithTools, a ToolSource)
+// cannot take, by its ID or its Name: search_tools, or a name under the
+// namespace of an installed ToolSet. A dotted name of your own, outside every
+// namespace, is allowed.
+// [CONTRACT] a name the Model calls resolves to one Tool: a root Tool can neither collide with a ToolSet's Tool nor capture a call meant for it.
+func (r *toolRegistry) rootName(spec ToolSpec) error {
+	for _, name := range []string{spec.ID, spec.Name} {
+		if name == SearchToolName {
+			return runtimeError(CodeInvalidArgument, "Tool", "Tool name "+SearchToolName+" is reserved", nil)
+		}
+		for _, state := range r.sets {
+			if strings.HasPrefix(name, state.spec.Name+".") {
+				return runtimeError(CodeInvalidArgument, "Tool", "Tool name "+name+" is in the namespace of ToolSet "+state.spec.Name, nil)
+			}
+		}
+	}
+	return nil
+}
+
+// refreshSources swaps in the Tools collectSources took in and the filter's
+// answer kept, and rebuilds visibility.
+func (r *toolRegistry) refreshSources(entries []toolEntry, kept map[string]bool) {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	r.sourceTools, r.kept = entries, kept
+	r.rebuild()
 }
