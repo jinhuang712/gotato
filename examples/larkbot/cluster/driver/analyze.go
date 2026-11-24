@@ -100,6 +100,19 @@ func (e *env) classify(m *msg, count int, logs []logLine) (string, string) {
 	if count == 1 {
 		return "ok", ""
 	}
+	mine, pods := linesOf(m, logs)
+	if count > 1 {
+		return classifyDup(m, count, mine, pods)
+	}
+	// count == 0
+	if m.err != nil || !m.sent.acked() {
+		return gapKnown, "never acked by a bot (no 2xx in any delivery)"
+	}
+	return e.classifyMissing(mine)
+}
+
+// linesOf returns the bot log lines about the message, and the pods that logged receiving it.
+func linesOf(m *msg, logs []logLine) ([]logLine, map[string]bool) {
 	var mine []logLine
 	pods := map[string]bool{}
 	for _, l := range logs {
@@ -110,20 +123,23 @@ func (e *env) classify(m *msg, count int, logs []logLine) (string, string) {
 			}
 		}
 	}
-	if count > 1 {
-		dup := false
-		for _, l := range mine {
-			dup = dup || l.Msg == "duplicate suspected"
-		}
-		if len(m.sent.Deliveries) > 1 || dup {
-			return gapKnown, fmt.Sprintf("duplicate from redelivery (%d deliveries, on %d pods)", len(m.sent.Deliveries), len(pods))
-		}
-		return unexpl, fmt.Sprintf("in the Transcript %d times, delivered once", count)
+	return mine, pods
+}
+
+// classifyDup is the outcome of a message that is in its Transcript more than once.
+func classifyDup(m *msg, count int, mine []logLine, pods map[string]bool) (string, string) {
+	dup := false
+	for _, l := range mine {
+		dup = dup || l.Msg == "duplicate suspected"
 	}
-	// count == 0
-	if m.err != nil || !m.sent.acked() {
-		return gapKnown, "never acked by a bot (no 2xx in any delivery)"
+	if len(m.sent.Deliveries) > 1 || dup {
+		return gapKnown, fmt.Sprintf("duplicate from redelivery (%d deliveries, on %d pods)", len(m.sent.Deliveries), len(pods))
 	}
+	return unexpl, fmt.Sprintf("in the Transcript %d times, delivered once", count)
+}
+
+// classifyMissing is the outcome of an acked message that is not in its Transcript, from its log lines.
+func (e *env) classifyMissing(mine []logLine) (string, string) {
 	has := func(msg string) bool {
 		for _, l := range mine {
 			if l.Msg == msg {
@@ -140,26 +156,32 @@ func (e *env) classify(m *msg, count int, logs []logLine) (string, string) {
 	case has("forward failed"):
 		return gapKnown, "forward to the writer failed (user got the busy notice)"
 	case has("send"):
-		for _, l := range mine {
-			if l.Msg == "send" {
-				err := l.KV["err"]
-				switch {
-				case strings.Contains(err, "drain"):
-					return gapKnown, "refused: draining"
-				case strings.Contains(err, "busy"):
-					return gapKnown, "refused: busy"
-				case strings.Contains(err, "limit_exceeded"):
-					return gapKnown, "refused: limit_exceeded"
-				}
-				return gapKnown, "send error: " + err
-			}
-		}
+		return sendRefusal(mine)
 	case has("create session"):
 		return gapKnown, "create session failed"
 	case has("send not_writer, forwarding"):
 		return gapKnown, "forwarding, no outcome logged (pod gone)"
 	case has("message received"):
 		return gapKnown, "received, no outcome logged (pod gone before Send returned)"
+	}
+	return unexpl, "acked, but no pod logged it"
+}
+
+// sendRefusal is the outcome of a message whose Send the bot logged as an error, by that error.
+func sendRefusal(mine []logLine) (string, string) {
+	for _, l := range mine {
+		if l.Msg == "send" {
+			err := l.KV["err"]
+			switch {
+			case strings.Contains(err, "drain"):
+				return gapKnown, "refused: draining"
+			case strings.Contains(err, "busy"):
+				return gapKnown, "refused: busy"
+			case strings.Contains(err, "limit_exceeded"):
+				return gapKnown, "refused: limit_exceeded"
+			}
+			return gapKnown, "send error: " + err
+		}
 	}
 	return unexpl, "acked, but no pod logged it"
 }
