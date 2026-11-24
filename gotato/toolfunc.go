@@ -264,17 +264,31 @@ func valueSchema(typ reflect.Type, visiting map[reflect.Type]bool) (map[string]a
 		visiting[typ] = true
 		defer delete(visiting, typ)
 	}
+	if schema, ok := encodedSchema(typ); ok {
+		return schema, nil
+	}
+	return kindSchema(typ, visiting)
+}
+
+// encodedSchema is the Schema of a type that encoding/json encodes in a form
+// of its own rather than by its kind.
+func encodedSchema(typ reflect.Type) (map[string]any, bool) {
 	if typ == reflect.TypeFor[json.RawMessage]() {
-		return map[string]any{}, nil
+		return map[string]any{}, true
 	}
 	// A type that encodes itself as a JSON string has no useful field
 	// structure. Describing it as an object would reject every valid value.
 	if typ == reflect.TypeFor[time.Time]() {
-		return map[string]any{"type": "string", "format": "date-time"}, nil
+		return map[string]any{"type": "string", "format": "date-time"}, true
 	}
 	if typ.Kind() != reflect.String && reflect.PointerTo(typ).Implements(reflect.TypeFor[encoding.TextMarshaler]()) {
-		return map[string]any{"type": "string"}, nil
+		return map[string]any{"type": "string"}, true
 	}
+	return nil, false
+}
+
+// kindSchema is the Schema of a type by its kind.
+func kindSchema(typ reflect.Type, visiting map[reflect.Type]bool) (map[string]any, error) {
 	switch typ.Kind() {
 	case reflect.String:
 		return map[string]any{"type": "string"}, nil
@@ -291,31 +305,41 @@ func valueSchema(typ reflect.Type, visiting map[reflect.Type]bool) (map[string]a
 		}
 		return nil, fmt.Errorf("unsupported interface type %s", typ.String())
 	case reflect.Slice, reflect.Array:
-		if typ.Elem().Kind() == reflect.Uint8 {
-			// encoding/json encodes []byte as a base64 string but [N]byte as
-			// an array of numbers, so a fixed-size byte array is not a string.
-			if typ.Kind() == reflect.Array {
-				return map[string]any{"type": "array", "items": map[string]any{"type": "integer"}}, nil
-			}
-			return map[string]any{"type": "string"}, nil
-		}
-		items, err := valueSchema(typ.Elem(), visiting)
-		if err != nil {
-			return nil, err
-		}
-		return map[string]any{"type": "array", "items": items}, nil
+		return listSchema(typ, visiting)
 	case reflect.Map:
-		if typ.Key().Kind() != reflect.String {
-			return nil, fmt.Errorf("map key must be a string, found %s", typ.Key().Kind())
-		}
-		values, err := valueSchema(typ.Elem(), visiting)
-		if err != nil {
-			return nil, err
-		}
-		return map[string]any{"type": "object", "additionalProperties": values}, nil
+		return mapSchema(typ, visiting)
 	case reflect.Struct:
 		return structSchema(typ, visiting)
 	default:
 		return nil, fmt.Errorf("unsupported type %s", typ.String())
 	}
+}
+
+// listSchema is the Schema of a slice or an array.
+func listSchema(typ reflect.Type, visiting map[reflect.Type]bool) (map[string]any, error) {
+	if typ.Elem().Kind() == reflect.Uint8 {
+		// encoding/json encodes []byte as a base64 string but [N]byte as
+		// an array of numbers, so a fixed-size byte array is not a string.
+		if typ.Kind() == reflect.Array {
+			return map[string]any{"type": "array", "items": map[string]any{"type": "integer"}}, nil
+		}
+		return map[string]any{"type": "string"}, nil
+	}
+	items, err := valueSchema(typ.Elem(), visiting)
+	if err != nil {
+		return nil, err
+	}
+	return map[string]any{"type": "array", "items": items}, nil
+}
+
+// mapSchema is the Schema of a map, whose key must be a string.
+func mapSchema(typ reflect.Type, visiting map[reflect.Type]bool) (map[string]any, error) {
+	if typ.Key().Kind() != reflect.String {
+		return nil, fmt.Errorf("map key must be a string, found %s", typ.Key().Kind())
+	}
+	values, err := valueSchema(typ.Elem(), visiting)
+	if err != nil {
+		return nil, err
+	}
+	return map[string]any{"type": "object", "additionalProperties": values}, nil
 }
