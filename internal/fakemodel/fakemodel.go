@@ -203,9 +203,6 @@ func (g *Server) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		wire = responsesWire{}
 	case "/v1/chat/completions":
 		wire = chatWire{}
-	case "/healthz":
-		_, _ = io.WriteString(w, "ok")
-		return
 	default:
 		writeJSON(w, http.StatusNotFound, map[string]any{"error": map[string]any{"message": "fakemodel: no such endpoint " + r.URL.Path, "type": "invalid_request_error"}})
 		return
