@@ -25,15 +25,32 @@ func (bm25Searcher) Search(_ context.Context, query string, tools []ToolSpec) ([
 	if len(terms) == 0 || len(tools) == 0 {
 		return nil, nil
 	}
-	type document struct {
-		id     string
-		counts map[string]float64
-		length float64
+	docs, average := bm25Documents(tools)
+	if average == 0 {
+		return nil, nil
 	}
-	docs := make([]document, len(tools))
+	scores := make([]float64, len(docs))
+	for _, term := range terms {
+		bm25AddTerm(term, docs, average, scores)
+	}
+	return bm25Ranked(docs, scores), nil
+}
+
+// bm25Document is one Tool as BM25 sees it: its ID, its weighted term counts
+// and its weighted length.
+type bm25Document struct {
+	id     string
+	counts map[string]float64
+	length float64
+}
+
+// bm25Documents counts the terms of every Tool, and returns them with their
+// average length.
+func bm25Documents(tools []ToolSpec) ([]bm25Document, float64) {
+	docs := make([]bm25Document, len(tools))
 	var total float64
 	for i, spec := range tools {
-		doc := document{id: spec.ID, counts: map[string]float64{}}
+		doc := bm25Document{id: spec.ID, counts: map[string]float64{}}
 		for _, term := range tokenize(spec.ID) {
 			doc.counts[term] += bm25IDWeight
 			doc.length += bm25IDWeight
@@ -45,31 +62,35 @@ func (bm25Searcher) Search(_ context.Context, query string, tools []ToolSpec) ([
 		total += doc.length
 		docs[i] = doc
 	}
-	average := total / float64(len(docs))
-	if average == 0 {
-		return nil, nil
-	}
+	return docs, total / float64(len(docs))
+}
+
+// bm25AddTerm adds the score of one query term to the score of every document
+// that holds it.
+func bm25AddTerm(term string, docs []bm25Document, average float64, scores []float64) {
 	n := float64(len(docs))
-	scores := make([]float64, len(docs))
-	for _, term := range terms {
-		containing := 0.0
-		for _, doc := range docs {
-			if doc.counts[term] > 0 {
-				containing++
-			}
+	containing := 0.0
+	for _, doc := range docs {
+		if doc.counts[term] > 0 {
+			containing++
 		}
-		if containing == 0 {
+	}
+	if containing == 0 {
+		return
+	}
+	idf := math.Log(1 + (n-containing+0.5)/(containing+0.5))
+	for i, doc := range docs {
+		tf := doc.counts[term]
+		if tf == 0 {
 			continue
 		}
-		idf := math.Log(1 + (n-containing+0.5)/(containing+0.5))
-		for i, doc := range docs {
-			tf := doc.counts[term]
-			if tf == 0 {
-				continue
-			}
-			scores[i] += idf * tf * (bm25K1 + 1) / (tf + bm25K1*(1-bm25B+bm25B*doc.length/average))
-		}
+		scores[i] += idf * tf * (bm25K1 + 1) / (tf + bm25K1*(1-bm25B+bm25B*doc.length/average))
 	}
+}
+
+// bm25Ranked returns the IDs of the documents that scored, best first, ties
+// by ID.
+func bm25Ranked(docs []bm25Document, scores []float64) []string {
 	order := make([]int, 0, len(docs))
 	for i, score := range scores {
 		if score > 0 {
@@ -86,7 +107,7 @@ func (bm25Searcher) Search(_ context.Context, query string, tools []ToolSpec) ([
 	for i, index := range order {
 		out[i] = docs[index].id
 	}
-	return out, nil
+	return out
 }
 
 // tokenize lower-cases text and splits it at every character that is not a
