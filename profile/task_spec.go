@@ -67,9 +67,31 @@ func (t TaskSpec) validate() error {
 // An AgentProfile with no cap, no deadline or no MaxTokens (its own, else the
 // Model's default) has nothing to widen: a bound the TaskSpec sets is narrower.
 func (t TaskSpec) Narrow(p AgentProfile, catalog *Catalog) error {
-	widens := func(bound, detail string) error {
-		return &WidenError{Task: t.Name, Profile: p.Name, Bound: bound, Detail: detail}
+	if err := t.narrowTools(p, catalog); err != nil {
+		return err
 	}
+	if err := t.narrowToolSets(p, catalog); err != nil {
+		return err
+	}
+	if t.MaxEffect != gotato.ToolEffectUnspecified && p.MaxEffect != gotato.ToolEffectUnspecified && !t.MaxEffect.Within(p.MaxEffect) {
+		return t.widens(p, "max_effect", fmt.Sprintf("%s is above the AgentProfile's %s", t.MaxEffect, p.MaxEffect))
+	}
+	if err := t.narrowRunTimeout(p); err != nil {
+		return err
+	}
+	if limit := p.maxTokens(); t.Sampling.MaxTokens > 0 && limit > 0 && t.Sampling.MaxTokens > limit {
+		return t.widens(p, "max_tokens", fmt.Sprintf("%d is above the AgentProfile's %d", t.Sampling.MaxTokens, limit))
+	}
+	return nil
+}
+
+// widens is the *WidenError for a bound of the TaskSpec that widens p.
+func (t TaskSpec) widens(p AgentProfile, bound, detail string) error {
+	return &WidenError{Task: t.Name, Profile: p.Name, Bound: bound, Detail: detail}
+}
+
+// narrowTools checks that the TaskSpec's Tools are some of p's.
+func (t TaskSpec) narrowTools(p AgentProfile, catalog *Catalog) error {
 	have := map[string]bool{}
 	for _, tool := range p.Tools {
 		have[tool.Spec().ID] = true
@@ -81,9 +103,14 @@ func (t TaskSpec) Narrow(p AgentProfile, catalog *Catalog) error {
 		if _, err := catalog.Tool(id); err != nil {
 			return err
 		}
-		return widens("tools", fmt.Sprintf("Tool %q is not the AgentProfile's", id))
+		return t.widens(p, "tools", fmt.Sprintf("Tool %q is not the AgentProfile's", id))
 	}
-	have = map[string]bool{}
+	return nil
+}
+
+// narrowToolSets checks that the TaskSpec's ToolSets are some of p's.
+func (t TaskSpec) narrowToolSets(p AgentProfile, catalog *Catalog) error {
+	have := map[string]bool{}
 	for _, set := range p.ToolSets {
 		have[set.Set.Spec().Name] = true
 	}
@@ -94,22 +121,23 @@ func (t TaskSpec) Narrow(p AgentProfile, catalog *Catalog) error {
 		if _, err := catalog.ToolSet(name); err != nil {
 			return err
 		}
-		return widens("toolsets", fmt.Sprintf("ToolSet %q is not the AgentProfile's", name))
+		return t.widens(p, "toolsets", fmt.Sprintf("ToolSet %q is not the AgentProfile's", name))
 	}
-	if t.MaxEffect != gotato.ToolEffectUnspecified && p.MaxEffect != gotato.ToolEffectUnspecified && !t.MaxEffect.Within(p.MaxEffect) {
-		return widens("max_effect", fmt.Sprintf("%s is above the AgentProfile's %s", t.MaxEffect, p.MaxEffect))
+	return nil
+}
+
+// narrowRunTimeout checks that the TaskSpec's RunTimeout is no longer than
+// p's, or than the default when p sets none.
+func (t TaskSpec) narrowRunTimeout(p AgentProfile) error {
+	if t.RunTimeout <= 0 {
+		return nil
 	}
-	if t.RunTimeout > 0 {
-		limit := p.RunTimeout
-		if limit == 0 {
-			limit = DefaultRunTimeout
-		}
-		if limit > 0 && t.RunTimeout > limit {
-			return widens("run_timeout", fmt.Sprintf("%s is longer than the AgentProfile's %s", t.RunTimeout, limit))
-		}
+	limit := p.RunTimeout
+	if limit == 0 {
+		limit = DefaultRunTimeout
 	}
-	if limit := p.maxTokens(); t.Sampling.MaxTokens > 0 && limit > 0 && t.Sampling.MaxTokens > limit {
-		return widens("max_tokens", fmt.Sprintf("%d is above the AgentProfile's %d", t.Sampling.MaxTokens, limit))
+	if limit > 0 && t.RunTimeout > limit {
+		return t.widens(p, "run_timeout", fmt.Sprintf("%s is longer than the AgentProfile's %s", t.RunTimeout, limit))
 	}
 	return nil
 }
