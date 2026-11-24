@@ -37,33 +37,6 @@ type responsesRequest struct {
 
 func (responsesWire) api() string { return APIResponses }
 
-func openAIErr(status int, message, param, code string) *apiError {
-	e := map[string]any{"message": message, "type": "invalid_request_error", "param": nil, "code": nil}
-	if param != "" {
-		e["param"] = param
-	}
-	if code != "" {
-		e["code"] = code
-	}
-	return &apiError{status: status, body: map[string]any{"error": e}}
-}
-
-// openAIWire is what the two OpenAI wire APIs share.
-type openAIWire struct{}
-
-// invalid wraps a message of the fake's own in OpenAI's error form.
-func (openAIWire) invalid(message string) *apiError {
-	return openAIErr(http.StatusBadRequest, message, "", "")
-}
-
-func openAIAuthorize(h http.Header) *apiError {
-	if !strings.HasPrefix(h.Get("Authorization"), "Bearer ") || strings.TrimSpace(strings.TrimPrefix(h.Get("Authorization"), "Bearer ")) == "" {
-		e := openAIErr(http.StatusUnauthorized, "You didn't provide an API key. You need to provide your API key in an Authorization header using Bearer auth (i.e. Authorization: Bearer YOUR_KEY).", "", "")
-		return e
-	}
-	return nil
-}
-
 func (responsesWire) authorize(h http.Header) *apiError { return openAIAuthorize(h) }
 
 func (responsesWire) tooManyOutputTokens(p *parsed, limit int) *apiError {
@@ -85,6 +58,34 @@ func (r responsesWire) parse(_ *Server, body []byte, h http.Header) (*parsed, *a
 	_ = json.Unmarshal(body, &raw)
 	p := &parsed{model: req.Model, stream: req.Stream, maxOutput: req.MaxOutputTokens, store: req.Store, include: req.Include, header: h, raw: raw, request: &req, body: body}
 	p.loaded = map[string]bool{}
+	deferredTools, e := readResponsesTools(p, &req)
+	if e != nil {
+		return nil, e
+	}
+	var text string
+	if json.Unmarshal(req.Input, &text) == nil {
+		p.events = append(p.events, event{text: text})
+		return p, nil
+	}
+	if err := json.Unmarshal(req.Input, &req.items); err != nil {
+		return nil, openAIErr(http.StatusBadRequest, "Invalid type for 'input': expected one of a string or array of input items.", "input", "invalid_type")
+	}
+	rd := &responsesItems{p: p, deferred: deferredTools,
+		calls: map[string]bool{}, outputs: map[string]bool{}, searchCalls: map[string]bool{}, searchOutputs: map[string]bool{}}
+	for i, it := range req.items {
+		if e := rd.item(i, it); e != nil {
+			return nil, e
+		}
+	}
+	if e := rd.unanswered(); e != nil {
+		return nil, e
+	}
+	return p, nil
+}
+
+// readResponsesTools records the request's tools and its tool_search tool,
+// and returns the deferred functions by name.
+func readResponsesTools(p *parsed, req *responsesRequest) (map[string]bool, *apiError) {
 	deferredTools := map[string]bool{}
 	for i, t := range req.Tools {
 		switch {
@@ -100,89 +101,121 @@ func (r responsesWire) parse(_ *Server, body []byte, h http.Header) (*parsed, *a
 			p.searchName, p.nativeSearch = "tool_search", true
 		}
 	}
-	var text string
-	if json.Unmarshal(req.Input, &text) == nil {
-		p.events = append(p.events, event{text: text})
-		return p, nil
+	return deferredTools, nil
+}
+
+// responsesItems reads the input items of a Responses request into events,
+// and pairs each call with its output.
+type responsesItems struct {
+	p        *parsed
+	deferred map[string]bool
+	// calls, outputs, searchCalls and searchOutputs hold the call_ids seen.
+	calls, outputs, searchCalls, searchOutputs map[string]bool
+	seenOther                                  bool
+}
+
+// itemKind returns an item's type, "message" for an item with a role and no
+// type, and its role.
+func itemKind(it map[string]any) (kind, role string) {
+	kind, _ = it["type"].(string)
+	role, _ = it["role"].(string)
+	if kind == "" && role != "" {
+		kind = "message"
 	}
-	if err := json.Unmarshal(req.Input, &req.items); err != nil {
-		return nil, openAIErr(http.StatusBadRequest, "Invalid type for 'input': expected one of a string or array of input items.", "input", "invalid_type")
-	}
-	calls := map[string]bool{}
-	outputs := map[string]bool{}
-	searchCalls := map[string]bool{}
-	searchOutputs := map[string]bool{}
-	seenOther := false
-	for i, it := range req.items {
-		kind, _ := it["type"].(string)
-		role, _ := it["role"].(string)
-		if kind == "" && role != "" {
-			kind = "message"
+	return kind, role
+}
+
+// item reads input item i.
+func (r *responsesItems) item(i int, it map[string]any) *apiError {
+	kind, role := itemKind(it)
+	var e *apiError
+	switch kind {
+	case "message":
+		switch role {
+		case "developer", "system":
+			if r.seenOther {
+				r.p.midSystem = append(r.p.midSystem, i)
+			}
+			return nil
+		case "user":
+			r.p.events = append(r.p.events, event{text: responsesText(it["content"])})
 		}
-		switch kind {
-		case "message":
-			switch role {
-			case "developer", "system":
-				if seenOther {
-					p.midSystem = append(p.midSystem, i)
-				}
-				continue
-			case "user":
-				p.events = append(p.events, event{text: responsesText(it["content"])})
-			}
-		case "tool_search_call":
-			id, _ := it["call_id"].(string)
-			if !p.nativeSearch {
-				return nil, openAIErr(http.StatusBadRequest, "Item of type 'tool_search_call' was provided but no 'tool_search' tool is available.", "input", "")
-			}
-			if it["execution"] != "client" {
-				return nil, openAIErr(http.StatusBadRequest, "Invalid value: 'tool_search_call' needs execution \"client\".", fmt.Sprintf("input[%d].execution", i), "")
-			}
-			if _, ok := it["arguments"].(map[string]any); !ok {
-				return nil, openAIErr(http.StatusBadRequest, "Invalid type for 'tool_search_call.arguments': expected an object.", fmt.Sprintf("input[%d].arguments", i), "invalid_type")
-			}
-			searchCalls[id] = true
-		case "tool_search_output":
-			id, _ := it["call_id"].(string)
-			if !searchCalls[id] {
-				return nil, openAIErr(http.StatusBadRequest, "No tool search call found for tool search output with call_id "+id+".", "input", "")
-			}
-			searchOutputs[id] = true
-			loaded, _ := it["tools"].([]any)
-			for _, l := range loaded {
-				tool, _ := l.(map[string]any)
-				name, _ := tool["name"].(string)
-				if tool["type"] != "function" || !deferredTools[name] {
-					return nil, openAIErr(http.StatusBadRequest, fmt.Sprintf("Tool '%s' in the tool search output is not a function declared with defer_loading in 'tools'.", name), fmt.Sprintf("input[%d].tools", i), "")
-				}
-				p.loaded[name] = true
-			}
-			p.events = append(p.events, event{toolResult: true, search: true})
-		case "function_call":
-			id, _ := it["call_id"].(string)
-			calls[id] = true
-		case "function_call_output":
-			id, _ := it["call_id"].(string)
-			outputs[id] = true
-			if !calls[id] {
-				return nil, openAIErr(http.StatusBadRequest, "No tool call found for function call output with call_id "+id+".", "input", "")
-			}
-			out, _ := it["output"].(string)
-			p.events = append(p.events, event{toolResult: true, text: out})
-		}
-		seenOther = true
+	case "tool_search_call":
+		e = r.searchCall(i, it)
+	case "tool_search_output":
+		e = r.searchOutput(i, it)
+	case "function_call":
+		id, _ := it["call_id"].(string)
+		r.calls[id] = true
+	case "function_call_output":
+		e = r.callOutput(it)
 	}
-	for id := range calls {
-		if !outputs[id] {
-			return nil, openAIErr(http.StatusBadRequest, "No tool output found for function call "+id+".", "input", "")
+	r.seenOther = true
+	return e
+}
+
+// searchCall reads the tool_search_call item i.
+func (r *responsesItems) searchCall(i int, it map[string]any) *apiError {
+	id, _ := it["call_id"].(string)
+	if !r.p.nativeSearch {
+		return openAIErr(http.StatusBadRequest, "Item of type 'tool_search_call' was provided but no 'tool_search' tool is available.", "input", "")
+	}
+	if it["execution"] != "client" {
+		return openAIErr(http.StatusBadRequest, "Invalid value: 'tool_search_call' needs execution \"client\".", fmt.Sprintf("input[%d].execution", i), "")
+	}
+	if _, ok := it["arguments"].(map[string]any); !ok {
+		return openAIErr(http.StatusBadRequest, "Invalid type for 'tool_search_call.arguments': expected an object.", fmt.Sprintf("input[%d].arguments", i), "invalid_type")
+	}
+	r.searchCalls[id] = true
+	return nil
+}
+
+// searchOutput reads the tool_search_output item i, and loads the functions
+// it names.
+func (r *responsesItems) searchOutput(i int, it map[string]any) *apiError {
+	id, _ := it["call_id"].(string)
+	if !r.searchCalls[id] {
+		return openAIErr(http.StatusBadRequest, "No tool search call found for tool search output with call_id "+id+".", "input", "")
+	}
+	r.searchOutputs[id] = true
+	loaded, _ := it["tools"].([]any)
+	for _, l := range loaded {
+		tool, _ := l.(map[string]any)
+		name, _ := tool["name"].(string)
+		if tool["type"] != "function" || !r.deferred[name] {
+			return openAIErr(http.StatusBadRequest, fmt.Sprintf("Tool '%s' in the tool search output is not a function declared with defer_loading in 'tools'.", name), fmt.Sprintf("input[%d].tools", i), "")
+		}
+		r.p.loaded[name] = true
+	}
+	r.p.events = append(r.p.events, event{toolResult: true, search: true})
+	return nil
+}
+
+// callOutput reads a function_call_output item.
+func (r *responsesItems) callOutput(it map[string]any) *apiError {
+	id, _ := it["call_id"].(string)
+	r.outputs[id] = true
+	if !r.calls[id] {
+		return openAIErr(http.StatusBadRequest, "No tool call found for function call output with call_id "+id+".", "input", "")
+	}
+	out, _ := it["output"].(string)
+	r.p.events = append(r.p.events, event{toolResult: true, text: out})
+	return nil
+}
+
+// unanswered refuses a function call or a tool search call with no output.
+func (r *responsesItems) unanswered() *apiError {
+	for id := range r.calls {
+		if !r.outputs[id] {
+			return openAIErr(http.StatusBadRequest, "No tool output found for function call "+id+".", "input", "")
 		}
 	}
-	for id := range searchCalls {
-		if !searchOutputs[id] {
-			return nil, openAIErr(http.StatusBadRequest, "No tool search output found for tool search call "+id+".", "input", "")
+	for id := range r.searchCalls {
+		if !r.searchOutputs[id] {
+			return openAIErr(http.StatusBadRequest, "No tool search output found for tool search call "+id+".", "input", "")
 		}
 	}
-	return p, nil
+	return nil
 }
 
 func responsesText(content any) string {
