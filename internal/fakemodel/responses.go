@@ -252,27 +252,47 @@ func (r responsesWire) validateReasoning(p *parsed) *apiError {
 	for i, it := range items {
 		kind, _ := it["type"].(string)
 		id, _ := it["id"].(string)
+		var e *apiError
 		switch kind {
 		case "reasoning":
-			if enc, ok := it["encrypted_content"].(string); ok && enc != encrypted(id) {
-				return openAIErr(http.StatusBadRequest, fmt.Sprintf("The encrypted content for item %s could not be verified. Reason: Encrypted content could not be decrypted or parsed.", id), "", "invalid_encrypted_content")
-			}
-			next := ""
-			if i+1 < len(items) {
-				next, _ = items[i+1]["type"].(string)
-			}
-			if next != "function_call" && next != "message" {
-				return openAIErr(http.StatusBadRequest, fmt.Sprintf("Item '%s' of type 'reasoning' was provided without its required following item.", id), "input", "")
-			}
+			e = checkReasoningItem(items, i, id)
 			seen[id] = true
 		case "function_call":
-			if rest, ok := strings.CutPrefix(id, "fc_"); ok && strings.HasSuffix(id, "r") {
-				want := "rs_" + strings.TrimSuffix(rest, "r")
-				if !seen[want] {
-					return openAIErr(http.StatusBadRequest, fmt.Sprintf("Item '%s' of type 'function_call' was provided without its required 'reasoning' item: '%s'.", id, want), "input", "")
-				}
-			}
+			e = checkCallReasoning(id, seen)
 		}
+		if e != nil {
+			return e
+		}
+	}
+	return nil
+}
+
+// checkReasoningItem refuses the reasoning item i when its encrypted content
+// is not as it was received, or no output item follows it.
+func checkReasoningItem(items []map[string]any, i int, id string) *apiError {
+	if enc, ok := items[i]["encrypted_content"].(string); ok && enc != encrypted(id) {
+		return openAIErr(http.StatusBadRequest, fmt.Sprintf("The encrypted content for item %s could not be verified. Reason: Encrypted content could not be decrypted or parsed.", id), "", "invalid_encrypted_content")
+	}
+	next := ""
+	if i+1 < len(items) {
+		next, _ = items[i+1]["type"].(string)
+	}
+	if next != "function_call" && next != "message" {
+		return openAIErr(http.StatusBadRequest, fmt.Sprintf("Item '%s' of type 'reasoning' was provided without its required following item.", id), "input", "")
+	}
+	return nil
+}
+
+// checkCallReasoning refuses a function call that came with a reasoning item
+// (its id ends in "r") when that item was not sent before it.
+func checkCallReasoning(id string, seen map[string]bool) *apiError {
+	rest, ok := strings.CutPrefix(id, "fc_")
+	if !ok || !strings.HasSuffix(id, "r") {
+		return nil
+	}
+	want := "rs_" + strings.TrimSuffix(rest, "r")
+	if !seen[want] {
+		return openAIErr(http.StatusBadRequest, fmt.Sprintf("Item '%s' of type 'function_call' was provided without its required 'reasoning' item: '%s'.", id, want), "input", "")
 	}
 	return nil
 }
