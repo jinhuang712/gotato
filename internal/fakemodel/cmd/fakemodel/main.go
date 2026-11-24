@@ -18,13 +18,11 @@ import (
 
 func main() {
 	addr := flag.String("addr", "127.0.0.1:8080", "address to listen on")
-	window := flag.Int("window", 200_000, "context window in tokens")
-	maxOutput := flag.Int("max-output", 64_000, "most output tokens a request may ask for")
 	flag.Parse()
 
 	server := &http.Server{
 		Addr:              *addr,
-		Handler:           fakemodel.New(fakemodel.WithWindow(*window), fakemodel.WithMaxOutput(*maxOutput)),
+		Handler:           fakemodel.New(),
 		ReadHeaderTimeout: 10 * time.Second,
 	}
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt)
