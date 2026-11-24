@@ -175,21 +175,34 @@ func segmentRefs(segment gotato.Segment) (msgs, results []string) {
 		for _, part := range message.Parts {
 			switch part.Metadata[gotato.MetaTag] {
 			case gotato.TagSegment:
-				for line := range strings.SplitSeq(part.Text, "\n") {
-					if m := msgRefLine.FindStringSubmatch(line); m != nil {
-						msgs = append(msgs, m[1])
-					}
-				}
+				msgs = appendMsgRefs(msgs, part.Text)
 			case gotato.TagToolCalls:
-				for line := range strings.SplitSeq(part.Text, "\n") {
-					if m := resultRefsInLine.FindStringSubmatch(line); m != nil {
-						results = append(results, strings.Fields(m[1])...)
-					}
-				}
+				results = appendResultRefs(results, part.Text)
 			}
 		}
 	}
 	return msgs, results
+}
+
+// appendMsgRefs appends the ref of each kept Message that the Segment text
+// names on a line of its own.
+func appendMsgRefs(msgs []string, text string) []string {
+	for line := range strings.SplitSeq(text, "\n") {
+		if m := msgRefLine.FindStringSubmatch(line); m != nil {
+			msgs = append(msgs, m[1])
+		}
+	}
+	return msgs
+}
+
+// appendResultRefs appends the refs that end the tool call lines of text.
+func appendResultRefs(results []string, text string) []string {
+	for line := range strings.SplitSeq(text, "\n") {
+		if m := resultRefsInLine.FindStringSubmatch(line); m != nil {
+			results = append(results, strings.Fields(m[1])...)
+		}
+	}
+	return results
 }
 
 // digestRefs writes the refs of a Segment for a digest line, or "". shown is
