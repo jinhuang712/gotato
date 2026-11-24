@@ -11,31 +11,14 @@ import (
 // Run in flight that has reached the point the scenario wants to cut), and kills the pod.
 func (e *env) killWriter(ctx context.Context, st stamper, ts []*thread, ready func(record) bool, limit time.Duration) (inst string, onVictim []*thread, killAt time.Time, err error) {
 	var victim string
-	for deadline := time.Now().Add(limit); time.Now().Before(deadline) && victim == ""; sleep(ctx, time.Second) {
-		if r, rerr := e.record(ctx, ts[0].session()); rerr == nil {
-			if inst = holder(r); inst != "" {
-				victim = e.podOf(inst)
-			}
-		}
-	}
+	inst, victim = e.findWriter(ctx, ts, limit)
 	if victim == "" {
 		e.printErrors()
 		return "", nil, time.Time{}, fmt.Errorf("could not find the pod that writes thread 1")
 	}
 	pending := 0
 	for deadline := time.Now().Add(limit); time.Now().Before(deadline); sleep(ctx, 500*time.Millisecond) {
-		onVictim = onVictim[:0]
-		pending = 0
-		for _, t := range ts {
-			r, rerr := e.record(ctx, t.session())
-			if rerr != nil || holder(r) != inst {
-				continue
-			}
-			onVictim = append(onVictim, t)
-			if !ready(r) {
-				pending++
-			}
-		}
+		onVictim, pending = e.writerThreads(ctx, ts, inst, ready, onVictim)
 		if pending == 0 && len(onVictim) > 0 {
 			break
 		}
@@ -53,6 +36,37 @@ func (e *env) killWriter(ctx context.Context, st stamper, ts []*thread, ready fu
 		return inst, onVictim, killAt, fmt.Errorf("kill failed")
 	}
 	return inst, onVictim, killAt, nil
+}
+
+// findWriter waits up to limit for a Run of ts[0] to hold the Claim, and returns the instance and the pod that
+// hold it.
+func (e *env) findWriter(ctx context.Context, ts []*thread, limit time.Duration) (inst, victim string) {
+	for deadline := time.Now().Add(limit); time.Now().Before(deadline) && victim == ""; sleep(ctx, time.Second) {
+		if r, rerr := e.record(ctx, ts[0].session()); rerr == nil {
+			if inst = holder(r); inst != "" {
+				victim = e.podOf(inst)
+			}
+		}
+	}
+	return inst, victim
+}
+
+// writerThreads returns the threads that inst writes, reusing onVictim, and how many of them ready does not hold
+// for yet.
+func (e *env) writerThreads(ctx context.Context, ts []*thread, inst string, ready func(record) bool, onVictim []*thread) ([]*thread, int) {
+	onVictim = onVictim[:0]
+	pending := 0
+	for _, t := range ts {
+		r, rerr := e.record(ctx, t.session())
+		if rerr != nil || holder(r) != inst {
+			continue
+		}
+		onVictim = append(onVictim, t)
+		if !ready(r) {
+			pending++
+		}
+	}
+	return onVictim, pending
 }
 
 // printTakeover says how the Session changed hands after the kill.
