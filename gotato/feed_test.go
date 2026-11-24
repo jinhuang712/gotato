@@ -97,11 +97,18 @@ func TestSubscribeAfterReadsTheRecordThenGoesLive(t *testing.T) {
 	if got := numbers(t, sub, 3); !reflect.DeepEqual(got, []uint64{3, 4, 5}) {
 		t.Fatalf("catch-up = %v, want 3 4 5", got)
 	}
+	// Event 6 is read before it is published again. A stream that is still
+	// catching up reads what it missed from what the Feed retains, and a Feed
+	// with no source retains whatever is published to it, so a duplicate that
+	// came before the stream had Event 6 would be read from there as well.
 	feed.publish(storedEvent(6))
+	if got := numbers(t, sub, 1); !reflect.DeepEqual(got, []uint64{6}) {
+		t.Fatalf("live = %v, want 6", got)
+	}
 	feed.publish(storedEvent(6)) // a duplicate is ignored
 	feed.publish(storedEvent(7))
-	if got := numbers(t, sub, 2); !reflect.DeepEqual(got, []uint64{6, 7}) {
-		t.Fatalf("live = %v, want 6 7", got)
+	if got := numbers(t, sub, 1); !reflect.DeepEqual(got, []uint64{7}) {
+		t.Fatalf("after the duplicate = %v, want 7", got)
 	}
 }
 
