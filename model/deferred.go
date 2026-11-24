@@ -65,7 +65,21 @@ func newDeferredLayout(request gotato.ModelRequest, native bool) *deferredLayout
 	}
 	referenced := map[string]bool{}
 	searchCalls := map[string]bool{}
-	for _, message := range request.Messages {
+	scanDeferredHistory(request.Messages, referenced, searchCalls)
+	plain, deferred := splitDeferredTools(request, loaded, referenced)
+	layout := &deferredLayout{deferred: make(map[string]bool, len(deferred)), searchCalls: searchCalls}
+	for _, tool := range deferred {
+		layout.deferred[tool.spec.ID] = true
+	}
+	layout.tools = append(plain, deferred...)
+	return layout
+}
+
+// scanDeferredHistory adds to referenced the IDs of the tools the history's
+// Tool Results loaded, and to searchCalls the IDs of its calls to the search
+// tool.
+func scanDeferredHistory(messages []gotato.Message, referenced, searchCalls map[string]bool) {
+	for _, message := range messages {
 		for _, call := range message.ToolCalls {
 			if isSearchToolID(call.ToolID) {
 				searchCalls[string(call.ID)] = true
@@ -77,7 +91,11 @@ func newDeferredLayout(request gotato.ModelRequest, native bool) *deferredLayout
 			}
 		}
 	}
-	var plain, deferred []layoutTool
+}
+
+// splitDeferredTools sorts the request's tools into the plain group and the
+// deferred group, each in ID order.
+func splitDeferredTools(request gotato.ModelRequest, loaded, referenced map[string]bool) (plain, deferred []layoutTool) {
 	for _, spec := range request.Tools {
 		if loaded[spec.ID] && referenced[spec.ID] {
 			deferred = append(deferred, layoutTool{spec: spec, deferred: true})
@@ -88,17 +106,14 @@ func newDeferredLayout(request gotato.ModelRequest, native bool) *deferredLayout
 	for _, spec := range request.UnloadedTools {
 		deferred = append(deferred, layoutTool{spec: spec, deferred: true})
 	}
-	byID := func(list []layoutTool) {
-		sort.SliceStable(list, func(i, j int) bool { return list[i].spec.ID < list[j].spec.ID })
-	}
-	byID(plain)
-	byID(deferred)
-	layout := &deferredLayout{deferred: make(map[string]bool, len(deferred)), searchCalls: searchCalls}
-	for _, tool := range deferred {
-		layout.deferred[tool.spec.ID] = true
-	}
-	layout.tools = append(plain, deferred...)
-	return layout
+	sortLayoutByID(plain)
+	sortLayoutByID(deferred)
+	return plain, deferred
+}
+
+// sortLayoutByID sorts tools by ID, keeping the order of equal IDs.
+func sortLayoutByID(list []layoutTool) {
+	sort.SliceStable(list, func(i, j int) bool { return list[i].spec.ID < list[j].spec.ID })
 }
 
 // references returns the IDs of a Tool Result's loads that the request sends
