@@ -170,76 +170,118 @@ func headerText(number int, hasRecap bool) string {
 // collect walks the closed Messages in order and returns what a Segment keeps
 // of them.
 func collect(closed []gotato.Message, settings SegmentSettings, number int, position func(gotato.MessageID) (gotato.MessagePosition, bool)) []item {
-	results := map[gotato.ToolCallID]*gotato.ToolResult{}
-	for i := range closed {
-		if r := closed[i].ToolResult; r != nil {
-			results[r.CallID] = r
-		}
+	c := collector{
+		results:  resultsByCall(closed),
+		argChars: orDefault(settings.ArgChars, defaultArgChars),
+		limit:    orDefault(settings.MessageTokens, defaultMessageTokens),
+		number:   number,
+		position: position,
 	}
 	final := finalReplies(closed)
-	argChars := orDefault(settings.ArgChars, defaultArgChars)
-	limit := orDefault(settings.MessageTokens, defaultMessageTokens)
-
-	var items []item
-	var pending []callLine
-	flush := func() {
-		if len(pending) > 0 {
-			items = append(items, item{isCalls: true, lines: pending})
-			pending = nil
-		}
-	}
 	for i, message := range closed {
 		switch message.Role {
 		case gotato.RoleUser:
-			flush()
-			if parts := keptParts(message.Parts, limit, number); len(parts) > 0 {
-				items = append(items, item{role: gotato.RoleUser, parts: append(parts, refPartOf(number, message.ID)...)})
-			}
+			c.flush()
+			c.keep(gotato.RoleUser, message)
 		case gotato.RoleNotice:
-			// Gotato's own notices mattered only at the time: the Recap covers
-			// them. A service's stays word for word, because Gotato cannot tell
-			// whether it still applies.
-			if message.Notice == nil || message.Notice.Source != gotato.NoticeSourceService {
-				continue
-			}
-			flush()
-			if parts := keptParts(message.Parts, limit, number); len(parts) > 0 {
-				items = append(items, item{role: gotato.RoleUser, parts: []gotato.ContentPart{noticePart(message.Notice.Kind, parts)}})
-			}
+			c.notice(message)
 		case gotato.RoleAssistant:
-			var at time.Time
-			if p, ok := position(message.ID); ok {
-				at = p.Time.UTC()
-			}
-			for _, call := range message.ToolCalls {
-				line := gotato.ToolCallLine{At: at, ToolID: call.ToolID, Args: cutArgs(call.Arguments, argChars), Status: statusUnanswered}
-				if r := results[call.ID]; r != nil {
-					line.Status = r.Status
-					if r.Status != gotato.ToolResultStatusOK {
-						line.Code = string(r.Status)
-					}
-				}
-				var refs []string
-				if ref.Safe(string(call.ID)) {
-					refs = []string{ref.Result(string(call.ID)).String()}
-				}
-				if n := len(pending); n > 0 && sameCall(pending[n-1].ToolCallLine, line) {
-					pending[n-1].Count = max(pending[n-1].Count, 1) + 1
-					pending[n-1].refs = append(pending[n-1].refs, refs...)
-					continue
-				}
-				pending = append(pending, callLine{ToolCallLine: line, refs: refs})
-			}
+			c.calls(message)
 			if final[i] {
-				flush()
-				if parts := keptParts(message.Parts, limit, number); len(parts) > 0 {
-					items = append(items, item{role: gotato.RoleAssistant, parts: append(parts, refPartOf(number, message.ID)...)})
-				}
+				c.flush()
+				c.keep(gotato.RoleAssistant, message)
 			}
 		}
 	}
-	flush()
-	return items
+	c.flush()
+	return c.items
+}
+
+// collector holds what collect has kept so far, and the tool call lines not
+// yet written as an item.
+type collector struct {
+	results  map[gotato.ToolCallID]*gotato.ToolResult
+	argChars int
+	limit    int
+	number   int
+	position func(gotato.MessageID) (gotato.MessagePosition, bool)
+	items    []item
+	pending  []callLine
+}
+
+// resultsByCall maps each tool call's ID to its result among messages.
+func resultsByCall(messages []gotato.Message) map[gotato.ToolCallID]*gotato.ToolResult {
+	results := map[gotato.ToolCallID]*gotato.ToolResult{}
+	for i := range messages {
+		if r := messages[i].ToolResult; r != nil {
+			results[r.CallID] = r
+		}
+	}
+	return results
+}
+
+// flush writes the pending tool call lines as one item.
+func (c *collector) flush() {
+	if len(c.pending) > 0 {
+		c.items = append(c.items, item{isCalls: true, lines: c.pending})
+		c.pending = nil
+	}
+}
+
+// keep writes the kept Parts of a Message as an item of role, with the ref of
+// the Message, when any are left.
+func (c *collector) keep(role gotato.Role, message gotato.Message) {
+	if parts := keptParts(message.Parts, c.limit, c.number); len(parts) > 0 {
+		c.items = append(c.items, item{role: role, parts: append(parts, refPartOf(c.number, message.ID)...)})
+	}
+}
+
+// notice writes a service's notice as a user item.
+func (c *collector) notice(message gotato.Message) {
+	// Gotato's own notices mattered only at the time: the Recap covers
+	// them. A service's stays word for word, because Gotato cannot tell
+	// whether it still applies.
+	if message.Notice == nil || message.Notice.Source != gotato.NoticeSourceService {
+		return
+	}
+	c.flush()
+	if parts := keptParts(message.Parts, c.limit, c.number); len(parts) > 0 {
+		c.items = append(c.items, item{role: gotato.RoleUser, parts: []gotato.ContentPart{noticePart(message.Notice.Kind, parts)}})
+	}
+}
+
+// calls adds a line for each tool call of an assistant Message, counting a
+// call the same as the one before it on that line.
+func (c *collector) calls(message gotato.Message) {
+	var at time.Time
+	if p, ok := c.position(message.ID); ok {
+		at = p.Time.UTC()
+	}
+	for _, call := range message.ToolCalls {
+		line := c.callLine(call, at)
+		var refs []string
+		if ref.Safe(string(call.ID)) {
+			refs = []string{ref.Result(string(call.ID)).String()}
+		}
+		if n := len(c.pending); n > 0 && sameCall(c.pending[n-1].ToolCallLine, line) {
+			c.pending[n-1].Count = max(c.pending[n-1].Count, 1) + 1
+			c.pending[n-1].refs = append(c.pending[n-1].refs, refs...)
+			continue
+		}
+		c.pending = append(c.pending, callLine{ToolCallLine: line, refs: refs})
+	}
+}
+
+// callLine is the line of one tool call, with the status of its result.
+func (c *collector) callLine(call gotato.ToolCall, at time.Time) gotato.ToolCallLine {
+	line := gotato.ToolCallLine{At: at, ToolID: call.ToolID, Args: cutArgs(call.Arguments, c.argChars), Status: statusUnanswered}
+	if r := c.results[call.ID]; r != nil {
+		line.Status = r.Status
+		if r.Status != gotato.ToolResultStatusOK {
+			line.Code = string(r.Status)
+		}
+	}
+	return line
 }
 
 func sameCall(a, b gotato.ToolCallLine) bool {
