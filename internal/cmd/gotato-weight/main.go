@@ -96,49 +96,72 @@ func count(path string, w *weight) error {
 	for _, decl := range f.Decls {
 		switch d := decl.(type) {
 		case *ast.FuncDecl:
-			if !d.Name.IsExported() {
-				continue
-			}
-			if d.Recv != nil {
-				if ast.IsExported(receiverName(d.Recv.List[0].Type)) {
-					w.names++
-				}
-				continue
-			}
-			w.names++
-			if d.Type.Results != nil && len(d.Type.Results.List) == 1 && strings.HasSuffix(typeName(d.Type.Results.List[0].Type), "Option") {
-				w.settings++
-			}
+			countFunc(d, w)
 		case *ast.GenDecl:
 			for _, spec := range d.Specs {
-				switch s := spec.(type) {
-				case *ast.TypeSpec:
-					if !s.Name.IsExported() {
-						continue
-					}
-					w.names++
-					st, ok := s.Type.(*ast.StructType)
-					if !ok || !strings.HasSuffix(s.Name.Name, "Config") && !strings.HasSuffix(s.Name.Name, "Policy") {
-						continue
-					}
-					for _, field := range st.Fields.List {
-						for _, n := range field.Names {
-							if n.IsExported() {
-								w.settings++
-							}
-						}
-					}
-				case *ast.ValueSpec:
-					for _, n := range s.Names {
-						if n.IsExported() {
-							w.names++
-						}
-					}
-				}
+				countSpec(spec, w)
 			}
 		}
 	}
 	return nil
+}
+
+// countFunc adds an exported function, or an exported method of an exported
+// type, to w, and a setting when the function returns an Option.
+func countFunc(d *ast.FuncDecl, w *weight) {
+	if !d.Name.IsExported() {
+		return
+	}
+	if d.Recv != nil {
+		if ast.IsExported(receiverName(d.Recv.List[0].Type)) {
+			w.names++
+		}
+		return
+	}
+	w.names++
+	if d.Type.Results != nil && len(d.Type.Results.List) == 1 && strings.HasSuffix(typeName(d.Type.Results.List[0].Type), "Option") {
+		w.settings++
+	}
+}
+
+// countSpec adds the exported names of a type or value declaration to w, and
+// the settings of a Config or Policy struct.
+func countSpec(spec ast.Spec, w *weight) {
+	switch s := spec.(type) {
+	case *ast.TypeSpec:
+		if !s.Name.IsExported() {
+			return
+		}
+		w.names++
+		w.settings += settingsOf(s)
+	case *ast.ValueSpec:
+		w.names += exported(s.Names)
+	}
+}
+
+// settingsOf counts the exported fields of a struct type whose name ends in
+// Config or Policy.
+func settingsOf(s *ast.TypeSpec) int {
+	st, ok := s.Type.(*ast.StructType)
+	if !ok || !strings.HasSuffix(s.Name.Name, "Config") && !strings.HasSuffix(s.Name.Name, "Policy") {
+		return 0
+	}
+	n := 0
+	for _, field := range st.Fields.List {
+		n += exported(field.Names)
+	}
+	return n
+}
+
+// exported counts the exported identifiers among names.
+func exported(names []*ast.Ident) int {
+	n := 0
+	for _, name := range names {
+		if name.IsExported() {
+			n++
+		}
+	}
+	return n
 }
 
 // receiverName is the type a method is declared on, without a pointer or type parameters.
