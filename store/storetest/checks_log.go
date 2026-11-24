@@ -197,28 +197,7 @@ func checkLoadRacingAppends(ctx context.Context, open Open) error {
 		wg.Add(1)
 		go func() {
 			defer wg.Done()
-			reader := open()
-			for {
-				select {
-				case <-done:
-					return
-				default:
-				}
-				loaded, err := reader.Load(ctx, "r1")
-				if err != nil {
-					fail(fmt.Errorf("load: %w", err))
-					return
-				}
-				if len(loaded.Entries) == 0 {
-					fail(fmt.Errorf("a Load returned no Entries: %s", ruleOneRead))
-					return
-				}
-				last := loaded.Entries[len(loaded.Entries)-1].Seq
-				if last != loaded.Seq || uint64(loaded.Header.Info.Messages) != loaded.Seq {
-					fail(fmt.Errorf("a Load returned Seq %d, a last Entry at %d, and a Header written at %d (Info.Messages): %s", loaded.Seq, last, loaded.Header.Info.Messages, ruleOneRead))
-					return
-				}
-			}
+			readLoads(ctx, open(), done, fail)
 		}()
 	}
 	writer := open()
@@ -233,6 +212,32 @@ func checkLoadRacingAppends(ctx context.Context, open Open) error {
 		return fmt.Errorf("append: %w", writeErr)
 	}
 	return failure
+}
+
+// readLoads Loads "r1" through reader until done is closed, and reports to fail
+// the first Load that is not one write's.
+func readLoads(ctx context.Context, reader store.Records, done <-chan struct{}, fail func(error)) {
+	for {
+		select {
+		case <-done:
+			return
+		default:
+		}
+		loaded, err := reader.Load(ctx, "r1")
+		if err != nil {
+			fail(fmt.Errorf("load: %w", err))
+			return
+		}
+		if len(loaded.Entries) == 0 {
+			fail(fmt.Errorf("a Load returned no Entries: %s", ruleOneRead))
+			return
+		}
+		last := loaded.Entries[len(loaded.Entries)-1].Seq
+		if last != loaded.Seq || uint64(loaded.Header.Info.Messages) != loaded.Seq {
+			fail(fmt.Errorf("a Load returned Seq %d, a last Entry at %d, and a Header written at %d (Info.Messages): %s", loaded.Seq, last, loaded.Header.Info.Messages, ruleOneRead))
+			return
+		}
+	}
 }
 
 // checkLogLimit holds a store to Log's limit: at most limit Entries, from the
