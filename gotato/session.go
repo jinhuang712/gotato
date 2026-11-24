@@ -41,13 +41,8 @@ func NewSession(ctx context.Context, options ...SessionOption) (*Session, error)
 		return nil, e
 	}
 	cfg := sessionConfig{}
-	for _, option := range options {
-		if option == nil {
-			continue
-		}
-		if err := option(&cfg); err != nil {
-			return nil, err
-		}
+	if err := cfg.apply(options); err != nil {
+		return nil, err
 	}
 	if cfg.model == nil {
 		return nil, runtimeError(CodeInvalidArgument, "NewSession", "a Model is required", nil)
@@ -57,24 +52,11 @@ func NewSession(ctx context.Context, options ...SessionOption) (*Session, error)
 	if err != nil {
 		return nil, err
 	}
-	// The Model's own sampling defaults sit under what WithSampling sets, so
-	// every request carries the whole of it.
-	var modelSampling Sampling
-	if err := callHost("Model.Config", func() error { modelSampling = cfg.model.Config().Sampling; return nil }); err != nil {
-		return nil, runtimeError(CodeInvalidArgument, "NewSession", "the Model's Config failed", err)
+	if err := cfg.overModelSampling(); err != nil {
+		return nil, err
 	}
-	cfg.sampling = cfg.sampling.over(modelSampling)
-
-	if cfg.transcript == nil {
-		cfg.transcript = &memoryTranscript{}
-	}
-	// The Transcript declares what it can do; one that stores must declare
-	// every part a store needs, or it is refused here and not weeks later.
-	var caps Capabilities
-	if err := callHost("Transcript.Capabilities", func() error { caps = cfg.transcript.Capabilities(); return nil }); err != nil {
-		return nil, runtimeError(CodeInvalidArgument, "NewSession", "the Transcript's Capabilities failed", err)
-	}
-	if err := caps.check(); err != nil {
+	caps, err := cfg.transcriptCapabilities()
+	if err != nil {
 		return nil, err
 	}
 	registry, err := newToolRegistry(ctx, &cfg, caps)
@@ -84,11 +66,19 @@ func NewSession(ctx context.Context, options ...SessionOption) (*Session, error)
 	if cfg.contextBuilder == nil {
 		cfg.contextBuilder = FullHistoryContext()
 	}
-	id := SessionID(nextID("session"))
-	if caps.ID != "" {
-		id = SessionID(caps.ID)
-	}
+	a := newSession(&cfg, caps, spillPage, registry)
+	a.def.extensions.report = a.reportExtension
+	a.life.init()
+	a.life.setStatus(SessionStatusCreated)
+	go a.loop()
+	<-a.life.ready
+	return a, nil
+}
 
+// newSession builds the Session's parts from cfg, the Transcript's caps, the
+// ReadBack's spillPage and the Tool registry.
+func newSession(cfg *sessionConfig, caps Capabilities, spillPage int, registry *toolRegistry) *Session {
+	id := sessionIDFor(caps)
 	a := &Session{
 		def: sessionDef{
 			id: id, model: cfg.model, instruction: cfg.instruction, extensions: cfg.extensions, limits: cfg.limits,
@@ -99,6 +89,66 @@ func NewSession(ctx context.Context, options ...SessionOption) (*Session, error)
 		queue:   newControlQueue(controlCapacity(cfg.limits.MaxSteerMessages), controlCapacity(cfg.limits.MaxFollowUpMessages), controlCapacity(cfg.limits.MaxNotices)),
 		host:    sessionHost{onRunStart: cfg.onRunStart, handoff: cfg.handoff, requestID: cfg.requestID},
 	}
+	a.initEvents(cfg, caps)
+	return a
+}
+
+// apply runs each SessionOption on c in order, skipping nil ones, and stops at
+// the first that fails.
+func (c *sessionConfig) apply(options []SessionOption) error {
+	for _, option := range options {
+		if option == nil {
+			continue
+		}
+		if err := option(c); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+// overModelSampling lays c's Sampling over the Model's own defaults.
+func (c *sessionConfig) overModelSampling() error {
+	// The Model's own sampling defaults sit under what WithSampling sets, so
+	// every request carries the whole of it.
+	var modelSampling Sampling
+	if err := callHost("Model.Config", func() error { modelSampling = c.model.Config().Sampling; return nil }); err != nil {
+		return runtimeError(CodeInvalidArgument, "NewSession", "the Model's Config failed", err)
+	}
+	c.sampling = c.sampling.over(modelSampling)
+	return nil
+}
+
+// transcriptCapabilities gives c a memory Transcript when it has none, and
+// returns what the Transcript declares it can do once they pass the check.
+func (c *sessionConfig) transcriptCapabilities() (Capabilities, error) {
+	if c.transcript == nil {
+		c.transcript = &memoryTranscript{}
+	}
+	// The Transcript declares what it can do; one that stores must declare
+	// every part a store needs, or it is refused here and not weeks later.
+	var caps Capabilities
+	if err := callHost("Transcript.Capabilities", func() error { caps = c.transcript.Capabilities(); return nil }); err != nil {
+		return Capabilities{}, runtimeError(CodeInvalidArgument, "NewSession", "the Transcript's Capabilities failed", err)
+	}
+	if err := caps.check(); err != nil {
+		return Capabilities{}, err
+	}
+	return caps, nil
+}
+
+// sessionIDFor returns the ID the Transcript declares, or a new one.
+func sessionIDFor(caps Capabilities) SessionID {
+	id := SessionID(nextID("session"))
+	if caps.ID != "" {
+		id = SessionID(caps.ID)
+	}
+	return id
+}
+
+// initEvents sets up the Session's Journal and Feed from cfg and the
+// Transcript's caps.
+func (a *Session) initEvents(cfg *sessionConfig, caps Capabilities) {
 	if caps.Journal != nil {
 		a.events.journal = caps.Journal
 	} else {
@@ -121,12 +171,6 @@ func NewSession(ctx context.Context, options ...SessionOption) (*Session, error)
 			a.events.feed.setSource(caps.Events)
 		}
 	}
-	a.def.extensions.report = a.reportExtension
-	a.life.init()
-	a.life.setStatus(SessionStatusCreated)
-	go a.loop()
-	<-a.life.ready
-	return a, nil
 }
 
 // Session is a live Session: one conversation running one Agent. Prompt,
