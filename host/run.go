@@ -237,55 +237,24 @@ func (r *Runner) runWith(ctx context.Context, request RunRequest, stream *runStr
 	if ctx == nil {
 		ctx = context.Background()
 	}
-	if !request.Continue && strings.TrimSpace(request.Prompt) == "" {
-		return RunResponse{}, notRunError(gotato.ErrorOf(gotato.CodeInvalidArgument, "host: prompt is required"))
-	}
-	if request.Continue && strings.TrimSpace(request.Prompt) != "" {
-		return RunResponse{}, notRunError(gotato.ErrorOf(gotato.CodeInvalidArgument, "host: continue takes no prompt"))
-	}
-	// [CONTRACT] a key under the Runner's prefix is refused, not dropped or overridden, before the Run is admitted or anything is written.
-	if err := refuseReserved(request.Metadata); err != nil {
+	if err := validateRunRequest(request); err != nil {
 		return RunResponse{}, err
 	}
-	if err := refuseReserved(request.Update); err != nil {
-		return RunResponse{}, err
-	}
-	// [CONTRACT] a client's negative timeout is refused, not read as no bound.
-	if request.Timeout < 0 {
-		return RunResponse{}, notRunError(gotato.ErrorOf(gotato.CodeInvalidArgument, "host: timeout must not be negative"))
-	}
-	// The Run registers as it is admitted, in one step, so the limits count it
-	// at once and Drain and AbortSession reach it even while it is still
-	// loading its Session.
-	if request.SessionID != "" && (request.Task != "" || request.TaskSpec != nil) {
-		return RunResponse{}, notRunError(gotato.ErrorOf(gotato.CodeInvalidArgument, "host: a Run of a TaskSpec opens a new Session, so it takes no SessionID"))
-	}
-	task, err := r.resolveTask(ctx, request.Task, request.TaskSpec, request.Agent)
+	task, agent, err := r.resolveRunTask(ctx, request)
 	if err != nil {
 		return RunResponse{}, err
 	}
 	request.task = task
-	// The AgentProfile the Run is for: the request's, or the TaskSpec's own.
-	agent := request.Agent
-	if task != nil {
-		agent = task.spec.Profile
-	}
 	runCtx, cancelRun := context.WithCancel(ctx)
 	defer cancelRun()
 	handle := &runHandle{sessionID: request.SessionID, cancel: cancelRun, ready: make(chan struct{}), wait: wait, over: make(chan struct{})}
-	release, err := r.admit(ctx, handle, request, agent)
+	// The Run registers as it is admitted, in one step, so the limits count it
+	// at once and Drain and AbortSession reach it even while it is still
+	// loading its Session.
+	release, err := r.admitRun(ctx, handle, request, agent)
 	if err != nil {
-		why := "at_capacity"
-		switch {
-		case errors.Is(err, ErrDraining):
-			why = "draining"
-		case errors.Is(err, ErrOverloaded):
-			why = "activation_limit"
-		}
-		r.notice(RunRejected{Header: gotato.NewHeader(gotato.SessionID(request.SessionID), "", 0), Why: why}, agent)
 		return RunResponse{}, err
 	}
-	r.notice(RunRequested{Header: gotato.NewHeader(gotato.SessionID(request.SessionID), "", 0), Agent: agent}, agent)
 	followed := false
 	defer func() {
 		if !followed {
@@ -305,6 +274,72 @@ func (r *Runner) runWith(ctx context.Context, request RunRequest, stream *runStr
 		r.followOn(ctx, handle, next, release)
 		return out, err
 	}
+	return r.reconnectAfterDrain(ctx, handle, out, release), err
+}
+
+// validateRunRequest refuses a request whose fields contradict each other or
+// break a contract, before the Run is admitted.
+func validateRunRequest(request RunRequest) error {
+	if !request.Continue && strings.TrimSpace(request.Prompt) == "" {
+		return notRunError(gotato.ErrorOf(gotato.CodeInvalidArgument, "host: prompt is required"))
+	}
+	if request.Continue && strings.TrimSpace(request.Prompt) != "" {
+		return notRunError(gotato.ErrorOf(gotato.CodeInvalidArgument, "host: continue takes no prompt"))
+	}
+	// [CONTRACT] a key under the Runner's prefix is refused, not dropped or overridden, before the Run is admitted or anything is written.
+	if err := refuseReserved(request.Metadata); err != nil {
+		return err
+	}
+	if err := refuseReserved(request.Update); err != nil {
+		return err
+	}
+	// [CONTRACT] a client's negative timeout is refused, not read as no bound.
+	if request.Timeout < 0 {
+		return notRunError(gotato.ErrorOf(gotato.CodeInvalidArgument, "host: timeout must not be negative"))
+	}
+	return nil
+}
+
+// resolveRunTask finds the TaskSpec a request runs, if any, and the
+// AgentProfile the Run is for.
+func (r *Runner) resolveRunTask(ctx context.Context, request RunRequest) (*taskRun, string, error) {
+	if request.SessionID != "" && (request.Task != "" || request.TaskSpec != nil) {
+		return nil, "", notRunError(gotato.ErrorOf(gotato.CodeInvalidArgument, "host: a Run of a TaskSpec opens a new Session, so it takes no SessionID"))
+	}
+	task, err := r.resolveTask(ctx, request.Task, request.TaskSpec, request.Agent)
+	if err != nil {
+		return nil, "", err
+	}
+	// The AgentProfile the Run is for: the request's, or the TaskSpec's own.
+	agent := request.Agent
+	if task != nil {
+		agent = task.spec.Profile
+	}
+	return task, agent, nil
+}
+
+// admitRun admits the Run and reports it: run_rejected with why when it is
+// refused, run_requested when it is admitted.
+func (r *Runner) admitRun(ctx context.Context, handle *runHandle, request RunRequest, agent string) (func(), error) {
+	release, err := r.admit(ctx, handle, request, agent)
+	if err != nil {
+		why := "at_capacity"
+		switch {
+		case errors.Is(err, ErrDraining):
+			why = "draining"
+		case errors.Is(err, ErrOverloaded):
+			why = "activation_limit"
+		}
+		r.notice(RunRejected{Header: gotato.NewHeader(gotato.SessionID(request.SessionID), "", 0), Why: why}, agent)
+		return nil, err
+	}
+	r.notice(RunRequested{Header: gotato.NewHeader(gotato.SessionID(request.SessionID), "", 0), Agent: agent}, agent)
+	return release, nil
+}
+
+// reconnectAfterDrain returns out, with Reconnect set when the drain stopped
+// the Run before it completed.
+func (r *Runner) reconnectAfterDrain(ctx context.Context, handle *runHandle, out RunResponse, release func()) RunResponse {
 	if handle.stoppedByDrain() && out.Result.Status != gotato.RunStatusCompleted {
 		// The drain stopped this Run, and it is saved and released. It
 		// returns once every Run of the drain is, so the caller reconnects to
@@ -316,5 +351,5 @@ func (r *Runner) runWith(ctx context.Context, request RunRequest, stream *runStr
 		case <-ctx.Done():
 		}
 	}
-	return out, err
+	return out
 }
