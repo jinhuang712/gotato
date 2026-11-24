@@ -2,7 +2,6 @@ package main
 
 import (
 	"context"
-	"encoding/json"
 	"fmt"
 	"strings"
 	"time"
@@ -16,7 +15,6 @@ type sentDelivery struct {
 }
 
 type sent struct {
-	EventID    string         `json:"event_id"`
 	MessageID  string         `json:"message_id"`
 	Chat       string         `json:"chat"`
 	Deliveries []sentDelivery `json:"deliveries"`
@@ -32,13 +30,10 @@ func (s sent) acked() bool {
 }
 
 type card struct {
-	Time      time.Time `json:"time"`
-	MessageID string    `json:"message_id"`
-	Chat      string    `json:"chat"`
-	ReplyTo   string    `json:"reply_to"`
-	Text      string    `json:"text"`
-	Session   string    `json:"session"`  // the footer's short ID: the last 8 characters
-	Instance  string    `json:"instance"` // the pod name
+	Time     time.Time `json:"time"`
+	Text     string    `json:"text"`
+	Session  string    `json:"session"`  // the footer's short ID: the last 8 characters
+	Instance string    `json:"instance"` // the pod name
 }
 
 func (e *env) larkURL() string { return e.svc("fakelark", 9000) }
@@ -79,14 +74,9 @@ type recordEvent struct {
 	Why      string    `json:"why"`
 	From     string    `json:"from"`
 	Status   string    `json:"status"`
-	Source   string    `json:"source"`
-	Text     string    `json:"text"`
-	CallID   string    `json:"call_id"` // tool_started, tool_ended, tool_result_spilled
 	ToolID   string    `json:"tool_id"` // those, tool_loaded and tool_unloaded (the qualified ID)
-	Bytes    int       `json:"bytes"`   // tool_result_spilled: the size of the full result
 	Stage    string    `json:"stage"`   // extension_failed: such as toolset:crm
 	Code     string    `json:"code"`
-	RunID    string    `json:"run_id"`
 }
 
 type recordPart struct {
@@ -96,19 +86,8 @@ type recordPart struct {
 
 // recordMessage is a Transcript message: a user or assistant text, an assistant's tool calls, or a tool result.
 type recordMessage struct {
-	RunID     string       `json:"run_id"`
-	Role      string       `json:"role"`
-	Parts     []recordPart `json:"parts"`
-	ToolCalls []struct {
-		ID     string `json:"id"`
-		ToolID string `json:"tool_id"`
-	} `json:"tool_calls"`
-	ToolResult *struct {
-		CallID    string          `json:"call_id"`
-		Status    string          `json:"status"`
-		SafeError string          `json:"safe_error"`
-		Spilled   json.RawMessage `json:"spilled"`
-	} `json:"tool_result"`
+	Role  string       `json:"role"`
+	Parts []recordPart `json:"parts"`
 }
 
 type record struct {
@@ -119,23 +98,6 @@ type record struct {
 		Status string `json:"status"`
 	} `json:"runs"`
 	Events []recordEvent `json:"events"`
-	// Segments are the closed Segments the Record holds; Compactions say what each compaction did; LoadedTools are
-	// the catalog tools loaded now.
-	Segments    []recordSegment    `json:"segments"`
-	Compactions []recordCompaction `json:"compactions"`
-	LoadedTools []string           `json:"loaded_tools"`
-}
-
-type recordSegment struct {
-	Number   int             `json:"number"`
-	Recap    string          `json:"recap"`
-	Messages []recordMessage `json:"messages"`
-}
-
-type recordCompaction struct {
-	ReplacedMessages int    `json:"replaced_messages"`
-	Recap            string `json:"recap"` // the writer's name: truncate, model, none
-	Segment          int    `json:"segment"`
 }
 
 func (r record) text(i int) string {
