@@ -91,12 +91,6 @@ func (pl *plan) cutNow(name string) bool {
 
 // midOverflow reports whether the mid-stream overflow plays now.
 func (pl *plan) midOverflow() (flags string, ok bool) {
-	v, ok := pl.q.byName["overflow-midstream"]
-	if !ok {
-		return "", false
-	}
-	if hasFlag(v, "once") && !pl.g.times(pl.q, "overflow-midstream", 1) {
-		return "", false
-	}
-	return v, true
+	flags, ok = pl.q.byName["overflow-midstream"]
+	return flags, ok
 }

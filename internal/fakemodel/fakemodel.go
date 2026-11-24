@@ -31,8 +31,7 @@
 //	                           window ran out: Anthropic stops with
 //	                           model_context_window_exceeded, OpenAI sends an
 //	                           error event (flag "failed": Responses sends
-//	                           response.failed instead); flag "once" plays it
-//	                           the first time only
+//	                           response.failed instead)
 //	cut-after-text             close the connection after some text, the first
 //	                           time only, then answer normally
 //	cut-in-args                the same, in the middle of a tool call's
