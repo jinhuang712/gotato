@@ -7,6 +7,9 @@ import (
 	"strconv"
 )
 
+// bytesPerToken is the fake's estimate of the size of a token.
+const bytesPerToken = 4
+
 // plan is the reply the model gives.
 type plan struct {
 	text      string
