@@ -142,102 +142,81 @@ func (st *runState) settle(turn TurnNumber, assistant Message, stopped bool, rea
 // request as too long before any output and a TurnPreparer shortened it. A
 // non-nil failure is an error of the Run itself; modelErr is the Model's.
 func (st *runState) callModel(turn TurnNumber, runStart int) (assistant Message, usage Usage, modelErr *RuntimeError, failure *RuntimeError) {
-	a, runCtx, runID, hd := st.a, st.runCtx, st.runID, st.header
-	// build makes the request of this Turn from the Transcript as it
-	// stands. A TurnPreparer that rewrote the Transcript has it built again.
-	build := func() (turnBuild, *RuntimeError) {
-		messages, failure := a.history.messages()
-		if failure != nil {
-			return turnBuild{}, failure
-		}
-		snapshot := ContextSnapshot{
-			SessionID:          a.def.id,
-			RunID:              runID,
-			Turn:               turn,
-			SystemInstructions: a.def.instruction,
-			Messages:           cloneMessages(messages),
-		}
-		built, request, prefix, err := a.assembleTurn(runCtx, snapshot)
-		return turnBuild{snapshot: snapshot, built: built, request: request, prefix: prefix}, err
-	}
-	current, assembleErr := build()
+	current, assembleErr := st.buildTurn(turn)
 	if assembleErr != nil {
 		return Message{}, Usage{}, nil, assembleErr
 	}
-
 	// The Model is called here, once, and once more when it refuses the
 	// request as too long before any output and a TurnPreparer shortened it.
-	var (
-		assistantID MessageID
-		refused     *RuntimeError
-	)
-	for {
-		changed, prepareErr := a.prepareTurn(runCtx, runID, turn, runStart, current.request, asError(refused))
-		if prepareErr != nil {
-			return Message{}, Usage{}, nil, prepareErr
-		}
-		if refused != nil && !changed {
-			// Nothing shortened the request: the refusal stands.
-			assistant, usage, modelErr = Message{}, Usage{}, refused
-			break
-		}
-		if changed {
-			if err := a.history.measure(); err != nil {
-				return Message{}, Usage{}, nil, asRuntimeError(err)
-			}
-			if err := a.syncLoadedTools(); err != nil {
-				return Message{}, Usage{}, nil, asRuntimeError(err)
-			}
-			if err := a.refreshToolsInRun(runCtx); err != nil {
-				return Message{}, Usage{}, nil, err
-			}
-			if current, assembleErr = build(); assembleErr != nil {
-				return Message{}, Usage{}, nil, assembleErr
-			}
-		}
-		contextBuilt := ContextBuilt{
-			Header:           hd(turn),
-			Strategy:         current.built.Metadata["strategy"],
-			Messages:         len(current.request.Messages),
-			SourceMessages:   len(current.snapshot.Messages),
-			SelectedMessages: len(current.built.Messages),
-			PrefixHash:       current.prefix,
-			PrefixMessages:   max(len(current.request.Messages)-1, 0),
-			SystemBytes:      len(current.request.SystemInstructions),
-			Tools:            len(current.request.Tools),
-		}
-		estimate := EstimateContext(current.built, current.request)
-		contextBuilt.EstimateSystemTokens = estimate.System
-		contextBuilt.EstimateToolDefsTokens = estimate.ToolDefs
-		contextBuilt.EstimateSegmentsTokens = estimate.Segments
-		contextBuilt.EstimateHistoryTokens = estimate.History
-		contextBuilt.EstimateToolResultsTokens = estimate.ToolResults
-		// The builder's Metadata keeps its own key, so it can never replace
-		// a count above with its string form.
-		if len(current.built.Metadata) > 0 {
-			contextBuilt.Metadata = maps.Clone(current.built.Metadata)
-		}
-		// The model call is written before the Model is called, so a writer
-		// that can no longer write stops here, and the store's time stays out
-		// of the model's.
-		assistantID = MessageID(nextID("message"))
-		a.stage(contextBuilt, ReplyStarted{Header: hd(turn), MessageID: assistantID})
-		if err := a.flush(runCtx); err != nil {
-			return Message{}, Usage{}, nil, err
-		}
-		var callUsage Usage
-		assistant, callUsage, modelErr = a.readAssistant(runCtx, runID, turn, assistantID, current.request)
-		usage = callUsage
-		st.usage = addUsage(st.usage, callUsage)
-		// A refusal before any output is the one failure a shorter request
-		// can mend, once per Turn.
-		if modelErr != nil && modelErr.Code == CodeContextOverflow && refused == nil &&
-			len(assistant.Parts) == 0 && len(assistant.ToolCalls) == 0 {
-			refused = modelErr
-			continue
-		}
-		break
+	if _, failure = st.prepareCall(turn, runStart, &current, nil); failure != nil {
+		return Message{}, Usage{}, nil, failure
 	}
+	assistant, usage, modelErr, failure = st.callOnce(turn, &current)
+	// A refusal before any output is the one failure a shorter request
+	// can mend, once per Turn.
+	if failure != nil || !refusedBeforeOutput(modelErr, assistant) {
+		return assistant, usage, modelErr, failure
+	}
+	refused := modelErr
+	changed, failure := st.prepareCall(turn, runStart, &current, refused)
+	if failure != nil {
+		return Message{}, Usage{}, nil, failure
+	}
+	if !changed {
+		// Nothing shortened the request: the refusal stands.
+		return Message{}, Usage{}, refused, nil
+	}
+	return st.callOnce(turn, &current)
+}
+
+// refusedBeforeOutput reports whether modelErr refused the request as too long
+// before the reply had any output.
+func refusedBeforeOutput(modelErr *RuntimeError, assistant Message) bool {
+	return modelErr != nil && modelErr.Code == CodeContextOverflow &&
+		len(assistant.Parts) == 0 && len(assistant.ToolCalls) == 0
+}
+
+// prepareCall gives the TurnPreparers their chance before a model call, with
+// the refusal of the last call if any. When one rewrote the Transcript, it
+// builds current again and reports changed.
+func (st *runState) prepareCall(turn TurnNumber, runStart int, current *turnBuild, refused *RuntimeError) (changed bool, failure *RuntimeError) {
+	a := st.a
+	changed, prepareErr := a.prepareTurn(st.runCtx, st.runID, turn, runStart, current.request, asError(refused))
+	if prepareErr != nil || !changed {
+		return false, prepareErr
+	}
+	if err := a.history.measure(); err != nil {
+		return false, asRuntimeError(err)
+	}
+	if err := a.syncLoadedTools(); err != nil {
+		return false, asRuntimeError(err)
+	}
+	if err := a.refreshToolsInRun(st.runCtx); err != nil {
+		return false, err
+	}
+	rebuilt, assembleErr := st.buildTurn(turn)
+	if assembleErr != nil {
+		return false, assembleErr
+	}
+	*current = rebuilt
+	return true, nil
+}
+
+// callOnce writes the model call of current and calls the Model once. A
+// non-nil failure is an error of the Run itself; modelErr is the Model's.
+func (st *runState) callOnce(turn TurnNumber, current *turnBuild) (assistant Message, usage Usage, modelErr *RuntimeError, failure *RuntimeError) {
+	a := st.a
+	contextBuilt := current.contextBuilt(st.header(turn))
+	// The model call is written before the Model is called, so a writer
+	// that can no longer write stops here, and the store's time stays out
+	// of the model's.
+	assistantID := MessageID(nextID("message"))
+	a.stage(contextBuilt, ReplyStarted{Header: st.header(turn), MessageID: assistantID})
+	if err := a.flush(st.runCtx); err != nil {
+		return Message{}, Usage{}, nil, err
+	}
+	assistant, usage, modelErr = a.readAssistant(st.runCtx, st.runID, turn, assistantID, current.request)
+	st.usage = addUsage(st.usage, usage)
 	return assistant, usage, modelErr, nil
 }
 
@@ -592,14 +571,6 @@ func (st *runState) endToolTurn(t *turnRun) (bool, RunResult, error) {
 		return st.failTurn(controlErr)
 	}
 	return true, RunResult{}, nil
-}
-
-// turnBuild is the request of a Turn with what it was built from.
-type turnBuild struct {
-	snapshot ContextSnapshot
-	built    ModelContext
-	request  ModelRequest
-	prefix   string
 }
 
 // prepareTurn gives the TurnPreparers their chance before a model call. It

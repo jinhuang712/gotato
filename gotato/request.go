@@ -5,6 +5,7 @@ import (
 	"crypto/sha256"
 	"encoding/hex"
 	"encoding/json"
+	"maps"
 	"slices"
 	"sort"
 
@@ -262,4 +263,58 @@ func isSegmentMessage(message Message) bool {
 		}
 	}
 	return false
+}
+
+// turnBuild is the request of a Turn with what it was built from.
+type turnBuild struct {
+	snapshot ContextSnapshot
+	built    ModelContext
+	request  ModelRequest
+	prefix   string
+}
+
+// buildTurn makes the request of this Turn from the Transcript as it
+// stands. A TurnPreparer that rewrote the Transcript has it built again.
+func (st *runState) buildTurn(turn TurnNumber) (turnBuild, *RuntimeError) {
+	a := st.a
+	messages, failure := a.history.messages()
+	if failure != nil {
+		return turnBuild{}, failure
+	}
+	snapshot := ContextSnapshot{
+		SessionID:          a.def.id,
+		RunID:              st.runID,
+		Turn:               turn,
+		SystemInstructions: a.def.instruction,
+		Messages:           cloneMessages(messages),
+	}
+	built, request, prefix, err := a.assembleTurn(st.runCtx, snapshot)
+	return turnBuild{snapshot: snapshot, built: built, request: request, prefix: prefix}, err
+}
+
+// contextBuilt is the ContextBuilt Event of the request, with header.
+func (b *turnBuild) contextBuilt(header Header) ContextBuilt {
+	contextBuilt := ContextBuilt{
+		Header:           header,
+		Strategy:         b.built.Metadata["strategy"],
+		Messages:         len(b.request.Messages),
+		SourceMessages:   len(b.snapshot.Messages),
+		SelectedMessages: len(b.built.Messages),
+		PrefixHash:       b.prefix,
+		PrefixMessages:   max(len(b.request.Messages)-1, 0),
+		SystemBytes:      len(b.request.SystemInstructions),
+		Tools:            len(b.request.Tools),
+	}
+	estimate := EstimateContext(b.built, b.request)
+	contextBuilt.EstimateSystemTokens = estimate.System
+	contextBuilt.EstimateToolDefsTokens = estimate.ToolDefs
+	contextBuilt.EstimateSegmentsTokens = estimate.Segments
+	contextBuilt.EstimateHistoryTokens = estimate.History
+	contextBuilt.EstimateToolResultsTokens = estimate.ToolResults
+	// The builder's Metadata keeps its own key, so it can never replace
+	// a count above with its string form.
+	if len(b.built.Metadata) > 0 {
+		contextBuilt.Metadata = maps.Clone(b.built.Metadata)
+	}
+	return contextBuilt
 }
