@@ -302,47 +302,11 @@ func (s *ToolSet) Tools(ctx context.Context) ([]gotato.Tool, error) {
 	seen := make(map[string]bool, len(listed))
 	offered := make(map[string]bool, len(listed))
 	for _, t := range listed {
-		switch {
-		case t == nil || strings.TrimSpace(t.Name) == "":
-			skipped = append(skipped, SkippedTool{Reason: "the server listed a tool with no name"})
-			continue
-		// [CONTRACT] one bad entry (a repeated name) must not take the server's good tools; Skipped reports it.
-		case seen[t.Name]:
-			skipped = append(skipped, SkippedTool{Name: t.Name, Reason: "the server listed the name more than once; the first is kept"})
+		name, skip := s.vetTool(t, seen, offered)
+		if skip != nil {
+			skipped = append(skipped, *skip)
 			continue
 		}
-		seen[t.Name] = true
-		if s.cfg.filter != nil {
-			keep, panicked := callFilter(s.cfg.filter, t)
-			if panicked {
-				skipped = append(skipped, SkippedTool{Name: t.Name, Reason: "the tool filter panicked; the tool is left out"})
-				continue
-			}
-			if !keep {
-				skipped = append(skipped, SkippedTool{Name: t.Name, Reason: "filtered"})
-				continue
-			}
-		}
-		name := t.Name
-		if s.cfg.rename != nil {
-			renamed, panicked := callRename(s.cfg.rename, t.Name)
-			switch {
-			case panicked:
-				skipped = append(skipped, SkippedTool{Name: t.Name, Reason: "the tool rename panicked; the tool is left out"})
-				continue
-			case strings.TrimSpace(renamed) == "":
-				skipped = append(skipped, SkippedTool{Name: t.Name, Reason: "the tool rename gave an empty name"})
-				continue
-			}
-			name = renamed
-		}
-		// The names the Model sees must differ: a rename can give two tools
-		// one name, or a server name that another tool was renamed to.
-		if offered[name] {
-			skipped = append(skipped, SkippedTool{Name: t.Name, Reason: "the name the Model would see is another tool's; the first is kept"})
-			continue
-		}
-		offered[name] = true
 		tools = append(tools, newTool(s, t, name))
 	}
 	s.cacheMu.Lock()
