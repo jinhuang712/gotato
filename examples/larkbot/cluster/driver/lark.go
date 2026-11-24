@@ -218,3 +218,12 @@ func countRole(r record, role string) (n int) {
 	}
 	return n
 }
+
+// runStatuses lists the status of each Run of the Record, such as "failed, completed".
+func runStatuses(r record) string {
+	var out []string
+	for _, run := range r.Runs {
+		out = append(out, run.Status)
+	}
+	return strings.Join(out, ", ")
+}

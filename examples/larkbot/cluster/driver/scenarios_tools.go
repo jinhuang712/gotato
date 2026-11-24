@@ -338,6 +338,23 @@ func (e *env) s8(ctx context.Context) bool {
 	if err != nil {
 		return verdict("s8", false, err.Error())
 	}
+	onV := e.s8AskLoaded(ctx, st, ts, onVictim, killAt)
+
+	fmt.Printf("\n%s results\n", st.at())
+	faults, yes, no := e.s8Results(ctx, ts, onV, victimInst, killAt)
+	fmt.Println()
+	faults += e.report(ctx, ts)
+	for _, s := range storeErrors(e.readLogs()) {
+		faults++
+		fmt.Printf("  %s store error in a bot log: %s\n", fault, s)
+	}
+	fmt.Printf("  tool still loaded on the next message: victims %d of %d, survivors %d of %d\n", yes["victim"], yes["victim"]+no["victim"], yes["survivor"], yes["survivor"]+no["survivor"])
+	return verdict("s8", faults == 0, fmt.Sprintf("%d GOTATO-FAULT", faults))
+}
+
+// s8AskLoaded asks each thread whether the tool is still loaded: first the threads of the killed writer, inside
+// the Liveness TTL, then the others once the Runs settle. It returns the threads of the killed writer.
+func (e *env) s8AskLoaded(ctx context.Context, st stamper, ts, onVictim []*thread, killAt time.Time) map[*thread]bool {
 	onV := map[*thread]bool{}
 	sleep(ctx, time.Until(killAt.Add(3*time.Second))) // inside the Liveness TTL
 	for _, t := range onVictim {
@@ -354,60 +371,57 @@ func (e *env) s8(ctx context.Context) bool {
 		}
 	}
 	e.waitQuiet(ctx, ts, 10*time.Second, 60*time.Second)
+	return onV
+}
 
-	fmt.Printf("\n%s results\n", st.at())
-	faults := 0
-	yes := map[string]int{}
-	no := map[string]int{}
+// s8Tally is what s8 counts over its threads: the GOTATO-FAULTs, and the answers that the tool is loaded or not, by
+// role.
+type s8Tally struct {
+	faults  int
+	yes, no map[string]int
+}
+
+// s8Results checks each thread's Record and the model's answer to the loaded? message.
+func (e *env) s8Results(ctx context.Context, ts []*thread, onV map[*thread]bool, victimInst string, killAt time.Time) (int, map[string]int, map[string]int) {
+	tl := s8Tally{yes: map[string]int{}, no: map[string]int{}}
 	for _, t := range ts {
 		r, err := e.record(ctx, t.session())
 		if err != nil {
-			faults++
+			tl.faults++
 			fmt.Printf("  %s %s: cannot read the Record: %v\n", fault, t.session(), err)
 			continue
 		}
-		role := "survivor"
-		if onV[t] {
-			role = "victim"
-		}
-		ans := loadedAnswers(r)
-		fmt.Printf("  %s (%s): tool_loaded in the Record %v, the model's answer on the next message %v, Runs %s\n", t.session(), role, loadedTools(r), ans, runStatuses(r))
-		if onV[t] {
-			printTakeover(t, r, victimInst, killAt)
-		}
-		if r.count(t.msgs[len(t.msgs)-1].tag) != 1 {
-			continue // the loaded? message is not in the Transcript: report below classifies it
-		}
-		if len(ans) != 1 {
-			faults++
-			fmt.Printf("  %s %s: %d answers to the loaded? message, want 1\n", fault, t.session(), len(ans))
-			continue
-		}
-		if ans[0] {
-			yes[role]++
-		} else {
-			no[role]++
-		}
-		if !ans[0] && len(loadedTools(r)) > 0 {
-			faults++
-			fmt.Printf("  %s %s: the Record says %v is loaded, and the model on the next message does not see it loaded\n", fault, t.session(), loadedTools(r))
-		}
+		tl.add(t, r, onV, victimInst, killAt)
 	}
-	fmt.Println()
-	faults += e.report(ctx, ts)
-	for _, s := range storeErrors(e.readLogs()) {
-		faults++
-		fmt.Printf("  %s store error in a bot log: %s\n", fault, s)
-	}
-	fmt.Printf("  tool still loaded on the next message: victims %d of %d, survivors %d of %d\n", yes["victim"], yes["victim"]+no["victim"], yes["survivor"], yes["survivor"]+no["survivor"])
-	return verdict("s8", faults == 0, fmt.Sprintf("%d GOTATO-FAULT", faults))
+	return tl.faults, tl.yes, tl.no
 }
 
-// runStatuses lists the status of each Run of the Record, such as "failed, completed".
-func runStatuses(r record) string {
-	var out []string
-	for _, run := range r.Runs {
-		out = append(out, run.Status)
+// add checks one thread's Record: the takeover of a victim, and the model's answer to the loaded? message.
+func (tl *s8Tally) add(t *thread, r record, onV map[*thread]bool, victimInst string, killAt time.Time) {
+	role := "survivor"
+	if onV[t] {
+		role = "victim"
 	}
-	return strings.Join(out, ", ")
+	ans := loadedAnswers(r)
+	fmt.Printf("  %s (%s): tool_loaded in the Record %v, the model's answer on the next message %v, Runs %s\n", t.session(), role, loadedTools(r), ans, runStatuses(r))
+	if onV[t] {
+		printTakeover(t, r, victimInst, killAt)
+	}
+	if r.count(t.msgs[len(t.msgs)-1].tag) != 1 {
+		return // the loaded? message is not in the Transcript: report below classifies it
+	}
+	if len(ans) != 1 {
+		tl.faults++
+		fmt.Printf("  %s %s: %d answers to the loaded? message, want 1\n", fault, t.session(), len(ans))
+		return
+	}
+	if ans[0] {
+		tl.yes[role]++
+	} else {
+		tl.no[role]++
+	}
+	if !ans[0] && len(loadedTools(r)) > 0 {
+		tl.faults++
+		fmt.Printf("  %s %s: the Record says %v is loaded, and the model on the next message does not see it loaded\n", fault, t.session(), loadedTools(r))
+	}
 }
