@@ -165,68 +165,76 @@ func (c chatWire) validateReasoning(p *parsed) *apiError {
 	return nil
 }
 
-func (chatWire) stream(s *sseWriter, p *parsed, pl *plan, q *quirks) {
+func (chatWire) stream(s *sseWriter, p *parsed, pl *plan, _ *quirks) {
 	req := p.request.(*chatRequest)
-	chunk := func(delta map[string]any, finish any) {
-		s.event("", map[string]any{"id": "chatcmpl-" + pl.id, "object": "chat.completion.chunk", "created": 1, "model": p.model,
-			"choices": []any{map[string]any{"index": 0, "delta": delta, "finish_reason": finish}}})
-	}
-	chunk(map[string]any{"role": "assistant", "content": ""}, nil)
-	for _, c := range chunks(pl.reasoning, 12) {
-		chunk(map[string]any{"reasoning_content": c}, nil)
-	}
-	mid := func() bool {
-		if _, ok := pl.midOverflow(); !ok {
-			return false
-		}
-		pl.outcome("overflow-midstream")
-		s.event("", map[string]any{"error": map[string]any{
-			"message": "This model's maximum context length is exceeded. Please reduce the length of the messages.",
-			"type":    "invalid_request_error", "param": "messages", "code": "context_length_exceeded"}})
-		return true
+	c := &chatStream{s: s, p: p, pl: pl}
+	c.chunk(map[string]any{"role": "assistant", "content": ""}, nil)
+	for _, r := range chunks(pl.reasoning, reasoningChunkBytes) {
+		c.chunk(map[string]any{"reasoning_content": r}, nil)
 	}
 	finish := "stop"
-	if pl.call == nil {
-		for n, c := range chunks(pl.text, 5) {
-			chunk(map[string]any{"content": c}, nil)
-			if n == 0 {
-				if mid() {
-					return
-				}
-				if pl.cutNow("cut-after-text") {
-					s.cut(pl)
-				}
-			}
-		}
-	} else {
+	if pl.call != nil {
 		finish = "tool_calls"
-		call := func(fn map[string]any, extra map[string]any) {
-			tc := map[string]any{"index": 0, "function": fn}
-			maps.Copy(tc, extra)
-			chunk(map[string]any{"tool_calls": []any{tc}}, nil)
-		}
-		call(map[string]any{"name": pl.call.name, "arguments": ""}, map[string]any{"id": "call_" + pl.id, "type": "function"})
-		for n, c := range chunks(pl.call.args, 6) {
-			call(map[string]any{"arguments": c}, nil)
-			if n == 0 {
-				if mid() {
-					return
-				}
-				if pl.cutNow("cut-in-args") {
-					s.cut(pl)
-				}
-			}
-		}
 	}
-	chunk(map[string]any{}, finish)
+	if !c.content() {
+		return
+	}
+	c.chunk(map[string]any{}, finish)
 	if req.StreamOptions != nil && req.StreamOptions.IncludeUsage {
-		s.event("", map[string]any{"id": "chatcmpl-" + pl.id, "object": "chat.completion.chunk", "created": 1, "model": p.model,
-			"choices": []any{},
-			"usage": map[string]any{
-				"prompt_tokens": pl.input, "completion_tokens": pl.output, "total_tokens": pl.input + pl.output,
-				"prompt_tokens_details":     map[string]any{"cached_tokens": pl.cached, "audio_tokens": 0},
-				"completion_tokens_details": map[string]any{"reasoning_tokens": len(pl.reasoning) / 4},
-			}})
+		c.usage()
 	}
 	s.event("", "[DONE]")
+}
+
+// chatStream writes one reply as Chat Completions chunks.
+type chatStream struct {
+	s  *sseWriter
+	p  *parsed
+	pl *plan
+}
+
+// chunk writes one chunk with the delta and the finish reason.
+func (c *chatStream) chunk(delta map[string]any, finish any) {
+	c.s.event("", map[string]any{"id": "chatcmpl-" + c.pl.id, "object": "chat.completion.chunk", "created": 1, "model": c.p.model,
+		"choices": []any{map[string]any{"index": 0, "delta": delta, "finish_reason": finish}}})
+}
+
+// content writes the text or the tool call, and reports false when a
+// mid-stream overflow ended the stream.
+func (c *chatStream) content() bool {
+	pl := c.pl
+	if pl.call == nil {
+		return pl.play(c.s, textChunks, pl.text, func(t string) {
+			c.chunk(map[string]any{"content": t}, nil)
+		}, c.overflow)
+	}
+	call := func(fn map[string]any, extra map[string]any) {
+		tc := map[string]any{"index": 0, "function": fn}
+		maps.Copy(tc, extra)
+		c.chunk(map[string]any{"tool_calls": []any{tc}}, nil)
+	}
+	call(map[string]any{"name": pl.call.name, "arguments": ""}, map[string]any{"id": "call_" + pl.id, "type": "function"})
+	return pl.play(c.s, argsChunks, pl.call.args, func(a string) {
+		call(map[string]any{"arguments": a}, nil)
+	}, c.overflow)
+}
+
+// overflow ends the stream with the error chunk Chat Completions sends when
+// the context window runs out.
+func (c *chatStream) overflow(string) {
+	c.s.event("", map[string]any{"error": map[string]any{
+		"message": "This model's maximum context length is exceeded. Please reduce the length of the messages.",
+		"type":    "invalid_request_error", "param": "messages", "code": "context_length_exceeded"}})
+}
+
+// usage writes the usage chunk.
+func (c *chatStream) usage() {
+	pl := c.pl
+	c.s.event("", map[string]any{"id": "chatcmpl-" + pl.id, "object": "chat.completion.chunk", "created": 1, "model": c.p.model,
+		"choices": []any{},
+		"usage": map[string]any{
+			"prompt_tokens": pl.input, "completion_tokens": pl.output, "total_tokens": pl.input + pl.output,
+			"prompt_tokens_details":     map[string]any{"cached_tokens": pl.cached, "audio_tokens": 0},
+			"completion_tokens_details": map[string]any{"reasoning_tokens": len(pl.reasoning) / bytesPerToken},
+		}})
 }
