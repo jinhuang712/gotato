@@ -282,35 +282,11 @@ func withRoundBreakpoint(breakpoints []gotato.CacheBreakpoint, messages []gotato
 // when it is set. When a request carries more breakpoints than the provider
 // accepts, the last ones win: they cover the longest prefixes.
 func applyAnthropicCacheBreakpoints(payload *anthropicRequest, breakpoints []gotato.CacheBreakpoint, ends []blockRef, ttl string) {
-	marker := func() anthropicBlock {
-		if ttl != "" {
-			return anthropicBlock{"type": "ephemeral", "ttl": ttl}
-		}
-		return anthropicBlock{"type": "ephemeral"}
-	}
-	type target struct {
-		anchor gotato.CacheAnchor
-		ref    blockRef
-	}
-	var targets []target
-	seen := make(map[target]bool)
+	var targets []anthropicCacheTarget
+	seen := make(map[anthropicCacheTarget]bool)
 	for _, point := range breakpoints {
-		t := target{anchor: point.After, ref: blockRef{message: -1}}
-		switch point.After {
-		case gotato.CacheAnchorAfterSystem:
-			if len(payload.System) == 0 {
-				continue
-			}
-		case gotato.CacheAnchorAfterTools:
-			if len(payload.Tools) == 0 {
-				continue
-			}
-		case gotato.CacheAnchorAfterMessage:
-			if point.Index < 0 || point.Index >= len(ends) || ends[point.Index].message < 0 {
-				continue
-			}
-			t.ref = ends[point.Index]
-		default:
+		t, ok := anthropicCacheTargetOf(payload, point, ends)
+		if !ok {
 			continue
 		}
 		if !seen[t] {
@@ -322,17 +298,58 @@ func applyAnthropicCacheBreakpoints(payload *anthropicRequest, breakpoints []got
 		targets = targets[len(targets)-maxAnthropicCacheBreakpoints:]
 	}
 	for _, t := range targets {
-		switch t.anchor {
-		case gotato.CacheAnchorAfterSystem:
-			payload.System[len(payload.System)-1]["cache_control"] = marker()
-		case gotato.CacheAnchorAfterTools:
-			end := len(payload.Tools) - 1
-			for end > 0 && payload.Tools[end].DeferLoading {
-				end--
-			}
-			payload.Tools[end].CacheControl = marker()
-		case gotato.CacheAnchorAfterMessage:
-			payload.Messages[t.ref.message].Content[t.ref.block]["cache_control"] = marker()
-		}
+		placeAnthropicCacheMarker(payload, t, ttl)
 	}
+}
+
+// anthropicCacheTarget is where one cache_control marker goes.
+type anthropicCacheTarget struct {
+	anchor gotato.CacheAnchor
+	ref    blockRef
+}
+
+// anthropicCacheTargetOf returns the target of one breakpoint; ok is false
+// when it falls on nothing the request sends.
+func anthropicCacheTargetOf(payload *anthropicRequest, point gotato.CacheBreakpoint, ends []blockRef) (t anthropicCacheTarget, ok bool) {
+	t = anthropicCacheTarget{anchor: point.After, ref: blockRef{message: -1}}
+	switch point.After {
+	case gotato.CacheAnchorAfterSystem:
+		return t, len(payload.System) > 0
+	case gotato.CacheAnchorAfterTools:
+		return t, len(payload.Tools) > 0
+	case gotato.CacheAnchorAfterMessage:
+		if point.Index < 0 || point.Index >= len(ends) || ends[point.Index].message < 0 {
+			return t, false
+		}
+		t.ref = ends[point.Index]
+		return t, true
+	default:
+		return t, false
+	}
+}
+
+// placeAnthropicCacheMarker puts a cache_control marker, with ttl when it is
+// set, on the block a target names.
+func placeAnthropicCacheMarker(payload *anthropicRequest, t anthropicCacheTarget, ttl string) {
+	marker := anthropicCacheMarker(ttl)
+	switch t.anchor {
+	case gotato.CacheAnchorAfterSystem:
+		payload.System[len(payload.System)-1]["cache_control"] = marker
+	case gotato.CacheAnchorAfterTools:
+		end := len(payload.Tools) - 1
+		for end > 0 && payload.Tools[end].DeferLoading {
+			end--
+		}
+		payload.Tools[end].CacheControl = marker
+	case gotato.CacheAnchorAfterMessage:
+		payload.Messages[t.ref.message].Content[t.ref.block]["cache_control"] = marker
+	}
+}
+
+// anthropicCacheMarker returns a new cache_control marker, with ttl when it is set.
+func anthropicCacheMarker(ttl string) anthropicBlock {
+	if ttl != "" {
+		return anthropicBlock{"type": "ephemeral", "ttl": ttl}
+	}
+	return anthropicBlock{"type": "ephemeral"}
 }
