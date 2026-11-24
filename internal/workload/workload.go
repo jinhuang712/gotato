@@ -221,77 +221,49 @@ func playTask(ctx context.Context, runner *host.Runner, st store.Store, task ref
 	// context_built to its reply_ended, or to run_ended when the call failed;
 	// a tool's time runs from tool_started to tool_ended; the store's time is
 	// in the Instance's session_loaded and session_saved.
-	var answers []string
-	var calls []toolCall
-	var waiting time.Time
-	toolStarts := map[gotato.ToolCallID]time.Time{}
-	toolIDs := map[gotato.ToolCallID]string{}
-	turn := 0
-	storeEvents, err := runner.SubscribeInstance(ctx, gotato.SubscribeFilter(func(event gotato.Event) bool {
-		switch event.(type) {
-		case host.SessionLoaded, host.SessionSaved:
-			return event.Head().SessionID == gotato.SessionID(s.ID)
-		}
-		return false
-	}))
+	storeEvents, err := subscribeStoreEvents(ctx, runner, s.ID)
 	if err != nil {
 		p.failures = append(p.failures, failure{kind: KindSetup, cause: CauseStore, message: err.Error()})
 		return p
 	}
 	defer func() { _ = storeEvents.Close() }()
-	for _, prompt := range task.Prompts {
+	answers, calls := p.playPrompts(ctx, runner, storeEvents, s.ID, task.Prompts)
+	// The committed tool results add the text of each failure to the
+	// report; the Events have already decided its cause.
+	results := map[gotato.ToolCallID]gotato.ToolResult{}
+	p.readFinal(ctx, st, s.ID, results)
+	p.addToolFailures(calls, results)
+	if err := task.Check(answers); err != nil {
+		p.failures = append(p.failures, failure{kind: KindCheck, cause: CauseModel, message: err.Error()})
+	} else {
+		p.passed = true
+	}
+	return p
+}
+
+// subscribeStoreEvents subscribes to the Instance's session_loaded and
+// session_saved Events of one Session.
+func subscribeStoreEvents(ctx context.Context, runner *host.Runner, id string) (gotato.Subscription, error) {
+	return runner.SubscribeInstance(ctx, gotato.SubscribeFilter(func(event gotato.Event) bool {
+		switch event.(type) {
+		case host.SessionLoaded, host.SessionSaved:
+			return event.Head().SessionID == gotato.SessionID(id)
+		}
+		return false
+	}))
+}
+
+// playPrompts runs each prompt on the Session in turn and returns the final
+// texts of the Runs and the play's tool calls.
+func (p *play) playPrompts(ctx context.Context, runner *host.Runner, storeEvents gotato.Subscription, id string, prompts []string) ([]string, []toolCall) {
+	var o playObserver
+	toolStarts := map[gotato.ToolCallID]time.Time{}
+	var answers []string
+	for _, prompt := range prompts {
 		started := time.Now()
-		requested, streaming := false, false
-		result, err := runner.StreamRun(ctx, host.RunRequest{SessionID: s.ID, Prompt: prompt}, func(event gotato.Event) error {
-			switch e := event.(type) {
-			case gotato.TurnStarted:
-				p.turns++
-			case gotato.ContextBuilt:
-				p.builds = append(p.builds, build{messages: e.SourceMessages, prefix: e.PrefixHash})
-				waiting, streaming = e.Time, false
-				if !requested {
-					p.stats.addBeforeRequest(e.Time.Sub(started))
-					requested = true
-				}
-			case gotato.TextDelta:
-				// The first text delta of a Turn: the model's time to its
-				// first token.
-				if !streaming && !waiting.IsZero() {
-					p.stats.addFirstToken(e.Time.Sub(waiting))
-					streaming = true
-				}
-			case gotato.ReplyEnded:
-				if !waiting.IsZero() {
-					p.stats.addModel(e.Time.Sub(waiting))
-					waiting = time.Time{}
-				}
-			case gotato.ToolStarted:
-				toolStarts[e.CallID] = e.Time
-				toolIDs[e.CallID] = e.ToolID
-			case gotato.ToolEnded:
-				if since, ok := toolStarts[e.CallID]; ok {
-					p.stats.addTool(e.Time.Sub(since))
-				}
-				calls = append(calls, toolCall{id: e.CallID, toolID: e.ToolID, status: string(e.Status), executed: e.Executed})
-			case gotato.TurnEnded:
-				// A play's first Turn has nothing cached yet; B1 counts
-				// from the second on.
-				if turn > 0 {
-					p.laterInput += e.Usage.InputTokens
-					p.laterCached += e.Usage.CacheReadTokens
-				}
-				turn++
-			case gotato.ReplyCutOff:
-				if !waiting.IsZero() {
-					p.stats.addModel(e.Time.Sub(waiting))
-					waiting = time.Time{}
-				}
-			case gotato.RunEnded:
-				if !waiting.IsZero() {
-					p.stats.addModel(e.Time.Sub(waiting))
-					waiting = time.Time{}
-				}
-			}
+		o.started, o.requested, o.streaming = started, false, false
+		result, err := runner.StreamRun(ctx, host.RunRequest{SessionID: id, Prompt: prompt}, func(event gotato.Event) error {
+			o.observe(p, toolStarts, event)
 			return nil
 		})
 		p.stats.addRun(time.Since(started))
@@ -303,21 +275,28 @@ func playTask(ctx context.Context, runner *host.Runner, st store.Store, task ref
 		answers = append(answers, result.FinalText)
 		readStoreTimes(ctx, storeEvents, p.stats)
 	}
+	return answers, o.calls
+}
 
-	// The committed tool results add the text of each failure to the
-	// report; the Events have already decided its cause.
-	results := map[gotato.ToolCallID]gotato.ToolResult{}
-	final, err := store.Open(ctx, st.Records, s.ID)
+// readFinal reads the Session back into p.final and its committed tool
+// results by call into results.
+func (p *play) readFinal(ctx context.Context, st store.Store, id string, results map[gotato.ToolCallID]gotato.ToolResult) {
+	final, err := store.Open(ctx, st.Records, id)
 	if err != nil {
 		p.failures = append(p.failures, failure{kind: KindSetup, cause: CauseStore, message: "reading the Session back: " + err.Error()})
-	} else {
-		p.final = final
-		for _, message := range final.Messages() {
-			if message.ToolResult != nil {
-				results[message.ToolResult.CallID] = *message.ToolResult
-			}
+		return
+	}
+	p.final = final
+	for _, message := range final.Messages() {
+		if message.ToolResult != nil {
+			results[message.ToolResult.CallID] = *message.ToolResult
 		}
 	}
+}
+
+// addToolFailures counts the play's tool calls and adds a failure for each
+// that failed.
+func (p *play) addToolFailures(calls []toolCall, results map[gotato.ToolCallID]gotato.ToolResult) {
 	p.toolCalls = len(calls)
 	for _, call := range calls {
 		var committed *gotato.ToolResult
@@ -328,12 +307,90 @@ func playTask(ctx context.Context, runner *host.Runner, st store.Store, task ref
 			p.failures = append(p.failures, f)
 		}
 	}
-	if err := task.Check(answers); err != nil {
-		p.failures = append(p.failures, failure{kind: KindCheck, cause: CauseModel, message: err.Error()})
-	} else {
-		p.passed = true
+}
+
+// playObserver reads one play's Run Events into its play. It holds no
+// pointer to the play or to the tool start times, so that neither leaves the
+// stack.
+type playObserver struct {
+	calls   []toolCall
+	waiting time.Time
+	turn    int
+	// started, requested and streaming belong to the current Run.
+	started              time.Time
+	requested, streaming bool
+}
+
+// observe reads one Run Event into p; toolStarts holds when each tool call
+// started.
+func (o *playObserver) observe(p *play, toolStarts map[gotato.ToolCallID]time.Time, event gotato.Event) {
+	switch e := event.(type) {
+	case gotato.TurnStarted:
+		p.turns++
+	case gotato.ContextBuilt:
+		o.contextBuilt(p, e)
+	case gotato.TextDelta:
+		o.textDelta(p, e)
+	case gotato.ReplyEnded:
+		o.modelEnded(p, e.Time)
+	case gotato.ToolStarted:
+		toolStarts[e.CallID] = e.Time
+	case gotato.ToolEnded:
+		o.toolEnded(p, toolStarts, e)
+	case gotato.TurnEnded:
+		o.turnEnded(p, e)
+	case gotato.ReplyCutOff:
+		o.modelEnded(p, e.Time)
+	case gotato.RunEnded:
+		o.modelEnded(p, e.Time)
 	}
-	return p
+}
+
+// contextBuilt records a Turn's build and starts the model's time.
+func (o *playObserver) contextBuilt(p *play, e gotato.ContextBuilt) {
+	p.builds = append(p.builds, build{messages: e.SourceMessages, prefix: e.PrefixHash})
+	o.waiting, o.streaming = e.Time, false
+	if !o.requested {
+		p.stats.addBeforeRequest(e.Time.Sub(o.started))
+		o.requested = true
+	}
+}
+
+// textDelta adds the model's time to its first token.
+func (o *playObserver) textDelta(p *play, e gotato.TextDelta) {
+	// The first text delta of a Turn: the model's time to its
+	// first token.
+	if !o.streaming && !o.waiting.IsZero() {
+		p.stats.addFirstToken(e.Time.Sub(o.waiting))
+		o.streaming = true
+	}
+}
+
+// modelEnded adds the model's time when the model's reply ended at end.
+func (o *playObserver) modelEnded(p *play, end time.Time) {
+	if !o.waiting.IsZero() {
+		p.stats.addModel(end.Sub(o.waiting))
+		o.waiting = time.Time{}
+	}
+}
+
+// toolEnded adds a tool's time and records its call.
+func (o *playObserver) toolEnded(p *play, toolStarts map[gotato.ToolCallID]time.Time, e gotato.ToolEnded) {
+	if since, ok := toolStarts[e.CallID]; ok {
+		p.stats.addTool(e.Time.Sub(since))
+	}
+	o.calls = append(o.calls, toolCall{id: e.CallID, toolID: e.ToolID, status: string(e.Status), executed: e.Executed})
+}
+
+// turnEnded adds a later Turn's input and cached tokens.
+func (o *playObserver) turnEnded(p *play, e gotato.TurnEnded) {
+	// A play's first Turn has nothing cached yet; B1 counts
+	// from the second on.
+	if o.turn > 0 {
+		p.laterInput += e.Usage.InputTokens
+		p.laterCached += e.Usage.CacheReadTokens
+	}
+	o.turn++
 }
 
 // readStoreTimes adds the store's time for one Run: the Instance's
