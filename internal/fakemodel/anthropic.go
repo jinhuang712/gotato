@@ -381,52 +381,73 @@ func anthropicSignature(prefix, thinking string) string {
 // was received, and it was written under the same prefix.
 func (a anthropicWire) validateReasoning(p *parsed) *apiError {
 	req := p.request.(*anthropicRequest)
+	last := req.lastAssistant()
+	if last < 0 {
+		return nil
+	}
+	blocks := req.blocks[last]
+	dropMismatch := req.dropsMismatch()
+	dropped := false
+	for j, b := range blocks {
+		if b["type"] != "thinking" {
+			continue
+		}
+		mismatch, e := a.checkThinking(p.raw, last, j, b)
+		if e != nil {
+			return e
+		}
+		if !mismatch {
+			continue
+		}
+		if !dropMismatch {
+			return a.invalid(fmt.Sprintf("messages.%d.content.%d: Invalid `signature` in `thinking` block. The block is bound to a different conversation. Remove the block, or set `thinking.block_binding.prefix_mismatch_behavior` to \"drop_block\".", last, j))
+		}
+		dropped = true
+	}
+	if len(blockIDs(blocks, "tool_use", "id")) > 0 && !dropped && !startsWithThinking(blocks) {
+		return a.invalid(fmt.Sprintf("messages.%d.content.0.type: Expected `thinking` or `redacted_thinking`, but found `%v`. When `thinking` is enabled, a final `assistant` message must start with a thinking block (preceding the lastmost set of `tool_use` and `tool_result` blocks). We recommend you include thinking blocks from previous turns. To avoid this requirement, disable `thinking`. Please consult our documentation at https://docs.claude.com/en/docs/build-with-claude/extended-thinking", last, firstType(blocks))) //nolint:misspell // the provider spells it so
+	}
+	return nil
+}
+
+// lastAssistant returns the index of the last assistant message, or -1.
+func (req *anthropicRequest) lastAssistant() int {
 	last := -1
 	for i, m := range req.Messages {
 		if m.Role == "assistant" {
 			last = i
 		}
 	}
-	if last < 0 {
-		return nil
+	return last
+}
+
+// dropsMismatch reports whether the request asks to drop a thinking block
+// bound to another prefix (block_binding with drop_block).
+func (req *anthropicRequest) dropsMismatch() bool {
+	return req.Thinking != nil && req.Thinking.BlockBinding != nil && req.Thinking.BlockBinding.PrefixMismatchBehavior == "drop_block"
+}
+
+// checkThinking refuses thinking block j of message i when its signature is
+// not the fake's or its text is not as signed, and reports whether it was
+// written under another prefix.
+func (a anthropicWire) checkThinking(raw map[string]any, i, j int, b map[string]any) (bool, *apiError) {
+	sig, _ := b["signature"].(string)
+	text, _ := b["thinking"].(string)
+	decoded, err := base64.StdEncoding.DecodeString(sig)
+	parts := strings.Split(string(decoded), ".")
+	if err != nil || len(parts) != 3 || parts[0] != "fakesig" {
+		return false, a.invalid(fmt.Sprintf("messages.%d.content.%d: Invalid `signature` in `thinking` block", i, j))
 	}
-	blocks := req.blocks[last]
-	hasUse := false
-	for _, b := range blocks {
-		if b["type"] == "tool_use" {
-			hasUse = true
-		}
+	sum := sha256.Sum256([]byte(text))
+	if parts[2] != hex.EncodeToString(sum[:8]) {
+		return false, a.invalid(fmt.Sprintf("messages.%d.content.%d: `thinking` or `redacted_thinking` blocks in the latest assistant message cannot be modified. These blocks must remain as they were in the original response.", i, j))
 	}
-	dropMismatch := req.Thinking != nil && req.Thinking.BlockBinding != nil && req.Thinking.BlockBinding.PrefixMismatchBehavior == "drop_block"
-	dropped := false
-	for j, b := range blocks {
-		kind, _ := b["type"].(string)
-		if kind != "thinking" {
-			continue
-		}
-		sig, _ := b["signature"].(string)
-		text, _ := b["thinking"].(string)
-		decoded, err := base64.StdEncoding.DecodeString(sig)
-		parts := strings.Split(string(decoded), ".")
-		if err != nil || len(parts) != 3 || parts[0] != "fakesig" {
-			return a.invalid(fmt.Sprintf("messages.%d.content.%d: Invalid `signature` in `thinking` block", last, j))
-		}
-		sum := sha256.Sum256([]byte(text))
-		if parts[2] != hex.EncodeToString(sum[:8]) {
-			return a.invalid(fmt.Sprintf("messages.%d.content.%d: `thinking` or `redacted_thinking` blocks in the latest assistant message cannot be modified. These blocks must remain as they were in the original response.", last, j))
-		}
-		if parts[1] != prefixHash(p.raw, last, j) {
-			if dropMismatch {
-				dropped = true
-				continue
-			}
-			return a.invalid(fmt.Sprintf("messages.%d.content.%d: Invalid `signature` in `thinking` block. The block is bound to a different conversation. Remove the block, or set `thinking.block_binding.prefix_mismatch_behavior` to \"drop_block\".", last, j))
-		}
-	}
-	if hasUse && !dropped && (len(blocks) == 0 || (blocks[0]["type"] != "thinking" && blocks[0]["type"] != "redacted_thinking")) {
-		return a.invalid(fmt.Sprintf("messages.%d.content.0.type: Expected `thinking` or `redacted_thinking`, but found `%v`. When `thinking` is enabled, a final `assistant` message must start with a thinking block (preceding the lastmost set of `tool_use` and `tool_result` blocks). We recommend you include thinking blocks from previous turns. To avoid this requirement, disable `thinking`. Please consult our documentation at https://docs.claude.com/en/docs/build-with-claude/extended-thinking", last, firstType(blocks))) //nolint:misspell // the provider spells it so
-	}
-	return nil
+	return parts[1] != prefixHash(raw, i, j), nil
+}
+
+// startsWithThinking reports whether the first block is a thinking block.
+func startsWithThinking(blocks []map[string]any) bool {
+	return len(blocks) > 0 && (blocks[0]["type"] == "thinking" || blocks[0]["type"] == "redacted_thinking")
 }
 
 func firstType(blocks []map[string]any) any {
