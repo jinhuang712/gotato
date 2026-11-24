@@ -127,12 +127,30 @@ func (t *sessionTools) active(id string) bool {
 // sessionID may be empty for the Agent's default surface. A Tool above the
 // Agent's MaxEffect is not listed.
 func (r *Runner) Tools(ctx context.Context, agent, sessionID string) ([]ToolEntry, error) {
+	s, spec, err := r.openForTools(ctx, agent, sessionID)
+	if err != nil {
+		return nil, err
+	}
+	filter := &sessionTools{spec: spec, session: s}
+	entries, err := agentToolEntries(ctx, spec, filter)
+	if err != nil {
+		return nil, err
+	}
+	if s == nil {
+		return entries, nil
+	}
+	return r.addLiveToolEntries(ctx, spec, s, filter, entries)
+}
+
+// openForTools opens the Record of sessionID, unless it is empty, and finds the
+// AgentProfile: the one named, else the Session's.
+func (r *Runner) openForTools(ctx context.Context, agent, sessionID string) (*record.Record, profile.AgentProfile, error) {
 	var s *record.Record
 	if sessionID != "" {
 		var err error
 		s, err = store.Open(ctx, r.store.Records, sessionID)
 		if err != nil {
-			return nil, storeFailureOf(ctx, err, true)
+			return nil, profile.AgentProfile{}, storeFailureOf(ctx, err, true)
 		}
 	}
 	var spec profile.AgentProfile
@@ -142,11 +160,13 @@ func (r *Runner) Tools(ctx context.Context, agent, sessionID string) ([]ToolEntr
 	} else {
 		spec, err = r.agentNamed(ctx, agent)
 	}
-	if err != nil {
-		return nil, err
-	}
+	return s, spec, err
+}
+
+// agentToolEntries lists the Tools the AgentProfile offers, as a Session sees
+// them, and refuses a Tool ID that two parts of the AgentProfile supply.
+func agentToolEntries(ctx context.Context, spec profile.AgentProfile, filter *sessionTools) ([]ToolEntry, error) {
 	all := &sessionTools{spec: spec}
-	filter := &sessionTools{spec: spec, session: s}
 	entries := make([]ToolEntry, 0)
 	offered, err := all.Tools(ctx)
 	if err != nil {
@@ -163,28 +183,31 @@ func (r *Runner) Tools(ctx context.Context, agent, sessionID string) ([]ToolEntr
 		}
 		entries = append(entries, ToolEntry{Spec: spec, Active: filter.active(spec.ID)})
 	}
-	if s != nil {
-		// The live Session says what the Agent's ToolSets hold: every tool of every ToolSet, loaded or not,
-		// switched off or not, and search_tools, whose description is the catalog.
-		toolCtx, cancel := r.toolSetContext(ctx)
-		defer cancel()
-		live, _, err := r.buildSession(toolCtx, spec, s, nil, InspectConfig{})
-		if err != nil {
-			if r.toolSetsTimedOut(ctx, err) {
-				// The Agent's own tools are listed; the error says the ToolSets did not answer.
-				return entries, toolSetsTimeout(err)
-			}
-			return nil, err
+	return entries, nil
+}
+
+// addLiveToolEntries adds what the live Session of a Record holds to entries.
+func (r *Runner) addLiveToolEntries(ctx context.Context, spec profile.AgentProfile, s *record.Record, filter *sessionTools, entries []ToolEntry) ([]ToolEntry, error) {
+	// The live Session says what the Agent's ToolSets hold: every tool of every ToolSet, loaded or not,
+	// switched off or not, and search_tools, whose description is the catalog.
+	toolCtx, cancel := r.toolSetContext(ctx)
+	defer cancel()
+	live, _, err := r.buildSession(toolCtx, spec, s, nil, InspectConfig{})
+	if err != nil {
+		if r.toolSetsTimedOut(ctx, err) {
+			// The Agent's own tools are listed; the error says the ToolSets did not answer.
+			return entries, toolSetsTimeout(err)
 		}
-		defer func() { _ = live.Close(context.Background()) }()
-		entries = append(entries, toolSetEntries(live, filter)...)
-		for _, offered := range live.Tools() {
-			if !slices.ContainsFunc(entries, func(e ToolEntry) bool { return e.Spec.ID == offered.ID }) {
-				entries = append(entries, ToolEntry{Spec: offered, Active: true})
-			}
-		}
-		sort.Slice(entries, func(i, j int) bool { return entries[i].Spec.ID < entries[j].Spec.ID })
+		return nil, err
 	}
+	defer func() { _ = live.Close(context.Background()) }()
+	entries = append(entries, toolSetEntries(live, filter)...)
+	for _, offered := range live.Tools() {
+		if !slices.ContainsFunc(entries, func(e ToolEntry) bool { return e.Spec.ID == offered.ID }) {
+			entries = append(entries, ToolEntry{Spec: offered, Active: true})
+		}
+	}
+	sort.Slice(entries, func(i, j int) bool { return entries[i].Spec.ID < entries[j].Spec.ID })
 	return entries, nil
 }
 
