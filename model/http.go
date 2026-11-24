@@ -22,64 +22,80 @@ import (
 // between the wires is only the body and the headers, which they encoded.
 func (c *Client) send(ctx context.Context, body []byte, header http.Header) (*http.Response, error) {
 	for attempt := 0; ; attempt++ {
-		req, err := http.NewRequestWithContext(ctx, http.MethodPost, c.conn.Endpoint, bytes.NewReader(body))
-		if err != nil {
+		response, retry, err := c.sendAttempt(ctx, body, header, attempt)
+		if retry.Attempt == 0 {
+			return response, err
+		}
+		gotato.ReportModelRetry(ctx, retry)
+		if err := wait(ctx, retry.Wait); err != nil {
 			return nil, err
 		}
-		req.Header = header.Clone()
-		response, err := c.httpClient.Do(req)
-		if err != nil {
-			if ctx.Err() != nil {
-				return nil, ctx.Err()
-			}
-			// The error text names the endpoint's URL and host; it stays the cause.
-			failure := Failure{Message: transportMessage, Err: err}
-			verdict := c.classify(failure)
-			if verdict.Retryable && attempt < c.retry.Max {
-				delay := c.retryWait(nil, attempt)
-				// The error text can name hosts, and Events reach clients.
-				gotato.ReportModelRetry(ctx, gotato.ModelRetry{Attempt: attempt + 1, Wait: delay, Error: "the request could not be sent"})
-				if err := wait(ctx, delay); err != nil {
-					return nil, err
-				}
-				continue
-			}
-			return nil, newError(failure, verdict)
-		}
-		if response.StatusCode >= 200 && response.StatusCode < 300 {
-			if !startsWithJSONObject(response) {
-				return response, nil
-			}
-			// A 2xx whose body is a JSON object, not a stream of events, is a
-			// provider's error told with a success status.
-			refusal := readErrorBody(response.Body)
-			_ = response.Body.Close()
-			failure := Failure{Message: refusal.Message, Code: refusal.Code, Type: refusal.Type, Header: response.Header}
-			verdict := c.classify(failure)
-			if verdict.Retryable && attempt < c.retry.Max {
-				delay := c.retryWait(response.Header, attempt)
-				gotato.ReportModelRetry(ctx, gotato.ModelRetry{Attempt: attempt + 1, Wait: delay, Error: "the provider answered with an error"})
-				if err := wait(ctx, delay); err != nil {
-					return nil, err
-				}
-				continue
-			}
-			return nil, newError(failure, verdict)
-		}
-		refusal := readErrorBody(response.Body)
-		_ = response.Body.Close()
-		failure := Failure{Status: response.StatusCode, Message: refusal.Message, Code: refusal.Code, Type: refusal.Type, Header: response.Header}
-		verdict := c.classify(failure)
-		if verdict.Retryable && attempt < c.retry.Max {
-			delay := c.retryWait(response.Header, attempt)
-			gotato.ReportModelRetry(ctx, gotato.ModelRetry{Attempt: attempt + 1, Wait: delay, Error: fmt.Sprintf("the provider answered %d", response.StatusCode)})
-			if err := wait(ctx, delay); err != nil {
-				return nil, err
-			}
-			continue
-		}
-		return nil, newError(failure, verdict)
 	}
+}
+
+// sendAttempt makes one attempt of send. It returns the response, the retry
+// to report and wait for (Attempt is 0 when there is none), or the error that
+// ends send.
+func (c *Client) sendAttempt(ctx context.Context, body []byte, header http.Header, attempt int) (*http.Response, gotato.ModelRetry, error) {
+	req, err := http.NewRequestWithContext(ctx, http.MethodPost, c.conn.Endpoint, bytes.NewReader(body))
+	if err != nil {
+		return nil, gotato.ModelRetry{}, err
+	}
+	req.Header = header.Clone()
+	response, err := c.httpClient.Do(req)
+	if err != nil {
+		retry, err := c.transportFailure(ctx, err, attempt)
+		return nil, retry, err
+	}
+	if response.StatusCode >= 200 && response.StatusCode < 300 {
+		return c.successResponse(response, attempt)
+	}
+	retry, err := c.statusFailure(response, attempt)
+	return nil, retry, err
+}
+
+// transportFailure returns the retry or the error for a request that could not be sent.
+func (c *Client) transportFailure(ctx context.Context, err error, attempt int) (gotato.ModelRetry, error) {
+	if ctx.Err() != nil {
+		return gotato.ModelRetry{}, ctx.Err()
+	}
+	// The error text names the endpoint's URL and host; it stays the cause.
+	failure := Failure{Message: transportMessage, Err: err}
+	// The error text can name hosts, and Events reach clients.
+	return c.retryOrFail(failure, nil, attempt, "the request could not be sent")
+}
+
+// successResponse returns a 2xx response that streams events, or the retry or
+// the error for one whose body is a JSON object.
+func (c *Client) successResponse(response *http.Response, attempt int) (*http.Response, gotato.ModelRetry, error) {
+	if !startsWithJSONObject(response) {
+		return response, gotato.ModelRetry{}, nil
+	}
+	// A 2xx whose body is a JSON object, not a stream of events, is a
+	// provider's error told with a success status.
+	refusal := readErrorBody(response.Body)
+	_ = response.Body.Close()
+	failure := Failure{Message: refusal.Message, Code: refusal.Code, Type: refusal.Type, Header: response.Header}
+	retry, err := c.retryOrFail(failure, response.Header, attempt, "the provider answered with an error")
+	return nil, retry, err
+}
+
+// statusFailure returns the retry or the error for a response that is not 2xx.
+func (c *Client) statusFailure(response *http.Response, attempt int) (gotato.ModelRetry, error) {
+	refusal := readErrorBody(response.Body)
+	_ = response.Body.Close()
+	failure := Failure{Status: response.StatusCode, Message: refusal.Message, Code: refusal.Code, Type: refusal.Type, Header: response.Header}
+	return c.retryOrFail(failure, response.Header, attempt, fmt.Sprintf("the provider answered %d", response.StatusCode))
+}
+
+// retryOrFail returns the retry to report, with text as its error, when the
+// Classifier calls failure retryable and attempts remain; otherwise the error.
+func (c *Client) retryOrFail(failure Failure, header http.Header, attempt int, text string) (gotato.ModelRetry, error) {
+	verdict := c.classify(failure)
+	if verdict.Retryable && attempt < c.retry.Max {
+		return gotato.ModelRetry{Attempt: attempt + 1, Wait: c.retryWait(header, attempt), Error: text}, nil
+	}
+	return gotato.ModelRetry{}, newError(failure, verdict)
 }
 
 // withJitter adds up to 25% to a backoff so a fleet recovering from the same
