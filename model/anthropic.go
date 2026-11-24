@@ -1,7 +1,6 @@
 package model
 
 import (
-	"encoding/base64"
 	"encoding/json"
 	"fmt"
 	"net/http"
@@ -222,75 +221,40 @@ func anthropicBlocks(message gotato.Message, names map[string]string, keepReason
 	switch message.Role {
 	case gotato.RoleUser, gotato.RoleNotice:
 		// A notice (F4.4) is tagged text in the adjacent user turn.
-		var blocks []anthropicBlock
-		for _, part := range message.Parts {
-			switch part.Kind {
-			case gotato.ContentKindText, gotato.ContentKindJSON:
-				if part.Text != "" {
-					blocks = append(blocks, anthropicBlock{"type": "text", "text": part.Text})
-				}
-			case gotato.ContentKindImage:
-				if len(part.Data) == 0 {
-					continue
-				}
-				blocks = append(blocks, anthropicBlock{"type": "image", "source": map[string]any{
-					"type": "base64", "media_type": part.MIMEType, "data": base64.StdEncoding.EncodeToString(part.Data),
-				}})
-			}
-		}
-		return "user", blocks, nil
+		return "user", anthropicUserBlocks(message), nil
 	case gotato.RoleToolResult:
-		content := toolResultOutput(message)
-		callID := ""
-		failed := false
-		if message.ToolResult != nil {
-			callID = string(message.ToolResult.CallID)
-			failed = message.ToolResult.Status != "" && message.ToolResult.Status != gotato.ToolResultStatusOK
-		}
-		block := anthropicBlock{"type": "tool_result", "tool_use_id": callID, "content": content}
-		if failed {
-			block["is_error"] = true
-		}
-		return "user", []anthropicBlock{block}, nil
+		return "user", []anthropicBlock{anthropicToolResultBlock(message)}, nil
 	case gotato.RoleAssistant:
 		var blocks []anthropicBlock
 		for _, part := range message.Parts {
-			switch part.Kind {
-			case gotato.ContentKindReasoning:
-				// Only a signed provider block can be replayed; plain
-				// reasoning text stays in the transcript.
-				if len(part.Signature) == 0 || !keepReasoning {
-					continue
-				}
-				var block anthropicBlock
-				if err := json.Unmarshal(part.Signature, &block); err != nil {
-					return "", nil, fmt.Errorf("model: assistant reasoning artifact is invalid: %w", err)
-				}
-				if kind, _ := block["type"].(string); kind != "thinking" && kind != "redacted_thinking" {
-					return "", nil, fmt.Errorf("model: assistant reasoning artifact has type %q, want thinking or redacted_thinking", kind)
-				}
-				blocks = append(blocks, block)
-			case gotato.ContentKindText:
-				if part.Text != "" {
-					blocks = append(blocks, anthropicBlock{"type": "text", "text": part.Text})
-				}
-			case gotato.ContentKindImage, gotato.ContentKindJSON:
-				if len(part.Data) > 0 || part.Text != "" {
-					return "", nil, fmt.Errorf("model: assistant content kind %q is unsupported", part.Kind)
-				}
+			if part.Kind == gotato.ContentKindReasoning && !keepReasoning {
+				continue
 			}
-		}
-		for _, call := range message.ToolCalls {
-			name, err := assignFunctionName(names, call.ToolID)
-			if err != nil {
+			var err error
+			if blocks, err = appendAnthropicAssistantPart(blocks, part); err != nil {
 				return "", nil, err
 			}
-			blocks = append(blocks, anthropicBlock{"type": "tool_use", "id": string(call.ID), "name": name, "input": json.RawMessage(replayArguments(call.Arguments))})
+		}
+		blocks, err := appendAnthropicToolUses(blocks, message.ToolCalls, names)
+		if err != nil {
+			return "", nil, err
 		}
 		return "assistant", blocks, nil
 	default:
 		return "", nil, fmt.Errorf("model: unsupported Message role %q", message.Role)
 	}
+}
+
+// anthropicReasoningBlock decodes a signed thinking or redacted_thinking block for replay.
+func anthropicReasoningBlock(signature []byte) (anthropicBlock, error) {
+	var block anthropicBlock
+	if err := json.Unmarshal(signature, &block); err != nil {
+		return nil, fmt.Errorf("model: assistant reasoning artifact is invalid: %w", err)
+	}
+	if kind, _ := block["type"].(string); kind != "thinking" && kind != "redacted_thinking" {
+		return nil, fmt.Errorf("model: assistant reasoning artifact has type %q, want thinking or redacted_thinking", kind)
+	}
+	return block, nil
 }
 
 // withRoundBreakpoint adds a cache marker on the last user Message before the
