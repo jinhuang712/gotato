@@ -82,3 +82,57 @@ func appendAnthropicAssistantPart(blocks []anthropicBlock, part gotato.ContentPa
 	}
 	return blocks, nil
 }
+
+// encodeMessages adds the Messages to the request and records in ends where
+// the last block of each one ended up; a Message with no blocks gets message
+// -1.
+func (p *anthropicRequest) encodeMessages(ends []blockRef, messages []gotato.Message, names map[string]string, layout *deferredLayout, roundReasoning bool) error {
+	start := roundStart(messages)
+	for i, message := range messages {
+		role, blocks, err := anthropicBlocks(message, names, keepsReasoning(roundReasoning, i, start))
+		if err != nil {
+			return err
+		}
+		if err := addToolReferences(blocks, layout.references(message.ToolResult), names); err != nil {
+			return err
+		}
+		if len(blocks) == 0 {
+			ends[i] = blockRef{message: -1}
+			continue
+		}
+		ends[i] = p.appendBlocks(role, blocks)
+	}
+	return nil
+}
+
+// addToolReferences replaces the content of a single tool_result block with
+// its text followed by a tool_reference block for each tool in refs.
+func addToolReferences(blocks []anthropicBlock, refs []string, names map[string]string) error {
+	if len(refs) == 0 || len(blocks) != 1 {
+		return nil
+	}
+	content := []anthropicBlock{{"type": "text", "text": blocks[0]["content"]}}
+	for _, id := range refs {
+		name, err := assignFunctionName(names, id)
+		if err != nil {
+			return err
+		}
+		content = append(content, anthropicBlock{"type": "tool_reference", "tool_name": name})
+	}
+	blocks[0]["content"] = content
+	return nil
+}
+
+// appendBlocks adds blocks to the request's messages and returns where the
+// last one is.
+func (p *anthropicRequest) appendBlocks(role string, blocks []anthropicBlock) blockRef {
+	// The API alternates roles: consecutive Tool Results and user turns
+	// join one user message, in order.
+	if last := len(p.Messages) - 1; last >= 0 && p.Messages[last].Role == role {
+		p.Messages[last].Content = append(p.Messages[last].Content, blocks...)
+	} else {
+		p.Messages = append(p.Messages, anthropicMessage{Role: role, Content: blocks})
+	}
+	last := len(p.Messages) - 1
+	return blockRef{message: last, block: len(p.Messages[last].Content) - 1}
+}

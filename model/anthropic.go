@@ -129,22 +129,7 @@ func encodeAnthropicRequest(model gotato.ModelConfig, request gotato.ModelReques
 	if err != nil {
 		return nil, nil, err
 	}
-	payload := anthropicRequest{
-		Model:       model.Name,
-		MaxTokens:   defaultAnthropicMaxTokens,
-		Temperature: request.Sampling.Temperature,
-		Stream:      true,
-		Messages:    make([]anthropicMessage, 0, len(request.Messages)),
-	}
-	if request.Sampling.MaxTokens != 0 {
-		payload.MaxTokens = request.Sampling.MaxTokens
-	}
-	if model.Facts.ThinkingBinding {
-		payload.Thinking = &anthropicThinking{Type: "adaptive", BlockBinding: anthropicBlockBinding{PrefixMismatchBehavior: "drop_block"}}
-	}
-	if request.SystemInstructions != "" {
-		payload.System = []anthropicBlock{{"type": "text", "text": request.SystemInstructions}}
-	}
+	payload := newAnthropicPayload(model, request)
 	// Deferred tools, per
 	// https://platform.claude.com/docs/en/agents-and-tools/tool-use/tool-search-tool :
 	// every tool goes in the tools array on every request, and the ones with
@@ -154,51 +139,12 @@ func encodeAnthropicRequest(model gotato.ModelConfig, request gotato.ModelReques
 	// tools come last, so the cache_control marker sits on a tool that is not
 	// deferred, as the API requires.
 	layout := newDeferredLayout(request, native)
-	ordered := orderedTools(layout, request)
-	for _, entry := range ordered {
-		spec := entry.spec
-		name, err := assignFunctionName(names, spec.ID)
-		if err != nil {
-			return nil, nil, err
-		}
-		schema, err := toolSchema(spec, `{"type":"object"}`)
-		if err != nil {
-			return nil, nil, err
-		}
-		payload.Tools = append(payload.Tools, anthropicTool{Name: name, Description: spec.Description, InputSchema: schema, DeferLoading: entry.deferred})
+	if payload.Tools, err = anthropicTools(orderedTools(layout, request), names); err != nil {
+		return nil, nil, err
 	}
-
 	ends := make([]blockRef, len(request.Messages))
-	start := roundStart(request.Messages)
-	for i, message := range request.Messages {
-		role, blocks, err := anthropicBlocks(message, names, keepsReasoning(model.Facts.RoundReasoning, i, start))
-		if err != nil {
-			return nil, nil, err
-		}
-		if refs := layout.references(message.ToolResult); len(refs) > 0 && len(blocks) == 1 {
-			content := []anthropicBlock{{"type": "text", "text": blocks[0]["content"]}}
-			for _, id := range refs {
-				name, err := assignFunctionName(names, id)
-				if err != nil {
-					return nil, nil, err
-				}
-				content = append(content, anthropicBlock{"type": "tool_reference", "tool_name": name})
-			}
-			blocks[0]["content"] = content
-		}
-		if len(blocks) == 0 {
-			ends[i] = blockRef{message: -1}
-			continue
-		}
-		// The API alternates roles: consecutive Tool Results and user turns
-		// join one user message, in order.
-		if last := len(payload.Messages) - 1; last >= 0 && payload.Messages[last].Role == role {
-			payload.Messages[last].Content = append(payload.Messages[last].Content, blocks...)
-		} else {
-			payload.Messages = append(payload.Messages, anthropicMessage{Role: role, Content: blocks})
-		}
-		last := len(payload.Messages) - 1
-		ends[i] = blockRef{message: last, block: len(payload.Messages[last].Content) - 1}
+	if err := payload.encodeMessages(ends, request.Messages, names, layout, model.Facts.RoundReasoning); err != nil {
+		return nil, nil, err
 	}
 	breakpoints := request.CacheBreakpoints
 	if model.Facts.RoundReasoning {
@@ -215,6 +161,46 @@ func encodeAnthropicRequest(model gotato.ModelConfig, request gotato.ModelReques
 		return nil, nil, fmt.Errorf("model: encode request: %w", err)
 	}
 	return body, names, nil
+}
+
+// newAnthropicPayload returns a request with its settings and system
+// instructions, before its tools and messages.
+func newAnthropicPayload(model gotato.ModelConfig, request gotato.ModelRequest) anthropicRequest {
+	payload := anthropicRequest{
+		Model:       model.Name,
+		MaxTokens:   defaultAnthropicMaxTokens,
+		Temperature: request.Sampling.Temperature,
+		Stream:      true,
+		Messages:    make([]anthropicMessage, 0, len(request.Messages)),
+	}
+	if request.Sampling.MaxTokens != 0 {
+		payload.MaxTokens = request.Sampling.MaxTokens
+	}
+	if model.Facts.ThinkingBinding {
+		payload.Thinking = &anthropicThinking{Type: "adaptive", BlockBinding: anthropicBlockBinding{PrefixMismatchBehavior: "drop_block"}}
+	}
+	if request.SystemInstructions != "" {
+		payload.System = []anthropicBlock{{"type": "text", "text": request.SystemInstructions}}
+	}
+	return payload
+}
+
+// anthropicTools encodes the tools in the order they are sent.
+func anthropicTools(ordered []layoutTool, names map[string]string) ([]anthropicTool, error) {
+	var tools []anthropicTool
+	for _, entry := range ordered {
+		spec := entry.spec
+		name, err := assignFunctionName(names, spec.ID)
+		if err != nil {
+			return nil, err
+		}
+		schema, err := toolSchema(spec, `{"type":"object"}`)
+		if err != nil {
+			return nil, err
+		}
+		tools = append(tools, anthropicTool{Name: name, Description: spec.Description, InputSchema: schema, DeferLoading: entry.deferred})
+	}
+	return tools, nil
 }
 
 func anthropicBlocks(message gotato.Message, names map[string]string, keepReasoning bool) (string, []anthropicBlock, error) {
