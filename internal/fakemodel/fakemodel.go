@@ -94,7 +94,6 @@
 package fakemodel
 
 import (
-	"encoding/json"
 	"io"
 	"net/http"
 	"sync"
@@ -205,98 +204,18 @@ func (g *Server) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 
 func (g *Server) handle(wr wire, w http.ResponseWriter, r *http.Request) {
 	body, _ := io.ReadAll(r.Body)
-	rec := &Request{API: wr.api(), Method: r.Method, Path: r.URL.Path, Header: r.Header.Clone(), Body: body, Quirks: map[string]string{}}
-	var decoded map[string]any
-	if json.Unmarshal(body, &decoded) == nil {
-		rec.JSON = decoded
-	}
-	g.mu.Lock()
-	g.requests = append(g.requests, rec)
-	g.mu.Unlock()
-	finish := func(status int, outcome string) {
-		g.mu.Lock()
-		rec.Status, rec.Outcome = status, outcome
-		g.mu.Unlock()
-	}
-	refuse := func(e *apiError) {
-		finish(e.status, "refused")
-		writeJSON(w, e.status, e.body)
-	}
-	defer func() {
-		// A panic is a cut connection (http.ErrAbortHandler); the outcome
-		// was set before it.
-		g.mu.Lock()
-		if rec.Outcome == "" {
-			rec.Outcome = "error"
-		}
-		g.mu.Unlock()
-	}()
-
-	if r.Method != http.MethodPost {
-		refuse(&apiError{status: http.StatusMethodNotAllowed, body: wr.invalid("fakemodel: POST only").body})
+	x := g.begin(wr, w, r, body)
+	defer x.settle()
+	if e := x.accept(body); e != nil {
+		x.refuse(e)
 		return
 	}
-	if e := wr.authorize(r.Header); e != nil {
-		refuse(e)
-		return
-	}
-	p, perr := wr.parse(g, body, r.Header)
-	if perr != nil {
-		refuse(perr)
-		return
-	}
-	g.mu.Lock()
-	rec.MidSystem = p.midSystem
-	g.mu.Unlock()
-	q, text, err := extractQuirks(p, r.Header, wr.api())
-	if err != nil {
-		refuse(wr.invalid(err.Error()))
-		return
-	}
-	g.mu.Lock()
-	rec.Quirks, rec.UserText = q.byName, text
-	g.mu.Unlock()
-	if !p.stream {
-		refuse(wr.invalid("fakemodel: only streamed requests are served; set stream to true"))
-		return
-	}
-	if e := wr.validateReasoning(p); e != nil && q.has("reasoning") {
-		refuse(e)
-		return
-	}
-	if p.maxOutput > g.maxOutput {
-		refuse(wr.tooManyOutputTokens(p, g.maxOutput))
-		return
-	}
-	tokens := len(body)/4 + 1
-	if value, ok := q.byName["overflow"]; ok && (!hasFlag(value, "once") || g.times(q, "overflow", 1)) {
-		tokens = max(tokens, g.window+g.window/20+1)
-	}
+	tokens := x.tokens(body)
 	if tokens > g.window {
-		d, _ := time.ParseDuration(q.byName["delay"])
-		if !sleep(r, d) {
-			finish(0, "error")
-			return
-		}
-		refuse(wr.tooLong(tokens, g.window))
+		x.refuseTooLong(tokens)
 		return
 	}
-
-	pl := g.answer(p, text, q, tokens)
-	sw := newSSE(w)
-	sw.start()
-	if d, ok := q.byName["delay"]; ok {
-		dur, _ := time.ParseDuration(d)
-		if !sleep(r, dur) {
-			finish(0, "error")
-			return
-		}
-	}
-	// The stream writes its own outcome through pl.
-	pl.outcome = func(outcome string) { finish(http.StatusOK, outcome) }
-	pl.g, pl.q = g, q
-	finish(http.StatusOK, "ok")
-	wr.stream(sw, p, pl, q)
+	x.reply(tokens)
 }
 
 // sleep waits d, and reports false when the client went away first.

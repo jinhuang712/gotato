@@ -2,7 +2,6 @@ package fakemodel
 
 import (
 	"fmt"
-	"net/http"
 	"regexp"
 	"slices"
 	"strconv"
@@ -32,7 +31,7 @@ func hasFlag(value, flag string) bool {
 }
 
 // extractQuirks reads the directives of the last user text.
-func extractQuirks(p *parsed, _ http.Header, api string) (*quirks, string, error) {
+func extractQuirks(p *parsed, api string) (*quirks, string, error) {
 	q := &quirks{byName: map[string]string{}}
 	i := p.lastUser()
 	if i < 0 {
