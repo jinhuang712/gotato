@@ -163,49 +163,66 @@ func renderOriginals(messages []gotato.Message, maxLine int) []string {
 			callTool[call.ID] = call.ToolID
 		}
 	}
-	var lines []string
-	emit := func(label, body string) {
-		parts := text.SplitLines(body, maxLine)
-		if len(parts) == 0 {
-			lines = append(lines, label)
-			return
-		}
-		lines = append(lines, label+" "+escapeLine(parts[0]))
-		for _, part := range parts[1:] {
-			lines = append(lines, escapeLine(part))
-		}
-	}
+	out := originalLines{maxLine: maxLine}
 	for _, message := range messages {
-		switch message.Role {
-		case gotato.RoleToolResult:
-			if message.ToolResult == nil {
-				continue
-			}
-			result := message.ToolResult
-			label := "[tool " + toolLabel(callTool[result.CallID], string(result.CallID))
-			if result.Status != gotato.ToolResultStatusOK {
-				label += " " + oneLine(string(result.Status))
-			}
-			label += "]"
-			emit(label, toolResultText(message))
-		default:
-			for _, part := range message.Parts {
-				text := textOfPart(part)
-				if text == "" {
-					continue
-				}
-				label := "[" + string(message.Role) + "]"
-				if part.Metadata[gotato.MetaTag] == gotato.TagNotice {
-					label = "[notice]"
-				}
-				emit(label, text)
-			}
-			for _, call := range message.ToolCalls {
-				emit("[call "+toolLabel(call.ToolID, string(call.ID))+"]", cutArgsFull(call.Arguments))
-			}
+		if message.Role == gotato.RoleToolResult {
+			out.toolResult(message, callTool)
+			continue
 		}
+		out.message(message)
 	}
-	return lines
+	return out.lines
+}
+
+// originalLines collects the lines renderOriginals writes.
+type originalLines struct {
+	lines   []string
+	maxLine int
+}
+
+// emit writes body after label, cut into lines of maxLine bytes, each escaped.
+func (o *originalLines) emit(label, body string) {
+	parts := text.SplitLines(body, o.maxLine)
+	if len(parts) == 0 {
+		o.lines = append(o.lines, label)
+		return
+	}
+	o.lines = append(o.lines, label+" "+escapeLine(parts[0]))
+	for _, part := range parts[1:] {
+		o.lines = append(o.lines, escapeLine(part))
+	}
+}
+
+// toolResult writes a tool result Message under the name of the tool its call named.
+func (o *originalLines) toolResult(message gotato.Message, callTool map[gotato.ToolCallID]string) {
+	if message.ToolResult == nil {
+		return
+	}
+	result := message.ToolResult
+	label := "[tool " + toolLabel(callTool[result.CallID], string(result.CallID))
+	if result.Status != gotato.ToolResultStatusOK {
+		label += " " + oneLine(string(result.Status))
+	}
+	label += "]"
+	o.emit(label, toolResultText(message))
+}
+
+// message writes each Part with text under its role, then each tool call.
+func (o *originalLines) message(message gotato.Message) {
+	for _, part := range message.Parts {
+		body := textOfPart(part)
+		if body == "" {
+			continue
+		}
+		label := "[" + string(message.Role) + "]"
+		if part.Metadata[gotato.MetaTag] == gotato.TagNotice {
+			label = "[notice]"
+		}
+		o.emit(label, body)
+	}
+	for _, call := range message.ToolCalls {
+		o.emit("[call "+toolLabel(call.ToolID, string(call.ID))+"]", cutArgsFull(call.Arguments))
+	}
 }
 
 // toolResultText is the text of a Tool Result Message: its content, or its
