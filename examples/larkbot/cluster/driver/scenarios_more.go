@@ -221,43 +221,7 @@ func (e *env) s4(ctx context.Context) bool {
 	var wg sync.WaitGroup
 	for i, t := range ts {
 		wg.Go(func() {
-			n := i + 1
-			burst := func(phase string, count int, directive string) {
-				var bw sync.WaitGroup
-				res := make([]*msg, count)
-				for j := range count {
-					bw.Go(func() { res[j] = e.say(ctx, t, fmt.Sprintf("s4-%02d-%s%d", n, phase, j+1), directive) })
-				}
-				bw.Wait()
-				var ds []string
-				for _, m := range res {
-					ds = append(ds, shortDeliveries(m))
-				}
-				logf(i, "burst %s of %d at once: %s", phase, count, strings.Join(ds, " | "))
-			}
-			sequential := func(phase string, count int, gap time.Duration, directive string) {
-				var ds []string
-				for j := range count {
-					tag := fmt.Sprintf("s4-%02d-%s%d", n, phase, j+1)
-					m := e.say(ctx, t, tag, directive)
-					seq[i] = append(seq[i], m.tag)
-					ds = append(ds, shortDeliveries(m))
-					sleep(ctx, gap)
-				}
-				logf(i, "%d in a row %s: %s", count, phase, strings.Join(ds, " | "))
-			}
-			// No Run takes more than 4 messages into its FollowUp buffer (limit_exceeded, a known bound), so
-			// each phase sends at most 4 while one Run is going; the phases are about who writes.
-			quiet := func() { e.waitQuiet(ctx, []*thread{t}, 6*time.Second, 60*time.Second) }
-			m := e.say(ctx, t, fmt.Sprintf("s4-%02d-root", n), "[quirk:delay=6s]")
-			logf(i, "root: %s", shortDeliveries(m))
-			sleep(ctx, 1500*time.Millisecond) // the Run holds the Claim now
-			burst("b", 3, "")                 // into the Run in flight, from random pods: queued here, or forwarded
-			quiet()
-			sequential("s", 4, 150*time.Millisecond, "[quirk:delay=3s]") // the first starts a Run, the rest join it
-			quiet()
-			burst("r", 4, "[quirk:delay=3s]") // no Run going: the pods race to start one
-			quiet()
+			e.s4Thread(ctx, i, t, seq, logf)
 		})
 	}
 	wg.Wait()
@@ -282,6 +246,60 @@ func (e *env) s4(ctx context.Context) bool {
 	fmt.Printf("  bot log lines: send queued %d, send ran a new run %d, not_writer forwarding %d, forwarded %d, not run will retry %d, delivered after retry %d, delivery unknown %d, delivery failed %d\n",
 		count("send queued"), count("send ran a new run"), count("send not_writer, forwarding"), count("forwarded"),
 		count("not run, will retry"), count("delivered after retry"), count("delivery unknown"), count("delivery failed, not run"))
+	readFaults, inv := e.s4Results(ctx, ts, seq)
+	faults += readFaults
+	if inv > 0 {
+		fmt.Printf("  KNOWN-BOT-GAP %d message(s) sent in a row landed in the Transcript out of order (two pods, no cross-pod order)\n", inv)
+	}
+	return verdict("s4", faults == 0, fmt.Sprintf("%d GOTATO-FAULT", faults))
+}
+
+// s4Thread plays s4's phases in one thread: a root message, a burst into its Run, messages in a row, and a
+// burst with no Run going.
+func (e *env) s4Thread(ctx context.Context, i int, t *thread, seq [][]string, logf func(int, string, ...any)) {
+	n := i + 1
+	burst := func(phase string, count int, directive string) {
+		var bw sync.WaitGroup
+		res := make([]*msg, count)
+		for j := range count {
+			bw.Go(func() { res[j] = e.say(ctx, t, fmt.Sprintf("s4-%02d-%s%d", n, phase, j+1), directive) })
+		}
+		bw.Wait()
+		var ds []string
+		for _, m := range res {
+			ds = append(ds, shortDeliveries(m))
+		}
+		logf(i, "burst %s of %d at once: %s", phase, count, strings.Join(ds, " | "))
+	}
+	sequential := func(phase string, count int, gap time.Duration, directive string) {
+		var ds []string
+		for j := range count {
+			tag := fmt.Sprintf("s4-%02d-%s%d", n, phase, j+1)
+			m := e.say(ctx, t, tag, directive)
+			seq[i] = append(seq[i], m.tag)
+			ds = append(ds, shortDeliveries(m))
+			sleep(ctx, gap)
+		}
+		logf(i, "%d in a row %s: %s", count, phase, strings.Join(ds, " | "))
+	}
+	// No Run takes more than 4 messages into its FollowUp buffer (limit_exceeded, a known bound), so
+	// each phase sends at most 4 while one Run is going; the phases are about who writes.
+	quiet := func() { e.waitQuiet(ctx, []*thread{t}, 6*time.Second, 60*time.Second) }
+	m := e.say(ctx, t, fmt.Sprintf("s4-%02d-root", n), "[quirk:delay=6s]")
+	logf(i, "root: %s", shortDeliveries(m))
+	sleep(ctx, 1500*time.Millisecond) // the Run holds the Claim now
+	burst("b", 3, "")                 // into the Run in flight, from random pods: queued here, or forwarded
+	quiet()
+	sequential("s", 4, 150*time.Millisecond, "[quirk:delay=3s]") // the first starts a Run, the rest join it
+	quiet()
+	burst("r", 4, "[quirk:delay=3s]") // no Run going: the pods race to start one
+	quiet()
+}
+
+// s4Results prints what each thread's Record holds; it returns the Records it could not read (GOTATO-FAULTs) and
+// the messages sent in a row that landed out of order.
+func (e *env) s4Results(ctx context.Context, ts []*thread, seq [][]string) (int, int) {
+	faults := 0
 	inv := 0
 	for i, t := range ts {
 		r, err := e.record(ctx, t.session())
@@ -303,10 +321,7 @@ func (e *env) s4(ctx context.Context) bool {
 		fmt.Printf("  thread %d: %d messages sent, %d user in the Transcript, %d assistant, %d Runs, %d claims by %d Instances, %d reordered of %d sent in a row, ends on a user message: %v\n",
 			i+1, len(t.msgs), countRole(r, "user"), r.assistantReplies(), len(r.Runs), kinds["session_claimed"], len(holders), in, len(seq[i]), r.unanswered())
 	}
-	if inv > 0 {
-		fmt.Printf("  KNOWN-BOT-GAP %d message(s) sent in a row landed in the Transcript out of order (two pods, no cross-pod order)\n", inv)
-	}
-	return verdict("s4", faults == 0, fmt.Sprintf("%d GOTATO-FAULT", faults))
+	return faults, inv
 }
 
 // s5: the bots ack late, so fakelark redelivers the same event to other pods. It measures, and does not judge:
