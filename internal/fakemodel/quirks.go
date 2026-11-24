@@ -62,6 +62,14 @@ func checkQuirk(name, value string) error {
 		}
 	case "cached":
 		return checkCount(name, value)
+	case "cut-after-text", "cut-in-args":
+		if value != "" {
+			return fmt.Errorf("fakemodel: quirk %s takes no value, got %q", name, value)
+		}
+	case "overflow-midstream":
+		if hasFlag(value, "once") {
+			return fmt.Errorf("fakemodel: quirk %s has no flag \"once\" any more; it plays on every request", name)
+		}
 	}
 	return nil
 }
