@@ -280,3 +280,103 @@ func (f *Feed) remove(s *subscription) {
 	delete(f.subs, s)
 	f.mu.Unlock()
 }
+
+// SubscribeOption configures Feed.Subscribe.
+type SubscribeOption func(*subscribeConfig)
+
+type subscribeConfig struct {
+	after    uint64
+	hasAfter bool
+	buffer   int
+	filter   func(Event) bool
+	labeled  func(Event, string) bool
+	until    func(Event) bool
+	tail     time.Duration
+	verify   func(context.Context) error
+}
+
+// SubscribeAfter starts a Session's stream after the stored Event numbered n:
+// first the later Events from the Record, then the live ones.
+func SubscribeAfter(n uint64) SubscribeOption {
+	return func(c *subscribeConfig) { c.after, c.hasAfter = n, true }
+}
+
+// SubscribeTail has a Session's stream that is waiting for its next Event look
+// in the Feed's source every interval, and deliver the stored Events it finds
+// there. A Feed is given only the Events that its own Instance writes. A
+// stream that follows a Session whose writer is another Instance needs the
+// tail to see what that Instance writes; it costs one read of the source per
+// interval while the stream is idle, and a SubscribeVerify check only after a
+// read that returned Events. It has no effect on a Feed without a source, or
+// on an Instance's stream.
+func SubscribeTail(interval time.Duration) SubscribeOption {
+	return func(c *subscribeConfig) { c.tail = interval }
+}
+
+// SubscribeVerify has a Session's stream run check after every read from the
+// source that returned Events, and before it queues any of them. When check
+// fails, the stream ends with its error and none of those Events is delivered:
+// a Session's stream uses it to end when the Record it reads is not the one it
+// follows. A read that returned nothing costs no check.
+func SubscribeVerify(check func(context.Context) error) SubscribeOption {
+	return func(c *subscribeConfig) { c.verify = check }
+}
+
+// SubscribeBuffer sets how many Events a subscriber's queue holds before it
+// stops being buffered. The default is 256.
+func SubscribeBuffer(n int) SubscribeOption {
+	return func(c *subscribeConfig) { c.buffer = n }
+}
+
+// SubscribeFilter keeps only the Events for which keep returns true. It runs
+// on the publisher's goroutine, and on the subscriber's when it reads Events
+// again from the source; the calls never overlap, so keep needs no lock of its
+// own. It must be fast and must not block. It may call the Subscription's Close
+// or End. A panic in it ends this Subscription: Next returns a *RuntimeError
+// with CodeExtensionFailure.
+func SubscribeFilter(keep func(Event) bool) SubscribeOption {
+	return func(c *subscribeConfig) { c.filter = keep }
+}
+
+// SubscribeLabelFilter keeps only the Events for which keep returns true,
+// given the label of the Feed the Event was mirrored from (see setLabel). The
+// label is empty for an Event published to this Feed directly. Like
+// SubscribeFilter's keep, it may call Close or End, and a panic in it ends this
+// Subscription.
+func SubscribeLabelFilter(keep func(event Event, label string) bool) SubscribeOption {
+	return func(c *subscribeConfig) { c.labeled = keep }
+}
+
+// SubscribeUntil ends the stream after the Event for which done returns true. A
+// panic in done ends the stream with a *RuntimeError of CodeExtensionFailure.
+func SubscribeUntil(done func(Event) bool) SubscribeOption {
+	return func(c *subscribeConfig) { c.until = done }
+}
+
+// SubscribeNextRun returns the options of a Run's stream: the Events of the next Run
+// that starts, from its RunStarted to its RunEnded. Pass them to Subscribe
+// before the Run starts.
+func SubscribeNextRun() []SubscribeOption {
+	var mu sync.Mutex
+	var run RunID
+	return []SubscribeOption{
+		SubscribeFilter(func(e Event) bool {
+			mu.Lock()
+			defer mu.Unlock()
+			if run == "" {
+				if started, ok := e.(RunStarted); ok {
+					run = started.RunID
+					return true
+				}
+				return false
+			}
+			return e.Head().RunID == run
+		}),
+		SubscribeUntil(func(e Event) bool {
+			mu.Lock()
+			defer mu.Unlock()
+			_, ended := e.(RunEnded)
+			return ended && run != "" && e.Head().RunID == run
+		}),
+	}
+}

@@ -23,106 +23,6 @@ type Subscription interface {
 	End()
 }
 
-// SubscribeOption configures Feed.Subscribe.
-type SubscribeOption func(*subscribeConfig)
-
-type subscribeConfig struct {
-	after    uint64
-	hasAfter bool
-	buffer   int
-	filter   func(Event) bool
-	labeled  func(Event, string) bool
-	until    func(Event) bool
-	tail     time.Duration
-	verify   func(context.Context) error
-}
-
-// SubscribeAfter starts a Session's stream after the stored Event numbered n:
-// first the later Events from the Record, then the live ones.
-func SubscribeAfter(n uint64) SubscribeOption {
-	return func(c *subscribeConfig) { c.after, c.hasAfter = n, true }
-}
-
-// SubscribeTail has a Session's stream that is waiting for its next Event look
-// in the Feed's source every interval, and deliver the stored Events it finds
-// there. A Feed is given only the Events that its own Instance writes. A
-// stream that follows a Session whose writer is another Instance needs the
-// tail to see what that Instance writes; it costs one read of the source per
-// interval while the stream is idle, and a SubscribeVerify check only after a
-// read that returned Events. It has no effect on a Feed without a source, or
-// on an Instance's stream.
-func SubscribeTail(interval time.Duration) SubscribeOption {
-	return func(c *subscribeConfig) { c.tail = interval }
-}
-
-// SubscribeVerify has a Session's stream run check after every read from the
-// source that returned Events, and before it queues any of them. When check
-// fails, the stream ends with its error and none of those Events is delivered:
-// a Session's stream uses it to end when the Record it reads is not the one it
-// follows. A read that returned nothing costs no check.
-func SubscribeVerify(check func(context.Context) error) SubscribeOption {
-	return func(c *subscribeConfig) { c.verify = check }
-}
-
-// SubscribeBuffer sets how many Events a subscriber's queue holds before it
-// stops being buffered. The default is 256.
-func SubscribeBuffer(n int) SubscribeOption {
-	return func(c *subscribeConfig) { c.buffer = n }
-}
-
-// SubscribeFilter keeps only the Events for which keep returns true. It runs
-// on the publisher's goroutine, and on the subscriber's when it reads Events
-// again from the source; the calls never overlap, so keep needs no lock of its
-// own. It must be fast and must not block. It may call the Subscription's Close
-// or End. A panic in it ends this Subscription: Next returns a *RuntimeError
-// with CodeExtensionFailure.
-func SubscribeFilter(keep func(Event) bool) SubscribeOption {
-	return func(c *subscribeConfig) { c.filter = keep }
-}
-
-// SubscribeLabelFilter keeps only the Events for which keep returns true,
-// given the label of the Feed the Event was mirrored from (see setLabel). The
-// label is empty for an Event published to this Feed directly. Like
-// SubscribeFilter's keep, it may call Close or End, and a panic in it ends this
-// Subscription.
-func SubscribeLabelFilter(keep func(event Event, label string) bool) SubscribeOption {
-	return func(c *subscribeConfig) { c.labeled = keep }
-}
-
-// SubscribeUntil ends the stream after the Event for which done returns true. A
-// panic in done ends the stream with a *RuntimeError of CodeExtensionFailure.
-func SubscribeUntil(done func(Event) bool) SubscribeOption {
-	return func(c *subscribeConfig) { c.until = done }
-}
-
-// SubscribeNextRun returns the options of a Run's stream: the Events of the next Run
-// that starts, from its RunStarted to its RunEnded. Pass them to Subscribe
-// before the Run starts.
-func SubscribeNextRun() []SubscribeOption {
-	var mu sync.Mutex
-	var run RunID
-	return []SubscribeOption{
-		SubscribeFilter(func(e Event) bool {
-			mu.Lock()
-			defer mu.Unlock()
-			if run == "" {
-				if started, ok := e.(RunStarted); ok {
-					run = started.RunID
-					return true
-				}
-				return false
-			}
-			return e.Head().RunID == run
-		}),
-		SubscribeUntil(func(e Event) bool {
-			mu.Lock()
-			defer mu.Unlock()
-			_, ended := e.(RunEnded)
-			return ended && run != "" && e.Head().RunID == run
-		}),
-	}
-}
-
 // subscription is one subscriber: a bounded queue the Feed fills, and one
 // goroutine that forwards it in order.
 type subscription struct {
@@ -211,11 +111,7 @@ func (s *subscription) offer(event Event, label string) {
 		return
 	default:
 	}
-	keep, err := s.passes(event)
-	if err == nil && keep && s.labeled != nil {
-		err = callHost("SubscribeLabelFilter", func() error { keep = s.labeled(event, label); return nil })
-		err = extensionFailure("Subscription", err)
-	}
+	keep, err := s.keeps(event, label)
 	if err != nil {
 		s.finish(err)
 		return
@@ -226,66 +122,109 @@ func (s *subscription) offer(event Event, label string) {
 		return
 	}
 	class := event.Class()
-	stored := class == EventClassStored && !s.feed.mixed
+	stored := s.numbered(class)
 	if s.behind {
 		// A stored Event is read again from the Record; a delta is skipped.
 		return
 	}
-	if stored {
-		number := event.Head().Number
-		if s.cursorSet {
-			if number <= s.cursor {
-				return
-			}
-			if number > s.cursor+1 {
-				// An Event was written that this Feed was not given: another
-				// Instance wrote it. Read it, and what follows, from the
-				// Record.
-				s.behind, s.resume = true, s.cursor
-				s.signal()
-				return
-			}
-		}
-		if !keep {
-			s.cursor, s.cursorSet = number, true
-			return
-		}
-	} else if !keep {
+	if stored && !s.inSequence(event.Head().Number) {
 		return
 	}
-	if len(s.queue) >= s.max {
-		// Make room by dropping the oldest delta; only deltas may be skipped.
-		dropped := false
-		for i, queued := range s.queue {
-			if queued.Class() == EventClassDelta {
-				s.queue = append(s.queue[:i], s.queue[i+1:]...)
-				dropped = true
-				break
-			}
+	if !keep {
+		if stored {
+			s.cursor, s.cursorSet = event.Head().Number, true
 		}
-		switch {
-		case !dropped && class == EventClassDelta:
-			if s.feed.mixed {
-				s.skipped++
-			}
-			return
-		case !dropped && s.feed.mixed:
-			s.skipped++
-			return
-		case !dropped:
-			s.behind, s.resume = true, s.cursor
-			s.signal()
-			return
-		}
-		if s.feed.mixed {
-			s.skipped++
-		}
+		return
+	}
+	s.push(event, class)
+}
+
+// numbered reports whether an Event of class moves the cursor: a stored Event
+// of a Feed that is not mixed.
+func (s *subscription) numbered(class EventClass) bool {
+	return class == EventClassStored && !s.feed.mixed
+}
+
+// push queues an Event of class, making room when the queue is full. The
+// caller holds s.mu.
+func (s *subscription) push(event Event, class EventClass) {
+	if len(s.queue) >= s.max && !s.makeRoom(class) {
+		return
 	}
 	s.queue = append(s.queue, event)
-	if stored {
+	if s.numbered(class) {
 		s.cursor, s.cursorSet = event.Head().Number, true
 	}
 	s.signal()
+}
+
+// keeps runs the subscriber's filter and then its label filter. A panic in
+// either is the error.
+func (s *subscription) keeps(event Event, label string) (bool, error) {
+	keep, err := s.passes(event)
+	if err == nil && keep && s.labeled != nil {
+		err = callHost("SubscribeLabelFilter", func() error { keep = s.labeled(event, label); return nil })
+		err = extensionFailure("Subscription", err)
+	}
+	return keep, err
+}
+
+// inSequence reports whether the stored Event numbered number comes right
+// after the cursor, or starts the stream. A gap sets the subscription behind.
+// The caller holds s.mu.
+func (s *subscription) inSequence(number uint64) bool {
+	if !s.cursorSet {
+		return true
+	}
+	if number <= s.cursor {
+		return false
+	}
+	if number > s.cursor+1 {
+		// An Event was written that this Feed was not given: another
+		// Instance wrote it. Read it, and what follows, from the
+		// Record.
+		s.behind, s.resume = true, s.cursor
+		s.signal()
+		return false
+	}
+	return true
+}
+
+// makeRoom frees a place in a full queue for an Event of class, and reports
+// whether it did. The caller holds s.mu.
+func (s *subscription) makeRoom(class EventClass) bool {
+	// Make room by dropping the oldest delta; only deltas may be skipped.
+	dropped := s.dropOldestDelta()
+	switch {
+	case !dropped && class == EventClassDelta:
+		if s.feed.mixed {
+			s.skipped++
+		}
+		return false
+	case !dropped && s.feed.mixed:
+		s.skipped++
+		return false
+	case !dropped:
+		s.behind, s.resume = true, s.cursor
+		s.signal()
+		return false
+	}
+	if s.feed.mixed {
+		s.skipped++
+	}
+	return true
+}
+
+// dropOldestDelta removes the oldest delta from the queue, and reports
+// whether there was one. The caller holds s.mu.
+func (s *subscription) dropOldestDelta() bool {
+	for i, queued := range s.queue {
+		if queued.Class() == EventClassDelta {
+			s.queue = append(s.queue[:i], s.queue[i+1:]...)
+			return true
+		}
+	}
+	return false
 }
 
 // end marks the subscription as ending: it delivers what is queued, catches
