@@ -181,8 +181,37 @@ func (e *env) s2(ctx context.Context) bool {
 		fmt.Printf("%s new thread %d: %s\n", at(), i+1, shortDeliveries(m))
 	}
 	// Find the writer of the first thread, once its Run holds the Claim.
-	var victim string
-	var victimInst string
+	victim, victimInst := e.s2FindWriter(ctx, ts)
+	if victim == "" {
+		e.printErrors()
+		return verdict("s2", false, "could not find the pod that writes thread 1")
+	}
+	onVictim, killAt, err := e.s2Kill(ctx, ts, victim, victimInst, at)
+	if err != nil {
+		return verdict("s2", false, "kill failed")
+	}
+	e.s2Replies(ctx, onVictim, killAt, at)
+	fmt.Printf("%s waiting for the Runs to settle\n", at())
+	e.waitQuiet(ctx, ts, 25*time.Second, 100*time.Second)
+
+	fmt.Printf("\n%s results\n", at())
+	for _, t := range onVictim {
+		r, err := e.record(ctx, t.session())
+		if err != nil {
+			continue
+		}
+		fmt.Printf("  %s (first thread: %v)\n", t.session(), t == ts[0])
+		s2PrintTakeover(r, victimInst, killAt)
+		e.s2PrintCards(ctx, t, r, start)
+	}
+	fmt.Println()
+	faults := e.report(ctx, ts)
+	return verdict("s2", faults == 0, fmt.Sprintf("%d GOTATO-FAULT", faults))
+}
+
+// s2FindWriter waits for the Run of the first thread to hold the Claim, and returns the pod and the instance
+// that hold it.
+func (e *env) s2FindWriter(ctx context.Context, ts []*thread) (victim, victimInst string) {
 	for deadline := time.Now().Add(20 * time.Second); time.Now().Before(deadline) && victim == ""; sleep(ctx, time.Second) {
 		if r, err := e.record(ctx, ts[0].session()); err == nil {
 			if victimInst = holder(r); victimInst != "" {
@@ -190,10 +219,11 @@ func (e *env) s2(ctx context.Context) bool {
 			}
 		}
 	}
-	if victim == "" {
-		e.printErrors()
-		return verdict("s2", false, "could not find the pod that writes thread 1")
-	}
+	return victim, victimInst
+}
+
+// s2Kill finds the threads the writer holds, then kills the writer.
+func (e *env) s2Kill(ctx context.Context, ts []*thread, victim, victimInst string, at func() string) ([]*thread, time.Time, error) {
 	var onVictim []*thread
 	for _, t := range ts {
 		if r, err := e.record(ctx, t.session()); err == nil && holder(r) == victimInst {
@@ -208,8 +238,13 @@ func (e *env) s2(ctx context.Context) bool {
 	out, err := e.kill(ctx, victim)
 	fmt.Printf("%s killed %s (%s): %s\n", at(), victim, e.killMode, out)
 	if err != nil {
-		return verdict("s2", false, "kill failed")
+		return nil, killAt, err
 	}
+	return onVictim, killAt, nil
+}
+
+// s2Replies sends a message into each thread the writer held: at once, inside the Liveness TTL and after it.
+func (e *env) s2Replies(ctx context.Context, onVictim []*thread, killAt time.Time, at func() string) {
 	for i, t := range onVictim {
 		m := e.say(ctx, t, fmt.Sprintf("s2-r1-%d", i+1), "")
 		fmt.Printf("%s immediate reply in %s: %s\n", at(), t.session(), shortDeliveries(m))
@@ -224,46 +259,40 @@ func (e *env) s2(ctx context.Context) bool {
 		m := e.say(ctx, t, fmt.Sprintf("s2-r2-%d", i+1), "")
 		fmt.Printf("%s reply after the Liveness TTL in %s: %s\n", at(), t.session(), shortDeliveries(m))
 	}
-	fmt.Printf("%s waiting for the Runs to settle\n", at())
-	e.waitQuiet(ctx, ts, 25*time.Second, 100*time.Second)
+}
 
-	fmt.Printf("\n%s results\n", at())
-	for _, t := range onVictim {
-		r, err := e.record(ctx, t.session())
-		if err != nil {
-			continue
+// s2PrintTakeover prints the first claim after the kill by another instance, and the events after it.
+func s2PrintTakeover(r record, victimInst string, killAt time.Time) {
+	var took time.Duration
+	after := false
+	var tail []string
+	for _, ev := range r.Events {
+		if ev.Kind == "session_claimed" && ev.Instance != victimInst && ev.From == victimInst && !after {
+			after = true
+			took = ev.Time.Sub(killAt)
+			fmt.Printf("    takeover: claimed by %.8s (why=%s epoch=%d) %s after the kill\n", ev.Instance, ev.Why, ev.Epoch, took.Round(100*time.Millisecond))
 		}
-		fmt.Printf("  %s (first thread: %v)\n", t.session(), t == ts[0])
-		var took time.Duration
-		after := false
-		var tail []string
-		for _, ev := range r.Events {
-			if ev.Kind == "session_claimed" && ev.Instance != victimInst && ev.From == victimInst && !after {
-				after = true
-				took = ev.Time.Sub(killAt)
-				fmt.Printf("    takeover: claimed by %.8s (why=%s epoch=%d) %s after the kill\n", ev.Instance, ev.Why, ev.Epoch, took.Round(100*time.Millisecond))
-			}
-			if after && ev.Kind != "reply_part_kept" && ev.Kind != "context_built" {
-				tail = append(tail, ev.Kind+eventNote(ev))
-			}
-		}
-		if !after {
-			fmt.Println("    no takeover claim in the Record")
-		}
-		fmt.Printf("    events after the takeover: %s\n", strings.Join(tail, ", "))
-		cs, _ := e.cards(ctx, t.chat)
-		for _, c := range cs {
-			fmt.Printf("    card +%02ds from %s: %q\n", int(c.Time.Sub(start).Seconds()), c.Instance, trunc(c.Text, 50))
-		}
-		for i := range r.Messages {
-			if r.Messages[i].Role != "assistant" && !strings.Contains(r.text(i), "T[") {
-				fmt.Printf("    non-driver message (%s): %q\n", r.Messages[i].Role, trunc(r.text(i), 120))
-			}
+		if after && ev.Kind != "reply_part_kept" && ev.Kind != "context_built" {
+			tail = append(tail, ev.Kind+eventNote(ev))
 		}
 	}
-	fmt.Println()
-	faults := e.report(ctx, ts)
-	return verdict("s2", faults == 0, fmt.Sprintf("%d GOTATO-FAULT", faults))
+	if !after {
+		fmt.Println("    no takeover claim in the Record")
+	}
+	fmt.Printf("    events after the takeover: %s\n", strings.Join(tail, ", "))
+}
+
+// s2PrintCards prints the thread's cards and the messages in its Record the driver did not send.
+func (e *env) s2PrintCards(ctx context.Context, t *thread, r record, start time.Time) {
+	cs, _ := e.cards(ctx, t.chat)
+	for _, c := range cs {
+		fmt.Printf("    card +%02ds from %s: %q\n", int(c.Time.Sub(start).Seconds()), c.Instance, trunc(c.Text, 50))
+	}
+	for i := range r.Messages {
+		if r.Messages[i].Role != "assistant" && !strings.Contains(r.text(i), "T[") {
+			fmt.Printf("    non-driver message (%s): %q\n", r.Messages[i].Role, trunc(r.text(i), 120))
+		}
+	}
 }
 
 // kill stops the writer's pod. delete: kubectl delete pod --grace-period=0 --force (SIGTERM, then SIGKILL at once;
