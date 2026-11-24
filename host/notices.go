@@ -10,6 +10,7 @@ import (
 	"github.com/jinhuang712/gotato/gotato"
 	"github.com/jinhuang712/gotato/profile"
 	"github.com/jinhuang712/gotato/record"
+	"github.com/jinhuang712/gotato/store"
 )
 
 // defaultTimeAway is how long a Session must have been idle before a message
@@ -120,51 +121,69 @@ func (r *Runner) noticeBetweenRuns(ctx context.Context, request NoticeRequest) (
 	message := gotato.NewNotice(gotato.NoticeSourceService, request.Kind, request.Text)
 	message.ID = newMessageID()
 	err := r.sessionLock(ctx, request.SessionID, true, func() error {
-		writer, early, _, err := r.acquire(ctx, request.SessionID)
-		if err != nil {
-			return err
-		}
-		agentName, _ := writer.Record().Get(metaAgent)
-		r.publishOpened(writer, early, agentName)
-		spec, err := r.agentOf(ctx, writer.Record())
-		known := err == nil
-		if err != nil && !errors.Is(err, ErrUnknownAgent) {
-			_ = r.releaseWriter(ctx, writer)
-			return err
-		}
-		limit := int(gotato.DefaultLimits().MaxNotices)
-		if known && spec.Limits != nil && spec.Limits.MaxNotices > 0 {
-			limit = int(spec.Limits.MaxNotices)
-		}
-		var written []gotato.Event
-		switch {
-		case len(writer.Record().PendingNotices()) >= limit:
-			err = notRunError(gotato.ErrorOf(gotato.CodeLimitExceeded, "host: the notice queue is full"))
-		default:
-			written, err = writer.Write(ctx, []gotato.Event{gotato.NoticeQueued{
-				Header:    gotato.NewHeader(gotato.SessionID(request.SessionID), "", 0),
-				MessageID: message.ID, NoticeKind: request.Kind, Source: gotato.NoticeSourceService, Text: request.Text,
-			}})
-		}
-		// The Writer has sent what it wrote, to the publisher publishOpened set.
-		for _, event := range written {
-			if queued, ok := event.(gotato.NoticeQueued); ok {
-				number = queued.Number
-			}
-		}
-		releaseErr := r.releaseWriter(ctx, writer)
-		if known && releaseErr == nil {
-			r.keepWarm(writer, spec)
-		}
-		if err != nil {
-			return err
-		}
-		return releaseErr
+		var err error
+		number, err = r.writeNoticeLocked(ctx, request, message.ID)
+		return err
 	})
 	if err != nil {
 		return 0, "", err
 	}
 	return number, message.ID, nil
+}
+
+// writeNoticeLocked is noticeBetweenRuns once it holds the Session's lock: it
+// opens the Session's Writer, writes the notice_queued Event under the notice
+// limit of the Session's Agent, and releases the Writer.
+func (r *Runner) writeNoticeLocked(ctx context.Context, request NoticeRequest, id gotato.MessageID) (uint64, error) {
+	writer, early, _, err := r.acquire(ctx, request.SessionID)
+	if err != nil {
+		return 0, err
+	}
+	agentName, _ := writer.Record().Get(metaAgent)
+	r.publishOpened(writer, early, agentName)
+	spec, err := r.agentOf(ctx, writer.Record())
+	known := err == nil
+	if err != nil && !errors.Is(err, ErrUnknownAgent) {
+		_ = r.releaseWriter(ctx, writer)
+		return 0, err
+	}
+	limit := int(gotato.DefaultLimits().MaxNotices)
+	if known && spec.Limits != nil && spec.Limits.MaxNotices > 0 {
+		limit = int(spec.Limits.MaxNotices)
+	}
+	number, err := writeNoticeQueued(ctx, writer, request, id, limit)
+	releaseErr := r.releaseWriter(ctx, writer)
+	if known && releaseErr == nil {
+		r.keepWarm(writer, spec)
+	}
+	if err != nil {
+		return number, err
+	}
+	return number, releaseErr
+}
+
+// writeNoticeQueued writes the notice_queued Event of a notice, unless the
+// Session already holds limit notices, and returns the Event's number.
+func writeNoticeQueued(ctx context.Context, writer *store.Writer, request NoticeRequest, id gotato.MessageID, limit int) (uint64, error) {
+	var written []gotato.Event
+	var err error
+	switch {
+	case len(writer.Record().PendingNotices()) >= limit:
+		err = notRunError(gotato.ErrorOf(gotato.CodeLimitExceeded, "host: the notice queue is full"))
+	default:
+		written, err = writer.Write(ctx, []gotato.Event{gotato.NoticeQueued{
+			Header:    gotato.NewHeader(gotato.SessionID(request.SessionID), "", 0),
+			MessageID: id, NoticeKind: request.Kind, Source: gotato.NoticeSourceService, Text: request.Text,
+		}})
+	}
+	// The Writer has sent what it wrote, to the publisher publishOpened set.
+	var number uint64
+	for _, event := range written {
+		if queued, ok := event.(gotato.NoticeQueued); ok {
+			number = queued.Number
+		}
+	}
+	return number, err
 }
 
 // splitNotices separates the notices from the other messages a Run left.
