@@ -31,15 +31,17 @@ type chatRequest struct {
 			Parameters map[string]any `json:"parameters"`
 		} `json:"function"`
 	} `json:"tools"`
-	Messages []struct {
-		Role             string          `json:"role"`
-		Content          json.RawMessage `json:"content"`
-		ToolCallID       string          `json:"tool_call_id"`
-		ReasoningContent string          `json:"reasoning_content"`
-		ToolCalls        []struct {
-			ID string `json:"id"`
-		} `json:"tool_calls"`
-	} `json:"messages"`
+	Messages []chatMessage `json:"messages"`
+}
+
+type chatMessage struct {
+	Role             string          `json:"role"`
+	Content          json.RawMessage `json:"content"`
+	ToolCallID       string          `json:"tool_call_id"`
+	ReasoningContent string          `json:"reasoning_content"`
+	ToolCalls        []struct {
+		ID string `json:"id"`
+	} `json:"tool_calls"`
 }
 
 func (chatWire) api() string { return APIChat }
@@ -80,37 +82,58 @@ func (c chatWire) parse(_ *Server, body []byte, h http.Header) (*parsed, *apiErr
 			p.tools = append(p.tools, toolDef{name: t.Function.Name, schema: t.Function.Parameters})
 		}
 	}
-	seenOther := false
-	pending := map[string]bool{}
+	rd := &chatMessages{p: p, pending: map[string]bool{}}
 	for i, m := range req.Messages {
-		if m.Role != "tool" && len(pending) > 0 {
-			return nil, openAIErr(http.StatusBadRequest, fmt.Sprintf("An assistant message with 'tool_calls' must be followed by tool messages responding to each 'tool_call_id'. The following tool_call_ids did not have response messages: %s", firstKey(pending)), "messages.["+fmt.Sprint(i)+"].role", "")
+		if e := rd.message(i, m); e != nil {
+			return nil, e
 		}
-		switch m.Role {
-		case "system", "developer":
-			if seenOther {
-				p.midSystem = append(p.midSystem, i)
-			}
-			continue
-		case "user":
-			p.events = append(p.events, event{text: chatContentText(m.Content)})
-		case "assistant":
-			for _, tc := range m.ToolCalls {
-				pending[tc.ID] = true
-			}
-		case "tool":
-			if !pending[m.ToolCallID] {
-				return nil, openAIErr(http.StatusBadRequest, "Invalid parameter: messages with role 'tool' must be a response to a preceding message with 'tool_calls'.", "messages.["+fmt.Sprint(i)+"].role", "") //nolint:misspell // the provider spells it so
-			}
-			delete(pending, m.ToolCallID)
-			p.events = append(p.events, event{toolResult: true, text: chatContentText(m.Content)})
-		}
-		seenOther = true
 	}
-	if len(pending) > 0 {
-		return nil, openAIErr(http.StatusBadRequest, fmt.Sprintf("An assistant message with 'tool_calls' must be followed by tool messages responding to each 'tool_call_id'. The following tool_call_ids did not have response messages: %s", firstKey(pending)), "messages", "")
+	if len(rd.pending) > 0 {
+		return nil, rd.unanswered("messages")
 	}
 	return p, nil
+}
+
+// chatMessages reads the messages of a Chat Completions request into events,
+// and pairs each tool call with its tool message.
+type chatMessages struct {
+	p *parsed
+	// pending holds the tool calls not yet answered, by id.
+	pending   map[string]bool
+	seenOther bool
+}
+
+// unanswered refuses the tool calls still pending, naming param.
+func (r *chatMessages) unanswered(param string) *apiError {
+	return openAIErr(http.StatusBadRequest, fmt.Sprintf("An assistant message with 'tool_calls' must be followed by tool messages responding to each 'tool_call_id'. The following tool_call_ids did not have response messages: %s", firstKey(r.pending)), param, "")
+}
+
+// message reads message i.
+func (r *chatMessages) message(i int, m chatMessage) *apiError {
+	if m.Role != "tool" && len(r.pending) > 0 {
+		return r.unanswered("messages.[" + fmt.Sprint(i) + "].role")
+	}
+	switch m.Role {
+	case "system", "developer":
+		if r.seenOther {
+			r.p.midSystem = append(r.p.midSystem, i)
+		}
+		return nil
+	case "user":
+		r.p.events = append(r.p.events, event{text: chatContentText(m.Content)})
+	case "assistant":
+		for _, tc := range m.ToolCalls {
+			r.pending[tc.ID] = true
+		}
+	case "tool":
+		if !r.pending[m.ToolCallID] {
+			return openAIErr(http.StatusBadRequest, "Invalid parameter: messages with role 'tool' must be a response to a preceding message with 'tool_calls'.", "messages.["+fmt.Sprint(i)+"].role", "") //nolint:misspell // the provider spells it so
+		}
+		delete(r.pending, m.ToolCallID)
+		r.p.events = append(r.p.events, event{toolResult: true, text: chatContentText(m.Content)})
+	}
+	r.seenOther = true
+	return nil
 }
 
 func firstKey(m map[string]bool) string {
