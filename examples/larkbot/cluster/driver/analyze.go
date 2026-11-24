@@ -184,66 +184,16 @@ func (e *env) acceptedByVictim(lines []logLine) bool {
 // totals, and returns the number of GOTATO-FAULTs.
 func (e *env) report(ctx context.Context, ts []*thread) int {
 	logs := e.readLogs()
-	cat := map[string]int{}
-	faults := 0
-	var sentN, ackedN, onceN, missingN, dupN, cardN, noticeN, runN, dupCards, lostCards int
-	byReason := map[string]int{}
+	rc := reportCounts{cat: map[string]int{}, byReason: map[string]int{}}
 	for _, t := range ts {
 		if t.root == "" {
 			continue
 		}
-		rec, err := e.record(ctx, t.session())
-		if err != nil { // no Session: the first message never got in; each message is classified from the logs
-			rec = record{}
-		}
-		for _, f := range recordFaults(rec) {
-			faults++
-			fmt.Printf("  %s %s: %s\n", fault, t.session(), f)
-		}
-		for _, m := range t.msgs {
-			sentN++
-			if m.err == nil && m.sent.acked() {
-				ackedN++
-			}
-			n := rec.count(m.tag)
-			c, why := e.classify(m, n, logs)
-			switch n {
-			case 1:
-				onceN++
-			case 0:
-				missingN++
-			default:
-				dupN++
-			}
-			if c == "ok" {
-				continue
-			}
-			cat[c]++
-			byReason[c+": "+why]++
-			if c == fault {
-				faults++
-			}
-			if c == fault || c == unexpl {
-				fmt.Printf("  %s %s %s: %s\n", c, t.session(), m.tag, why)
-			}
-		}
-		cs, _ := e.cards(ctx, t.chat)
-		shown := 0
-		for _, c := range cs {
-			if strings.Contains(c.Text, busyNoticePrefix) {
-				noticeN++
-			} else {
-				shown++
-			}
-		}
-		cardN += shown
-		runN += len(rec.Runs)
-		if shown > len(rec.Runs) {
-			dupCards += shown - len(rec.Runs)
-		} else {
-			lostCards += len(rec.Runs) - shown
-		}
+		e.reportThread(ctx, &rc, t, logs)
 	}
+	cat, faults, byReason := rc.cat, rc.faults, rc.byReason
+	sentN, ackedN, onceN, missingN, dupN := rc.sentN, rc.ackedN, rc.onceN, rc.missingN, rc.dupN
+	cardN, noticeN, runN, dupCards, lostCards := rc.cardN, rc.noticeN, rc.runN, rc.dupCards, rc.lostCards
 	fmt.Printf("\n  messages sent %d, acked by a bot %d, in a Transcript once %d, missing %d, more than once %d\n", sentN, ackedN, onceN, missingN, dupN)
 	fmt.Printf("  Runs %d, reply cards %d (extra %d, missing %d), busy notices %d\n", runN, cardN, dupCards, lostCards, noticeN)
 	var keys []string
@@ -256,6 +206,76 @@ func (e *env) report(ctx context.Context, ts []*thread) int {
 	}
 	fmt.Printf("  GOTATO-FAULT %d, KNOWN-BOT-GAP %d, UNEXPLAINED %d\n", faults, cat[gapKnown], cat[unexpl])
 	return faults
+}
+
+// reportCounts is what report counts over the threads, for its totals.
+type reportCounts struct {
+	cat                                                                             map[string]int
+	faults                                                                          int
+	sentN, ackedN, onceN, missingN, dupN, cardN, noticeN, runN, dupCards, lostCards int
+	byReason                                                                        map[string]int
+}
+
+// reportThread checks one thread against its Record, the cards and the logs, prints one line per problem, and
+// counts into rc.
+func (e *env) reportThread(ctx context.Context, rc *reportCounts, t *thread, logs []logLine) {
+	rec, err := e.record(ctx, t.session())
+	if err != nil { // no Session: the first message never got in; each message is classified from the logs
+		rec = record{}
+	}
+	for _, f := range recordFaults(rec) {
+		rc.faults++
+		fmt.Printf("  %s %s: %s\n", fault, t.session(), f)
+	}
+	for _, m := range t.msgs {
+		e.reportMsg(rc, t, m, rec, logs)
+	}
+	cs, _ := e.cards(ctx, t.chat)
+	shown := 0
+	for _, c := range cs {
+		if strings.Contains(c.Text, busyNoticePrefix) {
+			rc.noticeN++
+		} else {
+			shown++
+		}
+	}
+	rc.cardN += shown
+	rc.runN += len(rec.Runs)
+	if shown > len(rec.Runs) {
+		rc.dupCards += shown - len(rec.Runs)
+	} else {
+		rc.lostCards += len(rec.Runs) - shown
+	}
+}
+
+// reportMsg classifies one message of the thread, counts it into rc, and prints it when it is a fault or
+// unexplained.
+func (e *env) reportMsg(rc *reportCounts, t *thread, m *msg, rec record, logs []logLine) {
+	rc.sentN++
+	if m.err == nil && m.sent.acked() {
+		rc.ackedN++
+	}
+	n := rec.count(m.tag)
+	c, why := e.classify(m, n, logs)
+	switch n {
+	case 1:
+		rc.onceN++
+	case 0:
+		rc.missingN++
+	default:
+		rc.dupN++
+	}
+	if c == "ok" {
+		return
+	}
+	rc.cat[c]++
+	rc.byReason[c+": "+why]++
+	if c == fault {
+		rc.faults++
+	}
+	if c == fault || c == unexpl {
+		fmt.Printf("  %s %s %s: %s\n", c, t.session(), m.tag, why)
+	}
 }
 
 var storeErrRe = regexp.MustCompile(`(?i)epoch|fenc|corrupt|checksum`)
