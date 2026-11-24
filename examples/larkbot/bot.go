@@ -204,53 +204,19 @@ func (b *bot) handle(ctx context.Context, chatID, thread, messageID, text string
 // budget is spent, the user is told once. The reply comes from the Event
 // stream either way (replyLoop).
 func (b *bot) deliver(ctx context.Context, chatID, id, messageID, text string) {
-	start := time.Now()
+	d := &delivery{b: b, chatID: chatID, id: id, messageID: messageID, text: text, start: time.Now()}
 	// Messages of one Session keep their order: one that comes while an earlier
 	// message retries waits for it.
-	wait, leave, gated := b.enter(id, false)
-	defer func() { leave() }()
+	var wait <-chan struct{}
+	wait, d.leave, d.gated = b.enter(id, false)
+	defer func() { d.leave() }()
 	if !b.await(ctx, wait) {
 		return
 	}
-	backoff := b.retry.first
+	d.backoff = b.retry.first
 	for attempt := 1; ; attempt++ {
-		err := b.attempt(ctx, chatID, id, messageID, text, func() { leave() })
-		if err == nil {
-			if attempt > 1 {
-				b.log.Info("delivered after retry", "session", id, "message_id", messageID, "attempts", attempt,
-					"elapsed", time.Since(start).Round(time.Millisecond), "instance", b.label)
-			}
+		if !d.again(ctx, attempt) {
 			return
-		}
-		if !notRun(err) {
-			if _, ok := errors.AsType[*deliveryError](err); ok {
-				b.log.Warn("delivery unknown", "chat", chatID, "instance", b.label, "session", id, "message_id", messageID, "attempts", attempt, "err", err)
-				b.notify(ctx, id, chatID, messageID, busyNotice)
-			} else {
-				b.log.Error("send", "session", id, "message_id", messageID, "err", err)
-			}
-			return
-		}
-		if b.retry.budget <= 0 || time.Since(start)+backoff > b.retry.budget || ctx.Err() != nil {
-			b.log.Warn("delivery failed, not run", "chat", chatID, "instance", b.label, "session", id, "message_id", messageID,
-				"attempts", attempt, "elapsed", time.Since(start).Round(time.Millisecond), "err", err)
-			b.notify(ctx, id, chatID, messageID, busyNotice)
-			return
-		}
-		if !gated {
-			// From here on, a later message of this Session waits for this one.
-			var w <-chan struct{}
-			w, leave, gated = b.enter(id, true)
-			if !b.await(ctx, w) {
-				return
-			}
-		}
-		b.log.Info("not run, will retry", "instance", b.label, "session", id, "message_id", messageID, "attempt", attempt, "in", backoff, "err", err)
-		if !sleep(ctx, backoff) {
-			return
-		}
-		if backoff *= 2; backoff > b.retry.max {
-			backoff = b.retry.max
 		}
 	}
 }

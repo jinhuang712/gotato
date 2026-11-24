@@ -103,3 +103,77 @@ func sleep(ctx context.Context, d time.Duration) bool {
 		return false
 	}
 }
+
+// delivery is the state of one deliver call across its attempts.
+type delivery struct {
+	b                           *bot
+	chatID, id, messageID, text string
+	start                       time.Time
+	backoff                     time.Duration
+	leave                       func() // lets the next message of the Session go on
+	gated                       bool   // this message is in the Session's gate
+}
+
+// elapsed is the time since deliver began, to the millisecond.
+func (d *delivery) elapsed() time.Duration {
+	return time.Since(d.start).Round(time.Millisecond)
+}
+
+// again makes one attempt and reports whether deliver should go on with the
+// next one.
+func (d *delivery) again(ctx context.Context, attempt int) bool {
+	err := d.b.attempt(ctx, d.chatID, d.id, d.messageID, d.text, func() { d.leave() })
+	switch {
+	case err == nil:
+		d.logDelivered(attempt)
+		return false
+	case !notRun(err):
+		d.logFailed(ctx, attempt, err)
+		return false
+	case d.b.retry.budget <= 0 || time.Since(d.start)+d.backoff > d.b.retry.budget || ctx.Err() != nil:
+		d.b.log.Warn("delivery failed, not run", "chat", d.chatID, "instance", d.b.label, "session", d.id, "message_id", d.messageID,
+			"attempts", attempt, "elapsed", d.elapsed(), "err", err)
+		d.b.notify(ctx, d.id, d.chatID, d.messageID, busyNotice)
+		return false
+	}
+	return d.pause(ctx, attempt, err)
+}
+
+// logDelivered logs a message that was accepted after more than one attempt.
+func (d *delivery) logDelivered(attempt int) {
+	if attempt > 1 {
+		d.b.log.Info("delivered after retry", "session", d.id, "message_id", d.messageID, "attempts", attempt,
+			"elapsed", d.elapsed(), "instance", d.b.label)
+	}
+}
+
+// logFailed logs an attempt that may have run, and tells the user when it was a forward.
+func (d *delivery) logFailed(ctx context.Context, attempt int, err error) {
+	if _, ok := errors.AsType[*deliveryError](err); ok {
+		d.b.log.Warn("delivery unknown", "chat", d.chatID, "instance", d.b.label, "session", d.id, "message_id", d.messageID, "attempts", attempt, "err", err)
+		d.b.notify(ctx, d.id, d.chatID, d.messageID, busyNotice)
+	} else {
+		d.b.log.Error("send", "session", d.id, "message_id", d.messageID, "err", err)
+	}
+}
+
+// pause waits out the backoff before the next attempt, and reports false when
+// ctx ended first.
+func (d *delivery) pause(ctx context.Context, attempt int, err error) bool {
+	if !d.gated {
+		// From here on, a later message of this Session waits for this one.
+		var w <-chan struct{}
+		w, d.leave, d.gated = d.b.enter(d.id, true)
+		if !d.b.await(ctx, w) {
+			return false
+		}
+	}
+	d.b.log.Info("not run, will retry", "instance", d.b.label, "session", d.id, "message_id", d.messageID, "attempt", attempt, "in", d.backoff, "err", err)
+	if !sleep(ctx, d.backoff) {
+		return false
+	}
+	if d.backoff *= 2; d.backoff > d.b.retry.max {
+		d.backoff = d.b.retry.max
+	}
+	return true
+}
