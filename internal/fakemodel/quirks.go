@@ -94,3 +94,50 @@ func (pl *plan) midOverflow() (flags string, ok bool) {
 	flags, ok = pl.q.byName["overflow-midstream"]
 	return flags, ok
 }
+
+// chunked is a part of the reply that streams in chunks, named by the quirk
+// that cuts the stream after its first chunk: the text, or a tool call's
+// arguments.
+type chunked string
+
+const (
+	textChunks chunked = "cut-after-text"
+	argsChunks chunked = "cut-in-args"
+)
+
+// The size of a chunk of each part, in bytes or so.
+const (
+	textChunkBytes      = 5
+	argsChunkBytes      = 6
+	reasoningChunkBytes = 12
+)
+
+// size is the size of a chunk of the part.
+func (c chunked) size() int {
+	if c == argsChunks {
+		return argsChunkBytes
+	}
+	return textChunkBytes
+}
+
+// play streams s in the chunks of part, each one through send, and after the
+// first one plays the quirks that act mid-stream: the overflow, which
+// overflow writes and which ends the stream (play then reports false), and
+// the cut of part.
+func (pl *plan) play(sw *sseWriter, part chunked, s string, send func(string), overflow func(flags string)) bool {
+	for n, c := range chunks(s, part.size()) {
+		send(c)
+		if n > 0 {
+			continue
+		}
+		if flags, ok := pl.midOverflow(); ok {
+			pl.outcome("overflow-midstream")
+			overflow(flags)
+			return false
+		}
+		if pl.cutNow(string(part)) {
+			sw.cut(pl)
+		}
+	}
+	return true
+}

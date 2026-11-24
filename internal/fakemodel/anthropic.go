@@ -436,73 +436,9 @@ func firstType(blocks []map[string]any) any {
 	return blocks[0]["type"]
 }
 
-func (anthropicWire) stream(s *sseWriter, p *parsed, pl *plan, q *quirks) {
-	ev := func(kind string, fields map[string]any) {
-		fields["type"] = kind
-		s.event(kind, fields)
-	}
-	usage := map[string]any{
-		"input_tokens":                pl.input - pl.cached,
-		"cache_creation_input_tokens": 0,
-		"cache_read_input_tokens":     pl.cached,
-		"output_tokens":               1,
-	}
-	ev("message_start", map[string]any{"message": map[string]any{
-		"id": "msg_" + pl.id, "type": "message", "role": "assistant", "model": p.model,
-		"content": []any{}, "stop_reason": nil, "stop_sequence": nil, "usage": usage,
-	}})
-	index := 0
-	// The prefix a thinking block is written under is the whole request.
-	messages, _ := p.raw["messages"].([]any)
-	if pl.reasoning != "" {
-		ev("content_block_start", map[string]any{"index": index, "content_block": map[string]any{"type": "thinking", "thinking": "", "signature": ""}})
-		for _, c := range chunks(pl.reasoning, 12) {
-			ev("content_block_delta", map[string]any{"index": index, "delta": map[string]any{"type": "thinking_delta", "thinking": c}})
-		}
-		ev("content_block_delta", map[string]any{"index": index, "delta": map[string]any{"type": "signature_delta", "signature": anthropicSignature(prefixHash(p.raw, len(messages), 0), pl.reasoning)}})
-		ev("content_block_stop", map[string]any{"index": index})
-		index++
-	}
-	stop := "end_turn"
-	mid := false
-	closeAndStop := func(reason string) {
-		ev("content_block_stop", map[string]any{"index": index})
-		ev("message_delta", map[string]any{"delta": map[string]any{"stop_reason": reason, "stop_sequence": nil}, "usage": map[string]any{"output_tokens": pl.output}})
-		ev("message_stop", map[string]any{})
-	}
-	if pl.call == nil {
-		ev("content_block_start", map[string]any{"index": index, "content_block": map[string]any{"type": "text", "text": ""}})
-		ev("ping", map[string]any{})
-		for n, c := range chunks(pl.text, 5) {
-			ev("content_block_delta", map[string]any{"index": index, "delta": map[string]any{"type": "text_delta", "text": c}})
-			if n == 0 {
-				if _, mid = pl.midOverflow(); mid {
-					pl.outcome("overflow-midstream")
-					closeAndStop("model_context_window_exceeded")
-					return
-				}
-				if pl.cutNow("cut-after-text") {
-					s.cut(pl)
-				}
-			}
-		}
-	} else {
-		stop = "tool_use"
-		ev("content_block_start", map[string]any{"index": index, "content_block": map[string]any{"type": "tool_use", "id": "toolu_" + pl.id, "name": pl.call.name, "input": map[string]any{}}})
-		ev("content_block_delta", map[string]any{"index": index, "delta": map[string]any{"type": "input_json_delta", "partial_json": ""}})
-		for n, c := range chunks(pl.call.args, 6) {
-			ev("content_block_delta", map[string]any{"index": index, "delta": map[string]any{"type": "input_json_delta", "partial_json": c}})
-			if n == 0 {
-				if _, mid = pl.midOverflow(); mid {
-					pl.outcome("overflow-midstream")
-					closeAndStop("model_context_window_exceeded")
-					return
-				}
-				if pl.cutNow("cut-in-args") {
-					s.cut(pl)
-				}
-			}
-		}
-	}
-	closeAndStop(stop)
+// requestPrefix is the prefix a thinking block is written under: the whole
+// request.
+func requestPrefix(raw map[string]any) string {
+	messages, _ := raw["messages"].([]any)
+	return prefixHash(raw, len(messages), 0)
 }
