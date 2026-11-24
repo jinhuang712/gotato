@@ -128,31 +128,14 @@ func (r *assistantReader) broken(err *RuntimeError) (Message, Usage, *RuntimeErr
 
 // apply adds one Model event to the reply.
 func (r *assistantReader) apply(modelEvent ModelEvent) *RuntimeError {
-	a := r.a
 	if modelEvent.Model != "" {
 		r.assistant.Model = modelEvent.Model
 	}
 	switch modelEvent.Kind {
 	case ModelEventKindTextDelta:
-		if modelEvent.Text != "" {
-			if err := r.grow(len(modelEvent.Text)); err != nil {
-				return err
-			}
-			r.assistant.Parts = append(r.assistant.Parts, ContentPart{Kind: ContentKindText, Text: modelEvent.Text})
-			a.send(TextDelta{Header: a.deltaHeader(r.runID, r.turn), MessageID: r.assistant.ID, Text: modelEvent.Text})
-			r.partText.WriteString(modelEvent.Text)
-			return r.writePart()
-		}
+		return r.applyText(modelEvent.Text)
 	case ModelEventKindReasoningDelta:
-		if modelEvent.Text != "" {
-			if err := r.grow(len(modelEvent.Text)); err != nil {
-				return err
-			}
-			r.assistant.Parts = append(r.assistant.Parts, ContentPart{Kind: ContentKindReasoning, Text: modelEvent.Text})
-			a.send(ReasoningDelta{Header: a.deltaHeader(r.runID, r.turn), MessageID: r.assistant.ID, Text: modelEvent.Text})
-			r.partReasoning.WriteString(modelEvent.Text)
-			return r.writePart()
-		}
+		return r.applyReasoning(modelEvent.Text)
 	case ModelEventKindReasoningDone:
 		// The Done signs the block its deltas opened (see signReasoning).
 		if err := r.grow(len(modelEvent.ReasoningArtifact)); err != nil {
@@ -160,31 +143,73 @@ func (r *assistantReader) apply(modelEvent ModelEvent) *RuntimeError {
 		}
 		r.assistant.Parts = signReasoning(r.assistant.Parts, modelEvent.ReasoningArtifact)
 	case ModelEventKindToolCall:
-		if call := modelEvent.ToolCall; call != nil {
-			if err := r.grow(len(call.ID) + len(call.ToolID) + len(call.Arguments) + len(call.Signature)); err != nil {
-				return err
-			}
-		}
-		calls, callErr := appendToolCall(r.assistant.ToolCalls, modelEvent.ToolCall)
-		if callErr != nil {
-			return callErr
-		}
-		r.assistant.ToolCalls = calls
+		return r.applyToolCall(modelEvent.ToolCall)
 	case ModelEventKindUsage:
 		r.usage = modelEvent.Usage
 	case ModelEventKindDone:
-		r.complete = true
-		r.assistant.StopReason = modelEvent.StopReason
-		if r.assistant.StopReason == "" {
-			r.assistant.StopReason = StopReasonEndTurn
-		}
-		if modelEvent.Usage.TotalTokens != 0 || modelEvent.Usage.InputTokens != 0 || modelEvent.Usage.OutputTokens != 0 {
-			r.usage = modelEvent.Usage
-		}
+		r.applyDone(modelEvent.StopReason, modelEvent.Usage)
 	default:
 		return runtimeError(CodeModelProtocolFailure, "ModelStream", "unknown Model event", nil)
 	}
 	return nil
+}
+
+// applyText adds a text delta to the reply and sends it.
+func (r *assistantReader) applyText(text string) *RuntimeError {
+	if text == "" {
+		return nil
+	}
+	if err := r.grow(len(text)); err != nil {
+		return err
+	}
+	a := r.a
+	r.assistant.Parts = append(r.assistant.Parts, ContentPart{Kind: ContentKindText, Text: text})
+	a.send(TextDelta{Header: a.deltaHeader(r.runID, r.turn), MessageID: r.assistant.ID, Text: text})
+	r.partText.WriteString(text)
+	return r.writePart()
+}
+
+// applyReasoning adds a reasoning delta to the reply and sends it.
+func (r *assistantReader) applyReasoning(text string) *RuntimeError {
+	if text == "" {
+		return nil
+	}
+	if err := r.grow(len(text)); err != nil {
+		return err
+	}
+	a := r.a
+	r.assistant.Parts = append(r.assistant.Parts, ContentPart{Kind: ContentKindReasoning, Text: text})
+	a.send(ReasoningDelta{Header: a.deltaHeader(r.runID, r.turn), MessageID: r.assistant.ID, Text: text})
+	r.partReasoning.WriteString(text)
+	return r.writePart()
+}
+
+// applyToolCall adds a Tool call the Model made to the reply.
+func (r *assistantReader) applyToolCall(call *ToolCall) *RuntimeError {
+	if call != nil {
+		if err := r.grow(len(call.ID) + len(call.ToolID) + len(call.Arguments) + len(call.Signature)); err != nil {
+			return err
+		}
+	}
+	calls, callErr := appendToolCall(r.assistant.ToolCalls, call)
+	if callErr != nil {
+		return callErr
+	}
+	r.assistant.ToolCalls = calls
+	return nil
+}
+
+// applyDone completes the reply with its stop reason, and its usage when the
+// Done carries one.
+func (r *assistantReader) applyDone(stop StopReason, usage Usage) {
+	r.complete = true
+	r.assistant.StopReason = stop
+	if r.assistant.StopReason == "" {
+		r.assistant.StopReason = StopReasonEndTurn
+	}
+	if usage.TotalTokens != 0 || usage.InputTokens != 0 || usage.OutputTokens != 0 {
+		r.usage = usage
+	}
 }
 
 // grow adds n bytes to the reply and refuses the event that would make the
