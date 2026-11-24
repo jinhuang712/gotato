@@ -186,38 +186,11 @@ func fill(v reflect.Value, path string, keep map[string]bool, counter *int) erro
 func differ(got, want reflect.Value, path string) string {
 	switch want.Kind() {
 	case reflect.Struct:
-		if want.Type() == timeType {
-			if !got.Interface().(time.Time).Equal(want.Interface().(time.Time)) {
-				return fmt.Sprintf("%s = %v, want %v", path, got.Interface(), want.Interface())
-			}
-			return ""
-		}
-		for i := range want.NumField() {
-			if !want.Type().Field(i).IsExported() {
-				continue
-			}
-			if diff := differ(got.Field(i), want.Field(i), path+"."+want.Type().Field(i).Name); diff != "" {
-				return diff
-			}
-		}
+		return differStruct(got, want, path)
 	case reflect.Slice:
-		if got.Len() != want.Len() {
-			return fmt.Sprintf("%s has %d items, want %d", path, got.Len(), want.Len())
-		}
-		for i := range want.Len() {
-			if diff := differ(got.Index(i), want.Index(i), fmt.Sprintf("%s[%d]", path, i)); diff != "" {
-				return diff
-			}
-		}
+		return differSlice(got, want, path)
 	case reflect.Map:
-		if got.Len() != want.Len() {
-			return fmt.Sprintf("%s has %d items, want %d", path, got.Len(), want.Len())
-		}
-		for _, key := range want.MapKeys() {
-			if !got.MapIndex(key).IsValid() || !reflect.DeepEqual(got.MapIndex(key).Interface(), want.MapIndex(key).Interface()) {
-				return fmt.Sprintf("%s lost the key %v", path, key)
-			}
-		}
+		return differMap(got, want, path)
 	case reflect.Pointer:
 		if got.IsNil() != want.IsNil() {
 			return fmt.Sprintf("%s = %v, want %v", path, got.Interface(), want.Interface())
@@ -228,6 +201,52 @@ func differ(got, want reflect.Value, path string) string {
 	default:
 		if !reflect.DeepEqual(got.Interface(), want.Interface()) {
 			return fmt.Sprintf("%s = %v, want %v", path, got.Interface(), want.Interface())
+		}
+	}
+	return ""
+}
+
+// differStruct is differ for a struct: a time by its instant, any other
+// struct by its exported fields in order.
+func differStruct(got, want reflect.Value, path string) string {
+	if want.Type() == timeType {
+		if !got.Interface().(time.Time).Equal(want.Interface().(time.Time)) {
+			return fmt.Sprintf("%s = %v, want %v", path, got.Interface(), want.Interface())
+		}
+		return ""
+	}
+	for i := range want.NumField() {
+		if !want.Type().Field(i).IsExported() {
+			continue
+		}
+		if diff := differ(got.Field(i), want.Field(i), path+"."+want.Type().Field(i).Name); diff != "" {
+			return diff
+		}
+	}
+	return ""
+}
+
+// differSlice is differ for a slice: its length, then each item in order.
+func differSlice(got, want reflect.Value, path string) string {
+	if got.Len() != want.Len() {
+		return fmt.Sprintf("%s has %d items, want %d", path, got.Len(), want.Len())
+	}
+	for i := range want.Len() {
+		if diff := differ(got.Index(i), want.Index(i), fmt.Sprintf("%s[%d]", path, i)); diff != "" {
+			return diff
+		}
+	}
+	return ""
+}
+
+// differMap is differ for a map: its length, then each key of want.
+func differMap(got, want reflect.Value, path string) string {
+	if got.Len() != want.Len() {
+		return fmt.Sprintf("%s has %d items, want %d", path, got.Len(), want.Len())
+	}
+	for _, key := range want.MapKeys() {
+		if !got.MapIndex(key).IsValid() || !reflect.DeepEqual(got.MapIndex(key).Interface(), want.MapIndex(key).Interface()) {
+			return fmt.Sprintf("%s lost the key %v", path, key)
 		}
 	}
 	return ""
