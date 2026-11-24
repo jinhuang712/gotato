@@ -15,7 +15,7 @@ import (
 // fields; the error bodies and the item-pairing errors are as the API returns
 // them (see the report of the change that added this package).
 
-type responsesWire struct{}
+type responsesWire struct{ openAIWire }
 
 type responsesRequest struct {
 	Model           string          `json:"model"`
@@ -48,7 +48,11 @@ func openAIErr(status int, message, param, code string) *apiError {
 	return &apiError{status: status, body: map[string]any{"error": e}}
 }
 
-func (responsesWire) invalid(message string) *apiError {
+// openAIWire is what the two OpenAI wire APIs share.
+type openAIWire struct{}
+
+// invalid wraps a message of the fake's own in OpenAI's error form.
+func (openAIWire) invalid(message string) *apiError {
 	return openAIErr(http.StatusBadRequest, message, "", "")
 }
 

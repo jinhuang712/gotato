@@ -14,7 +14,7 @@ import (
 // to other providers: a thinking-mode reply's reasoning_content is passed
 // back in the tool loop.
 
-type chatWire struct{}
+type chatWire struct{ openAIWire }
 
 type chatRequest struct {
 	Model               string `json:"model"`
@@ -43,10 +43,6 @@ type chatRequest struct {
 }
 
 func (chatWire) api() string { return APIChat }
-
-func (chatWire) invalid(message string) *apiError {
-	return openAIErr(http.StatusBadRequest, message, "", "")
-}
 
 func (chatWire) authorize(h http.Header) *apiError { return openAIAuthorize(h) }
 
