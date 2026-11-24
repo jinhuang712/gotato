@@ -303,61 +303,90 @@ func responsesAssistantItems(message gotato.Message, names map[string]string, ke
 	// Adjacent text Parts are one output message: transcripts saved
 	// before Gotato coalesced deltas hold a reply as its fragments.
 	var text strings.Builder
-	flushText := func() {
-		if text.Len() == 0 {
-			return
-		}
-		items = append(items, responsesOutputMessage{
-			Type: "message", Role: "assistant", Status: "completed",
-			Content: []any{map[string]any{"type": "output_text", "text": text.String(), "annotations": []any{}}},
-		})
-		text.Reset()
-	}
 	for _, part := range message.Parts {
-		switch part.Kind {
-		case gotato.ContentKindReasoning:
-			if len(part.Signature) == 0 || !keepReasoning {
-				continue
-			}
-			var reasoning json.RawMessage
-			if err := json.Unmarshal(part.Signature, &reasoning); err != nil {
-				return nil, fmt.Errorf("model: assistant reasoning signature is invalid: %w", err)
-			}
-			flushText()
-			items = append(items, reasoning)
-		case gotato.ContentKindText:
-			text.WriteString(part.Text)
-		case gotato.ContentKindImage, gotato.ContentKindJSON:
-			if len(part.Data) > 0 || part.Text != "" {
-				return nil, fmt.Errorf("model: Responses assistant content kind %q is unsupported", part.Kind)
-			}
+		if part.Kind == gotato.ContentKindReasoning && !keepReasoning {
+			continue
+		}
+		var err error
+		if items, err = appendResponsesAssistantPart(items, &text, part); err != nil {
+			return nil, err
 		}
 	}
-	flushText()
+	items = flushResponsesText(items, &text)
 	for _, call := range message.ToolCalls {
 		name, err := assignFunctionName(names, call.ToolID)
 		if err != nil {
 			return nil, err
 		}
-		arguments := string(replayArguments(call.Arguments))
-		callID, itemID := splitResponsesCallID(string(call.ID))
 		if layout != nil && layout.searchCalls[string(call.ID)] {
-			items = append(items, responsesToolSearchCall{Type: "tool_search_call", Execution: "client", CallID: callID, Status: "completed", Arguments: json.RawMessage(arguments)})
+			items = append(items, responsesSearchCallItem(call))
 			continue
 		}
-		// A JSON object is the chat API's extra_content, not an item ID.
-		if len(call.Signature) > 0 && !isJSONObject(call.Signature) {
-			itemID = string(call.Signature)
-		}
+		item := responsesFunctionCallItem(call, name)
 		// A call whose reasoning item is left out goes without its item
 		// ID too, as a call from another wire API does, so it never
 		// names an output its reasoning came with.
 		if !keepReasoning {
-			itemID = ""
+			item.ID = ""
 		}
-		items = append(items, responsesFunctionCall{Type: "function_call", ID: itemID, CallID: callID, Name: name, Arguments: arguments})
+		items = append(items, item)
 	}
 	return items, nil
+}
+
+// appendResponsesAssistantPart adds one assistant part: text to the pending
+// output message, a signed reasoning item after the text before it.
+func appendResponsesAssistantPart(items []any, text *strings.Builder, part gotato.ContentPart) ([]any, error) {
+	switch part.Kind {
+	case gotato.ContentKindReasoning:
+		if len(part.Signature) == 0 {
+			return items, nil
+		}
+		var reasoning json.RawMessage
+		if err := json.Unmarshal(part.Signature, &reasoning); err != nil {
+			return nil, fmt.Errorf("model: assistant reasoning signature is invalid: %w", err)
+		}
+		items = flushResponsesText(items, text)
+		return append(items, reasoning), nil
+	case gotato.ContentKindText:
+		text.WriteString(part.Text)
+	case gotato.ContentKindImage, gotato.ContentKindJSON:
+		if len(part.Data) > 0 || part.Text != "" {
+			return nil, fmt.Errorf("model: Responses assistant content kind %q is unsupported", part.Kind)
+		}
+	}
+	return items, nil
+}
+
+// flushResponsesText adds the pending text as one output message and empties it.
+func flushResponsesText(items []any, text *strings.Builder) []any {
+	if text.Len() == 0 {
+		return items
+	}
+	items = append(items, responsesOutputMessage{
+		Type: "message", Role: "assistant", Status: "completed",
+		Content: []any{map[string]any{"type": "output_text", "text": text.String(), "annotations": []any{}}},
+	})
+	text.Reset()
+	return items
+}
+
+// responsesSearchCallItem replays a call to the search tool as a tool_search_call.
+func responsesSearchCallItem(call gotato.ToolCall) responsesToolSearchCall {
+	arguments := string(replayArguments(call.Arguments))
+	callID, _ := splitResponsesCallID(string(call.ID))
+	return responsesToolSearchCall{Type: "tool_search_call", Execution: "client", CallID: callID, Status: "completed", Arguments: json.RawMessage(arguments)}
+}
+
+// responsesFunctionCallItem replays a call as a function_call with its item ID.
+func responsesFunctionCallItem(call gotato.ToolCall, name string) responsesFunctionCall {
+	arguments := string(replayArguments(call.Arguments))
+	callID, itemID := splitResponsesCallID(string(call.ID))
+	// A JSON object is the chat API's extra_content, not an item ID.
+	if len(call.Signature) > 0 && !isJSONObject(call.Signature) {
+		itemID = string(call.Signature)
+	}
+	return responsesFunctionCall{Type: "function_call", ID: itemID, CallID: callID, Name: name, Arguments: arguments}
 }
 
 // responsesToolResultItems is a tool result as a function_call_output, or, for
