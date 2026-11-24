@@ -109,6 +109,25 @@ func validateSchemaValue(schema map[string]any, value any, path string) error {
 	if typ, ok := schema["type"].(string); ok && !schemaTypeMatches(typ, value) {
 		return fmt.Errorf("%s must be %s", path, typ)
 	}
+	if err := checkSchemaEnum(schema, value, path); err != nil {
+		return err
+	}
+	if err := checkSchemaRequired(schema, value, path); err != nil {
+		return err
+	}
+	properties, _ := schema["properties"].(map[string]any)
+	object, ok := value.(map[string]any)
+	if !ok {
+		return nil
+	}
+	if err := checkSchemaProperties(properties, object, path); err != nil {
+		return err
+	}
+	return checkSchemaAdditional(schema, properties, object, path)
+}
+
+// checkSchemaEnum fails when the Schema declares an enum the value is not in.
+func checkSchemaEnum(schema map[string]any, value any, path string) error {
 	if allowed, ok := schema["enum"].([]any); ok && len(allowed) > 0 {
 		if !enumAllows(allowed, value) {
 			// The allowed values come from the declared Schema, so naming
@@ -117,36 +136,50 @@ func validateSchemaValue(schema map[string]any, value any, path string) error {
 			return fmt.Errorf("%s must be one of: %s", path, describeEnum(allowed))
 		}
 	}
-	if required, ok := schema["required"].([]any); ok {
-		object, isObject := value.(map[string]any)
-		if !isObject {
-			return fmt.Errorf("%s must be object", path)
+	return nil
+}
+
+// checkSchemaRequired fails when a required member is missing, or the value is no object.
+func checkSchemaRequired(schema map[string]any, value any, path string) error {
+	required, ok := schema["required"].([]any)
+	if !ok {
+		return nil
+	}
+	object, isObject := value.(map[string]any)
+	if !isObject {
+		return fmt.Errorf("%s must be object", path)
+	}
+	for _, raw := range required {
+		name, isString := raw.(string)
+		if isString {
+			if _, exists := object[name]; !exists {
+				return fmt.Errorf("%s.%s is required", path, name)
+			}
 		}
-		for _, raw := range required {
-			name, isString := raw.(string)
-			if isString {
-				if _, exists := object[name]; !exists {
-					return fmt.Errorf("%s.%s is required", path, name)
+	}
+	return nil
+}
+
+// checkSchemaProperties validates each present member against its declared Schema.
+func checkSchemaProperties(properties, object map[string]any, path string) error {
+	for name, rawSchema := range properties {
+		if raw, exists := object[name]; exists {
+			if child, ok := rawSchema.(map[string]any); ok {
+				if err := validateSchemaValue(child, raw, path+"."+name); err != nil {
+					return err
 				}
 			}
 		}
 	}
-	properties, _ := schema["properties"].(map[string]any)
-	if object, ok := value.(map[string]any); ok {
-		for name, rawSchema := range properties {
-			if raw, exists := object[name]; exists {
-				if child, ok := rawSchema.(map[string]any); ok {
-					if err := validateSchemaValue(child, raw, path+"."+name); err != nil {
-						return err
-					}
-				}
-			}
-		}
-		if additional, ok := schema["additionalProperties"].(bool); ok && !additional {
-			for name := range object {
-				if _, declared := properties[name]; !declared {
-					return fmt.Errorf("%s.%s is not allowed", path, name)
-				}
+	return nil
+}
+
+// checkSchemaAdditional fails on an undeclared member when additionalProperties is false.
+func checkSchemaAdditional(schema, properties, object map[string]any, path string) error {
+	if additional, ok := schema["additionalProperties"].(bool); ok && !additional {
+		for name := range object {
+			if _, declared := properties[name]; !declared {
+				return fmt.Errorf("%s.%s is not allowed", path, name)
 			}
 		}
 	}
