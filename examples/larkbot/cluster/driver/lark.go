@@ -197,3 +197,24 @@ func recordFaults(r record) []string {
 	}
 	return out
 }
+
+// replyCards counts a chat's cards that are replies (the bot's busy notice left out).
+func (e *env) replyCards(ctx context.Context, chat string) int {
+	cs, _ := e.cards(ctx, chat)
+	n := 0
+	for _, c := range cs {
+		if !strings.Contains(c.Text, busyNoticePrefix) {
+			n++
+		}
+	}
+	return n
+}
+
+func countRole(r record, role string) (n int) {
+	for _, m := range r.Messages {
+		if m.Role == role {
+			n++
+		}
+	}
+	return n
+}

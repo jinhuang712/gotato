@@ -25,18 +25,6 @@ func chats(scenario string, n int) []*thread {
 	return ts
 }
 
-// replyCards counts a chat's cards that are replies (the bot's busy notice left out).
-func (e *env) replyCards(ctx context.Context, chat string) int {
-	cs, _ := e.cards(ctx, chat)
-	n := 0
-	for _, c := range cs {
-		if !strings.Contains(c.Text, busyNoticePrefix) {
-			n++
-		}
-	}
-	return n
-}
-
 // waitPods waits until the bot has exactly n pods, all ready and none going away.
 func (e *env) waitPods(ctx context.Context, n int, limit time.Duration) error {
 	deadline := time.Now().Add(limit)
@@ -53,23 +41,6 @@ func (e *env) waitPods(ctx context.Context, n int, limit time.Duration) error {
 		sleep(ctx, time.Second)
 	}
 	return fmt.Errorf("the bot did not settle at %d ready pods within %s", n, limit)
-}
-
-func (e *env) scale(ctx context.Context, n int) error {
-	out, err := e.kubectl(ctx, "scale", "deployment/larkbot", fmt.Sprintf("--replicas=%d", n))
-	if err != nil {
-		return fmt.Errorf("%w: %s", err, out)
-	}
-	return nil
-}
-
-func podNames(m map[string]bool) []string {
-	var out []string
-	for p := range m {
-		out = append(out, p)
-	}
-	sort.Strings(out)
-	return out
 }
 
 // unansweredThreads counts the threads whose Transcript ends on a user message.
@@ -99,13 +70,40 @@ func (e *env) s3(ctx context.Context) bool {
 	}
 
 	fmt.Printf("%s 3 pods: %v\n", st.at(), podNames(before))
+	if err := e.s3ScaleDown(ctx, st, ts, say, delay); err != nil {
+		return verdict("s3", false, err.Error())
+	}
+	five, err := e.s3ScaleUp(ctx, st, ts, say, delay)
+	if err != nil {
+		return verdict("s3", false, err.Error())
+	}
+
+	fmt.Printf("\n%s results\n", st.at())
+	faults := e.report(ctx, ts)
+	for _, s := range storeErrors(e.readLogs()) {
+		faults++
+		fmt.Printf("  %s store error in a bot log: %s\n", fault, s)
+	}
+	unanswered := e.unansweredThreads(ctx, ts)
+	fmt.Printf("  threads whose Transcript ends on an unanswered user message: %d\n", unanswered)
+
+	claimsByNew := e.s3Claims(ctx, ts, before, five)
+	if claimsByNew == 0 {
+		return verdict("s3", false, "no pod added by the scale-up claimed a Session")
+	}
+	return verdict("s3", faults == 0, fmt.Sprintf("%d GOTATO-FAULT", faults))
+}
+
+// s3ScaleDown scales the bot 3 -> 1 with Runs in flight, sends into the threads while the pods drain, and waits
+// for the Runs to settle.
+func (e *env) s3ScaleDown(ctx context.Context, st stamper, ts []*thread, say func(i int, tag, d, what string), delay string) error {
 	for i := range 8 {
 		say(i, fmt.Sprintf("s3-%02d-a", i+1), delay, "new")
 	}
 	sleep(ctx, time.Second)
 	fmt.Printf("%s kubectl scale --replicas=1 (threads 1-8 have Runs in flight)\n", st.at())
 	if err := e.scale(ctx, 1); err != nil {
-		return verdict("s3", false, err.Error())
+		return err
 	}
 	for i := range 4 { // into running threads, while pods drain
 		sleep(ctx, 700*time.Millisecond)
@@ -116,26 +114,32 @@ func (e *env) s3(ctx context.Context) bool {
 		say(i, fmt.Sprintf("s3-%02d-a", i+1), delay, "new")
 	}
 	if err := e.waitPods(ctx, 1, 120*time.Second); err != nil {
-		return verdict("s3", false, err.Error())
+		return err
 	}
 	one, _ := e.pods(ctx)
 	fmt.Printf("%s 1 pod: %v\n", st.at(), podNames(one))
 	fmt.Printf("%s waiting for the Runs to settle (between messages)\n", st.at())
 	e.waitQuiet(ctx, ts, 6*time.Second, 90*time.Second)
+	return nil
+}
+
+// s3ScaleUp sends into every thread, scales the bot 1 -> 5 with Runs in flight, and sends on 5 pods; it
+// returns the 5 pods.
+func (e *env) s3ScaleUp(ctx context.Context, st stamper, ts []*thread, say func(i int, tag, d, what string), delay string) (map[string]bool, error) {
 	for i := range ts[:10] { // a message in every thread, no Run going
 		say(i, fmt.Sprintf("s3-%02d-b", i+1), delay, "reply after the Run ended in")
 	}
 	sleep(ctx, time.Second)
 	fmt.Printf("%s kubectl scale --replicas=5 (Runs in flight on the one pod)\n", st.at())
 	if err := e.scale(ctx, 5); err != nil {
-		return verdict("s3", false, err.Error())
+		return nil, err
 	}
 	for i := 4; i < 8; i++ { // while the new pods start and become ready
 		sleep(ctx, time.Second)
 		say(i, fmt.Sprintf("s3-%02d-c", i+1), delay, "reply into the running")
 	}
 	if err := e.waitPods(ctx, 5, 120*time.Second); err != nil {
-		return verdict("s3", false, err.Error())
+		return nil, err
 	}
 	five, _ := e.pods(ctx)
 	fmt.Printf("%s 5 pods: %v\n", st.at(), podNames(five))
@@ -151,16 +155,11 @@ func (e *env) s3(ctx context.Context) bool {
 	}
 	fmt.Printf("%s waiting for the Runs to settle\n", st.at())
 	e.waitQuiet(ctx, ts, 15*time.Second, 90*time.Second)
+	return five, nil
+}
 
-	fmt.Printf("\n%s results\n", st.at())
-	faults := e.report(ctx, ts)
-	for _, s := range storeErrors(e.readLogs()) {
-		faults++
-		fmt.Printf("  %s store error in a bot log: %s\n", fault, s)
-	}
-	unanswered := e.unansweredThreads(ctx, ts)
-	fmt.Printf("  threads whose Transcript ends on an unanswered user message: %d\n", unanswered)
-
+// s3Claims prints the claims of Sessions by pod, and returns those by pods that did not exist at the start.
+func (e *env) s3Claims(ctx context.Context, ts []*thread, before, five map[string]bool) int {
 	// Which pods served the Sessions: the last claim of each Session, by pod.
 	orig := map[string]bool{}
 	for p := range before {
@@ -173,19 +172,7 @@ func (e *env) s3(ctx context.Context) bool {
 		if err != nil {
 			continue
 		}
-		for _, ev := range r.Events {
-			if ev.Kind != "session_claimed" {
-				continue
-			}
-			p := e.podOf(ev.Instance)
-			if p == "" {
-				p = "?" + ev.Instance[:8]
-			}
-			served[p]++
-			if !orig[p] {
-				claimsByNew++
-			}
-		}
+		claimsByNew += e.s3ClaimsOf(r, orig, served)
 	}
 	var parts []string
 	for _, p := range podNames(five) {
@@ -197,10 +184,25 @@ func (e *env) s3(ctx context.Context) bool {
 	}
 	fmt.Printf("  claims of Sessions by pod, over the whole run: %s\n", strings.Join(parts, ", "))
 	fmt.Printf("  claims by pods that did not exist at the start: %d\n", claimsByNew)
-	if claimsByNew == 0 {
-		return verdict("s3", false, "no pod added by the scale-up claimed a Session")
+	return claimsByNew
+}
+
+// s3ClaimsOf counts the claims in one Record into served, by pod, and returns those by pods not in orig.
+func (e *env) s3ClaimsOf(r record, orig map[string]bool, served map[string]int) (claimsByNew int) {
+	for _, ev := range r.Events {
+		if ev.Kind != "session_claimed" {
+			continue
+		}
+		p := e.podOf(ev.Instance)
+		if p == "" {
+			p = "?" + ev.Instance[:8]
+		}
+		served[p]++
+		if !orig[p] {
+			claimsByNew++
+		}
 	}
-	return verdict("s3", faults == 0, fmt.Sprintf("%d GOTATO-FAULT", faults))
+	return claimsByNew
 }
 
 // s4: bots race for the same Session. Every burst goes into one Lark thread; fakelark delivers each message
@@ -305,31 +307,6 @@ func (e *env) s4(ctx context.Context) bool {
 		fmt.Printf("  KNOWN-BOT-GAP %d message(s) sent in a row landed in the Transcript out of order (two pods, no cross-pod order)\n", inv)
 	}
 	return verdict("s4", faults == 0, fmt.Sprintf("%d GOTATO-FAULT", faults))
-}
-
-func countRole(r record, role string) (n int) {
-	for _, m := range r.Messages {
-		if m.Role == role {
-			n++
-		}
-	}
-	return n
-}
-
-// ackDelay reads the bot's -ack-delay from the Deployment.
-func (e *env) ackDelay(ctx context.Context) string {
-	out, err := e.kubectl(ctx, "get", "deployment/larkbot", "-o", "jsonpath={.spec.template.spec.containers[0].args}")
-	if err != nil {
-		return ""
-	}
-	_, v, ok := strings.Cut(out, "-ack-delay=")
-	if !ok {
-		return ""
-	}
-	if j := strings.IndexAny(v, `",]`); j >= 0 {
-		v = v[:j]
-	}
-	return v
 }
 
 // s5: the bots ack late, so fakelark redelivers the same event to other pods. It measures, and does not judge:

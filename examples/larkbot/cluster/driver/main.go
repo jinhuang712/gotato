@@ -24,6 +24,7 @@ import (
 	"path/filepath"
 	"regexp"
 	"slices"
+	"sort"
 	"strings"
 	"sync"
 	"time"
@@ -303,4 +304,37 @@ func sleep(ctx context.Context, d time.Duration) {
 	case <-ctx.Done():
 	case <-time.After(d):
 	}
+}
+
+func (e *env) scale(ctx context.Context, n int) error {
+	out, err := e.kubectl(ctx, "scale", "deployment/larkbot", fmt.Sprintf("--replicas=%d", n))
+	if err != nil {
+		return fmt.Errorf("%w: %s", err, out)
+	}
+	return nil
+}
+
+func podNames(m map[string]bool) []string {
+	var out []string
+	for p := range m {
+		out = append(out, p)
+	}
+	sort.Strings(out)
+	return out
+}
+
+// ackDelay reads the bot's -ack-delay from the Deployment.
+func (e *env) ackDelay(ctx context.Context) string {
+	out, err := e.kubectl(ctx, "get", "deployment/larkbot", "-o", "jsonpath={.spec.template.spec.containers[0].args}")
+	if err != nil {
+		return ""
+	}
+	_, v, ok := strings.Cut(out, "-ack-delay=")
+	if !ok {
+		return ""
+	}
+	if j := strings.IndexAny(v, `",]`); j >= 0 {
+		v = v[:j]
+	}
+	return v
 }
