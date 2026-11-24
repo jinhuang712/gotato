@@ -97,6 +97,14 @@ func (h *Handler) sessionStream(w http.ResponseWriter, r *http.Request) {
 	}
 	defer func() { _ = stream.Close() }()
 	flusher, _ := w.(http.Flusher)
+	writeStreamHead(w, flusher, stream, sessionID, from)
+	for h.streamFrame(w, r, flusher, stream) {
+	}
+}
+
+// writeStreamHead sends the status, the headers and the first frame of a
+// Session's stream.
+func writeStreamHead(w http.ResponseWriter, flusher http.Flusher, stream *host.SessionStream, sessionID string, from host.StreamFrom) {
 	w.Header().Set("Content-Type", "text/event-stream")
 	w.Header().Set("Cache-Control", "no-cache")
 	w.Header().Set("X-Accel-Buffering", "no")
@@ -109,41 +117,43 @@ func (h *Handler) sessionStream(w http.ResponseWriter, r *http.Request) {
 	if flusher != nil {
 		flusher.Flush()
 	}
-	for {
-		next, cancel := context.WithTimeout(r.Context(), h.keepAlive)
-		event, err := stream.Next(next)
-		// The keep-alive is the per-call timer running out, not any error that
-		// wraps DeadlineExceeded, such as a Store's own.
-		// [FAILURE-CLASS] only the per-call timer is a keep-alive; a Store's own deadline error is a failure.
-		timer := next.Err() != nil && errors.Is(err, context.DeadlineExceeded)
-		cancel()
-		switch {
-		case err == nil:
-			if writeEvent(w, flusher, event) != nil {
-				return
-			}
-		case r.Context().Err() != nil:
-			return
-		case timer:
-			fmt.Fprint(w, ": keepalive\n\n")
-			if flusher != nil {
-				flusher.Flush()
-			}
-		case errors.Is(err, io.EOF):
-			if hint := stream.Reconnect(); hint != nil {
-				writeReconnect(w, hint)
-				if flusher != nil {
-					flusher.Flush()
-				}
-			}
-			return
-		default:
-			data, _ := json.Marshal(failureOf(err))
-			fmt.Fprintf(w, "event: error\ndata: %s\n\n", data)
-			if flusher != nil {
-				flusher.Flush()
-			}
-			return
+}
+
+// streamFrame reads the stream's next Event, or waits up to the keep-alive,
+// and writes the frame for it. It reports whether the stream goes on.
+func (h *Handler) streamFrame(w http.ResponseWriter, r *http.Request, flusher http.Flusher, stream *host.SessionStream) bool {
+	next, cancel := context.WithTimeout(r.Context(), h.keepAlive)
+	event, err := stream.Next(next)
+	// The keep-alive is the per-call timer running out, not any error that
+	// wraps DeadlineExceeded, such as a Store's own.
+	// [FAILURE-CLASS] only the per-call timer is a keep-alive; a Store's own deadline error is a failure.
+	timer := next.Err() != nil && errors.Is(err, context.DeadlineExceeded)
+	cancel()
+	switch {
+	case err == nil:
+		return writeEvent(w, flusher, event) == nil
+	case r.Context().Err() != nil:
+		return false
+	case timer:
+		fmt.Fprint(w, ": keepalive\n\n")
+		if flusher != nil {
+			flusher.Flush()
 		}
+		return true
+	case errors.Is(err, io.EOF):
+		if hint := stream.Reconnect(); hint != nil {
+			writeReconnect(w, hint)
+			if flusher != nil {
+				flusher.Flush()
+			}
+		}
+		return false
+	default:
+		data, _ := json.Marshal(failureOf(err))
+		fmt.Fprintf(w, "event: error\ndata: %s\n\n", data)
+		if flusher != nil {
+			flusher.Flush()
+		}
+		return false
 	}
 }
