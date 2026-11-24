@@ -228,9 +228,6 @@ func (r responsesWire) validateReasoning(p *parsed) *apiError {
 			next := ""
 			if i+1 < len(items) {
 				next, _ = items[i+1]["type"].(string)
-				if role, _ := items[i+1]["role"].(string); next == "" && role == "assistant" {
-					next = "message"
-				}
 			}
 			if next != "function_call" && next != "message" {
 				return openAIErr(http.StatusBadRequest, fmt.Sprintf("Item '%s' of type 'reasoning' was provided without its required following item.", id), "input", "")
