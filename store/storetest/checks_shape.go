@@ -9,6 +9,7 @@ import (
 
 	"github.com/jinhuang712/gotato/gotato"
 	"github.com/jinhuang712/gotato/record"
+	"github.com/jinhuang712/gotato/store"
 )
 
 // checkEmptyEpoch holds a store to the first rule of its epoch: Create and
@@ -47,49 +48,77 @@ func checkEmptyEpoch(ctx context.Context, open Open) error {
 // drops a new one, fails.
 func checkFieldsKept(ctx context.Context, open Open) error {
 	store := open()
+	entries, err := filledEntries()
+	if err != nil {
+		return err
+	}
+	next, err := writeShape(ctx, store, open, entries)
+	if err != nil {
+		return err
+	}
+	return checkShapeRead(ctx, open(), entries, next)
+}
+
+// filledEntries returns the two Entries of the Record "shape", every field
+// filled but Seq, Kind, Layer and Data.
+func filledEntries() ([]record.Entry, error) {
 	data := []byte(`{"filled":true}`)
 	entries := []record.Entry{filledEntry(1, gotato.EventKindSessionCreated, data), filledEntry(2, gotato.EventKindMessageCommitted, data)}
 	for i := range entries {
 		entry := &entries[i]
 		seq, kind := entry.Seq, entry.Kind
 		if err := fillAll(reflect.ValueOf(entry).Elem(), "Entry", map[string]bool{"Seq": true, "Kind": true, "Layer": true, "Data": true}); err != nil {
-			return err
+			return nil, err
 		}
 		entry.Seq, entry.Kind, entry.Layer, entry.Data = seq, kind, record.LayerFact, data
 	}
-	filledHeader := func() (record.Header, error) {
-		h := record.Header{}
-		if err := fillAll(reflect.ValueOf(&h).Elem(), "Header", nil); err != nil {
-			return h, err
-		}
-		h.Info.ID = "shape"
-		return h, nil
+	return entries, nil
+}
+
+// filledHeader is a Header of the Record "shape" with every field filled.
+func filledHeader() (record.Header, error) {
+	h := record.Header{}
+	if err := fillAll(reflect.ValueOf(&h).Elem(), "Header", nil); err != nil {
+		return h, err
 	}
+	h.Info.ID = "shape"
+	return h, nil
+}
+
+// writeShape creates the Record "shape" with the first Entry and a filled
+// Header, checks the Header on a new handle, appends the rest with a second
+// Header, and returns that second one.
+func writeShape(ctx context.Context, store store.Records, open Open, entries []record.Entry) (record.Header, error) {
 	first, err := filledHeader()
 	if err != nil {
-		return err
+		return record.Header{}, err
 	}
 	if err := store.Create(ctx, "shape", entries[:1], first); err != nil {
-		return fmt.Errorf("create: %w", err)
+		return record.Header{}, fmt.Errorf("create: %w", err)
 	}
 	created, err := open().Load(ctx, "shape")
 	if err != nil {
-		return fmt.Errorf("load: %w", err)
+		return record.Header{}, fmt.Errorf("load: %w", err)
 	}
 	if diff := differ(reflect.ValueOf(created.Header), reflect.ValueOf(first), "Load.Header after Create"); diff != "" {
-		return failf("%s: a store must keep every field of the Header of the last write", diff)
+		return record.Header{}, failf("%s: a store must keep every field of the Header of the last write", diff)
 	}
 	next, err := filledHeader()
 	if err != nil {
-		return err
+		return record.Header{}, err
 	}
 	next.Epoch = first.Epoch
 	// A second value, so that Append is told from Create.
 	next.Info.Messages, next.Info.Runs = first.Info.Messages+1, first.Info.Runs+1
 	if err := store.Append(ctx, "shape", 1, entries[1:], next); err != nil {
-		return fmt.Errorf("append: %w", err)
+		return record.Header{}, fmt.Errorf("append: %w", err)
 	}
-	reader := open()
+	return next, nil
+}
+
+// checkShapeRead reads the Record "shape" back through Load and Log and checks
+// that every field of next and of entries was kept.
+func checkShapeRead(ctx context.Context, reader store.Records, entries []record.Entry, next record.Header) error {
 	loaded, err := reader.Load(ctx, "shape")
 	if err != nil {
 		return fmt.Errorf("load: %w", err)
@@ -104,20 +133,26 @@ func checkFieldsKept(ctx context.Context, open Open) error {
 	if len(log) != len(entries) {
 		return failf("Log returned %d Entries, want %d", len(log), len(entries))
 	}
-	for i := range entries {
-		if diff := differ(reflect.ValueOf(log[i]), reflect.ValueOf(entries[i]), fmt.Sprintf("Log[%d]", i)); diff != "" {
-			return failf("%s: a store must keep every field of an Entry", diff)
-		}
+	if diff := differEntries(log, entries, "Log"); diff != "" {
+		return failf("%s: a store must keep every field of an Entry", diff)
 	}
 	if len(loaded.Entries) != len(entries) {
 		return failf("Load returned the Entries %v, want %v", seqs(loaded.Entries), seqs(entries))
 	}
-	for i := range entries {
-		if diff := differ(reflect.ValueOf(loaded.Entries[i]), reflect.ValueOf(entries[i]), fmt.Sprintf("Load.Entries[%d]", i)); diff != "" {
-			return failf("%s: a store must keep every field of an Entry", diff)
-		}
+	if diff := differEntries(loaded.Entries, entries, "Load.Entries"); diff != "" {
+		return failf("%s: a store must keep every field of an Entry", diff)
 	}
 	return nil
+}
+
+// differEntries is differ for each Entry of want, named path[i].
+func differEntries(got, want []record.Entry, path string) string {
+	for i := range want {
+		if diff := differ(reflect.ValueOf(got[i]), reflect.ValueOf(want[i]), fmt.Sprintf("%s[%d]", path, i)); diff != "" {
+			return diff
+		}
+	}
+	return ""
 }
 
 // filledEntry is an Entry at seq of kind, a fact.
