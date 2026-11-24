@@ -33,80 +33,81 @@ func main() {
 	}
 }
 
-func run() error {
-	storeDir := flag.String("store", "./data/sessions", "directory of the Gotato file store")
-	model := flag.String("model", "echo", "echo, demo, gateway (config: $GOTATO_GATEWAY_CONFIG or gateway.yaml)")
-	once := flag.String("once", "", "run this one prompt through the Runner, print the reply and exit (no Lark)")
-	addr := flag.String("addr", "127.0.0.1:8080", "internal HTTP address (/healthz, /readyz, /v1/...); empty turns it off")
-	advertise := flag.String("advertise", "", "address peers reach this instance at (default http://<addr>, with 127.0.0.1 for a bare :port)")
-	instance := flag.String("instance", "", "Gotato instance name in the store (default: generated at each start)")
-	label := flag.String("instance-label", "", "name shown in cards and logs (default $POD_NAME, else the host name)")
-	delay := flag.Duration("delay", 0, "sleep this long in every model call (for tests)")
-	larkBase := flag.String("lark-base-url", "", "Lark open-platform base URL (default: real Lark); point it at cmd/fakelark")
-	larkEvents := flag.String("lark-events", "ws", "how events arrive: ws (long connection) or http (POST /lark/event on -addr, for cmd/fakelark)")
-	retryBudget := flag.Duration("retry-budget", defaultRetryBudget, "how long a message that was not run (not_writer, busy, draining, not connected) is retried; 0 turns retrying off")
-	ackDelay := flag.Duration("ack-delay", 0, "test only: answer each event this long late, so a sender with an ack timeout (Lark: 3 s) delivers it again")
-	toolList := flag.String("tools", "", "extra tools, comma-separated: export (test tool with a 1 MB result), mcp (the -mcp-url server, always visible), mcp-search (the same, in the tool-search catalog)")
-	mcpURL := flag.String("mcp-url", "", "streamable HTTP endpoint of the MCP server for -tools mcp / mcp-search")
-	script := flag.Bool("script", false, "test only: play [script:NAME] directives in a message with a scripted model (script.go); other messages go to -model")
-	flag.Parse()
+// config is what the flags and the environment say about one start.
+type config struct {
+	storeDir, model, once, addr, advertise, instance, label string
+	delay                                                   time.Duration
+	larkBase, larkEvents                                    string
+	retryBudget, ackDelay                                   time.Duration
+	toolList, mcpURL                                        string
+	script                                                  bool
+	appID, appSecret                                        string // from $LARK_APP_ID and $LARK_APP_SECRET
+}
 
-	log := slog.New(slog.NewTextHandler(os.Stderr, nil))
-	if *once != "" {
-		return runOnce(*model, *once)
+// parseFlags registers the flags, parses the command line and returns the result.
+func parseFlags() config {
+	var c config
+	flag.StringVar(&c.storeDir, "store", "./data/sessions", "directory of the Gotato file store")
+	flag.StringVar(&c.model, "model", "echo", "echo, demo, gateway (config: $GOTATO_GATEWAY_CONFIG or gateway.yaml)")
+	flag.StringVar(&c.once, "once", "", "run this one prompt through the Runner, print the reply and exit (no Lark)")
+	flag.StringVar(&c.addr, "addr", "127.0.0.1:8080", "internal HTTP address (/healthz, /readyz, /v1/...); empty turns it off")
+	flag.StringVar(&c.advertise, "advertise", "", "address peers reach this instance at (default http://<addr>, with 127.0.0.1 for a bare :port)")
+	flag.StringVar(&c.instance, "instance", "", "Gotato instance name in the store (default: generated at each start)")
+	flag.StringVar(&c.label, "instance-label", "", "name shown in cards and logs (default $POD_NAME, else the host name)")
+	flag.DurationVar(&c.delay, "delay", 0, "sleep this long in every model call (for tests)")
+	flag.StringVar(&c.larkBase, "lark-base-url", "", "Lark open-platform base URL (default: real Lark); point it at cmd/fakelark")
+	flag.StringVar(&c.larkEvents, "lark-events", "ws", "how events arrive: ws (long connection) or http (POST /lark/event on -addr, for cmd/fakelark)")
+	flag.DurationVar(&c.retryBudget, "retry-budget", defaultRetryBudget, "how long a message that was not run (not_writer, busy, draining, not connected) is retried; 0 turns retrying off")
+	flag.DurationVar(&c.ackDelay, "ack-delay", 0, "test only: answer each event this long late, so a sender with an ack timeout (Lark: 3 s) delivers it again")
+	flag.StringVar(&c.toolList, "tools", "", "extra tools, comma-separated: export (test tool with a 1 MB result), mcp (the -mcp-url server, always visible), mcp-search (the same, in the tool-search catalog)")
+	flag.StringVar(&c.mcpURL, "mcp-url", "", "streamable HTTP endpoint of the MCP server for -tools mcp / mcp-search")
+	flag.BoolVar(&c.script, "script", false, "test only: play [script:NAME] directives in a message with a scripted model (script.go); other messages go to -model")
+	flag.Parse()
+	return c
+}
+
+// checkLark validates the Lark flags and reads the app credentials from the environment.
+func (c *config) checkLark() error {
+	if c.larkEvents != "ws" && c.larkEvents != "http" {
+		return fmt.Errorf("-lark-events must be ws or http, got %q", c.larkEvents)
 	}
-	if *larkEvents != "ws" && *larkEvents != "http" {
-		return fmt.Errorf("-lark-events must be ws or http, got %q", *larkEvents)
-	}
-	if *larkEvents == "http" && *addr == "" {
+	if c.larkEvents == "http" && c.addr == "" {
 		return errors.New("-lark-events http needs -addr")
 	}
-	appID, appSecret := os.Getenv("LARK_APP_ID"), os.Getenv("LARK_APP_SECRET")
-	if appID == "" || appSecret == "" {
+	c.appID, c.appSecret = os.Getenv("LARK_APP_ID"), os.Getenv("LARK_APP_SECRET")
+	if c.appID == "" || c.appSecret == "" {
 		return errors.New("LARK_APP_ID and LARK_APP_SECRET must be set")
 	}
+	return nil
+}
 
-	agent, err := buildAgent(*model)
-	if err != nil {
+func run() error {
+	cfg := parseFlags()
+	log := slog.New(slog.NewTextHandler(os.Stderr, nil))
+	if cfg.once != "" {
+		return runOnce(cfg.model, cfg.once)
+	}
+	if err := cfg.checkLark(); err != nil {
 		return err
 	}
-	tools, err := parseTools(*toolList, *mcpURL)
-	if err != nil {
-		return err
-	}
-	closeTools, err := tools.apply(&agent, log)
+
+	agent, tools, closeTools, err := cfg.prepareAgent(log)
 	if err != nil {
 		return err
 	}
 	if closeTools != nil {
 		defer func() { _ = closeTools() }()
 	}
-	if *script {
-		agent.Model = scriptModel{agent.Model}
-	}
-	agent.Model = withDelay(agent.Model, *delay)
-	st, err := store.NewFileStore(*storeDir)
-	if err != nil {
-		return err
-	}
-	runner, err := host.New(host.Config{Store: store.Store{Records: st, Liveness: st}, Profiles: registryOf(agent), DefaultAgent: agent.Name, Instance: *instance, Address: advertiseAddr(*advertise, *addr)})
+	runner, records, err := cfg.newRunner(agent)
 	if err != nil {
 		return err
 	}
 	if c, ok := closerOf(agent.Model); ok {
 		defer func() { _ = c.Close() }() // models that hold a connection
 	}
-	lbl := instanceLabel(*label, runner.Instance())
-	log.Info("runner ready", "instance", lbl, "runner_instance", runner.Instance(), "advertise", advertiseAddr(*advertise, *addr), "agent", agent.Name, "store", *storeDir, "tools", tools.names(), "script", *script)
-
-	opts := []lark.ClientOptionFunc{lark.WithLogger(larkLogger{log, []string{appSecret}}), lark.WithLogLevel(larkcore.LogLevelInfo)}
-	if *larkBase != "" {
-		opts = append(opts, lark.WithOpenBaseUrl(*larkBase))
-	}
-	api := lark.NewClient(appID, appSecret, opts...)
-	b := newBot(runner, st, larkSender{api}, agent.Name, agent.ModelName, lbl, log)
-	b.retry = defaultRetry(*retryBudget)
-	b.ackDelay = *ackDelay
+	lbl := instanceLabel(cfg.label, runner.Instance())
+	log.Info("runner ready", "instance", lbl, "runner_instance", runner.Instance(), "advertise", advertiseAddr(cfg.advertise, cfg.addr), "agent", agent.Name, "store", cfg.storeDir, "tools", tools.names(), "script", cfg.script)
+	b := cfg.newBot(runner, records, agent, lbl, log)
 
 	ctx, stop := signal.NotifyContext(context.Background(), syscall.SIGINT, syscall.SIGTERM)
 	defer stop()
@@ -114,34 +115,99 @@ func run() error {
 	// The reply loop outlives the connection, so Runs finishing during the drain still get answered.
 	replyCtx, stopReplies := context.WithCancel(context.Background())
 	var wg sync.WaitGroup
-	wg.Go(func() { ; b.replyLoop(replyCtx) })
+	wg.Go(func() { b.replyLoop(replyCtx) })
 
-	var srv *http.Server
-	if *addr != "" {
-		// Gotato's handler, without forwarding: the bot forwards with its own client.
-		mux := http.NewServeMux()
-		mux.Handle("/v1/", httpapi.New(runner))
-		if *larkEvents == "http" {
-			mux.HandleFunc("POST /lark/event", larkEventHandler(b))
+	srv := cfg.serveHTTP(runner, b, log)
+	wsErr := cfg.receiveEvents(ctx, log, b)
+	shutdown(log, runner, srv, stopReplies, &wg)
+	if errors.Is(wsErr, context.Canceled) {
+		return nil
+	}
+	return wsErr
+}
+
+// prepareAgent builds the Agent with the tools, the script and the delay the flags ask for.
+// The returned close func ends the MCP connection (nil when there is none).
+func (c config) prepareAgent(log *slog.Logger) (profile.AgentProfile, toolSpec, func() error, error) {
+	agent, err := buildAgent(c.model)
+	if err != nil {
+		return agent, toolSpec{}, nil, err
+	}
+	tools, err := parseTools(c.toolList, c.mcpURL)
+	if err != nil {
+		return agent, tools, nil, err
+	}
+	closeTools, err := tools.apply(&agent, log)
+	if err != nil {
+		return agent, tools, nil, err
+	}
+	if c.script {
+		agent.Model = scriptModel{agent.Model}
+	}
+	agent.Model = withDelay(agent.Model, c.delay)
+	return agent, tools, closeTools, nil
+}
+
+// newRunner opens the file store and builds the Runner over it. It returns the Records of the store for the bot.
+func (c config) newRunner(agent profile.AgentProfile) (*host.Runner, store.Records, error) {
+	st, err := store.NewFileStore(c.storeDir)
+	if err != nil {
+		return nil, nil, err
+	}
+	runner, err := host.New(host.Config{Store: store.Store{Records: st, Liveness: st}, Profiles: registryOf(agent), DefaultAgent: agent.Name, Instance: c.instance, Address: advertiseAddr(c.advertise, c.addr)})
+	if err != nil {
+		return nil, nil, err
+	}
+	return runner, st, nil
+}
+
+// newBot builds the bot over a Lark client with the retry and ack settings of the flags.
+func (c config) newBot(runner *host.Runner, records store.Records, agent profile.AgentProfile, lbl string, log *slog.Logger) *bot {
+	opts := []lark.ClientOptionFunc{lark.WithLogger(larkLogger{log, []string{c.appSecret}}), lark.WithLogLevel(larkcore.LogLevelInfo)}
+	if c.larkBase != "" {
+		opts = append(opts, lark.WithOpenBaseUrl(c.larkBase))
+	}
+	api := lark.NewClient(c.appID, c.appSecret, opts...)
+	b := newBot(runner, records, larkSender{api}, agent.Name, agent.ModelName, lbl, log)
+	b.retry = defaultRetry(c.retryBudget)
+	b.ackDelay = c.ackDelay
+	return b
+}
+
+// serveHTTP starts the internal HTTP server on -addr and returns it (nil when -addr is empty).
+func (c config) serveHTTP(runner *host.Runner, b *bot, log *slog.Logger) *http.Server {
+	if c.addr == "" {
+		return nil
+	}
+	// Gotato's handler, without forwarding: the bot forwards with its own client.
+	mux := http.NewServeMux()
+	mux.Handle("/v1/", httpapi.New(runner))
+	if c.larkEvents == "http" {
+		mux.HandleFunc("POST /lark/event", larkEventHandler(b))
+	}
+	mux.HandleFunc("/healthz", func(w http.ResponseWriter, _ *http.Request) { _, _ = fmt.Fprintln(w, "ok") })
+	mux.HandleFunc("/readyz", readyHandler(runner.Draining))
+	srv := &http.Server{Addr: c.addr, Handler: mux, ReadHeaderTimeout: 5 * time.Second}
+	go func() {
+		if err := srv.ListenAndServe(); err != nil && !errors.Is(err, http.ErrServerClosed) {
+			log.Error("http", "err", err)
 		}
-		mux.HandleFunc("/healthz", func(w http.ResponseWriter, _ *http.Request) { _, _ = fmt.Fprintln(w, "ok") })
-		mux.HandleFunc("/readyz", readyHandler(runner.Draining))
-		srv = &http.Server{Addr: *addr, Handler: mux, ReadHeaderTimeout: 5 * time.Second}
-		go func() {
-			if err := srv.ListenAndServe(); err != nil && !errors.Is(err, http.ErrServerClosed) {
-				log.Error("http", "err", err)
-			}
-		}()
-	}
+	}()
+	return srv
+}
 
-	var wsErr error
-	if *larkEvents == "http" {
-		log.Info("lark events over http", "path", "/lark/event", "addr", *addr)
+// receiveEvents takes Lark events until ctx ends: over HTTP they arrive at the server, otherwise over the long connection.
+func (c config) receiveEvents(ctx context.Context, log *slog.Logger, b *bot) error {
+	if c.larkEvents == "http" {
+		log.Info("lark events over http", "path", "/lark/event", "addr", c.addr)
 		<-ctx.Done()
-	} else {
-		wsErr = runLongConnection(ctx, log, appID, appSecret, b)
+		return nil
 	}
+	return runLongConnection(ctx, log, c.appID, c.appSecret, b)
+}
 
+// shutdown drains the Runner, stops the reply loop and the HTTP server, then closes the Runner.
+func shutdown(log *slog.Logger, runner *host.Runner, srv *http.Server, stopReplies context.CancelFunc, wg *sync.WaitGroup) {
 	log.Info("shutting down")
 	drainCtx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
 	defer cancel()
@@ -157,10 +223,6 @@ func run() error {
 	if err := runner.Close(drainCtx); err != nil {
 		log.Error("close", "err", err)
 	}
-	if errors.Is(wsErr, context.Canceled) {
-		return nil
-	}
-	return wsErr
 }
 
 // readyHandler answers a readiness probe: 503 while the Runner drains, so a
