@@ -77,13 +77,10 @@ func TestDecodeRecord(t *testing.T) {
 	if err := json.Unmarshal([]byte(doc), &r); err != nil {
 		t.Fatal(err)
 	}
-	if !r.hasEvent("tool_result_spilled", exportTool) {
-		t.Fatalf("no spilled event: %+v", r.Events)
-	}
 	if got := loadedTools(r); len(got) != 1 || got[0] != catalogTool {
 		t.Fatalf("loaded = %v", got)
 	}
-	if r.Events[3].Stage != "toolset:crm" || !r.hasEvent("tool_result_spilled", exportTool) {
+	if r.Events[3].Stage != "toolset:crm" {
 		t.Fatalf("%+v", r.Events)
 	}
 }

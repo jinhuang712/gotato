@@ -13,7 +13,6 @@ const (
 	ansMCPOK    = "mcp-ok:"
 	ansMCPError = "mcp-error:"
 	ansLoaded   = "loaded:"
-	exportTool  = "orders.export"
 	catalogTool = "crm.get_invoice"
 )
 
