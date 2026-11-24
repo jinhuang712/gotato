@@ -92,6 +92,36 @@ func RunRecapCheck(ctx context.Context, cfg RecapCheckConfig, check reftasks.Rec
 	if st.Records == nil || st.Liveness == nil {
 		st = memoryStore()
 	}
+	runner, questions, err := newRecapRunner(cfg, check, model, st)
+	if err != nil {
+		return RecapReport{}, err
+	}
+
+	r := recapRun{runner: runner, check: check, questions: questions}
+	r.report = RecapReport{Check: check.Name, Model: cfg.ModelName, Questions: len(check.Questions)}
+	if r.report.Model == "" && cfg.Model == nil {
+		r.report.Model = "fake"
+	}
+	if err := r.converse(ctx); err != nil {
+		return r.report, err
+	}
+	r.report.Answers = make([]RecapAnswer, len(check.Questions))
+	if err := r.ask(ctx, func(a *RecapAnswer, text string, ok bool) { a.Before, a.BeforeCorrect = text, ok }); err != nil {
+		return r.report, err
+	}
+	if err := r.compact(ctx, st); err != nil {
+		return r.report, err
+	}
+	if err := r.ask(ctx, func(a *RecapAnswer, text string, ok bool) { a.After, a.AfterCorrect = text, ok }); err != nil {
+		return r.report, err
+	}
+	r.report.score()
+	return r.report, nil
+}
+
+// newRecapRunner builds the Runner of the check, with the conversation's
+// Agent and the questions' Agent, and returns the questions' Agent name.
+func newRecapRunner(cfg RecapCheckConfig, check reftasks.RecapCheck, model gotato.Model, st store.Store) (*host.Runner, string, error) {
 	switchedOff := make([]gotato.Tool, len(check.Tools))
 	for i, tool := range check.Tools {
 		switchedOff[i] = toolOff{tool}
@@ -105,58 +135,70 @@ func RunRecapCheck(ctx context.Context, cfg RecapCheckConfig, check reftasks.Rec
 	questions := conversation
 	questions.Name, questions.Tools, questions.Compact = check.Name+"-questions", switchedOff, record.Compactor{}
 	runner, err := host.New(withAgents(host.Config{Store: st}, []profile.AgentProfile{conversation, questions}...))
-	if err != nil {
-		return RecapReport{}, err
-	}
+	return runner, questions.Name, err
+}
 
-	report := RecapReport{Check: check.Name, Model: cfg.ModelName, Questions: len(check.Questions)}
-	if report.Model == "" && cfg.Model == nil {
-		report.Model = "fake"
-	}
-	var id string
-	for _, prompt := range check.Prompts {
-		result, err := runner.Run(ctx, host.RunRequest{SessionID: id, Agent: check.Name, Prompt: prompt})
+// recapRun is one play of the Recap check: its Runner, the Session it plays
+// on and the report it fills.
+type recapRun struct {
+	runner    *host.Runner
+	check     reftasks.RecapCheck
+	questions string
+	id        string
+	report    RecapReport
+}
+
+// converse runs the conversation's prompts on a new Session.
+func (r *recapRun) converse(ctx context.Context) error {
+	for _, prompt := range r.check.Prompts {
+		result, err := r.runner.Run(ctx, host.RunRequest{SessionID: r.id, Agent: r.check.Name, Prompt: prompt})
 		if err != nil {
-			return report, fmt.Errorf("workload: %s: the conversation failed: %w", check.Name, err)
+			return fmt.Errorf("workload: %s: the conversation failed: %w", r.check.Name, err)
 		}
 		if result.Result.Status != gotato.RunStatusCompleted {
-			return report, fmt.Errorf("workload: %s: a Run of the conversation settled as %s", check.Name, result.Result.Status)
+			return fmt.Errorf("workload: %s: a Run of the conversation settled as %s", r.check.Name, result.Result.Status)
 		}
-		id = result.SessionID
+		r.id = result.SessionID
 	}
-	report.Answers = make([]RecapAnswer, len(check.Questions))
-	ask := func(set func(*RecapAnswer, string, bool)) error {
-		for i, question := range check.Questions {
-			result, err := runner.Run(ctx, host.RunRequest{SessionID: id, Agent: questions.Name, SkipSave: true, Prompt: reftasks.QuestionPrefix + question.Ask})
-			if err != nil {
-				return fmt.Errorf("workload: %s: question %d failed: %w", check.Name, i+1, err)
-			}
-			report.Answers[i].Ask, report.Answers[i].Want = question.Ask, question.Want
-			set(&report.Answers[i], result.FinalText, answered(result.FinalText, question.Want))
+	return nil
+}
+
+// ask asks every question without saving, and sets each answer with set.
+func (r *recapRun) ask(ctx context.Context, set func(*RecapAnswer, string, bool)) error {
+	for i, question := range r.check.Questions {
+		result, err := r.runner.Run(ctx, host.RunRequest{SessionID: r.id, Agent: r.questions, SkipSave: true, Prompt: reftasks.QuestionPrefix + question.Ask})
+		if err != nil {
+			return fmt.Errorf("workload: %s: question %d failed: %w", r.check.Name, i+1, err)
 		}
-		return nil
+		r.report.Answers[i].Ask, r.report.Answers[i].Want = question.Ask, question.Want
+		set(&r.report.Answers[i], result.FinalText, answered(result.FinalText, question.Want))
 	}
-	if err := ask(func(a *RecapAnswer, text string, ok bool) { a.Before, a.BeforeCorrect = text, ok }); err != nil {
-		return report, err
-	}
-	compacted, err := runner.Compact(ctx, id, record.CompactConfig{})
+	return nil
+}
+
+// compact compacts the Session and reports what the compaction did and the
+// Recap it wrote.
+func (r *recapRun) compact(ctx context.Context, st store.Store) error {
+	compacted, err := r.runner.Compact(ctx, r.id, record.CompactConfig{})
 	if err != nil {
-		return report, fmt.Errorf("workload: %s: the compaction failed: %w", check.Name, err)
+		return fmt.Errorf("workload: %s: the compaction failed: %w", r.check.Name, err)
 	}
-	report.Replaced = compacted.Replaced
-	report.TokensBefore, report.TokensAfter = compacted.TokensBefore, compacted.TokensAfter
+	r.report.Replaced = compacted.Replaced
+	r.report.TokensBefore, r.report.TokensAfter = compacted.TokensBefore, compacted.TokensAfter
 	if compacted.Compaction != nil {
-		report.RecapWritten = compacted.Compaction.Recap != "none"
-		report.RecapUsage = compacted.Compaction.RecapUsage
+		r.report.RecapWritten = compacted.Compaction.Recap != "none"
+		r.report.RecapUsage = compacted.Compaction.RecapUsage
 	}
-	if rec, err := store.View(ctx, st.Records, id); err == nil {
+	if rec, err := store.View(ctx, st.Records, r.id); err == nil {
 		if segments := rec.Segments(); len(segments) > 0 {
-			report.Recap = segments[len(segments)-1].Recap
+			r.report.Recap = segments[len(segments)-1].Recap
 		}
 	}
-	if err := ask(func(a *RecapAnswer, text string, ok bool) { a.After, a.AfterCorrect = text, ok }); err != nil {
-		return report, err
-	}
+	return nil
+}
+
+// score counts the right answers before and after the compaction.
+func (report *RecapReport) score() {
 	for _, a := range report.Answers {
 		if a.BeforeCorrect {
 			report.Before.Correct++
@@ -169,7 +211,6 @@ func RunRecapCheck(ctx context.Context, cfg RecapCheckConfig, check reftasks.Rec
 		report.Before.Share = float64(report.Before.Correct) / float64(report.Questions)
 		report.After.Share = float64(report.After.Correct) / float64(report.Questions)
 	}
-	return report, nil
 }
 
 // answered reports whether an answer holds the fact, without case or spaces.
