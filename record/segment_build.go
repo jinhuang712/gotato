@@ -114,24 +114,39 @@ func stamps(closed []gotato.Message, position func(gotato.MessageID) (gotato.Mes
 		if !ok {
 			continue
 		}
-		if !p.Time.IsZero() {
-			if from.IsZero() || p.Time.Before(from) {
-				from = p.Time.UTC()
-			}
-			if p.Time.After(to) {
-				to = p.Time.UTC()
-			}
-		}
-		if p.Number > 0 {
-			if first.Number == 0 || p.Number < first.Number {
-				first = p
-			}
-			if p.Number > last.Number {
-				last = p
-			}
-		}
+		from, to = widenTimes(from, to, p.Time)
+		first, last = widenEntries(first, last, p)
 	}
 	return from, to, gotato.SegmentSource{FromNumber: first.Number, ToNumber: last.Number}
+}
+
+// widenTimes widens the stretch from..to to take in at, when at is set.
+func widenTimes(from, to, at time.Time) (time.Time, time.Time) {
+	if at.IsZero() {
+		return from, to
+	}
+	if from.IsZero() || at.Before(from) {
+		from = at.UTC()
+	}
+	if at.After(to) {
+		to = at.UTC()
+	}
+	return from, to
+}
+
+// widenEntries widens the range of Entries first..last to take in p, when p
+// has an Entry number.
+func widenEntries(first, last, p gotato.MessagePosition) (gotato.MessagePosition, gotato.MessagePosition) {
+	if p.Number <= 0 {
+		return first, last
+	}
+	if first.Number == 0 || p.Number < first.Number {
+		first = p
+	}
+	if p.Number > last.Number {
+		last = p
+	}
+	return first, last
 }
 
 // messageList builds Messages, joining a Part to the last Message when it has
