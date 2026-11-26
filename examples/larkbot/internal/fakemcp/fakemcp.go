@@ -105,9 +105,12 @@ func (s *Server) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 // Trace logs one line per /mcp request: method, session, status and time taken.
 func (s *Server) Trace() { s.trace = true }
 
+// shortSessionChars is how many characters of an MCP session id a log line shows.
+const shortSessionChars = 6
+
 func short(id string) string {
-	if len(id) > 6 {
-		return id[:6]
+	if len(id) > shortSessionChars {
+		return id[:shortSessionChars]
 	}
 	return id
 }
@@ -149,6 +152,9 @@ func (s *Server) Stats() Stats {
 	return Stats{Started: started, Finished: finished, Canceled: canceled, InFlight: started - finished - canceled}
 }
 
+// drainPoll is how often Drain looks at the calls in flight.
+const drainPoll = 20 * time.Millisecond
+
 // Drained says what Drain saw.
 type Drained struct {
 	InFlightAtStart int64         // calls in flight when the drain began
@@ -174,7 +180,7 @@ func (s *Server) Drain(ctx context.Context, linger time.Duration) Drained {
 		}
 		select {
 		case <-ctx.Done():
-		case <-time.After(20 * time.Millisecond):
+		case <-time.After(drainPoll):
 		}
 	}
 	after := s.Stats()
