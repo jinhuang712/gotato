@@ -146,21 +146,10 @@ type listCursor struct {
 func pageOf(infos []record.Info, q ListQuery) (ListPage, error) {
 	sortInfos(infos)
 	if q.Cursor != "" {
-		raw, err := base64.RawURLEncoding.DecodeString(q.Cursor)
-		var after listCursor
-		if err == nil {
-			err = json.Unmarshal(raw, &after)
+		var err error
+		if infos, err = afterCursor(infos, q.Cursor); err != nil {
+			return ListPage{}, err
 		}
-		if err != nil {
-			return ListPage{}, gotato.ErrorOf(gotato.CodeInvalidArgument, "store: the list cursor is not one this store made")
-		}
-		i := sort.Search(len(infos), func(i int) bool {
-			if infos[i].UpdatedAt.Equal(after.At) {
-				return infos[i].ID > after.ID
-			}
-			return infos[i].UpdatedAt.Before(after.At)
-		})
-		infos = infos[i:]
 	}
 	limit := q.Limit
 	if limit <= 0 {
@@ -169,12 +158,40 @@ func pageOf(infos []record.Info, q ListQuery) (ListPage, error) {
 	page := ListPage{Infos: infos}
 	if len(infos) > limit {
 		page.Infos = infos[:limit]
-		last := page.Infos[limit-1]
-		raw, err := json.Marshal(listCursor{At: last.UpdatedAt, ID: last.ID})
+		next, err := nextCursor(page.Infos[limit-1])
 		if err != nil {
 			return ListPage{}, err
 		}
-		page.Next = base64.RawURLEncoding.EncodeToString(raw)
+		page.Next = next
 	}
 	return page, nil
+}
+
+// afterCursor returns the Infos of the sorted infos that follow the position
+// cursor names. A cursor that pageOf did not make is invalid_argument.
+func afterCursor(infos []record.Info, cursor string) ([]record.Info, error) {
+	raw, err := base64.RawURLEncoding.DecodeString(cursor)
+	var after listCursor
+	if err == nil {
+		err = json.Unmarshal(raw, &after)
+	}
+	if err != nil {
+		return nil, gotato.ErrorOf(gotato.CodeInvalidArgument, "store: the list cursor is not one this store made")
+	}
+	i := sort.Search(len(infos), func(i int) bool {
+		if infos[i].UpdatedAt.Equal(after.At) {
+			return infos[i].ID > after.ID
+		}
+		return infos[i].UpdatedAt.Before(after.At)
+	})
+	return infos[i:], nil
+}
+
+// nextCursor returns the Cursor of the page that follows the one ending at last.
+func nextCursor(last record.Info) (string, error) {
+	raw, err := json.Marshal(listCursor{At: last.UpdatedAt, ID: last.ID})
+	if err != nil {
+		return "", err
+	}
+	return base64.RawURLEncoding.EncodeToString(raw), nil
 }
