@@ -14,11 +14,18 @@ type handle struct{ name string }
 
 func newCache() *warm.Cache { return warm.New(clock.System()) }
 
-func mustAdmit(t *testing.T, tb *Table[*handle], h *handle, id string, mem Memory, decide func(Counts) (func(), error)) func() {
-	t.Helper()
-	victim, release, err := tb.Admit(h, id, mem, decide)
+// checked is a table under test, with the test that fails when a check of it
+// does.
+type checked struct {
+	t  *testing.T
+	tb *Table[*handle]
+}
+
+func (c checked) mustAdmit(h *handle, id string, mem Memory, decide func(Counts) (func(), error)) func() {
+	c.t.Helper()
+	victim, release, err := c.tb.Admit(h, id, mem, decide)
 	if victim != nil || err != nil {
-		t.Fatalf("Admit(%s) = victim %v, err %v, want admitted", h.name, victim, err)
+		c.t.Fatalf("Admit(%s) = victim %v, err %v, want admitted", h.name, victim, err)
 	}
 	return release
 }
@@ -28,10 +35,10 @@ func TestAdmitRegistersAndCounts(t *testing.T) {
 	cache := newCache()
 	mem := Memory{Cache: cache}
 	a, b, c := &handle{"a"}, &handle{"b"}, &handle{"c"}
-	mustAdmit(t, tb, a, "s1", mem, nil)
-	mustAdmit(t, tb, b, "s1", mem, nil) // a second Run waiting on the same Session
-	mustAdmit(t, tb, c, "", mem, nil)   // a Run that creates its Session
-	mustAdmit(t, tb, &handle{"d"}, "", mem, nil)
+	checked{t, tb}.mustAdmit(a, "s1", mem, nil)
+	checked{t, tb}.mustAdmit(b, "s1", mem, nil) // a second Run waiting on the same Session
+	checked{t, tb}.mustAdmit(c, "", mem, nil)   // a Run that creates its Session
+	checked{t, tb}.mustAdmit(&handle{"d"}, "", mem, nil)
 
 	if tb.ActiveRuns() != 4 {
 		t.Fatalf("ActiveRuns = %d, want 4", tb.ActiveRuns())
@@ -69,11 +76,11 @@ func TestDecideSeesTheCountsAndRefusesBeforeRegistering(t *testing.T) {
 	cache := newCache()
 	cache.Put("warm", "agent", nil, warm.Plan{TTL: time.Hour})
 	mem := Memory{Cache: cache}
-	mustAdmit(t, tb, &handle{"a"}, "s1", mem, nil)
+	checked{t, tb}.mustAdmit(&handle{"a"}, "s1", mem, nil)
 
 	var seen Counts
 	released := false
-	release := mustAdmit(t, tb, &handle{"b"}, "s2", mem, func(c Counts) (func(), error) {
+	release := checked{t, tb}.mustAdmit(&handle{"b"}, "s2", mem, func(c Counts) (func(), error) {
 		seen = c
 		return func() { released = true }, nil
 	})
@@ -102,7 +109,7 @@ func TestMemoryBoundEvictsOrRefusesBeforeDecide(t *testing.T) {
 	decided := 0
 	decide := func(Counts) (func(), error) { decided++; return nil, nil }
 
-	mustAdmit(t, tb, &handle{"a"}, "s1", mem, decide)
+	checked{t, tb}.mustAdmit(&handle{"a"}, "s1", mem, decide)
 	cache.Put("idle", "agent", nil, warm.Plan{TTL: time.Hour})
 
 	// At the limit (one active, one warm), a new Session first evicts the warm one.
@@ -114,7 +121,7 @@ func TestMemoryBoundEvictsOrRefusesBeforeDecide(t *testing.T) {
 		t.Fatalf("decide ran %d times and %d Runs are admitted: nothing registers while a copy is to be evicted", decided, tb.ActiveRuns())
 	}
 	cache.Remove(victim)
-	mustAdmit(t, tb, &handle{"b"}, "s2", mem, decide)
+	checked{t, tb}.mustAdmit(&handle{"b"}, "s2", mem, decide)
 
 	// Every Session has a Run now: refused, and decide is not asked.
 	if _, _, err := tb.Admit(&handle{"c"}, "s3", mem, decide); !errors.Is(err, ErrOverloaded) {
@@ -124,11 +131,11 @@ func TestMemoryBoundEvictsOrRefusesBeforeDecide(t *testing.T) {
 		t.Fatalf("decide ran %d times, want only for the two admitted Runs", decided)
 	}
 	// A Run on a Session that is active already adds nothing to the count.
-	mustAdmit(t, tb, &handle{"d"}, "s1", mem, decide)
+	checked{t, tb}.mustAdmit(&handle{"d"}, "s1", mem, decide)
 	// A warm copy of the Session itself is not evicted for its own Run.
 	cache.Put("s9", "agent", nil, warm.Plan{TTL: time.Hour})
 	tb2 := New[*handle]()
-	mustAdmit(t, tb2, &handle{"e"}, "s9", Memory{MaxSessions: 1, Cache: cache}, nil)
+	checked{t, tb2}.mustAdmit(&handle{"e"}, "s9", Memory{MaxSessions: 1, Cache: cache}, nil)
 }
 
 func TestVictimOverLimitSkipsSessionsWithARun(t *testing.T) {
@@ -136,7 +143,7 @@ func TestVictimOverLimitSkipsSessionsWithARun(t *testing.T) {
 	cache := newCache()
 	cache.Put("busy", "agent", nil, warm.Plan{TTL: time.Hour})
 	cache.Put("idle", "agent", nil, warm.Plan{TTL: time.Hour})
-	mustAdmit(t, tb, &handle{"a"}, "busy", Memory{Cache: cache}, nil)
+	checked{t, tb}.mustAdmit(&handle{"a"}, "busy", Memory{Cache: cache}, nil)
 
 	if tb.Victim(cache, 2) != nil || tb.Victim(cache, -1) != nil {
 		t.Fatal("a victim within the limit, or with no limit")
@@ -152,7 +159,7 @@ func TestDrainRefusesAndWaitsForRunsAndLockedCallers(t *testing.T) {
 	if tb.Drained() != nil || tb.Draining() {
 		t.Fatal("a table drains before Drain")
 	}
-	mustAdmit(t, tb, &handle{"a"}, "s1", mem, nil)
+	checked{t, tb}.mustAdmit(&handle{"a"}, "s1", mem, nil)
 	endLocked := tb.Locked()
 
 	drained, first := tb.Drain()
