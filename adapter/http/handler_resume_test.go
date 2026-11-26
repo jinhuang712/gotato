@@ -420,7 +420,7 @@ type follower struct {
 	done   chan struct{}
 }
 
-func follow(t *testing.T, f *frames) *follower {
+func follow(f *frames) *follower {
 	fl := &follower{done: make(chan struct{})}
 	go func() {
 		defer close(fl.done)
@@ -546,7 +546,7 @@ func cutAndResume(t *testing.T, task reftasks.Task, k int, resume resumeStyle) (
 
 	_, uf, _ := openSession(t, server, id, "", nil)
 	startOf(t, uf)
-	whole := follow(t, uf)
+	whole := follow(uf)
 
 	_, cf, cancel := openSession(t, server, id, "", nil)
 	start, _ := startOf(t, cf)
@@ -564,7 +564,7 @@ func cutAndResume(t *testing.T, task reftasks.Task, k int, resume resumeStyle) (
 	if resp.StatusCode != http.StatusOK {
 		t.Fatalf("resume after %d: %d", k, resp.StatusCode)
 	}
-	again := follow(t, rf)
+	again := follow(rf)
 
 	last := <-final
 	if last == 0 {
