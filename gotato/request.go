@@ -83,31 +83,43 @@ func ForModel(messages []Message) []Message {
 			out = append(out, Message{Role: RoleNotice, Parts: []ContentPart{{Kind: ContentKindText, Text: renderNotice(message)}}})
 			continue
 		}
-		m := Message{Role: message.Role, ToolCalls: cloneToolCalls(message.ToolCalls)}
-		m.Parts = make([]ContentPart, 0, len(message.Parts))
-		for _, part := range message.Parts {
-			if _, tagged := part.Metadata[MetaTag]; !tagged {
-				part.Text = escapePartText(part)
-			}
-			part.Metadata = nil
-			part.Data = slices.Clone(part.Data)
-			part.Signature = slices.Clone(part.Signature)
-			m.Parts = append(m.Parts, part)
-		}
-		if message.ToolResult != nil {
-			result := ToolResult{CallID: message.ToolResult.CallID, Status: message.ToolResult.Status, SafeError: text.EscapeTags(message.ToolResult.SafeError), LoadedTools: slices.Clone(message.ToolResult.LoadedTools)}
-			result.Content = cloneParts(message.ToolResult.Content)
-			for j := range result.Content {
-				if _, tagged := result.Content[j].Metadata[MetaTag]; !tagged {
-					result.Content[j].Text = escapePartText(result.Content[j])
-				}
-				result.Content[j].Metadata = nil
-			}
-			m.ToolResult = &result
-		}
-		out = append(out, m)
+		out = append(out, messageForModel(message))
 	}
 	return out
+}
+
+// messageForModel is message reduced to the fields a provider needs, with its
+// text escaped as ForModel says.
+func messageForModel(message Message) Message {
+	m := Message{Role: message.Role, ToolCalls: cloneToolCalls(message.ToolCalls)}
+	m.Parts = make([]ContentPart, 0, len(message.Parts))
+	for _, part := range message.Parts {
+		if _, tagged := part.Metadata[MetaTag]; !tagged {
+			part.Text = escapePartText(part)
+		}
+		part.Metadata = nil
+		part.Data = slices.Clone(part.Data)
+		part.Signature = slices.Clone(part.Signature)
+		m.Parts = append(m.Parts, part)
+	}
+	if message.ToolResult != nil {
+		m.ToolResult = toolResultForModel(message.ToolResult)
+	}
+	return m
+}
+
+// toolResultForModel is a copy of source reduced to the fields a provider
+// needs, with its text escaped as ForModel says.
+func toolResultForModel(source *ToolResult) *ToolResult {
+	result := ToolResult{CallID: source.CallID, Status: source.Status, SafeError: text.EscapeTags(source.SafeError), LoadedTools: slices.Clone(source.LoadedTools)}
+	result.Content = cloneParts(source.Content)
+	for j := range result.Content {
+		if _, tagged := result.Content[j].Metadata[MetaTag]; !tagged {
+			result.Content[j].Text = escapePartText(result.Content[j])
+		}
+		result.Content[j].Metadata = nil
+	}
+	return &result
 }
 
 // escapePartText escapes the text of a text or json Part. A json Part is sent
