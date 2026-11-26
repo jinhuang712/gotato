@@ -328,6 +328,17 @@ func (s *responsesDecoder) finishResponsesResponse(response *responsesResponse) 
 	if response.Model != "" {
 		s.model = response.Model
 	}
+	if !s.emitResponsesCalls(stop) {
+		return
+	}
+	usage := s.queueResponsesUsage(response)
+	s.queue = append(s.queue, gotato.ModelEvent{Kind: gotato.ModelEventKindDone, StopReason: s.toolCallsStop(stop), Usage: usage, Model: s.model})
+	s.finished = true
+}
+
+// emitResponsesCalls queues the calls not yet delivered, in output order. It
+// fails the stream and returns false at a call it cannot deliver.
+func (s *responsesDecoder) emitResponsesCalls(stop gotato.StopReason) bool {
 	indices := make([]int, 0, len(s.calls))
 	for index := range s.calls {
 		indices = append(indices, index)
@@ -343,9 +354,15 @@ func (s *responsesDecoder) finishResponsesResponse(response *responsesResponse) 
 			// The model asked for a tool the stream cannot name. Ending
 			// the Turn as a final answer would hide that.
 			s.finishWithError(protocolFailure("Responses function call at output index %d has no name or call_id", index))
-			return
+			return false
 		}
 	}
+	return true
+}
+
+// queueResponsesUsage queues the response's usage, when it has one, and
+// returns it.
+func (s *responsesDecoder) queueResponsesUsage(response *responsesResponse) gotato.Usage {
 	var usage gotato.Usage
 	if response.Usage != nil {
 		usage = gotato.Usage{
@@ -359,6 +376,11 @@ func (s *responsesDecoder) finishResponsesResponse(response *responsesResponse) 
 		}
 		s.queue = append(s.queue, gotato.ModelEvent{Kind: gotato.ModelEventKindUsage, Usage: usage})
 	}
+	return usage
+}
+
+// toolCallsStop is the stop of a response with its calls delivered.
+func (s *responsesDecoder) toolCallsStop(stop gotato.StopReason) gotato.StopReason {
 	// Delivered calls make the stop StopReasonToolCalls, unless the output limit
 	// cut the response off: StopReasonMaxTokens stays, so the agent learns it.
 	for _, call := range s.calls {
@@ -367,8 +389,7 @@ func (s *responsesDecoder) finishResponsesResponse(response *responsesResponse) 
 			break
 		}
 	}
-	s.queue = append(s.queue, gotato.ModelEvent{Kind: gotato.ModelEventKindDone, StopReason: stop, Usage: usage, Model: s.model})
-	s.finished = true
+	return stop
 }
 
 // responsesStopReason maps a response's status; ok is false for one it does
