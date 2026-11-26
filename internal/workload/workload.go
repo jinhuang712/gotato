@@ -383,10 +383,13 @@ func (o *playObserver) turnEnded(p *play, e gotato.TurnEnded) {
 	o.turn++
 }
 
+// storeEventsTimeout bounds the wait for the store Events of one Run.
+const storeEventsTimeout = 10 * time.Second
+
 // readStoreTimes adds the store's time for one Run: the Instance's
 // session_loaded, and the session_saved that ends the Run.
 func readStoreTimes(ctx context.Context, events gotato.Subscription, stats *stats) {
-	ctx, cancel := context.WithTimeout(ctx, 10*time.Second)
+	ctx, cancel := context.WithTimeout(ctx, storeEventsTimeout)
 	defer cancel()
 	for {
 		event, err := events.Next(ctx)
