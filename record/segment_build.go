@@ -91,17 +91,23 @@ func (c CodeSegments) Build(closed []gotato.Message, info SegmentInfo) (gotato.S
 		if len(it.lines) == 0 && it.overflow == "" {
 			continue
 		}
-		text := make([]string, 0, len(it.lines)+1)
-		for _, line := range it.lines {
-			text = append(text, renderLine(line, loc))
-		}
-		if it.overflow != "" {
-			text = append(text, it.overflow)
-		}
-		out.add(gotato.RoleAssistant, taggedPart(gotato.TagToolCalls, nil, strings.Join(text, "\n")))
+		out.add(gotato.RoleAssistant, taggedPart(gotato.TagToolCalls, nil, callsText(it, loc)))
 	}
 	segment.Messages = out.messages
 	return segment, nil
+}
+
+// callsText writes an item of tool call lines, with the line that counts the
+// calls past the cap, if any.
+func callsText(it item, loc *time.Location) string {
+	text := make([]string, 0, len(it.lines)+1)
+	for _, line := range it.lines {
+		text = append(text, renderLine(line, loc))
+	}
+	if it.overflow != "" {
+		text = append(text, it.overflow)
+	}
+	return strings.Join(text, "\n")
 }
 
 // stamps reads from the positions of the closed Messages when the stretch
