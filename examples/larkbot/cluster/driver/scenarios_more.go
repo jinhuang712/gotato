@@ -45,10 +45,11 @@ func (e *env) s3(ctx context.Context) bool {
 	}
 
 	fmt.Printf("%s 3 pods: %v\n", st.at(), podNames(before))
-	if err := e.s3ScaleDown(ctx, st, ts, say, delay); err != nil {
+	run := &s3Run{e: e, st: st, ts: ts, say: say, delay: delay}
+	if err := run.scaleDown(ctx); err != nil {
 		return verdict("s3", false, err.Error())
 	}
-	five, err := e.s3ScaleUp(ctx, st, ts, say, delay)
+	five, err := run.scaleUp(ctx)
 	if err != nil {
 		return verdict("s3", false, err.Error())
 	}
@@ -59,16 +60,26 @@ func (e *env) s3(ctx context.Context) bool {
 	unanswered := e.unansweredThreads(ctx, ts)
 	fmt.Printf("  threads whose Transcript ends on an unanswered user message: %d\n", unanswered)
 
-	claimsByNew := e.s3Claims(ctx, ts, before, five)
+	claimsByNew := run.claims(ctx, before, five)
 	if claimsByNew == 0 {
 		return verdict("s3", false, "no pod added by the scale-up claimed a Session")
 	}
 	return verdict("s3", faults == 0, fmt.Sprintf("%d GOTATO-FAULT", faults))
 }
 
-// s3ScaleDown scales the bot 3 -> 1 with Runs in flight, sends into the threads while the pods drain, and waits
+// s3Run is one play of s3: the driver, the stamper, the threads, the Run's delay and the sender into a thread.
+type s3Run struct {
+	e     *env
+	st    stamper
+	ts    []*thread
+	say   func(i int, tag, d, what string)
+	delay string
+}
+
+// scaleDown scales the bot 3 -> 1 with Runs in flight, sends into the threads while the pods drain, and waits
 // for the Runs to settle.
-func (e *env) s3ScaleDown(ctx context.Context, st stamper, ts []*thread, say func(i int, tag, d, what string), delay string) error {
+func (r *s3Run) scaleDown(ctx context.Context) error {
+	e, st, ts, say, delay := r.e, r.st, r.ts, r.say, r.delay
 	for i := range 8 {
 		say(i, fmt.Sprintf("s3-%02d-a", i+1), delay, "new")
 	}
@@ -95,9 +106,10 @@ func (e *env) s3ScaleDown(ctx context.Context, st stamper, ts []*thread, say fun
 	return nil
 }
 
-// s3ScaleUp sends into every thread, scales the bot 1 -> 5 with Runs in flight, and sends on 5 pods; it
+// scaleUp sends into every thread, scales the bot 1 -> 5 with Runs in flight, and sends on 5 pods; it
 // returns the 5 pods.
-func (e *env) s3ScaleUp(ctx context.Context, st stamper, ts []*thread, say func(i int, tag, d, what string), delay string) (map[string]bool, error) {
+func (r *s3Run) scaleUp(ctx context.Context) (map[string]bool, error) {
+	e, st, ts, say, delay := r.e, r.st, r.ts, r.say, r.delay
 	for i := range ts[:10] { // a message in every thread, no Run going
 		say(i, fmt.Sprintf("s3-%02d-b", i+1), delay, "reply after the Run ended in")
 	}
@@ -130,8 +142,9 @@ func (e *env) s3ScaleUp(ctx context.Context, st stamper, ts []*thread, say func(
 	return five, nil
 }
 
-// s3Claims prints the claims of Sessions by pod, and returns those by pods that did not exist at the start.
-func (e *env) s3Claims(ctx context.Context, ts []*thread, before, five map[string]bool) int {
+// claims prints the claims of Sessions by pod, and returns those by pods that did not exist at the start.
+func (r *s3Run) claims(ctx context.Context, before, five map[string]bool) int {
+	e, ts := r.e, r.ts
 	// Which pods served the Sessions: the last claim of each Session, by pod.
 	orig := map[string]bool{}
 	for p := range before {
@@ -140,11 +153,11 @@ func (e *env) s3Claims(ctx context.Context, ts []*thread, before, five map[strin
 	served := map[string]int{}
 	claimsByNew := 0
 	for _, t := range ts {
-		r, err := e.record(ctx, t.session())
+		rec, err := e.record(ctx, t.session())
 		if err != nil {
 			continue
 		}
-		claimsByNew += e.s3ClaimsOf(r, orig, served)
+		claimsByNew += e.s3ClaimsOf(rec, orig, served)
 	}
 	var parts []string
 	for _, p := range podNames(five) {
