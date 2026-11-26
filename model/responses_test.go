@@ -158,7 +158,7 @@ func TestResponsesReplaysToolCallItemID(t *testing.T) {
 
 func TestResponsesStreamReassemblesToolCall(t *testing.T) {
 	token := testToken("account-test")
-	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
 		w.Header().Set("Content-Type", "text/event-stream")
 		name := providerFunctionName("demo.echo")
 		writeSSE(t, w, `{"type":"response.output_item.added","output_index":0,"item":{"type":"function_call","id":"fc_1","call_id":"call_1","name":"`+name+`"}}`)
@@ -200,7 +200,7 @@ func TestResponsesStreamReassemblesToolCall(t *testing.T) {
 
 func TestResponsesCallWithoutCallIDFailsTheStream(t *testing.T) {
 	token := testToken("account-test")
-	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
 		w.Header().Set("Content-Type", "text/event-stream")
 		// A function_call item with a name but no call_id can never be
 		// delivered. The Turn must not end as a final answer: the model asked
@@ -261,7 +261,7 @@ func TestResponsesCutOffDeliversACallWhoseArgumentsFinished(t *testing.T) {
 // client and returns the Tool calls and the stop reason it reports.
 func responsesCallsAndStop(t *testing.T, events ...string) ([]gotato.ToolCall, gotato.StopReason) {
 	t.Helper()
-	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
 		w.Header().Set("Content-Type", "text/event-stream")
 		for _, e := range events {
 			writeSSE(t, w, e)
