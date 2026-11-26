@@ -193,6 +193,9 @@ func (e *env) killContainer(ctx context.Context, app string) (string, error) {
 	return strings.TrimSpace(string(out)), err
 }
 
+// followGrace is how long followFile lets a log end by itself when the container exits.
+const followGrace = 3 * time.Second
+
 // followFile writes a pod's log to path while the pod lives (and after SIGTERM, until it is gone).
 func (e *env) followFile(ctx context.Context, pod, path string) func() {
 	cctx, cancel := context.WithCancel(ctx)
@@ -212,7 +215,7 @@ func (e *env) followFile(ctx context.Context, pod, path string) func() {
 		// The log ends by itself when the container exits; give it a moment, then stop.
 		select {
 		case <-done:
-		case <-time.After(3 * time.Second):
+		case <-time.After(followGrace):
 		}
 		cancel()
 		<-done
