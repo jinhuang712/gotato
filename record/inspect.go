@@ -69,7 +69,7 @@ func ReportOf(inspection gotato.ContextInspection) Report {
 		Strategy:                  inspection.Context.Metadata["strategy"],
 		SourceMessages:            inspection.SourceMessages,
 		SelectedMessages:          len(inspection.Context.Messages),
-		ApproxTokens:              (len(encoded) + 3) / 4,
+		ApproxTokens:              tokensOf(len(encoded)),
 		SystemBytes:               len(inspection.Request.SystemInstructions),
 		PrefixHash:                inspection.PrefixHash,
 		Metadata:                  inspection.Context.Metadata,
