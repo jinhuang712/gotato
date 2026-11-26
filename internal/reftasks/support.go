@@ -200,7 +200,7 @@ func orderRefundTool() gotato.Tool {
 				if item.SKU != in.SKU {
 					continue
 				}
-				if order.DeliveredDaysAgo > 30 {
+				if order.DeliveredDaysAgo > refundWindowDays {
 					return nil, fmt.Errorf("not eligible: order %s was delivered %d days ago, and policy RR-3 allows 30", order.ID, order.DeliveredDaysAgo)
 				}
 				return map[string]any{
