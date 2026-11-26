@@ -236,19 +236,11 @@ func (s *responsesDecoder) ensureResponsesCall(index int, item *responsesOutputI
 
 func (s *responsesDecoder) finishResponsesItem(index int, item responsesOutputItem, raw []byte) {
 	if item.Type == "reasoning" {
-		artifact, err := json.Marshal(item)
-		if err == nil && len(raw) > 0 {
-			artifact = append([]byte(nil), raw...)
-		}
-		s.queue = append(s.queue, gotato.ModelEvent{Kind: gotato.ModelEventKindReasoningDone, ReasoningArtifact: artifact})
+		s.queueResponsesReasoning(item, raw)
 		return
 	}
 	if item.Type == "message" && !s.texts[index] {
-		for _, content := range item.Content {
-			if content.Type == "output_text" && content.Text != "" {
-				s.queue = append(s.queue, gotato.ModelEvent{Kind: gotato.ModelEventKindTextDelta, Text: content.Text})
-			}
-		}
+		s.queueResponsesMessage(item)
 		return
 	}
 	if item.Type != "function_call" && item.Type != "tool_search_call" {
@@ -259,6 +251,26 @@ func (s *responsesDecoder) finishResponsesItem(index int, item responsesOutputIt
 		call.argumentsDone = true
 	}
 	s.emitResponsesCall(index)
+}
+
+// queueResponsesReasoning queues a finished reasoning item as the artifact a
+// later request replays: the raw item when there is one.
+func (s *responsesDecoder) queueResponsesReasoning(item responsesOutputItem, raw []byte) {
+	artifact, err := json.Marshal(item)
+	if err == nil && len(raw) > 0 {
+		artifact = append([]byte(nil), raw...)
+	}
+	s.queue = append(s.queue, gotato.ModelEvent{Kind: gotato.ModelEventKindReasoningDone, ReasoningArtifact: artifact})
+}
+
+// queueResponsesMessage queues the text of a finished message item whose text
+// did not stream.
+func (s *responsesDecoder) queueResponsesMessage(item responsesOutputItem) {
+	for _, content := range item.Content {
+		if content.Type == "output_text" && content.Text != "" {
+			s.queue = append(s.queue, gotato.ModelEvent{Kind: gotato.ModelEventKindTextDelta, Text: content.Text})
+		}
+	}
 }
 
 // searchToolName is the provider name the search tool was sent under.
