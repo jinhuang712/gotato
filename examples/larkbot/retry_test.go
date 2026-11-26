@@ -108,7 +108,7 @@ func TestRetryBudgetExhaustedTellsTheUserOnce(t *testing.T) {
 func TestRetryNotForAmbiguousFailure(t *testing.T) {
 	var hits atomic.Int32
 	a, b, _, release, _ := deadWriter(t, func(http.Handler) http.Handler {
-		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		return http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
 			hits.Add(1)
 			// Read the request, then drop the connection.
 			if h, ok := w.(http.Hijacker); ok {
@@ -132,7 +132,7 @@ func TestRetryNotForAmbiguousFailure(t *testing.T) {
 // A 409 that says "not run" is retried; a 500 is not.
 func TestForwardClassifiesFailures(t *testing.T) {
 	var status atomic.Int64
-	peer := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+	peer := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
 		if status.Load() == http.StatusConflict {
 			w.Header().Set(httpapi.NotRunHeader, "true")
 		}
