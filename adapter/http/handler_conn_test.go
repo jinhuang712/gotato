@@ -199,25 +199,7 @@ func endedIn(events []gotato.Event) bool {
 // once, in order.
 func TestSSEClientThatStopsReadingDoesNotSlowTheRun(t *testing.T) {
 	const calls = 400
-	uses := make([]gotato.ToolCall, calls)
-	for i := range uses {
-		uses[i] = gotato.ToolCall{ID: gotato.ToolCallID(fmt.Sprintf("call-%d", i)), ToolID: "lookup", Arguments: []byte(`{}`)}
-	}
-	runner, err := host.New(withAgents(host.Config{
-		Store: memStore(),
-	}, []profile.AgentProfile{{
-		Name:  "bulk",
-		Model: testkit.NewFakeModel(testkit.ToolCalls(uses...), testkit.Text("done")),
-		Tools: []gotato.Tool{testkit.NewFakeTool("lookup", "found")},
-	}}...))
-	if err != nil {
-		t.Fatal(err)
-	}
-	ctx := context.Background()
-	s, err := runner.CreateSession(ctx, host.CreateSessionRequest{Agent: "bulk"})
-	if err != nil {
-		t.Fatal(err)
-	}
+	runner, s := bulkRunSession(t, calls)
 
 	w := &stalledWriter{header: http.Header{}, gate: make(chan struct{})}
 	request := httptest.NewRequest(http.MethodPost, "/v1/sessions/"+s.ID+"/runs/stream", strings.NewReader(`{"prompt":"go"}`))
@@ -230,21 +212,7 @@ func TestSSEClientThatStopsReadingDoesNotSlowTheRun(t *testing.T) {
 
 	// The Run completes, and every Event is in the Record, with the handler
 	// blocked on its first write.
-	var stored []gotato.Event
-	deadline := time.Now().Add(10 * time.Second)
-	for time.Now().Before(deadline) {
-		stored, err = runner.Events(ctx, s.ID)
-		if err != nil {
-			t.Fatal(err)
-		}
-		if endedIn(stored) {
-			break
-		}
-		time.Sleep(5 * time.Millisecond)
-	}
-	if !endedIn(stored) {
-		t.Fatalf("the Run did not settle while the client was not reading: %d stored Events, body %.200q", len(stored), w.text())
-	}
+	stored := settledEvents(t, runner, s.ID, w)
 	select {
 	case <-served:
 		t.Fatal("the handler returned while its client was not reading")
@@ -265,28 +233,7 @@ func TestSSEClientThatStopsReadingDoesNotSlowTheRun(t *testing.T) {
 	case <-time.After(30 * time.Second):
 		t.Fatal("the handler did not finish after the client went on")
 	}
-	var got []string
-	var last string
-	scanner := bufio.NewScanner(strings.NewReader(w.text()))
-	scanner.Buffer(make([]byte, 0, 64*1024), 1<<20)
-	for scanner.Scan() {
-		line := scanner.Text()
-		if kind, ok := strings.CutPrefix(line, "event: "); ok {
-			last = kind
-			continue
-		}
-		data, ok := strings.CutPrefix(line, "data: ")
-		if !ok || last == "result" || last == "error" || last == "reconnect" {
-			continue
-		}
-		event, err := gotato.UnmarshalEvent([]byte(data))
-		if err != nil {
-			t.Fatalf("bad event %q: %v", data, err)
-		}
-		if event.Class() == gotato.EventClassStored {
-			got = append(got, fmt.Sprintf("%s#%d", event.Kind(), event.Head().Number))
-		}
-	}
+	got, last := storedFramesOf(t, w.text())
 	if last != "result" {
 		t.Fatalf("the stream ended with %q, want result", last)
 	}
@@ -313,6 +260,81 @@ func TestSSEClientThatStopsReadingDoesNotSlowTheRun(t *testing.T) {
 		}
 		t.Fatalf("the SSE stream's stored Events differ from the Record's: %d against %d, first difference at %d", len(got), len(want), diff)
 	}
+}
+
+// bulkRunSession makes a Runner whose model calls a tool calls times in one
+// Turn, and a Session of it.
+func bulkRunSession(t *testing.T, calls int) (*host.Runner, record.Info) {
+	t.Helper()
+	uses := make([]gotato.ToolCall, calls)
+	for i := range uses {
+		uses[i] = gotato.ToolCall{ID: gotato.ToolCallID(fmt.Sprintf("call-%d", i)), ToolID: "lookup", Arguments: []byte(`{}`)}
+	}
+	runner, err := host.New(withAgents(host.Config{
+		Store: memStore(),
+	}, []profile.AgentProfile{{
+		Name:  "bulk",
+		Model: testkit.NewFakeModel(testkit.ToolCalls(uses...), testkit.Text("done")),
+		Tools: []gotato.Tool{testkit.NewFakeTool("lookup", "found")},
+	}}...))
+	if err != nil {
+		t.Fatal(err)
+	}
+	s, err := runner.CreateSession(context.Background(), host.CreateSessionRequest{Agent: "bulk"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	return runner, s
+}
+
+// settledEvents waits for the Run of session id to end and returns its stored
+// Events. w is the stalled client, for the failure message.
+func settledEvents(t *testing.T, runner *host.Runner, id string, w *stalledWriter) []gotato.Event {
+	t.Helper()
+	var stored []gotato.Event
+	var err error
+	deadline := time.Now().Add(10 * time.Second)
+	for time.Now().Before(deadline) {
+		stored, err = runner.Events(context.Background(), id)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if endedIn(stored) {
+			break
+		}
+		time.Sleep(5 * time.Millisecond)
+	}
+	if !endedIn(stored) {
+		t.Fatalf("the Run did not settle while the client was not reading: %d stored Events, body %.200q", len(stored), w.text())
+	}
+	return stored
+}
+
+// storedFramesOf reads an SSE body and returns "kind#number" for each stored
+// Event in it, and the kind of the last event frame.
+func storedFramesOf(t *testing.T, body string) (got []string, last string) {
+	t.Helper()
+	scanner := bufio.NewScanner(strings.NewReader(body))
+	scanner.Buffer(make([]byte, 0, 64*1024), 1<<20)
+	for scanner.Scan() {
+		line := scanner.Text()
+		if kind, ok := strings.CutPrefix(line, "event: "); ok {
+			last = kind
+			continue
+		}
+		data, ok := strings.CutPrefix(line, "data: ")
+		if !ok || last == "result" || last == "error" || last == "reconnect" {
+			continue
+		}
+		event, err := gotato.UnmarshalEvent([]byte(data))
+		if err != nil {
+			t.Fatalf("bad event %q: %v", data, err)
+		}
+		if event.Class() == gotato.EventClassStored {
+			got = append(got, fmt.Sprintf("%s#%d", event.Kind(), event.Head().Number))
+		}
+	}
+	return got, last
 }
 
 // A Run refused at capacity is known before any byte is written, so the
