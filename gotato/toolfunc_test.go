@@ -30,7 +30,7 @@ type weatherOutput struct {
 }
 
 func TestFuncToolDerivesInputSchema(t *testing.T) {
-	tool, err := NewFuncTool("get_weather", "Return the weather.", func(ctx context.Context, in weatherInput) (weatherOutput, error) {
+	tool, err := NewFuncTool("get_weather", "Return the weather.", func(_ context.Context, in weatherInput) (weatherOutput, error) {
 		return weatherOutput{Summary: in.City}, nil
 	})
 	if err != nil {
@@ -93,31 +93,31 @@ func TestFuncToolDerivesInputSchema(t *testing.T) {
 }
 
 func TestFuncToolRejectsUnsupportedInput(t *testing.T) {
-	if _, err := NewFuncTool("bad", "", func(ctx context.Context, in string) (string, error) { return in, nil }); !IsCode(err, CodeInvalidArgument) {
+	if _, err := NewFuncTool("bad", "", func(_ context.Context, in string) (string, error) { return in, nil }); !IsCode(err, CodeInvalidArgument) {
 		t.Fatalf("expected invalid argument for non-struct input, got %v", err)
 	}
 	type cyclic struct {
 		Next *cyclic `json:"next,omitempty"`
 	}
-	if _, err := NewFuncTool("cycle", "", func(ctx context.Context, in cyclic) (string, error) { return "", nil }); !IsCode(err, CodeInvalidArgument) {
+	if _, err := NewFuncTool("cycle", "", func(_ context.Context, _ cyclic) (string, error) { return "", nil }); !IsCode(err, CodeInvalidArgument) {
 		t.Fatalf("expected invalid argument for recursive input, got %v", err)
 	}
 	type EmbeddedCycle struct {
 		*EmbeddedCycle
 	}
-	if _, err := NewFuncTool("embedded-cycle", "", func(ctx context.Context, in EmbeddedCycle) (string, error) { return "", nil }); !IsCode(err, CodeInvalidArgument) {
+	if _, err := NewFuncTool("embedded-cycle", "", func(_ context.Context, _ EmbeddedCycle) (string, error) { return "", nil }); !IsCode(err, CodeInvalidArgument) {
 		t.Fatalf("expected invalid argument for embedded recursive input, got %v", err)
 	}
 	type channels struct {
 		Ch chan int `json:"ch"`
 	}
-	if _, err := NewFuncTool("chan", "", func(ctx context.Context, in channels) (string, error) { return "", nil }); !IsCode(err, CodeInvalidArgument) {
+	if _, err := NewFuncTool("chan", "", func(_ context.Context, _ channels) (string, error) { return "", nil }); !IsCode(err, CodeInvalidArgument) {
 		t.Fatalf("expected invalid argument for channel field, got %v", err)
 	}
 	if _, err := NewFuncTool[weatherInput, string]("nil", "", nil); !IsCode(err, CodeInvalidArgument) {
 		t.Fatalf("expected invalid argument for nil function, got %v", err)
 	}
-	if _, err := NewFuncTool(" ", "", func(ctx context.Context, in weatherInput) (string, error) { return "", nil }); !IsCode(err, CodeInvalidArgument) {
+	if _, err := NewFuncTool(" ", "", func(_ context.Context, _ weatherInput) (string, error) { return "", nil }); !IsCode(err, CodeInvalidArgument) {
 		t.Fatalf("expected invalid argument for empty name, got %v", err)
 	}
 }
@@ -129,13 +129,13 @@ func TestFuncToolRejectsRecursiveSliceAndMap(t *testing.T) {
 	type withList struct {
 		Items recursiveList `json:"items"`
 	}
-	if _, err := NewFuncTool("list", "", func(ctx context.Context, in withList) (string, error) { return "", nil }); !IsCode(err, CodeInvalidArgument) {
+	if _, err := NewFuncTool("list", "", func(_ context.Context, _ withList) (string, error) { return "", nil }); !IsCode(err, CodeInvalidArgument) {
 		t.Fatalf("recursive slice = %v, want invalid_argument", err)
 	}
 	type withMap struct {
 		Items recursiveMap `json:"items"`
 	}
-	if _, err := NewFuncTool("map", "", func(ctx context.Context, in withMap) (string, error) { return "", nil }); !IsCode(err, CodeInvalidArgument) {
+	if _, err := NewFuncTool("map", "", func(_ context.Context, _ withMap) (string, error) { return "", nil }); !IsCode(err, CodeInvalidArgument) {
 		t.Fatalf("recursive map = %v, want invalid_argument", err)
 	}
 }
@@ -144,7 +144,7 @@ func TestFuncToolRejectsUnsupportedJSONOptions(t *testing.T) {
 	type stringly struct {
 		Count int `json:"count,string"`
 	}
-	if _, err := NewFuncTool("stringly", "", func(ctx context.Context, in stringly) (string, error) { return "", nil }); !IsCode(err, CodeInvalidArgument) {
+	if _, err := NewFuncTool("stringly", "", func(_ context.Context, _ stringly) (string, error) { return "", nil }); !IsCode(err, CodeInvalidArgument) {
 		t.Fatalf(`json:",string" = %v, want invalid_argument`, err)
 	}
 }
@@ -154,7 +154,7 @@ type funcToolModel struct {
 	calls     int
 }
 
-func (m *funcToolModel) Stream(ctx context.Context, request ModelRequest) (ModelStream, error) {
+func (m *funcToolModel) Stream(_ context.Context, _ ModelRequest) (ModelStream, error) {
 	call := m.calls
 	m.calls++
 	if call == 0 {
@@ -174,7 +174,7 @@ func TestFuncToolRunsThroughTheLoop(t *testing.T) {
 	agent, err := NewSession(
 		context.Background(),
 		WithModel(&funcToolModel{arguments: `{"city":"Shenzhen","unit":"celsius"}`}),
-		WithTools(weatherTool(t, func(ctx context.Context, in weatherInput) (weatherOutput, error) {
+		WithTools(weatherTool(t, func(_ context.Context, in weatherInput) (weatherOutput, error) {
 			seen = in
 			return weatherOutput{Summary: "sunny in " + in.City}, nil
 		})),
@@ -200,7 +200,7 @@ func TestFuncToolMalformedArgumentsNeverExecute(t *testing.T) {
 	agent, err := NewSession(
 		context.Background(),
 		WithModel(&funcToolModel{arguments: `{"unit":"celsius"}`}),
-		WithTools(weatherTool(t, func(ctx context.Context, in weatherInput) (weatherOutput, error) {
+		WithTools(weatherTool(t, func(_ context.Context, _ weatherInput) (weatherOutput, error) {
 			executed = true
 			return weatherOutput{}, nil
 		})),
@@ -234,7 +234,7 @@ func TestUnknownToolBecomesFailedToolResult(t *testing.T) {
 	agent, err := NewSession(
 		context.Background(),
 		WithModel(model),
-		WithTools(weatherTool(t, func(ctx context.Context, in weatherInput) (weatherOutput, error) {
+		WithTools(weatherTool(t, func(_ context.Context, _ weatherInput) (weatherOutput, error) {
 			return weatherOutput{}, nil
 		})),
 	)
@@ -265,7 +265,7 @@ type namedToolModel struct {
 	calls int
 }
 
-func (m *namedToolModel) Stream(ctx context.Context, request ModelRequest) (ModelStream, error) {
+func (m *namedToolModel) Stream(_ context.Context, _ ModelRequest) (ModelStream, error) {
 	m.calls++
 	if m.calls == 1 {
 		return &testStream{events: []ModelEvent{
@@ -283,7 +283,7 @@ func TestFuncToolErrorBecomesFailedToolResult(t *testing.T) {
 	agent, err := NewSession(
 		context.Background(),
 		WithModel(&funcToolModel{arguments: `{"city":"Shenzhen"}`}),
-		WithTools(weatherTool(t, func(ctx context.Context, in weatherInput) (weatherOutput, error) {
+		WithTools(weatherTool(t, func(_ context.Context, _ weatherInput) (weatherOutput, error) {
 			return weatherOutput{}, errors.New("upstream is down")
 		})),
 	)
@@ -318,7 +318,7 @@ func TestFuncToolErrorBecomesFailedToolResult(t *testing.T) {
 }
 
 func TestFuncToolStringOutputBecomesText(t *testing.T) {
-	tool, err := NewFuncToolWithProgress("say", "Say something.", func(ctx context.Context, in struct{}, progress ToolProgressFunc) (string, error) {
+	tool, err := NewFuncToolWithProgress("say", "Say something.", func(_ context.Context, _ struct{}, progress ToolProgressFunc) (string, error) {
 		progress("working")
 		return "spoken", nil
 	})
@@ -353,7 +353,7 @@ type byteArrayInput struct {
 }
 
 func TestFuncToolSchemaForByteArraysAndEmbeddedUnexported(t *testing.T) {
-	arrays, err := NewFuncTool("bytes", "", func(ctx context.Context, in byteArrayInput) (string, error) { return "", nil })
+	arrays, err := NewFuncTool("bytes", "", func(_ context.Context, _ byteArrayInput) (string, error) { return "", nil })
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -375,7 +375,7 @@ func TestFuncToolSchemaForByteArraysAndEmbeddedUnexported(t *testing.T) {
 		t.Fatalf("[]byte schema = %#v", blob)
 	}
 
-	embedded, err := NewFuncTool("embedded", "", func(ctx context.Context, in withEmbeddedPrivate) (string, error) { return "", nil })
+	embedded, err := NewFuncTool("embedded", "", func(_ context.Context, _ withEmbeddedPrivate) (string, error) { return "", nil })
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -397,7 +397,7 @@ type stringlyInput struct {
 }
 
 func TestFuncToolMapsStringLikeTypes(t *testing.T) {
-	tool, err := NewFuncTool("schedule", "Schedule something.", func(ctx context.Context, in stringlyInput) (string, error) {
+	tool, err := NewFuncTool("schedule", "Schedule something.", func(_ context.Context, in stringlyInput) (string, error) {
 		return in.At.Format(time.RFC3339), nil
 	})
 	if err != nil {
