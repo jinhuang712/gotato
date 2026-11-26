@@ -68,46 +68,80 @@ func (r *Runner) open(ctx context.Context, sessionID string) (*store.Writer, []g
 	if err := r.live(ctx); err != nil {
 		return nil, nil, err
 	}
-	deadline := r.clock.Now().Add(r.heartbeat.Wait)
-	pause := 20 * time.Millisecond
-	waited := false
+	wait := openWait{deadline: r.clock.Now().Add(r.heartbeat.Wait), pause: 20 * time.Millisecond}
 	for {
-		name := r.id()
-		var early []gotato.Event
-		keep := func(event gotato.Event) { early = append(early, event) }
-		options := []store.WriterOption{store.WithGuard(func() error { return r.guardFor(name) }), store.WithHolderCheck(r.holderCheck), store.WithPublisher(keep)}
-		if waited {
-			options = append(options, store.WithWaited())
-		}
-		mark := r.streamMark()
-		writer, err := store.OpenWriter(ctx, r.store.Records, sessionID, name, options...)
-		// A conflict here means another Instance claimed or wrote first:
-		// look again, as for a busy holder.
+		writer, early, err := r.openOnce(ctx, sessionID, wait)
 		if err == nil {
-			r.cutStreams(ctx, sessionID, writer.Record().RecordEpoch(), writer.Record().Head(), mark)
 			return writer, early, nil
 		}
-		if (!errors.Is(err, errHolderBusy) && !errors.Is(err, store.ErrConflict)) || lapsed(err) {
-			if gotato.IsCode(err, gotato.CodeStoreFailure) {
-				// [LIVENESS] a Claim that landed with no Writer would hold the Session busy under this Instance for good.
-				r.markUnreleased(sessionID)
-			}
-			return nil, nil, storeFailureOf(ctx, notRunIfLapsed(err), true)
-		}
-		remaining := deadline.Sub(r.clock.Now())
-		if remaining <= 0 {
-			r.notice(RunRejected{Header: gotato.NewHeader(gotato.SessionID(sessionID), "", 0), Why: "busy_elsewhere"}, "")
-			return nil, nil, busyElsewhere(r.heartbeat.Wait)
-		}
-		if !waited {
-			r.notice(RunWaiting{Header: gotato.NewHeader(gotato.SessionID(sessionID), "", 0), Why: "busy_elsewhere"}, "")
-		}
-		waited = true
-		if err := clock.Sleep(ctx, r.clock, min(pause, remaining)); err != nil {
+		if err := r.openFailure(ctx, sessionID, err); err != nil {
 			return nil, nil, err
 		}
-		pause = min(pause*2, 500*time.Millisecond)
+		if err := r.waitToOpen(ctx, sessionID, &wait); err != nil {
+			return nil, nil, err
+		}
 	}
+}
+
+// openWait is where open stands in its wait for a Session another Instance
+// holds: when it gives up, its next pause and whether it waited already.
+type openWait struct {
+	deadline time.Time
+	pause    time.Duration
+	waited   bool
+}
+
+// openOnce tries once to open a stored Session for writing, and returns the
+// Events the open wrote.
+func (r *Runner) openOnce(ctx context.Context, sessionID string, wait openWait) (*store.Writer, []gotato.Event, error) {
+	name := r.id()
+	var early []gotato.Event
+	keep := func(event gotato.Event) { early = append(early, event) }
+	options := []store.WriterOption{store.WithGuard(func() error { return r.guardFor(name) }), store.WithHolderCheck(r.holderCheck), store.WithPublisher(keep)}
+	if wait.waited {
+		options = append(options, store.WithWaited())
+	}
+	mark := r.streamMark()
+	writer, err := store.OpenWriter(ctx, r.store.Records, sessionID, name, options...)
+	// A conflict here means another Instance claimed or wrote first:
+	// look again, as for a busy holder.
+	if err == nil {
+		r.cutStreams(ctx, sessionID, writer.Record().RecordEpoch(), writer.Record().Head(), mark)
+		return writer, early, nil
+	}
+	return nil, nil, err
+}
+
+// openFailure is the error of a failed open, or nil when the Session is busy
+// on another Instance, or was claimed or written first, and open looks again.
+func (r *Runner) openFailure(ctx context.Context, sessionID string, err error) error {
+	if (!errors.Is(err, errHolderBusy) && !errors.Is(err, store.ErrConflict)) || lapsed(err) {
+		if gotato.IsCode(err, gotato.CodeStoreFailure) {
+			// [LIVENESS] a Claim that landed with no Writer would hold the Session busy under this Instance for good.
+			r.markUnreleased(sessionID)
+		}
+		return storeFailureOf(ctx, notRunIfLapsed(err), true)
+	}
+	return nil
+}
+
+// waitToOpen waits before open looks again, or refuses with busy once the
+// wait is past its deadline.
+func (r *Runner) waitToOpen(ctx context.Context, sessionID string, wait *openWait) error {
+	remaining := wait.deadline.Sub(r.clock.Now())
+	if remaining <= 0 {
+		r.notice(RunRejected{Header: gotato.NewHeader(gotato.SessionID(sessionID), "", 0), Why: "busy_elsewhere"}, "")
+		return busyElsewhere(r.heartbeat.Wait)
+	}
+	if !wait.waited {
+		r.notice(RunWaiting{Header: gotato.NewHeader(gotato.SessionID(sessionID), "", 0), Why: "busy_elsewhere"}, "")
+	}
+	wait.waited = true
+	if err := clock.Sleep(ctx, r.clock, min(wait.pause, remaining)); err != nil {
+		return err
+	}
+	wait.pause = min(wait.pause*2, 500*time.Millisecond)
+	return nil
 }
 
 // busyElsewhere refuses a Run on a Session that is running on another
