@@ -82,7 +82,9 @@ func (t *turnRun) endAnswerTurn(st *runState, replyNumber uint64) (bool, RunResu
 		st.truncatedContinuations++
 		// A notice, not a user Message: it starts no Round, so the
 		// reasoning of the cut reply stays in the request.
-		if err := a.commitNotice(st.runCtx, st.runID, turn, NewNotice(NoticeSourceGotato, NoticeContinue, TruncatedContinuationText), 0, replyNumber, nil); err != nil {
+		notice := NewNotice(NoticeSourceGotato, NoticeContinue, TruncatedContinuationText)
+		notice.Notice.CausedBy = replyNumber
+		if err := a.commitNotice(st.runCtx, st.runID, turn, control{message: notice, source: MessageSourceNotice, kind: kindNotice}, nil); err != nil {
 			return st.failTurn(err)
 		}
 		return true, RunResult{}, nil

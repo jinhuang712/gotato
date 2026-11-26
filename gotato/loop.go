@@ -424,7 +424,7 @@ func (a *Session) consumeControl(ctx context.Context, runID RunID, turn TurnNumb
 	injected := false
 	for _, item := range items.items {
 		if item.source == MessageSourceNotice {
-			if err := a.commitNotice(ctx, runID, turn, item.message, item.number, 0, items); err != nil {
+			if err := a.commitNotice(ctx, runID, turn, item, items); err != nil {
 				return injected, err
 			}
 			continue

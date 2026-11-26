@@ -122,20 +122,16 @@ func (a *Session) QueueNotice(ctx context.Context, message Message) (uint64, err
 	return number, nil
 }
 
-// commitNotice commits a notice Message and stores its NoticeCommitted. number
-// is the notice_queued it came from, and causedBy the Event that caused a
-// notice of Gotato's own, each 0 when there is none. taken is the lease the
-// notice was taken under, nil for one that never waited.
-func (a *Session) commitNotice(ctx context.Context, runID RunID, turn TurnNumber, message Message, number, causedBy uint64, taken *lease) *RuntimeError {
+// commitNotice commits the notice Message of item and stores its
+// NoticeCommitted. The number of item is the notice_queued it came from, 0
+// when there is none. taken is the lease the notice was taken under, nil for
+// one that never waited.
+func (a *Session) commitNotice(ctx context.Context, runID RunID, turn TurnNumber, item control, taken *lease) *RuntimeError {
+	message, number := item.message, item.number
 	if message.ID == "" {
 		message.ID = MessageID(nextID("message"))
 	}
 	message.RunID = runID
-	if causedBy != 0 && message.Notice != nil {
-		info := *message.Notice
-		info.CausedBy = causedBy
-		message.Notice = &info
-	}
 	if err := a.commitMessage(message); err != nil {
 		a.dropUncommitted(runID, turn, message.ID, MessageSourceNotice, taken)
 		return asRuntimeError(err)
@@ -152,7 +148,7 @@ func (a *Session) commitQueuedNotices(ctx context.Context, runID RunID, turn Tur
 	// [DATA-LOSS] a notice taken and not committed goes back to the queue, whatever stops the commits.
 	defer taken.putBack()
 	for _, queued := range taken.items {
-		if err := a.commitNotice(ctx, runID, turn, queued.message, queued.number, 0, taken); err != nil {
+		if err := a.commitNotice(ctx, runID, turn, queued, taken); err != nil {
 			return err
 		}
 	}
