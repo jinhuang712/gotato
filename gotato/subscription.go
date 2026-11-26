@@ -79,20 +79,6 @@ func (s *subscription) passes(event Event) (keep bool, err error) {
 	return keep, extensionFailure("Subscription", err)
 }
 
-// check runs the SubscribeVerify function, if any, after a read that returned
-// Events. A panic in it ends this Subscription.
-// [LIVENESS] a panic in the host's verify function ends this one Subscription, not the process.
-func (s *subscription) check(ctx context.Context) error {
-	if s.verify == nil {
-		return nil
-	}
-	var failure error
-	if err := callHost("SubscribeVerify", func() error { failure = s.verify(ctx); return nil }); err != nil {
-		return extensionFailure("Subscription", err)
-	}
-	return failure
-}
-
 // extensionFailure returns err, a panic of host code, as a RuntimeError that
 // Next returns; nil stays nil.
 func extensionFailure(stage string, err error) error {
@@ -251,9 +237,9 @@ func (s *subscription) finish(err error) {
 // forward is the subscriber's goroutine: it sends Events to Next in order.
 func (s *subscription) forward(ctx context.Context) {
 	defer close(s.out)
-	var pending []Event
+	w := forwarder{subscription: s}
 	for {
-		event, ok, err := s.take(ctx, &pending)
+		event, ok, err := w.take(ctx)
 		if err != nil {
 			s.finish(err)
 			return
@@ -277,35 +263,6 @@ func (s *subscription) forward(ctx context.Context) {
 			if err != nil || last {
 				s.finish(extensionFailure("Subscription", err))
 				return
-			}
-		}
-	}
-}
-
-// take returns the next Event: from the pending catch-up batch, the queue, or
-// the source. ok is false when the stream has ended.
-func (s *subscription) take(ctx context.Context, pending *[]Event) (Event, bool, error) {
-	empty := 0
-	for {
-		if len(*pending) > 0 {
-			event := (*pending)[0]
-			*pending = (*pending)[1:]
-			return event, true, nil
-		}
-		event, ok, state := s.popQueued()
-		if ok {
-			return event, true, nil
-		}
-		switch {
-		case state.behind:
-			if ended, err := s.catchUp(ctx, state.resume, pending, &empty); ended || err != nil {
-				return nil, false, err
-			}
-		case state.ending:
-			return nil, false, nil
-		default:
-			if ended, err := s.await(ctx); ended || err != nil {
-				return nil, false, err
 			}
 		}
 	}
@@ -335,145 +292,6 @@ func (s *subscription) popQueued() (event Event, ok bool, state queueState) {
 		return event, true, queueState{}
 	}
 	return nil, false, queueState{behind: s.behind, resume: s.resume, ending: s.ending}
-}
-
-// catchUp reads the next batch of stored Events after resume from the source
-// into pending, or rejoins the live Events once it has read them all. empty
-// counts the reads in a row that found nothing the Feed had published. ended
-// is true when the stream ended without an error.
-func (s *subscription) catchUp(ctx context.Context, resume uint64, pending *[]Event, empty *int) (ended bool, err error) {
-	batch, kept, err := s.read(ctx, resume)
-	if err != nil {
-		return false, err
-	}
-	if len(batch) > 0 {
-		s.mu.Lock()
-		s.resume = batch[len(batch)-1].Head().Number
-		s.cursor = max(s.cursor, s.resume)
-		s.mu.Unlock()
-		for i, event := range batch {
-			if kept[i] {
-				*pending = append(*pending, event)
-			}
-		}
-		return false, nil
-	}
-	// Nothing more to read: rejoin the live Events once the Feed
-	// has published nothing newer than what was read.
-	s.feed.mu.Lock()
-	s.mu.Lock()
-	if s.resume >= s.feed.last {
-		s.behind, s.cursorSet = false, true
-		*empty = 0
-	}
-	caughtUp := !s.behind
-	s.mu.Unlock()
-	s.feed.mu.Unlock()
-	if caughtUp {
-		return false, nil
-	}
-	// The source holds nothing the Feed has published since: give
-	// a store that is slow to show its last write a moment, and then
-	// give up, because the Events are not coming.
-	if *empty++; *empty > catchUpRetries {
-		return false, ErrEventsLost
-	}
-	select {
-	case <-time.After(catchUpPause):
-		return false, nil
-	case <-s.done:
-		return true, nil
-	case <-ctx.Done():
-		return false, ctx.Err()
-	}
-}
-
-// await blocks until the subscriber has something to look at: a wake-up from
-// the Feed, or the tail interval, after which it reads the source. ended is
-// true when the stream ended without an error.
-func (s *subscription) await(ctx context.Context) (ended bool, err error) {
-	var tick <-chan time.Time
-	if s.tail > 0 && !s.feed.mixed && s.feed.hasSource() {
-		timer := time.NewTimer(s.tail)
-		defer timer.Stop()
-		tick = timer.C
-	}
-	select {
-	case <-s.wake:
-		return false, nil
-	case <-tick:
-		// Nothing came for a while: look in the source, which holds what
-		// another Instance wrote. The stream stays live while it reads, so
-		// a delta published meanwhile is not lost.
-		return false, s.look(ctx)
-	case <-s.done:
-		return true, nil
-	case <-ctx.Done():
-		return false, ctx.Err()
-	}
-}
-
-// look reads the stored Events after the last one this subscriber has from the
-// Feed's source, and queues those that are still the next ones once the read
-// is done: a live Event that arrived meanwhile has moved the cursor, and what
-// it covers is not queued twice.
-func (s *subscription) look(ctx context.Context) error {
-	s.mu.Lock()
-	if !s.cursorSet || s.behind {
-		s.mu.Unlock()
-		return nil
-	}
-	after := s.cursor
-	s.mu.Unlock()
-	batch, kept, err := s.read(ctx, after)
-	if err != nil {
-		return err
-	}
-	// An Event that a live publish queued during the read is skipped below by
-	// its number.
-	s.mu.Lock()
-	defer s.mu.Unlock()
-	if s.behind {
-		return nil
-	}
-	for i, event := range batch {
-		number := event.Head().Number
-		if number <= s.cursor {
-			continue
-		}
-		if number != s.cursor+1 {
-			// A gap: the catch-up reads from the cursor on.
-			s.behind, s.resume = true, s.cursor
-			return nil
-		}
-		s.cursor = number
-		if kept[i] {
-			s.queue = append(s.queue, event)
-		}
-	}
-	return nil
-}
-
-// read is the one read of the Feed's source, which a catch-up and the tail
-// share: the next batch of stored Events after number after, checked with
-// SubscribeVerify when it holds any, and kept[i] says batch[i] passes the
-// filter.
-// [CONCURRENCY] no lock of the subscription is held, so the filter and the check may call End or Close.
-func (s *subscription) read(ctx context.Context, after uint64) (batch []Event, kept []bool, err error) {
-	batch, err = s.feed.eventsAfter(ctx, after, catchUpBatch)
-	if err != nil || len(batch) == 0 {
-		return nil, nil, err
-	}
-	if err := s.check(ctx); err != nil {
-		return nil, nil, err
-	}
-	kept = make([]bool, len(batch))
-	for i, event := range batch {
-		if kept[i], err = s.passes(event); err != nil {
-			return nil, nil, err
-		}
-	}
-	return batch, kept, nil
 }
 
 // Next implements Subscription.

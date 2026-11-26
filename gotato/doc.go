@@ -44,7 +44,7 @@
 //     validate.go.
 //  2. Mechanism that needs no Session: parts a caller can read without it.
 //     transcript.go (Transcript), journal.go (storing Events before they are
-//     sent), feed.go and subscription.go (Feed, EventSource, Subscription),
+//     sent), feed.go, subscription.go and forwarder.go (Feed, EventSource, Subscription),
 //     context.go (ContextBuilder, ModelContext), extensions.go (the stages of
 //     a Turn that an Extension hooks), turnprep.go (TurnPreparer), toolset.go
 //     (ToolSet), toolfunc.go (a Tool from a Go function), bm25.go (ranking for

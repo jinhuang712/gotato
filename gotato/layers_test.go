@@ -51,6 +51,7 @@ var fileLayer = map[string]int{
 	"cutoff.go":       layerMechanism,
 	"extensions.go":   layerMechanism,
 	"feed.go":         layerMechanism,
+	"forwarder.go":    layerMechanism,
 	"journal.go":      layerMechanism,
 	"subscription.go": layerMechanism,
 	"toolfunc.go":     layerMechanism,
