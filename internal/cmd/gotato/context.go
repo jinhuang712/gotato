@@ -1,6 +1,7 @@
 package main
 
 import (
+	"context"
 	"fmt"
 	"io"
 	"strings"
@@ -10,6 +11,9 @@ import (
 	"github.com/jinhuang712/gotato/record"
 	"github.com/jinhuang712/gotato/store"
 )
+
+// recapTokensCap is the largest --recap-max-tokens passed on, so the value fits the Recap's uint32 limit.
+const recapTokensCap = 1 << 31
 
 func (c *cli) cmdContext(args []string) int {
 	args, code, done := c.splitLeadingCommonFlags("context", args)
@@ -113,30 +117,9 @@ func (c *cli) contextCompact(args []string) int {
 	if *keep < 0 || *minTokens < 0 {
 		return c.usageError("--keep-messages and --min-tokens cannot be negative")
 	}
-	var writer record.RecapWriter
-	switch *recapFlag {
-	case "none", "":
-	case "truncate":
-		writer = record.TruncateRecap{}
-	case "model":
-		agent, err := rt.resolveAgent(flags.model, c.getenv)
-		if err != nil {
-			return c.failErr(err)
-		}
-		if agent == "" {
-			s, err := store.Open(ctx, rt.store.Records, positionals[0])
-			if err != nil {
-				return c.failErr(err)
-			}
-			agent, _ = s.Get(agentKey)
-		}
-		spec, err := rt.runner.AgentProfile(ctx, agent)
-		if err != nil {
-			return c.failErr(err)
-		}
-		writer = record.ModelRecap{Model: spec.Model, MaxTokens: uint32(min(*recapMax, 1<<31)), Label: "model:" + spec.Name}
-	default:
-		return c.usageError("unknown recap writer " + *recapFlag)
+	writer, code, ok := c.recapWriter(ctx, rt, flags, positionals[0], recapChoice{kind: *recapFlag, maxTokens: *recapMax})
+	if !ok {
+		return code
 	}
 	result, err := rt.runner.Compact(ctx, positionals[0], record.CompactConfig{Recap: writer, KeepMessages: *keep, MinTokens: *minTokens})
 	if err != nil {
@@ -147,6 +130,52 @@ func (c *cli) contextCompact(args []string) int {
 		human = fmt.Sprintf("session %s: nothing to compact (%s)", result.SessionID, result.Reason)
 	}
 	return c.emit(result, human)
+}
+
+// recapChoice is the --recap and --recap-max-tokens flags of context compact.
+type recapChoice struct {
+	kind      string
+	maxTokens uint
+}
+
+// recapWriter is the RecapWriter that choice names. When ok is false the
+// command exits with code.
+func (c *cli) recapWriter(ctx context.Context, rt *cliRuntime, flags modelFlags, sessionID string, choice recapChoice) (writer record.RecapWriter, code int, ok bool) {
+	switch choice.kind {
+	case "none", "":
+		return nil, ExitOK, true
+	case "truncate":
+		return record.TruncateRecap{}, ExitOK, true
+	case "model":
+		writer, err := rt.modelRecap(ctx, sessionID, flags.model, c.getenv, choice.maxTokens)
+		if err != nil {
+			return nil, c.failErr(err), false
+		}
+		return writer, ExitOK, true
+	default:
+		return nil, c.usageError("unknown recap writer " + choice.kind), false
+	}
+}
+
+// modelRecap is the ModelRecap that the session's agent, or the one named by
+// the --model value, writes.
+func (rt *cliRuntime) modelRecap(ctx context.Context, sessionID, modelFlag string, env func(string) string, maxTokens uint) (record.RecapWriter, error) {
+	agent, err := rt.resolveAgent(modelFlag, env)
+	if err != nil {
+		return nil, err
+	}
+	if agent == "" {
+		s, err := store.Open(ctx, rt.store.Records, sessionID)
+		if err != nil {
+			return nil, err
+		}
+		agent, _ = s.Get(agentKey)
+	}
+	spec, err := rt.runner.AgentProfile(ctx, agent)
+	if err != nil {
+		return nil, err
+	}
+	return record.ModelRecap{Model: spec.Model, MaxTokens: uint32(min(maxTokens, recapTokensCap)), Label: "model:" + spec.Name}, nil
 }
 
 // printParts writes the estimate per part of the request, in tokens and as a
