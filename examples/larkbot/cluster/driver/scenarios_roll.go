@@ -224,15 +224,22 @@ func (e *env) waitReadyPods(ctx context.Context, app string, limit time.Duration
 	for deadline := time.Now().Add(limit); time.Now().Before(deadline) && ctx.Err() == nil; sleep(ctx, time.Second) {
 		out, err := e.kubectl(ctx, "get", "pods", "-l", "app="+app, "-o",
 			`jsonpath={range .items[*]}{.metadata.deletionTimestamp}{"/"}{range .status.conditions[?(@.type=="Ready")]}{.status}{end}{"\n"}{end}`)
-		lines := strings.Fields(out)
-		if err == nil && len(lines) > 0 && !strings.Contains(out, "False") {
-			ready := true
-			for _, l := range lines {
-				ready = ready && l == "/True"
-			}
-			if ready {
-				return
-			}
+		if err == nil && podsReady(out) {
+			return
 		}
 	}
+}
+
+// podsReady says the kubectl listing holds pods, and every one is Ready and none is terminating.
+func podsReady(out string) bool {
+	lines := strings.Fields(out)
+	if len(lines) == 0 || strings.Contains(out, "False") {
+		return false
+	}
+	for _, l := range lines {
+		if l != "/True" {
+			return false
+		}
+	}
+	return true
 }
