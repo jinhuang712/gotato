@@ -26,6 +26,9 @@ type cardInfo struct {
 	Model    string
 }
 
+// instanceLabelBytes is the longest short form of a Runner instance used as a label.
+const instanceLabelBytes = 12
+
 // headerTemplates are Lark header colours; an instance label picks one.
 // Exactly eight, see templateFor.
 var headerTemplates = []string{"blue", "green", "orange", "purple", "turquoise", "wathet", "carmine", "indigo"}
@@ -33,7 +36,7 @@ var headerTemplates = []string{"blue", "green", "orange", "purple", "turquoise",
 func templateFor(label string) string {
 	h := fnv.New32a()
 	_, _ = h.Write([]byte(label))
-	return headerTemplates[int(h.Sum32()%8)]
+	return headerTemplates[int(h.Sum32()%uint32(len(headerTemplates)))]
 }
 
 func (c cardInfo) footer() string {
@@ -98,8 +101,8 @@ func instanceLabel(override, runnerInstance string) string {
 	if h, err := os.Hostname(); err == nil && h != "" {
 		return h
 	}
-	if len(runnerInstance) > 12 {
-		return runnerInstance[:12]
+	if len(runnerInstance) > instanceLabelBytes {
+		return runnerInstance[:instanceLabelBytes]
 	}
 	return runnerInstance
 }
