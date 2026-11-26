@@ -6,8 +6,8 @@ import (
 )
 
 // forwarder is the state of a subscription's forward goroutine: the catch-up
-// batch it hands out first, and the count of catch-up reads in a row that
-// found nothing the Feed had published.
+// batch it hands out first, and the count of catch-up reads in a row, within
+// one take, that found nothing the Feed had published.
 type forwarder struct {
 	*subscription
 	pending []Event
@@ -17,6 +17,8 @@ type forwarder struct {
 // take returns the next Event: from the pending catch-up batch, the queue, or
 // the source. ok is false when the stream has ended.
 func (w *forwarder) take(ctx context.Context) (Event, bool, error) {
+	// The count of empty catch-up reads is per take.
+	w.empty = 0
 	for {
 		if len(w.pending) > 0 {
 			event := w.pending[0]
