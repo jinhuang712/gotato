@@ -63,7 +63,7 @@ func (a *Session) closeOpenCalls(runID RunID, batch *openBatch, cause *RuntimeEr
 			Executed:  known && outcome.Executed,
 		}
 		message := Message{ID: MessageID(nextID("message")), RunID: runID, Role: RoleToolResult, Parts: cloneParts(result.Content), ToolResult: cloneToolResultPtr(result)}
-		if err := a.history.commit(a.def.limits, message, false); err != nil {
+		if err := a.history.commitUnbounded(message); err != nil {
 			break
 		}
 		a.stage(ToolResultCommitted{Header: NewHeader(a.def.id, runID, batch.turn), Message: message.Clone(), CallID: call.ID, Status: resultStatus})

@@ -12,7 +12,7 @@ import (
 func TestHistoryTracksTheEncodedSizeAsItCommits(t *testing.T) {
 	h := &sessionHistory{transcript: &memoryTranscript{}}
 	for _, text := range []string{"one", "two", "three"} {
-		if err := h.commit(CoreLimits{}.withDefaults(), UserMessage(text), true); err != nil {
+		if err := h.commit(CoreLimits{}.withDefaults(), UserMessage(text)); err != nil {
 			t.Fatal(err)
 		}
 	}
@@ -35,14 +35,14 @@ func TestHistoryTracksTheEncodedSizeAsItCommits(t *testing.T) {
 func TestHistoryRefusesWhatTheLimitsRefuse(t *testing.T) {
 	h := &sessionHistory{transcript: &memoryTranscript{}}
 	limits := CoreLimits{MaxMessages: 1}.withDefaults()
-	if err := h.commit(limits, UserMessage("first"), true); err != nil {
+	if err := h.commit(limits, UserMessage("first")); err != nil {
 		t.Fatal(err)
 	}
-	if err := h.commit(limits, UserMessage("second"), true); err == nil {
+	if err := h.commit(limits, UserMessage("second")); err == nil {
 		t.Fatal("a Message past MaxMessages was committed")
 	}
 	// The closing results of a failed Run are exempt.
-	if err := h.commit(limits, UserMessage("closing"), false); err != nil {
+	if err := h.commitUnbounded(UserMessage("closing")); err != nil {
 		t.Fatalf("a commit that does not enforce was refused: %v", err)
 	}
 	if n, _ := h.len(); n != 2 {
