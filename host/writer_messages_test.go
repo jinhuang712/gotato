@@ -203,20 +203,7 @@ func TestManyInstancesOneWriterWithMessages(t *testing.T) {
 	for _, kind := range []string{"memory", "file"} {
 		t.Run(kind, func(t *testing.T) {
 			ctx := context.Background()
-			var open func() store.Store
-			if kind == "memory" {
-				backing := memStore()
-				open = func() store.Store { return backing }
-			} else {
-				dir := t.TempDir()
-				open = func() store.Store {
-					st, err := store.NewFileStore(dir)
-					if err != nil {
-						t.Fatal(err)
-					}
-					return asStore(st)
-				}
-			}
+			open := sharedStores(t, kind)
 			var violations, calls atomic.Int64
 			const instances = 3
 			runners := make([]*host.Runner, instances)
@@ -226,14 +213,7 @@ func TestManyInstancesOneWriterWithMessages(t *testing.T) {
 				model := ownerModel{instance: fmt.Sprintf("instance-%d", i), store: open(), dead: &stores[i].dead, violations: &violations, calls: &calls}
 				runners[i] = addressedRunner(t, asStore(stores[i]), model.instance, model)
 			}
-			var ids []string
-			for range 2 {
-				s, err := runners[0].CreateSession(ctx, host.CreateSessionRequest{Agent: "echo"})
-				if err != nil {
-					t.Fatal(err)
-				}
-				ids = append(ids, s.ID)
-			}
+			ids := createSessions(t, ctx, runners[0], 2)
 
 			type outcome struct {
 				text, session string
@@ -285,42 +265,7 @@ func TestManyInstancesOneWriterWithMessages(t *testing.T) {
 			if n := violations.Load(); n != 0 {
 				t.Fatalf("%d of %d model calls came from an instance that did not hold the Session", n, calls.Load())
 			}
-			seen := map[string]int{}
-			ended := map[string]map[gotato.MessageID]bool{}
-			replies := map[string]string{}
-			for _, id := range ids {
-				queued, committed, dropped := messageEvents(t, open(), id)
-				_ = queued
-				ended[id] = map[gotato.MessageID]bool{}
-				for _, list := range committed {
-					for _, messageID := range list {
-						ended[id][messageID] = true
-					}
-				}
-				for messageID := range dropped {
-					ended[id][messageID] = true
-				}
-				view, err := store.View(ctx, open().Records, id)
-				if err != nil {
-					t.Fatal(err)
-				}
-				messages := view.Messages()
-				for i, message := range messages {
-					if message.Role != gotato.RoleUser {
-						continue
-					}
-					text := gotato.TextOf(message)
-					seen[text]++
-					// An Interrupt can follow a prompt before its reply, so the
-					// reply is the next assistant Message, not the next Message.
-					for _, later := range messages[i+1:] {
-						if later.Role == gotato.RoleAssistant {
-							replies[text] = gotato.TextOf(later)
-							break
-						}
-					}
-				}
-			}
+			seen, ended, replies := messageLedger(t, ctx, open, ids)
 			var queuedCount, ranCount, refusedCount int
 			for _, o := range all {
 				killed := o.runner == instances-1
@@ -350,4 +295,48 @@ func TestManyInstancesOneWriterWithMessages(t *testing.T) {
 			t.Logf("%d queued, %d started a Run, %d refused or failed; %d model calls", queuedCount, ranCount, refusedCount, calls.Load())
 		})
 	}
+}
+
+// messageLedger reads the Sessions ids of the store open opens: how many times
+// each user text landed, the messages each Session committed or dropped, and
+// the reply each user text got.
+func messageLedger(t *testing.T, ctx context.Context, open func() store.Store, ids []string) (seen map[string]int, ended map[string]map[gotato.MessageID]bool, replies map[string]string) {
+	t.Helper()
+	seen = map[string]int{}
+	ended = map[string]map[gotato.MessageID]bool{}
+	replies = map[string]string{}
+	for _, id := range ids {
+		queued, committed, dropped := messageEvents(t, open(), id)
+		_ = queued
+		ended[id] = map[gotato.MessageID]bool{}
+		for _, list := range committed {
+			for _, messageID := range list {
+				ended[id][messageID] = true
+			}
+		}
+		for messageID := range dropped {
+			ended[id][messageID] = true
+		}
+		view, err := store.View(ctx, open().Records, id)
+		if err != nil {
+			t.Fatal(err)
+		}
+		messages := view.Messages()
+		for i, message := range messages {
+			if message.Role != gotato.RoleUser {
+				continue
+			}
+			text := gotato.TextOf(message)
+			seen[text]++
+			// An Interrupt can follow a prompt before its reply, so the
+			// reply is the next assistant Message, not the next Message.
+			for _, later := range messages[i+1:] {
+				if later.Role == gotato.RoleAssistant {
+					replies[text] = gotato.TextOf(later)
+					break
+				}
+			}
+		}
+	}
+	return seen, ended, replies
 }
