@@ -318,108 +318,136 @@ func TestFakeNativeDeferredToolsEndToEnd(t *testing.T) {
 		t.Run(wire.name, func(t *testing.T) {
 			// The wires of fakeWires take the default, which is native.
 			fake, client := newFake(t, wire)
-			options := []gotato.SessionOption{gotato.WithModel(client), gotato.WithTools(reftasks.OrdersLookup())}
-			for _, set := range reftasks.ToolSearchToolSets() {
-				if set.Mode == profile.ToolSetFolded {
-					options = append(options, gotato.WithFoldedToolSet(set.Set))
-				} else {
-					options = append(options, gotato.WithToolSet(set.Set))
-				}
-			}
-			session, err := gotato.NewSession(context.Background(), options...)
-			if err != nil {
-				t.Fatal(err)
-			}
-			t.Cleanup(func() { _ = session.Close(context.Background()) })
-			prompts := []struct{ text, tool string }{
-				{"invoice [quirk:load=shop.invoice]", "shop.invoice"},
-				{"track [quirk:load=carrier.track]", "carrier.track"},
-				{"invoice again [quirk:load=shop.invoice]", "shop.invoice"},
-			}
-			for _, prompt := range prompts {
-				result, err := session.Prompt(context.Background(), gotato.UserMessage(prompt.text))
-				if err != nil || result.Status != gotato.RunStatusCompleted {
-					t.Fatalf("%q: %+v, %v", prompt.text, result, err)
-				}
-				if answer := gotato.TextOf(*result.FinalMessage); !strings.HasPrefix(answer, "tool said: ") || !strings.Contains(answer, prompt.tool+" done") {
-					t.Fatalf("%q answered %q", prompt.text, answer)
-				}
-			}
-			ids := []string{}
-			for _, spec := range session.Tools() {
-				ids = append(ids, spec.ID)
-			}
-			for _, want := range []string{"shop.invoice", "carrier.track"} {
-				if !slices.Contains(ids, want) {
-					t.Errorf("%s is not loaded: %v", want, ids)
-				}
-			}
-			searches := 0
-			for _, message := range session.Transcript().Messages() {
-				for _, call := range message.ToolCalls {
-					if call.ToolID == gotato.SearchToolName {
-						searches++
-					}
-				}
-			}
-			if searches != 2 {
-				t.Errorf("%d searches, want 2: the third Run calls a tool that is already loaded", searches)
-			}
+			session := newDeferredSession(t, client)
+			playDeferredRuns(t, session)
 
 			requests := fake.Requests()
 			if len(requests) != 8 {
 				t.Fatalf("%d requests, want 8 (3, 3 and 2)", len(requests))
 			}
-			first := toolsField(t, requests[0].Body)
-			for n, request := range requests {
-				if request.Outcome != "ok" {
-					t.Errorf("request %d: %s", n+1, request.Outcome)
-				}
-				if got := toolsField(t, request.Body); got != first {
-					t.Errorf("request %d: the tool list changed while tools loaded\nfirst: %.300s\n  now: %.300s", n+1, first, got)
-				}
-			}
-			var tools []map[string]any
-			if err := json.Unmarshal([]byte(first), &tools); err != nil {
-				t.Fatal(err)
-			}
-			deferred := map[string]bool{}
-			for _, tool := range tools {
-				name, _ := tool["name"].(string)
-				if tool["type"] == "tool_search" {
-					if tool["execution"] != "client" {
-						t.Errorf("tool_search = %v", tool)
-					}
-					name = "tool_search"
-				}
-				deferred[name], _ = tool["defer_loading"].(bool)
-			}
-			for name, want := range map[string]bool{"orders_lookup": false, "shop_invoice": true, "carrier_track": true, "warehouse_stock": true} {
-				if got, ok := deferred[name]; !ok || got != want {
-					t.Errorf("%s: defer_loading = %v (listed %v), want %v", name, got, ok, want)
-				}
-			}
-			if wire.name == fakemodel.APIAnthropic && deferred["search_tools"] || wire.name == fakemodel.APIResponses && deferred["tool_search"] {
-				t.Errorf("the search tool is deferred: %v", deferred)
-			}
+			checkDeferredToolList(t, wire, requests)
 
 			// The load shows in the second request's history, in the wire API's own form.
-			second := string(requests[1].Body)
-			switch wire.name {
-			case fakemodel.APIAnthropic:
-				if !strings.Contains(second, `"type":"tool_reference"`) && !strings.Contains(second, `"type": "tool_reference"`) {
-					t.Errorf("no tool_reference in the second request: %.600s", second)
-				}
-				if !strings.Contains(second, `"tool_name":"shop_invoice"`) {
-					t.Errorf("the reference does not name shop_invoice: %.600s", second)
-				}
-			case fakemodel.APIResponses:
-				for _, want := range []string{`"type":"tool_search_call"`, `"type":"tool_search_output"`} {
-					if !strings.Contains(second, want) {
-						t.Errorf("no %s in the second request: %.600s", want, second)
-					}
-				}
-			}
+			checkDeferredLoadShown(t, wire, string(requests[1].Body))
 		})
+	}
+}
+
+// newDeferredSession opens a Session with the tool_search task's tools over
+// the client.
+func newDeferredSession(t *testing.T, client *Client) *gotato.Session {
+	t.Helper()
+	options := []gotato.SessionOption{gotato.WithModel(client), gotato.WithTools(reftasks.OrdersLookup())}
+	for _, set := range reftasks.ToolSearchToolSets() {
+		if set.Mode == profile.ToolSetFolded {
+			options = append(options, gotato.WithFoldedToolSet(set.Set))
+		} else {
+			options = append(options, gotato.WithToolSet(set.Set))
+		}
+	}
+	session, err := gotato.NewSession(context.Background(), options...)
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = session.Close(context.Background()) })
+	return session
+}
+
+// playDeferredRuns plays the three Runs and checks that both tools loaded,
+// with two searches.
+func playDeferredRuns(t *testing.T, session *gotato.Session) {
+	t.Helper()
+	prompts := []struct{ text, tool string }{
+		{"invoice [quirk:load=shop.invoice]", "shop.invoice"},
+		{"track [quirk:load=carrier.track]", "carrier.track"},
+		{"invoice again [quirk:load=shop.invoice]", "shop.invoice"},
+	}
+	for _, prompt := range prompts {
+		result, err := session.Prompt(context.Background(), gotato.UserMessage(prompt.text))
+		if err != nil || result.Status != gotato.RunStatusCompleted {
+			t.Fatalf("%q: %+v, %v", prompt.text, result, err)
+		}
+		if answer := gotato.TextOf(*result.FinalMessage); !strings.HasPrefix(answer, "tool said: ") || !strings.Contains(answer, prompt.tool+" done") {
+			t.Fatalf("%q answered %q", prompt.text, answer)
+		}
+	}
+	ids := []string{}
+	for _, spec := range session.Tools() {
+		ids = append(ids, spec.ID)
+	}
+	for _, want := range []string{"shop.invoice", "carrier.track"} {
+		if !slices.Contains(ids, want) {
+			t.Errorf("%s is not loaded: %v", want, ids)
+		}
+	}
+	searches := 0
+	for _, message := range session.Transcript().Messages() {
+		for _, call := range message.ToolCalls {
+			if call.ToolID == gotato.SearchToolName {
+				searches++
+			}
+		}
+	}
+	if searches != 2 {
+		t.Errorf("%d searches, want 2: the third Run calls a tool that is already loaded", searches)
+	}
+}
+
+// checkDeferredToolList checks that every request was accepted with the same
+// tool list, which defers the catalog's tools and not the others.
+func checkDeferredToolList(t *testing.T, wire fakeWire, requests []fakemodel.Request) {
+	t.Helper()
+	first := toolsField(t, requests[0].Body)
+	for n, request := range requests {
+		if request.Outcome != "ok" {
+			t.Errorf("request %d: %s", n+1, request.Outcome)
+		}
+		if got := toolsField(t, request.Body); got != first {
+			t.Errorf("request %d: the tool list changed while tools loaded\nfirst: %.300s\n  now: %.300s", n+1, first, got)
+		}
+	}
+	var tools []map[string]any
+	if err := json.Unmarshal([]byte(first), &tools); err != nil {
+		t.Fatal(err)
+	}
+	deferred := map[string]bool{}
+	for _, tool := range tools {
+		name, _ := tool["name"].(string)
+		if tool["type"] == "tool_search" {
+			if tool["execution"] != "client" {
+				t.Errorf("tool_search = %v", tool)
+			}
+			name = "tool_search"
+		}
+		deferred[name], _ = tool["defer_loading"].(bool)
+	}
+	for name, want := range map[string]bool{"orders_lookup": false, "shop_invoice": true, "carrier_track": true, "warehouse_stock": true} {
+		if got, ok := deferred[name]; !ok || got != want {
+			t.Errorf("%s: defer_loading = %v (listed %v), want %v", name, got, ok, want)
+		}
+	}
+	if wire.name == fakemodel.APIAnthropic && deferred["search_tools"] || wire.name == fakemodel.APIResponses && deferred["tool_search"] {
+		t.Errorf("the search tool is deferred: %v", deferred)
+	}
+}
+
+// checkDeferredLoadShown checks that the second request's history shows the
+// load in the wire API's own form.
+func checkDeferredLoadShown(t *testing.T, wire fakeWire, second string) {
+	t.Helper()
+	switch wire.name {
+	case fakemodel.APIAnthropic:
+		if !strings.Contains(second, `"type":"tool_reference"`) && !strings.Contains(second, `"type": "tool_reference"`) {
+			t.Errorf("no tool_reference in the second request: %.600s", second)
+		}
+		if !strings.Contains(second, `"tool_name":"shop_invoice"`) {
+			t.Errorf("the reference does not name shop_invoice: %.600s", second)
+		}
+	case fakemodel.APIResponses:
+		for _, want := range []string{`"type":"tool_search_call"`, `"type":"tool_search_output"`} {
+			if !strings.Contains(second, want) {
+				t.Errorf("no %s in the second request: %.600s", want, second)
+			}
+		}
 	}
 }
