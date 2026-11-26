@@ -41,8 +41,18 @@ func main() {
 		fmt.Fprintln(os.Stderr, err)
 		os.Exit(1)
 	}
+	pkgs, err := weighPackages(root)
+	if err != nil {
+		fmt.Fprintln(os.Stderr, err)
+		os.Exit(1)
+	}
+	printReport(pkgs, terms)
+}
+
+// weighPackages walks the shipped packages under root and counts the weight of each, by directory.
+func weighPackages(root string) (map[string]*weight, error) {
 	pkgs := map[string]*weight{}
-	err = filepath.WalkDir(root, func(path string, d fs.DirEntry, err error) error {
+	err := filepath.WalkDir(root, func(path string, d fs.DirEntry, err error) error {
 		if err != nil {
 			return err
 		}
@@ -52,21 +62,27 @@ func main() {
 			}
 			return nil
 		}
-		if !strings.HasSuffix(path, ".go") || strings.HasSuffix(path, "_test.go") {
-			return nil
-		}
-		rel, _ := filepath.Rel(root, filepath.Dir(path))
-		w := pkgs[rel]
-		if w == nil {
-			w = &weight{}
-			pkgs[rel] = w
-		}
-		return count(path, w)
+		return weighFile(root, path, pkgs)
 	})
-	if err != nil {
-		fmt.Fprintln(os.Stderr, err)
-		os.Exit(1)
+	return pkgs, err
+}
+
+// weighFile adds the weight of one Go file to the package of its directory, and skips a test file.
+func weighFile(root, path string, pkgs map[string]*weight) error {
+	if !strings.HasSuffix(path, ".go") || strings.HasSuffix(path, "_test.go") {
+		return nil
 	}
+	rel, _ := filepath.Rel(root, filepath.Dir(path))
+	w := pkgs[rel]
+	if w == nil {
+		w = &weight{}
+		pkgs[rel] = w
+	}
+	return count(path, w)
+}
+
+// printReport prints one line per package, the totals and the number of terms.
+func printReport(pkgs map[string]*weight, terms int) {
 	names := make([]string, 0, len(pkgs))
 	for p := range pkgs {
 		names = append(names, p)
