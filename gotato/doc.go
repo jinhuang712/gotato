@@ -57,7 +57,7 @@
 //     Turn writes), sessionrun.go (the Run in flight), hostlink.go (the calls
 //     the core hands to its host, see internal/hostlink), queue.go (Steer, FollowUp), notice.go (Notice), inspect.go
 //     (InspectContext), spill.go (a long result kept out of the Context), and
-//     for Tools toolregistry.go (the Session's catalog), toolsource.go and
+//     for Tools toolregistry.go and toolcatalog.go (the Session's catalog), toolsource.go and
 //     toolrefresh.go (Tools that change between Turns), toolsearch.go (loading
 //     Tools on demand) and toolbatch.go (parallel calls).
 //
