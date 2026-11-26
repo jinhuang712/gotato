@@ -43,7 +43,12 @@ func (f *taskFold) add(ctx context.Context, i int, p play) {
 		report.Passed++
 	}
 	if f.windowed != nil {
-		report.Window.add(f.windowed.seriesOf(host.CacheKey(p.sessionID)), p.final, i == 0)
+		series := f.windowed.seriesOf(host.CacheKey(p.sessionID))
+		if i == 0 {
+			report.Window.addFirst(series, p.final)
+		} else {
+			report.Window.add(series, p.final)
+		}
 	}
 	report.Runs += p.runs
 	report.Turns += p.turns

@@ -139,22 +139,35 @@ func (r refusal) ContextLimit() int   { return r.limit }
 
 // add adds what one play's Model series and final Record show to
 // the task's report.
-func (r *WindowReport) add(s windowSeries, rec *record.Record, first bool) {
+func (r *WindowReport) add(s windowSeries, rec *record.Record) {
 	r.Requests += len(s.tokens)
 	r.OverWindow += s.over
 	r.RecapAsks += s.recapAsks
 	r.RecapOver += s.recapOver
 	r.MaxRequest = max(r.MaxRequest, s.largest)
-	if first {
-		for _, turn := range turnsReported {
-			if turn <= len(s.tokens) {
-				r.TokensAtTurn = append(r.TokensAtTurn, TurnTokens{Turn: turn, Tokens: s.tokens[turn-1]})
-			}
-		}
-	}
 	if rec == nil {
 		return
 	}
+	cost := r.addCompactions(rec)
+	if cost.Calls > 0 {
+		r.addRecapCost(cost)
+	}
+}
+
+// addFirst is add for the first play of a task, which also records the size of
+// the request at the Turns M1 names.
+func (r *WindowReport) addFirst(s windowSeries, rec *record.Record) {
+	for _, turn := range turnsReported {
+		if turn <= len(s.tokens) {
+			r.TokensAtTurn = append(r.TokensAtTurn, TurnTokens{Turn: turn, Tokens: s.tokens[turn-1]})
+		}
+	}
+	r.add(s, rec)
+}
+
+// addCompactions counts the compactions and merges of rec, and returns the cost
+// of the Recaps they wrote.
+func (r *WindowReport) addCompactions(rec *record.Record) RecapCost {
 	var cost RecapCost
 	for _, c := range rec.Compactions() {
 		r.Compactions++
@@ -171,14 +184,17 @@ func (r *WindowReport) add(s windowSeries, rec *record.Record, first bool) {
 			cost.TakenOutTokens += max(c.TokensBefore-c.TokensAfter, 0)
 		}
 	}
-	if cost.Calls > 0 {
-		if r.Recap == nil {
-			r.Recap = &RecapCost{}
-		}
-		r.Recap.Calls += cost.Calls
-		r.Recap.InputTokens += cost.InputTokens
-		r.Recap.OutputTokens += cost.OutputTokens
-		r.Recap.Closings += cost.Closings
-		r.Recap.TakenOutTokens += cost.TakenOutTokens
+	return cost
+}
+
+// addRecapCost adds one play's Recap cost to the task's.
+func (r *WindowReport) addRecapCost(cost RecapCost) {
+	if r.Recap == nil {
+		r.Recap = &RecapCost{}
 	}
+	r.Recap.Calls += cost.Calls
+	r.Recap.InputTokens += cost.InputTokens
+	r.Recap.OutputTokens += cost.OutputTokens
+	r.Recap.Closings += cost.Closings
+	r.Recap.TakenOutTokens += cost.TakenOutTokens
 }
