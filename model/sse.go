@@ -38,31 +38,20 @@ func readBoundedLine(reader *bufio.Reader) (string, error) {
 // field, and comments, are dropped, and an event with no data line is not one.
 func readSSEEvent(ctx context.Context, reader *bufio.Reader) (SSEEvent, error) {
 	var (
-		lines []string
-		name  string
+		lines  []string
+		fields sseFields
 	)
-	total := 0
 	for {
-		if err := ctx.Err(); err != nil {
-			return SSEEvent{}, err
+		line, err := nextSSELine(ctx, reader)
+		if line == "" && err == nil && len(lines) > 0 {
+			return SSEEvent{Name: fields.name, Data: strings.Join(lines, "\n")}, nil
 		}
-		raw, err := readBoundedLine(reader)
-		line := strings.TrimSuffix(raw, "\r")
-		if after, ok := strings.CutPrefix(line, "data:"); ok {
-			payload := strings.TrimSpace(after)
-			total += len(payload)
-			if total > maxSSEEventBytes {
-				return SSEEvent{}, fmt.Errorf("model: SSE event exceeds %d bytes", maxSSEEventBytes)
-			}
+		payload, data, ferr := fields.take(line)
+		if ferr != nil {
+			return SSEEvent{}, ferr
+		}
+		if data {
 			lines = append(lines, payload)
-		} else if after, ok := strings.CutPrefix(line, "event:"); ok {
-			name = strings.TrimSpace(after)
-		}
-		if line == "" && err == nil {
-			if len(lines) > 0 {
-				return SSEEvent{Name: name, Data: strings.Join(lines, "\n")}, nil
-			}
-			name = ""
 		}
 		if err != nil {
 			// The stream ended before the blank line that completes the event:
@@ -71,4 +60,43 @@ func readSSEEvent(ctx context.Context, reader *bufio.Reader) (SSEEvent, error) {
 			return SSEEvent{}, err
 		}
 	}
+}
+
+// nextSSELine reads one line without its carriage return, or returns the
+// error of ctx once it is done.
+func nextSSELine(ctx context.Context, reader *bufio.Reader) (string, error) {
+	if err := ctx.Err(); err != nil {
+		return "", err
+	}
+	raw, err := readBoundedLine(reader)
+	return strings.TrimSuffix(raw, "\r"), err
+}
+
+// sseFields holds the name of the event being read and the size of its data
+// so far.
+type sseFields struct {
+	name  string
+	total int
+}
+
+// take reads one line of the event that is not its end. It returns the
+// payload of a data line, within the event size limit, and keeps the name of
+// an "event:" line; a blank line, which ended no event, clears the name. Lines
+// of any other field are dropped.
+func (f *sseFields) take(line string) (payload string, data bool, err error) {
+	if after, ok := strings.CutPrefix(line, "data:"); ok {
+		payload = strings.TrimSpace(after)
+		f.total += len(payload)
+		if f.total > maxSSEEventBytes {
+			return "", false, fmt.Errorf("model: SSE event exceeds %d bytes", maxSSEEventBytes)
+		}
+		return payload, true, nil
+	}
+	if after, ok := strings.CutPrefix(line, "event:"); ok {
+		f.name = strings.TrimSpace(after)
+	}
+	if line == "" {
+		f.name = ""
+	}
+	return "", false, nil
 }
