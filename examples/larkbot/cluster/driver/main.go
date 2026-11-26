@@ -181,28 +181,34 @@ func (e *env) do(ctx context.Context, method, url string, in, out any) error {
 
 // --- bot pod logs, followed into files so a deleted pod's lines survive ---
 
+// podListEvery is how often followLogs lists the bot pods, to follow the new ones.
+const podListEvery = 500 * time.Millisecond
+
 func (e *env) followLogs(ctx context.Context) func() {
 	ctx, cancel := context.WithCancel(ctx)
 	var wg sync.WaitGroup
 	started := map[string]bool{}
 	wg.Go(func() {
 		for ctx.Err() == nil {
-			out, err := e.kubectl(ctx, "get", "pods", "-l", "app=larkbot", "-o", "jsonpath={range .items[*]}{.metadata.name}{\"\\n\"}{end}")
-			if err == nil {
-				for pod := range strings.FieldsSeq(out) {
-					if !started[pod] {
-						started[pod] = true
-						wg.Go(func() { e.followPod(ctx, pod) })
-					}
-				}
-			}
-			select {
-			case <-ctx.Done():
-			case <-time.After(500 * time.Millisecond):
-			}
+			e.followNewPods(ctx, &wg, started)
+			sleep(ctx, podListEvery)
 		}
 	})
 	return func() { cancel(); wg.Wait() }
+}
+
+// followNewPods starts a log follower for each bot pod that is not in started yet.
+func (e *env) followNewPods(ctx context.Context, wg *sync.WaitGroup, started map[string]bool) {
+	out, err := e.kubectl(ctx, "get", "pods", "-l", "app=larkbot", "-o", "jsonpath={range .items[*]}{.metadata.name}{\"\\n\"}{end}")
+	if err != nil {
+		return
+	}
+	for pod := range strings.FieldsSeq(out) {
+		if !started[pod] {
+			started[pod] = true
+			wg.Go(func() { e.followPod(ctx, pod) })
+		}
+	}
 }
 
 // followPod appends a pod's log to a file for as long as the pod exists. A container that restarts in the
