@@ -35,8 +35,11 @@ func TestParseTools(t *testing.T) {
 	}
 }
 
+// scriptedTools says which tools a scripted Runner has: the kinds of -tools, and the MCP server's URL.
+type scriptedTools struct{ kinds, mcpURL string }
+
 // runner builds a Runner with the scripted model over the tools, on store, as one bot instance would.
-func scriptedRunner(t *testing.T, st storeParts, instance, kinds, mcpURL string, with ...func(*profile.AgentProfile)) *host.Runner {
+func scriptedRunner(t *testing.T, st storeParts, instance string, which scriptedTools, with ...func(*profile.AgentProfile)) *host.Runner {
 	t.Helper()
 	agent, err := buildAgent("echo")
 	if err != nil {
@@ -46,7 +49,7 @@ func scriptedRunner(t *testing.T, st storeParts, instance, kinds, mcpURL string,
 	for _, w := range with {
 		w(&agent)
 	}
-	tools, err := parseTools(kinds, mcpURL)
+	tools, err := parseTools(which.kinds, which.mcpURL)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -86,7 +89,7 @@ func TestScriptExport(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	a := scriptedRunner(t, st, "pod-a", "export", "")
+	a := scriptedRunner(t, st, "pod-a", scriptedTools{"export", ""})
 	if _, err := a.CreateSession(context.Background(), host.CreateSessionRequest{Agent: "echo", ID: "s1"}); err != nil {
 		t.Fatal(err)
 	}
@@ -103,7 +106,7 @@ func TestScriptMCPCallAndSearch(t *testing.T) {
 	t.Cleanup(srv.Close) // runs after the ToolSets' Close, which ends their connections
 	ctx := context.Background()
 
-	active := scriptedRunner(t, store.NewMemoryStore(), "pod-a", "mcp", srv.URL+"/mcp")
+	active := scriptedRunner(t, store.NewMemoryStore(), "pod-a", scriptedTools{"mcp", srv.URL + "/mcp"})
 	if _, err := active.CreateSession(ctx, host.CreateSessionRequest{Agent: "echo", ID: "s1"}); err != nil {
 		t.Fatal(err)
 	}
@@ -112,7 +115,7 @@ func TestScriptMCPCallAndSearch(t *testing.T) {
 	}
 
 	st := store.NewMemoryStore()
-	first := scriptedRunner(t, st, "pod-a", "mcp-search", srv.URL+"/mcp")
+	first := scriptedRunner(t, st, "pod-a", scriptedTools{"mcp-search", srv.URL + "/mcp"})
 	if _, err := first.CreateSession(ctx, host.CreateSessionRequest{Agent: "echo", ID: "s2"}); err != nil {
 		t.Fatal(err)
 	}
@@ -122,7 +125,7 @@ func TestScriptMCPCallAndSearch(t *testing.T) {
 	if got := lastReply(t, first, "s2", "T[b] [script:search]"); !strings.HasPrefix(got, ansMCPOK+" invoice inv-1") {
 		t.Fatalf("search reply = %q", got)
 	}
-	second := scriptedRunner(t, st, "pod-b", "mcp-search", srv.URL+"/mcp")
+	second := scriptedRunner(t, st, "pod-b", scriptedTools{"mcp-search", srv.URL + "/mcp"})
 	if got := lastReply(t, second, "s2", "T[c] [script:loaded]"); got != "loaded: true" {
 		t.Fatalf("on the other instance: %q", got)
 	}
@@ -183,8 +186,8 @@ func TestScriptCompactionUnloadsAndSegmentIsReadOnAnotherInstance(t *testing.T) 
 	ctx := context.Background()
 	st := store.NewMemoryStore()
 	recap := func(a *profile.AgentProfile) { a.Compact.Recap = record.TruncateRecap{} }
-	a := scriptedRunner(t, st, "pod-a", "mcp-search", srv.URL+"/mcp", recap)
-	b := scriptedRunner(t, st, "pod-b", "mcp-search", srv.URL+"/mcp", recap)
+	a := scriptedRunner(t, st, "pod-a", scriptedTools{"mcp-search", srv.URL + "/mcp"}, recap)
+	b := scriptedRunner(t, st, "pod-b", scriptedTools{"mcp-search", srv.URL + "/mcp"}, recap)
 	if _, err := a.CreateSession(ctx, host.CreateSessionRequest{Agent: "echo", ID: "s1"}); err != nil {
 		t.Fatal(err)
 	}
