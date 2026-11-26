@@ -149,27 +149,11 @@ func (m MessageRequest) validate() *gotato.RuntimeError {
 // Session.
 func (r *Runner) queueToLiveRun(ctx context.Context, request MessageRequest, message gotato.Message) (queued, waited bool, err error) {
 	for attempt := 0; ; attempt++ {
-		if attempt > 0 && r.hooks.onSendRetry != nil {
-			r.hooks.onSendRetry()
+		if attempt > 0 {
+			r.sendRetried()
 		}
-		handle, err := r.liveRun(ctx, request.SessionID)
-		if err != nil {
-			return false, waited, err
-		}
-		if handle != nil {
-			err := handle.send(ctx, request.Kind, message)
-			switch {
-			case err == nil:
-				return true, waited, nil
-			case !gone(err):
-				return false, waited, err
-			}
-			// The live Session refuses the message while it is still
-			// attached, such as an Interrupt after the Run settled: wait for
-			// it to be withdrawn instead of asking again at once.
-			if err := handle.awaitLiveChange(ctx); err != nil {
-				return false, waited, err
-			}
+		if queued, err := r.queueOnce(ctx, request, message); queued || err != nil {
+			return queued, waited, err
 		}
 		// No Run takes the message now. A Run that has stopped taking
 		// messages still holds the Session until it has saved and released
@@ -184,6 +168,43 @@ func (r *Runner) queueToLiveRun(ctx context.Context, request MessageRequest, mes
 		}
 		waited = true
 	}
+}
+
+// sendRetried runs the test hook of a Send that goes round its loop again.
+func (r *Runner) sendRetried() {
+	if r.hooks.onSendRetry != nil {
+		r.hooks.onSendRetry()
+	}
+}
+
+// queueOnce hands the message to the Run in flight on this Instance, when
+// there is one, and reports whether it took it.
+func (r *Runner) queueOnce(ctx context.Context, request MessageRequest, message gotato.Message) (bool, error) {
+	handle, err := r.liveRun(ctx, request.SessionID)
+	if err != nil || handle == nil {
+		return false, err
+	}
+	return sendToRun(ctx, handle, request, message)
+}
+
+// sendToRun hands the message to the live Session of the Run handle, and
+// reports whether it took it. When the live Session has no Run to take it any
+// more, it waits for the live Session to change and reports no error.
+func sendToRun(ctx context.Context, handle *runHandle, request MessageRequest, message gotato.Message) (bool, error) {
+	err := handle.send(ctx, request.Kind, message)
+	switch {
+	case err == nil:
+		return true, nil
+	case !gone(err):
+		return false, err
+	}
+	// The live Session refuses the message while it is still
+	// attached, such as an Interrupt after the Run settled: wait for
+	// it to be withdrawn instead of asking again at once.
+	if err := handle.awaitLiveChange(ctx); err != nil {
+		return false, err
+	}
+	return false, nil
 }
 
 // endingRun waits for a Run of the Session on this Instance that no longer
