@@ -75,7 +75,7 @@ func TestAPIShapesAndCardRecording(t *testing.T) {
 	sent := s.Deliver(context.Background(), "oc_x", "hi", "", "")
 	code, rep := post(t, ts.URL+"/open-apis/im/v1/messages/"+sent.MessageID+"/reply", map[string]string{"msg_type": "interactive", "content": sampleCard})
 	data, _ := rep["data"].(map[string]any)
-	if code != 200 || rep["code"] != float64(0) || rep["msg"] != "success" || !strings.HasPrefix(data["message_id"].(string), "om_fake_") {
+	if code != 200 || rep["code"] != float64(0) || rep["msg"] != "success" || !strings.HasPrefix(field[string](t, data, "message_id"), "om_fake_") {
 		t.Fatalf("reply: %d %v", code, rep)
 	}
 	code, cr := post(t, ts.URL+"/open-apis/im/v1/messages?receive_id_type=chat_id", map[string]string{"receive_id": "oc_y", "msg_type": "interactive", "content": sampleCard})
@@ -113,8 +113,8 @@ func TestEventEnvelopeShape(t *testing.T) {
 	b.mu.Lock()
 	ev := b.events[0]
 	b.mu.Unlock()
-	hdr := ev["header"].(map[string]any)
-	msg := ev["event"].(map[string]any)["message"].(map[string]any)
+	hdr := field[map[string]any](t, ev, "header")
+	msg := field[map[string]any](t, field[map[string]any](t, ev, "event"), "message")
 	if ev["schema"] != "2.0" || hdr["event_type"] != "im.message.receive_v1" || hdr["event_id"] == "" {
 		t.Fatalf("header: %v", ev)
 	}
@@ -176,7 +176,7 @@ func TestRedeliveryStopsAfterMax(t *testing.T) {
 	slow.mu.Lock()
 	defer slow.mu.Unlock()
 	for _, ev := range slow.events {
-		ids[ev["header"].(map[string]any)["event_id"].(string)] = true
+		ids[field[string](t, field[map[string]any](t, ev, "header"), "event_id")] = true
 	}
 	if len(ids) != 1 {
 		t.Fatalf("redeliveries must keep the event_id: %v", ids)
@@ -274,7 +274,7 @@ func TestUpdateAndRecallACard(t *testing.T) {
 		return string(b)
 	}
 	_, out := post(t, ts.URL+"/open-apis/im/v1/messages", map[string]any{"receive_id": "oc_x", "msg_type": "interactive", "content": card("one")})
-	id := out["data"].(map[string]any)["message_id"].(string)
+	id := field[string](t, field[map[string]any](t, out, "data"), "message_id")
 
 	do := func(method string, body any) int {
 		raw, _ := json.Marshal(body)
@@ -297,4 +297,15 @@ func TestUpdateAndRecallACard(t *testing.T) {
 	if got := s.Cards("", "", time.Time{}); len(got) != 0 {
 		t.Fatalf("after delete: %+v", got)
 	}
+}
+
+// field returns m[key] as a T, and fails the test, naming what it got, when it
+// is another type.
+func field[T any](t *testing.T, m map[string]any, key string) T {
+	t.Helper()
+	v, ok := m[key].(T)
+	if !ok {
+		t.Fatalf("field %q = %T, want %T", key, m[key], v)
+	}
+	return v
 }

@@ -73,8 +73,8 @@ func TestSchemasAreSlimmed(t *testing.T) {
 					t.Errorf("root still has %q: %s", key, spec.InputSchema)
 				}
 			}
-			props := schema["properties"].(map[string]any)
-			id := props["id"].(map[string]any)
+			props := field[map[string]any](t, schema, "properties")
+			id := field[map[string]any](t, props, "id")
 			if _, ok := id["title"]; ok {
 				t.Errorf("a property title equal to its name stays: %s", spec.InputSchema)
 			}
@@ -390,4 +390,15 @@ func TestAFailedCallHasFixedPublicText(t *testing.T) {
 		return
 	}
 	t.Fatal("no echo tool")
+}
+
+// field returns m[key] as a T, and fails the test, naming what it got, when it
+// is another type.
+func field[T any](t *testing.T, m map[string]any, key string) T {
+	t.Helper()
+	v, ok := m[key].(T)
+	if !ok {
+		t.Fatalf("field %q = %T, want %T", key, m[key], v)
+	}
+	return v
 }
