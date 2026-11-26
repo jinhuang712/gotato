@@ -2,6 +2,7 @@ package gotato
 
 import (
 	"crypto/rand"
+	"encoding/binary"
 	"encoding/hex"
 	"maps"
 	"slices"
@@ -300,14 +301,7 @@ func (r RunResult) Clone() RunResult {
 func nextID(prefix string) string {
 	id := globalID.Add(1)
 	var buf [8]byte
-	buf[0] = byte(id >> 56)
-	buf[1] = byte(id >> 48)
-	buf[2] = byte(id >> 40)
-	buf[3] = byte(id >> 32)
-	buf[4] = byte(id >> 24)
-	buf[5] = byte(id >> 16)
-	buf[6] = byte(id >> 8)
-	buf[7] = byte(id)
+	binary.BigEndian.PutUint64(buf[:], id)
 	return prefix + "-" + processNonce + strings.TrimLeft(hex.EncodeToString(buf[:]), "0")
 }
 
