@@ -49,17 +49,8 @@ func intake(what string, tools []Tool, held []toolEntry, check func(ToolSpec) er
 	err := callHost("Tool.Spec", func() error {
 		for _, tool := range tools {
 			spec := cloneToolSpec(tool.Spec())
-			if err := validateToolSpec(spec); err != nil {
+			if err := admitSpec(what, spec, taken, check); err != nil {
 				return err
-			}
-			if check != nil {
-				if err := check(spec); err != nil {
-					return err
-				}
-			}
-			// [CONTRACT] a Tool ID names one Tool of the root namespace, or of its ToolSet.
-			if taken[spec.ID] {
-				return runtimeError(CodeInvalidArgument, what, what+" has a duplicate Tool ID: "+spec.ID, nil)
 			}
 			taken[spec.ID] = true
 			entries = append(entries, toolEntry{tool: tool, spec: spec})
@@ -74,6 +65,24 @@ func intake(what string, tools []Tool, held []toolEntry, check func(ToolSpec) er
 		return nil, err
 	}
 	return entries, nil
+}
+
+// admitSpec checks the Spec of a Tool that enters from what: it is valid,
+// check allows it, and its ID is not taken.
+func admitSpec(what string, spec ToolSpec, taken map[string]bool, check func(ToolSpec) error) error {
+	if err := validateToolSpec(spec); err != nil {
+		return err
+	}
+	if check != nil {
+		if err := check(spec); err != nil {
+			return err
+		}
+	}
+	// [CONTRACT] a Tool ID names one Tool of the root namespace, or of its ToolSet.
+	if taken[spec.ID] {
+		return runtimeError(CodeInvalidArgument, what, what+" has a duplicate Tool ID: "+spec.ID, nil)
+	}
+	return nil
 }
 
 // validateToolSchema checks Tool arguments against the supported JSON Schema
