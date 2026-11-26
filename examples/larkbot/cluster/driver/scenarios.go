@@ -149,6 +149,17 @@ const (
 	s4FinalWait  = 120 * time.Second
 )
 
+// The shape of s2: its threads, how long it looks for the writer, the Liveness TTL and its renewal, and how long
+// it waits.
+const (
+	s2Threads   = 6
+	s2FindWait  = 20 * time.Second
+	s2MidAfter  = 5 * time.Second  // a reply this long after the kill is inside the Liveness TTL
+	s2LateAfter = 11 * time.Second // a reply this long after the kill is after it
+	s2Quiet     = 25 * time.Second
+	s2Settle    = 100 * time.Second
+)
+
 // The shape of s1: its threads, how many start before the restart, from which thread a reply goes into the
 // thread two behind, up to which thread a late reply goes, the Run's delay, the pauses, and how long it waits.
 const (
@@ -281,7 +292,7 @@ func (e *env) s2(ctx context.Context) bool {
 	const delay = "[quirk:delay=15s]"
 	id := runID()
 	var ts []*thread
-	for i := range 6 {
+	for i := range s2Threads {
 		ts = append(ts, &thread{chat: fmt.Sprintf("oc_s2_%s_%02d", id, i+1)})
 	}
 	start := time.Now()
@@ -302,7 +313,7 @@ func (e *env) s2(ctx context.Context) bool {
 	}
 	e.s2Replies(ctx, onVictim, killAt, at)
 	fmt.Printf("%s waiting for the Runs to settle\n", at())
-	e.waitQuiet(ctx, ts, 25*time.Second, 100*time.Second)
+	e.waitQuiet(ctx, ts, s2Quiet, s2Settle)
 
 	fmt.Printf("\n%s results\n", at())
 	for _, t := range onVictim {
@@ -322,7 +333,7 @@ func (e *env) s2(ctx context.Context) bool {
 // s2FindWriter waits for the Run of the first thread to hold the Claim, and returns the pod and the instance
 // that hold it.
 func (e *env) s2FindWriter(ctx context.Context, ts []*thread) (victim, victimInst string) {
-	for deadline := time.Now().Add(20 * time.Second); time.Now().Before(deadline) && victim == ""; sleep(ctx, time.Second) {
+	for deadline := time.Now().Add(s2FindWait); time.Now().Before(deadline) && victim == ""; sleep(ctx, time.Second) {
 		if r, err := e.record(ctx, ts[0].session()); err == nil {
 			if victimInst = holder(r); victimInst != "" {
 				victim = e.podOf(victimInst)
@@ -359,12 +370,12 @@ func (e *env) s2Replies(ctx context.Context, onVictim []*thread, killAt time.Tim
 		m := e.say(ctx, t, fmt.Sprintf("s2-r1-%d", i+1), "")
 		fmt.Printf("%s immediate reply in %s: %s\n", at(), t.session(), shortDeliveries(m))
 	}
-	sleep(ctx, time.Until(killAt.Add(5*time.Second)))
+	sleep(ctx, time.Until(killAt.Add(s2MidAfter)))
 	for i, t := range onVictim {
 		m := e.say(ctx, t, fmt.Sprintf("s2-mid-%d", i+1), "")
 		fmt.Printf("%s reply inside the Liveness TTL in %s: %s\n", at(), t.session(), shortDeliveries(m))
 	}
-	sleep(ctx, time.Until(killAt.Add(11*time.Second))) // the Liveness TTL is 10 s, renewed every third of it
+	sleep(ctx, time.Until(killAt.Add(s2LateAfter))) // the Liveness TTL is 10 s, renewed every third of it
 	for i, t := range onVictim {
 		m := e.say(ctx, t, fmt.Sprintf("s2-r2-%d", i+1), "")
 		fmt.Printf("%s reply after the Liveness TTL in %s: %s\n", at(), t.session(), shortDeliveries(m))
