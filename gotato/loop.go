@@ -429,7 +429,7 @@ func (a *Session) consumeControl(ctx context.Context, runID RunID, turn TurnNumb
 			}
 			continue
 		}
-		if err := a.commitContinuation(ctx, runID, turn, item.message, item.source, items); err != nil {
+		if err := a.commitContinuation(ctx, runID, turn, item, items); err != nil {
 			return injected, err
 		}
 		injected = true
@@ -437,10 +437,11 @@ func (a *Session) consumeControl(ctx context.Context, runID RunID, turn TurnNumb
 	return injected, nil
 }
 
-// commitContinuation commits a Message the Loop continues with (a control
-// Message) and stores its MessageCommitted with the source that produced it.
-// taken is the lease the Message was taken under.
-func (a *Session) commitContinuation(ctx context.Context, runID RunID, turn TurnNumber, message Message, source MessageSource, taken *lease) *RuntimeError {
+// commitContinuation commits the Message of item, a control Message the Loop
+// continues with, and stores its MessageCommitted with the source that
+// produced it. taken is the lease the Message was taken under.
+func (a *Session) commitContinuation(ctx context.Context, runID RunID, turn TurnNumber, item control, taken *lease) *RuntimeError {
+	message, source := item.message, item.source
 	if message.ID == "" {
 		message.ID = MessageID(nextID("message"))
 	}
