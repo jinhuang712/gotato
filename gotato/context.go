@@ -33,33 +33,39 @@ func renderBlocks(blocks []ContextBlock) string {
 			b.WriteString(block.Text)
 			continue
 		}
-		b.WriteByte('<')
-		b.WriteString(block.Tag)
-		keys := make([]string, 0, len(block.Attrs))
-		for key := range block.Attrs {
-			keys = append(keys, key)
-		}
-		sort.Strings(keys)
-		for _, key := range keys {
-			b.WriteByte(' ')
-			b.WriteString(key)
-			b.WriteString(`="`)
-			b.WriteString(strings.ReplaceAll(block.Attrs[key], `"`, `&quot;`))
-			b.WriteByte('"')
-		}
-		b.WriteByte('>')
-		if strings.Contains(block.Text, "\n") {
-			b.WriteByte('\n')
-			b.WriteString(block.Text)
-			b.WriteByte('\n')
-		} else {
-			b.WriteString(block.Text)
-		}
-		b.WriteString("</")
-		b.WriteString(block.Tag)
-		b.WriteByte('>')
+		writeTaggedBlock(&b, block)
 	}
 	return b.String()
+}
+
+// writeTaggedBlock writes block as <tag attr="value">text</tag>, attributes
+// in sorted order.
+func writeTaggedBlock(b *strings.Builder, block ContextBlock) {
+	b.WriteByte('<')
+	b.WriteString(block.Tag)
+	keys := make([]string, 0, len(block.Attrs))
+	for key := range block.Attrs {
+		keys = append(keys, key)
+	}
+	sort.Strings(keys)
+	for _, key := range keys {
+		b.WriteByte(' ')
+		b.WriteString(key)
+		b.WriteString(`="`)
+		b.WriteString(strings.ReplaceAll(block.Attrs[key], `"`, `&quot;`))
+		b.WriteByte('"')
+	}
+	b.WriteByte('>')
+	if strings.Contains(block.Text, "\n") {
+		b.WriteByte('\n')
+		b.WriteString(block.Text)
+		b.WriteByte('\n')
+	} else {
+		b.WriteString(block.Text)
+	}
+	b.WriteString("</")
+	b.WriteString(block.Tag)
+	b.WriteByte('>')
 }
 
 // ModelContext is what the Model sees for one Turn, laid out for prompt
