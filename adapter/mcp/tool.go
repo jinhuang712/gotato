@@ -295,34 +295,45 @@ func convertContent(content sdk.Content) (gotato.ContentPart, bool) {
 	case *sdk.AudioContent:
 		return placeholder(fmt.Sprintf("[audio content, %s, %d bytes, not shown]", orUnknown(c.MIMEType), len(c.Data)), c.Meta), true
 	case *sdk.ResourceLink:
-		line := "[resource link: " + c.URI
-		if c.Name != "" {
-			line += " (" + c.Name + ")"
-		}
-		if c.MIMEType != "" {
-			line += ", " + c.MIMEType
-		}
-		if c.Description != "" {
-			line += ", " + c.Description
-		}
-		return placeholder(line+"]", c.Meta), true
+		return placeholder(resourceLinkLine(c), c.Meta), true
 	case *sdk.EmbeddedResource:
-		if c.Resource == nil {
-			return gotato.ContentPart{}, false
-		}
-		r := c.Resource
-		switch {
-		case r.Text != "":
-			return placeholder("[resource "+r.URI+"]\n"+r.Text, c.Meta), true
-		case strings.HasPrefix(r.MIMEType, "image/") && len(r.Blob) > 0:
-			return gotato.ContentPart{Kind: gotato.ContentKindImage, Data: r.Blob, MIMEType: r.MIMEType, Metadata: metaStrings(c.Meta)}, true
-		default:
-			return placeholder(fmt.Sprintf("[embedded resource: %s, %s, %d bytes, not shown]", r.URI, orUnknown(r.MIMEType), len(r.Blob)), c.Meta), true
-		}
+		return convertEmbedded(c)
 	case nil:
 		return gotato.ContentPart{}, false
 	default:
 		return placeholder(fmt.Sprintf("[%T content, not shown]", content), nil), true
+	}
+}
+
+// resourceLinkLine is the one line of text that names a resource link.
+func resourceLinkLine(c *sdk.ResourceLink) string {
+	line := "[resource link: " + c.URI
+	if c.Name != "" {
+		line += " (" + c.Name + ")"
+	}
+	if c.MIMEType != "" {
+		line += ", " + c.MIMEType
+	}
+	if c.Description != "" {
+		line += ", " + c.Description
+	}
+	return line + "]"
+}
+
+// convertEmbedded maps an embedded resource to a Part; it is false for one
+// with no resource.
+func convertEmbedded(c *sdk.EmbeddedResource) (gotato.ContentPart, bool) {
+	if c.Resource == nil {
+		return gotato.ContentPart{}, false
+	}
+	r := c.Resource
+	switch {
+	case r.Text != "":
+		return placeholder("[resource "+r.URI+"]\n"+r.Text, c.Meta), true
+	case strings.HasPrefix(r.MIMEType, "image/") && len(r.Blob) > 0:
+		return gotato.ContentPart{Kind: gotato.ContentKindImage, Data: r.Blob, MIMEType: r.MIMEType, Metadata: metaStrings(c.Meta)}, true
+	default:
+		return placeholder(fmt.Sprintf("[embedded resource: %s, %s, %d bytes, not shown]", r.URI, orUnknown(r.MIMEType), len(r.Blob)), c.Meta), true
 	}
 }
 
