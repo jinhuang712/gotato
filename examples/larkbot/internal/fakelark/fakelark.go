@@ -304,7 +304,7 @@ func (s *Server) send(w http.ResponseWriter, r *http.Request) {
 	if q.Parallel {
 		var wg sync.WaitGroup
 		for i := range res {
-			wg.Go(func() { ; one(i) })
+			wg.Go(func() { one(i) })
 		}
 		wg.Wait()
 	} else {
@@ -369,7 +369,7 @@ func (s *Server) Converse(ctx context.Context, chat string, turns []string, gap,
 		if i > 0 {
 			time.Sleep(gap)
 		}
-		wg.Go(func() { ; rest[i] = s.Deliver(ctx, chat, t, first.MessageID, card.MessageID) })
+		wg.Go(func() { rest[i] = s.Deliver(ctx, chat, t, first.MessageID, card.MessageID) })
 	}
 	wg.Wait()
 	return append(res, rest...), nil
