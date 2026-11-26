@@ -233,19 +233,7 @@ func (f *Feed) eventsAfter(ctx context.Context, after uint64, limit int) ([]Even
 	source := f.source
 	if source == nil {
 		defer f.mu.Unlock()
-		if f.dropped && len(f.ring) > 0 && f.ring[0].Head().Number > after+1 {
-			return nil, ErrEventsLost
-		}
-		var out []Event
-		for _, event := range f.ring {
-			if event.Head().Number > after {
-				out = append(out, event)
-				if len(out) == limit {
-					break
-				}
-			}
-		}
-		return out, nil
+		return f.ringAfter(after, limit)
 	}
 	f.mu.Unlock()
 	var batch []Event
@@ -258,6 +246,24 @@ func (f *Feed) eventsAfter(ctx context.Context, after uint64, limit int) ([]Even
 		return nil, extensionFailure("Subscription", failure)
 	}
 	return batch, readErr
+}
+
+// ringAfter reads up to limit Events after the given number from memory.
+// The caller holds f.mu.
+func (f *Feed) ringAfter(after uint64, limit int) ([]Event, error) {
+	if f.dropped && len(f.ring) > 0 && f.ring[0].Head().Number > after+1 {
+		return nil, ErrEventsLost
+	}
+	var out []Event
+	for _, event := range f.ring {
+		if event.Head().Number > after {
+			out = append(out, event)
+			if len(out) == limit {
+				break
+			}
+		}
+	}
+	return out, nil
 }
 
 // Close ends the Feed: each subscriber gets what is queued for it, and
