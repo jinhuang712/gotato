@@ -296,14 +296,8 @@ type testHooks struct {
 
 // New validates the configuration and creates a Runner.
 func New(cfg Config) (*Runner, error) {
-	if cfg.Store.Records == nil {
-		return nil, errors.New("host: Store.Records is required")
-	}
-	if cfg.Store.Liveness == nil {
-		return nil, errors.New("host: Store.Liveness is required")
-	}
-	if cfg.Profiles == nil {
-		return nil, errors.New("host: Profiles is required")
+	if err := checkRequired(cfg); err != nil {
+		return nil, err
 	}
 	r := &Runner{
 		store:          cfg.Store,
@@ -335,17 +329,65 @@ func New(cfg Config) (*Runner, error) {
 		OnRename: func() { r.dropAllWarm("liveness_lapsed") },
 		OnBeat:   r.repairReleases,
 	})
+	if err := r.applyDefaults(); err != nil {
+		return nil, err
+	}
+	r.warm = warm.New(r.clock)
+	r.feeds.instance = newInstanceFeed()
+	return r, nil
+}
+
+// checkRequired refuses a Config that leaves out a part a Runner needs.
+func checkRequired(cfg Config) error {
+	if cfg.Store.Records == nil {
+		return errors.New("host: Store.Records is required")
+	}
+	if cfg.Store.Liveness == nil {
+		return errors.New("host: Store.Liveness is required")
+	}
+	if cfg.Profiles == nil {
+		return errors.New("host: Profiles is required")
+	}
+	return nil
+}
+
+// applyDefaults checks the Runner's Admitter and bounds, and fills in the
+// defaults of the settings the Config left zero.
+func (r *Runner) applyDefaults() error {
+	if err := r.checkAdmitter(); err != nil {
+		return err
+	}
+	if err := r.applyBoundDefaults(); err != nil {
+		return err
+	}
+	if r.drainTimeout == 0 {
+		r.drainTimeout = DefaultDrainTimeout
+	}
+	if r.streams.poll == 0 {
+		r.streams.poll = defaultStreamPoll
+	}
+	return nil
+}
+
+// checkAdmitter sets the default Admitter when none is set, and refuses one
+// that does not validate.
+func (r *Runner) checkAdmitter() error {
 	if r.admitter == nil {
 		r.admitter = Limits{}
 	}
 	// [CONTRACT] a negative MaxActiveRuns is refused, as MaxActiveSessions is, so a typo does not read as no limit.
 	if v, ok := r.admitter.(interface{ Validate() error }); ok {
 		if err := v.Validate(); err != nil {
-			return nil, err
+			return err
 		}
 	}
+	return nil
+}
+
+// applyBoundDefaults checks the Runner's Bounds and fills in their defaults.
+func (r *Runner) applyBoundDefaults() error {
 	if r.bounds.MaxActiveSessions < 0 {
-		return nil, errors.New("host: MaxActiveSessions cannot be negative")
+		return errors.New("host: MaxActiveSessions cannot be negative")
 	}
 	if r.bounds.MaxWarmSessions == 0 {
 		r.bounds.MaxWarmSessions = DefaultMaxWarmSessions
@@ -354,17 +396,9 @@ func New(cfg Config) (*Runner, error) {
 		r.bounds.Queue = QueuePolicyReject
 	}
 	if r.bounds.Queue != QueuePolicyReject && r.bounds.Queue != QueuePolicyWait {
-		return nil, fmt.Errorf("host: unknown queue policy %q", r.bounds.Queue)
+		return fmt.Errorf("host: unknown queue policy %q", r.bounds.Queue)
 	}
-	if r.drainTimeout == 0 {
-		r.drainTimeout = DefaultDrainTimeout
-	}
-	if r.streams.poll == 0 {
-		r.streams.poll = defaultStreamPoll
-	}
-	r.warm = warm.New(r.clock)
-	r.feeds.instance = newInstanceFeed()
-	return r, nil
+	return nil
 }
 
 // Instance returns the name this Runner writes its Claims with: Config.Instance
