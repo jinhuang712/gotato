@@ -247,12 +247,7 @@ func convertResult(result *sdk.CallToolResult) gotato.ToolResult {
 	if result.IsError {
 		out.Status = gotato.ToolResultStatusFailed
 	}
-	var structured *gotato.ContentPart
-	if result.StructuredContent != nil {
-		if encoded, err := json.Marshal(result.StructuredContent); err == nil {
-			structured = &gotato.ContentPart{Kind: gotato.ContentKindJSON, Text: string(encoded)}
-		}
-	}
+	structured := structuredPart(result)
 	for _, content := range result.Content {
 		part, ok := convertContent(content)
 		if !ok {
@@ -267,12 +262,28 @@ func convertResult(result *sdk.CallToolResult) gotato.ToolResult {
 		out.Content = append(out.Content, *structured)
 	}
 	if out.Status == gotato.ToolResultStatusFailed {
-		out.SafeError = firstText(out.Content, 200)
+		out.SafeError = firstText(out.Content, safeErrorLimit)
 		if out.SafeError == "" {
 			out.SafeError = "the MCP tool reported an error"
 		}
 	}
 	return out
+}
+
+// safeErrorLimit is the most bytes of a failed result's text that its SafeError holds.
+const safeErrorLimit = 200
+
+// structuredPart is the JSON Part of result's structuredContent, or nil when
+// it has none or cannot be encoded.
+func structuredPart(result *sdk.CallToolResult) *gotato.ContentPart {
+	if result.StructuredContent == nil {
+		return nil
+	}
+	encoded, err := json.Marshal(result.StructuredContent)
+	if err != nil {
+		return nil
+	}
+	return &gotato.ContentPart{Kind: gotato.ContentKindJSON, Text: string(encoded)}
 }
 
 func convertContent(content sdk.Content) (gotato.ContentPart, bool) {
