@@ -211,33 +211,54 @@ func (s *Record) CloseSegment(why gotato.CompactionWhy, segment gotato.Segment, 
 // Segments were closed in. The one exception is a merged Segment: the Context
 // holds at most one, and it comes first, whatever its number.
 func (s *Record) checkNumbersLocked(numbers []int, pending *gotato.Segment) error {
-	lookup := func(number int) (gotato.Segment, bool) {
-		if pending != nil && pending.Number == number {
-			return *pending, true
-		}
-		segment, ok := s.closed[number]
-		return segment, ok
-	}
+	var first gotato.Segment
 	for i, number := range numbers {
-		segment, ok := lookup(number)
+		segment, ok := closedOrPending(s.closed, pending, number)
 		if !ok {
 			return gotato.ErrorOf(gotato.CodeInvalidArgument, fmt.Sprintf("record: segment %d is not closed", number))
 		}
-		if len(segment.Merged) > 0 && i > 0 {
-			return gotato.ErrorOf(gotato.CodeInvalidArgument, fmt.Sprintf("record: segment %d is merged; a merged segment comes first", number))
-		}
 		if i == 0 {
-			continue
+			first = segment
 		}
-		if first, _ := lookup(numbers[0]); i == 1 && len(first.Merged) > 0 {
-			continue
+		if err := checkListed(numbers, i, segment, first); err != nil {
+			return err
 		}
-		switch previous := numbers[i-1]; {
-		case number == previous:
-			return gotato.ErrorOf(gotato.CodeInvalidArgument, fmt.Sprintf("record: segment %d is listed twice", number))
-		case number < previous:
-			return gotato.ErrorOf(gotato.CodeInvalidArgument, fmt.Sprintf("record: segment %d is listed after segment %d; list them in ascending order", number, previous))
-		}
+	}
+	return nil
+}
+
+// checkListed says whether segment, the Segment of numbers[i], can be listed
+// there, after first, the Segment of numbers[0].
+func checkListed(numbers []int, i int, segment, first gotato.Segment) error {
+	switch {
+	case i == 0:
+		return nil
+	case len(segment.Merged) > 0:
+		return gotato.ErrorOf(gotato.CodeInvalidArgument, fmt.Sprintf("record: segment %d is merged; a merged segment comes first", numbers[i]))
+	case i == 1 && len(first.Merged) > 0:
+		return nil
+	}
+	return checkAscending(numbers[i], numbers[i-1])
+}
+
+// closedOrPending returns the Segment numbered number: pending, if not nil,
+// stands in for the closed Segment of its number.
+func closedOrPending(closed map[int]gotato.Segment, pending *gotato.Segment, number int) (gotato.Segment, bool) {
+	if pending != nil && pending.Number == number {
+		return *pending, true
+	}
+	segment, ok := closed[number]
+	return segment, ok
+}
+
+// checkAscending says whether a Segment number can follow previous in a
+// Context's Segments.
+func checkAscending(number, previous int) error {
+	switch {
+	case number == previous:
+		return gotato.ErrorOf(gotato.CodeInvalidArgument, fmt.Sprintf("record: segment %d is listed twice", number))
+	case number < previous:
+		return gotato.ErrorOf(gotato.CodeInvalidArgument, fmt.Sprintf("record: segment %d is listed after segment %d; list them in ascending order", number, previous))
 	}
 	return nil
 }
