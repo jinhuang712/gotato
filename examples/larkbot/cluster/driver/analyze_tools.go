@@ -69,10 +69,8 @@ func checkMCP(r record) mcpAnswers {
 	for _, m := range r.Messages {
 		switch m.Role {
 		case "user":
-			if i := strings.Index(m.text(), "T["); i >= 0 {
-				if j := strings.Index(m.text()[i:], "]"); j > 0 {
-					tag = m.text()[i : i+j+1]
-				}
+			if t, ok := tagOf(m.text()); ok {
+				tag = t
 			}
 		case "assistant":
 			switch text := m.text(); {
@@ -85,6 +83,19 @@ func checkMCP(r record) mcpAnswers {
 		}
 	}
 	return a
+}
+
+// tagOf is the T[...] marker a user message carries.
+func tagOf(text string) (string, bool) {
+	i := strings.Index(text, "T[")
+	if i < 0 {
+		return "", false
+	}
+	j := strings.Index(text[i:], "]")
+	if j <= 0 {
+		return "", false
+	}
+	return text[i : i+j+1], true
 }
 
 // phaseOf is the phase of a tag such as T[s7-A-03-a]: the part after the scenario name.
@@ -202,10 +213,8 @@ func errorTextsByPhase(r record) map[string][]string {
 	for _, m := range r.Messages {
 		switch m.Role {
 		case "user":
-			if i := strings.Index(m.text(), "T["); i >= 0 {
-				if j := strings.Index(m.text()[i:], "]"); j > 0 {
-					tag = m.text()[i : i+j+1]
-				}
+			if t, ok := tagOf(m.text()); ok {
+				tag = t
 			}
 		case "assistant":
 			if strings.HasPrefix(m.text(), ansMCPError) {
