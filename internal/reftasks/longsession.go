@@ -125,7 +125,7 @@ func logsRead(resultBytes int) gotato.Tool {
 			var b strings.Builder
 			for line := 0; b.Len() < resultBytes; line++ {
 				fmt.Fprintf(&b, "2026-10-25T10:%02d:%02dZ INFO batch-worker run=%d part=%d line=%04d charge settled, no retry needed, queue depth unchanged\n",
-					in.Part%60, line%60, in.Run, in.Part, line)
+					in.Part%clockUnit, line%clockUnit, in.Run, in.Part, line)
 			}
 			return b.String()[:resultBytes], nil
 		})
@@ -135,13 +135,23 @@ func logsRead(resultBytes int) gotato.Tool {
 	return gotato.ToolWithEffect(tool, gotato.ToolEffectRead)
 }
 
+// bytesPerToken is the estimate of the size of a token, in bytes.
+const bytesPerToken = 4
+
+// clockUnit is the number of minutes in an hour and of seconds in a minute, for
+// the timestamps of the log lines.
+const clockUnit = 60
+
+// tokensOf estimates the tokens of n bytes, rounded up.
+func tokensOf(n int) int { return (n + bytesPerToken - 1) / bytesPerToken }
+
 // RequestTokens estimates the tokens of a request the way the long_session
 // task's fake Model and the workload driver both count them: the bytes of its
 // instruction, Messages and Tools ÷ 4.
 func RequestTokens(request gotato.ModelRequest) int {
 	messages, _ := json.Marshal(gotato.ForModel(request.Messages))
 	tools, _ := json.Marshal(request.Tools)
-	return (len(request.SystemInstructions) + len(messages) + len(tools) + 3) / 4
+	return tokensOf(len(request.SystemInstructions) + len(messages) + len(tools))
 }
 
 // longRecap is what the fake Model answers when it is asked for a Recap.
@@ -161,9 +171,9 @@ func (m longSessionModel) Stream(_ context.Context, request gotato.ModelRequest)
 	// reply's out.
 	out := 0
 	for _, event := range script {
-		out += (len(event.Text) + 3) / 4
+		out += tokensOf(len(event.Text))
 		if event.ToolCall != nil {
-			out += (len(event.ToolCall.Arguments) + 3) / 4
+			out += tokensOf(len(event.ToolCall.Arguments))
 		}
 	}
 	script[len(script)-1].Usage = gotato.Usage{InputTokens: uint64(RequestTokens(request)), OutputTokens: uint64(out)}
