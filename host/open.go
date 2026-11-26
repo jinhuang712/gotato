@@ -10,6 +10,7 @@ import (
 
 	"github.com/jinhuang712/gotato/gotato"
 	"github.com/jinhuang712/gotato/host/internal/clock"
+	"github.com/jinhuang712/gotato/host/internal/warm"
 	"github.com/jinhuang712/gotato/store"
 )
 
@@ -164,51 +165,62 @@ func busyElsewhere(retryAfter time.Duration) error {
 // wrote come back for the caller to publish, as open returns them.
 func (r *Runner) acquire(ctx context.Context, sessionID string) (writer *store.Writer, early []gotato.Event, before *store.WriteStats, err error) {
 	if entry := r.warm.Take(sessionID); entry != nil {
-		kept := copyOf(entry)
-		w := kept.writer
-		stale, staleErr := w.Stale(ctx)
-		switch {
-		case ctx.Err() != nil:
-			// The caller gave up before the copy was judged: the copy is
-			// untouched and still good, so it stays warm for the next Run.
-			r.keepWarm(w, kept.spec)
-			return nil, nil, nil, ctx.Err()
-		case errors.Is(staleErr, record.ErrNotFound):
-			// The store does not show the Session to this caller: it is
-			// deleted, or the caller is refused. A refused caller must not
-			// drop the owner's copy; the copy ages out by its TTL.
-			// [LIMITATION] a refusal and a delete both read as not found, so a Session deleted elsewhere stays warm until its TTL.
-			r.keepWarm(w, kept.spec)
-			return nil, nil, nil, storeFailureOf(ctx, notRunIfLapsed(staleErr), true)
-		case staleErr == nil && !stale:
-			if err := r.live(ctx); err != nil {
-				r.unloaded(sessionID, entry.Agent, "liveness_lapsed")
-				return nil, nil, nil, err
-			}
-			base := w.Stats()
-			var claimed []gotato.Event
-			w.SetPublisher(func(event gotato.Event) { claimed = append(claimed, event) })
-			err := w.Resume(ctx)
-			if err == nil {
-				return w, claimed, &base, nil
-			}
-			// Only a write that lost the race to another Instance falls back
-			// to a load. Any other failure is the Run's, as it is for a Session
-			// that was never warm.
-			if !lostRace(err) {
-				// The claim may have been written, and the Writer stopped.
-				r.settle(w, err)
-				r.noteFailure(err, sessionID, entry.Agent)
-				r.unloaded(sessionID, entry.Agent, "failed")
-				return nil, nil, nil, err
-			}
+		writer, early, before, err = r.acquireWarm(ctx, sessionID, entry)
+		if writer != nil || err != nil {
+			return writer, early, before, err
 		}
-		// Another Instance wrote the Record, or deleted it, or the copy
-		// could not claim: the copy is of no use.
-		r.unloaded(sessionID, entry.Agent, "taken_over")
 	}
 	writer, early, err = r.open(ctx, sessionID)
 	return writer, early, nil, err
+}
+
+// acquireWarm is acquire with the warm copy entry: the copy's Writer, claimed
+// again, or the error of the Run, or no Writer and no error when the copy is
+// of no use and the Session is loaded from the store.
+func (r *Runner) acquireWarm(ctx context.Context, sessionID string, entry *warm.Entry) (*store.Writer, []gotato.Event, *store.WriteStats, error) {
+	kept := copyOf(entry)
+	w := kept.writer
+	stale, staleErr := w.Stale(ctx)
+	switch {
+	case ctx.Err() != nil:
+		// The caller gave up before the copy was judged: the copy is
+		// untouched and still good, so it stays warm for the next Run.
+		r.keepWarm(w, kept.spec)
+		return nil, nil, nil, ctx.Err()
+	case errors.Is(staleErr, record.ErrNotFound):
+		// The store does not show the Session to this caller: it is
+		// deleted, or the caller is refused. A refused caller must not
+		// drop the owner's copy; the copy ages out by its TTL.
+		// [LIMITATION] a refusal and a delete both read as not found, so a Session deleted elsewhere stays warm until its TTL.
+		r.keepWarm(w, kept.spec)
+		return nil, nil, nil, storeFailureOf(ctx, notRunIfLapsed(staleErr), true)
+	case staleErr == nil && !stale:
+		if err := r.live(ctx); err != nil {
+			r.unloaded(sessionID, entry.Agent, "liveness_lapsed")
+			return nil, nil, nil, err
+		}
+		base := w.Stats()
+		var claimed []gotato.Event
+		w.SetPublisher(func(event gotato.Event) { claimed = append(claimed, event) })
+		err := w.Resume(ctx)
+		if err == nil {
+			return w, claimed, &base, nil
+		}
+		// Only a write that lost the race to another Instance falls back
+		// to a load. Any other failure is the Run's, as it is for a Session
+		// that was never warm.
+		if !lostRace(err) {
+			// The claim may have been written, and the Writer stopped.
+			r.settle(w, err)
+			r.noteFailure(err, sessionID, entry.Agent)
+			r.unloaded(sessionID, entry.Agent, "failed")
+			return nil, nil, nil, err
+		}
+	}
+	// Another Instance wrote the Record, or deleted it, or the copy
+	// could not claim: the copy is of no use.
+	r.unloaded(sessionID, entry.Agent, "taken_over")
+	return nil, nil, nil, nil
 }
 
 // lostRace reports a write refused because another Instance wrote the Record,
