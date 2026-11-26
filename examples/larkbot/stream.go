@@ -54,40 +54,12 @@ func (b *bot) streamRun(ctx context.Context, sessionID, messageID, text string) 
 		b.log.Error("post card", "session", sessionID, "message_id", messageID, "err", perr)
 		return false, nil
 	}
-	lc := &liveCard{id: cardID}
-	update := func(content string) {
-		if err := b.send.Update(ctx, cardID, content); err != nil {
-			b.log.Warn("update card", "session", sessionID, "card", cardID, "err", err)
-		}
-	}
-
-	// The sink runs on this goroutine, so draft and sentAt need no lock. One
-	// sink serves one Run, which is the buffer by RunID.
-	var draft strings.Builder
-	sentAt := time.Now()
-	sink := func(e gotato.Event) error {
-		switch e := e.(type) {
-		case gotato.RunStarted:
-			b.mu.Lock()
-			lc.runID = e.RunID
-			b.mu.Unlock()
-		case gotato.ReplyStarted:
-			draft.Reset() // the last reply is the answer; a reply before a tool call was a draft
-		case gotato.TextDelta:
-			draft.WriteString(e.Text)
-			if time.Since(sentAt) >= b.streamEvery {
-				sentAt = time.Now()
-				update(cardContent(info, draft.String()))
-			}
-		}
-		return nil // an error would stop delivery, not the Run
-	}
-
+	cs := &cardStream{b: b, ctx: ctx, sessionID: sessionID, info: info, cardID: cardID, lc: &liveCard{id: cardID}, sentAt: time.Now()}
 	req := host.RunRequest{SessionID: sessionID, Prompt: text, RequestID: messageID, Update: map[string]string{metaCard: cardID}}
-	resp, err := b.runner.StreamRunAdmitted(ctx, req, func() { b.setCard(sessionID, lc) }, sink)
+	resp, err := b.runner.StreamRunAdmitted(ctx, req, func() { b.setCard(sessionID, cs.lc) }, cs.sink)
 	b.mu.Lock()
-	if lc.runID == "" {
-		lc.runID = resp.Result.RunID
+	if cs.lc.runID == "" {
+		cs.lc.runID = resp.Result.RunID
 	}
 	b.mu.Unlock()
 	if resp.SessionID == "" {
@@ -98,8 +70,47 @@ func (b *bot) streamRun(ctx context.Context, sessionID, messageID, text string) 
 		}
 		return false, nil
 	}
-	update(replyCard(info, resp.Result.Status, resp.FinalText))
+	cs.update(replyCard(info, resp.Result.Status, resp.FinalText))
 	return true, err
+}
+
+// cardStream is the state of one streamed Run: the card it writes and the text so far.
+type cardStream struct {
+	b         *bot
+	ctx       context.Context
+	sessionID string
+	info      cardInfo
+	cardID    string
+	lc        *liveCard
+	draft     strings.Builder
+	sentAt    time.Time
+}
+
+// update replaces the content of the card.
+func (cs *cardStream) update(content string) {
+	if err := cs.b.send.Update(cs.ctx, cs.cardID, content); err != nil {
+		cs.b.log.Warn("update card", "session", cs.sessionID, "card", cs.cardID, "err", err)
+	}
+}
+
+// sink takes the Events of the Run. It runs on the goroutine of streamRun, so
+// draft and sentAt need no lock. One sink serves one Run, which is the buffer by RunID.
+func (cs *cardStream) sink(e gotato.Event) error {
+	switch e := e.(type) {
+	case gotato.RunStarted:
+		cs.b.mu.Lock()
+		cs.lc.runID = e.RunID
+		cs.b.mu.Unlock()
+	case gotato.ReplyStarted:
+		cs.draft.Reset() // the last reply is the answer; a reply before a tool call was a draft
+	case gotato.TextDelta:
+		cs.draft.WriteString(e.Text)
+		if time.Since(cs.sentAt) >= cs.b.streamEvery {
+			cs.sentAt = time.Now()
+			cs.update(cardContent(cs.info, cs.draft.String()))
+		}
+	}
+	return nil // an error would stop delivery, not the Run
 }
 
 func (b *bot) setCard(sessionID string, lc *liveCard) {
