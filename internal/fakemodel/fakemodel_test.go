@@ -385,15 +385,15 @@ func TestAnthropicThinkingMustBeReplayedAsReceived(t *testing.T) {
 		if d, ok := raw["delta"].(map[string]any); ok {
 			switch d["type"] {
 			case "thinking_delta":
-				thinking += d["thinking"].(string)
+				thinking += field[string](t, d, "thinking")
 			case "signature_delta":
-				signature = d["signature"].(string)
+				signature = field[string](t, d, "signature")
 			case "input_json_delta":
-				args += d["partial_json"].(string)
+				args += field[string](t, d, "partial_json")
 			}
 		}
 		if cb, ok := raw["content_block"].(map[string]any); ok && cb["type"] == "tool_use" {
-			id = cb["id"].(string)
+			id = field[string](t, cb, "id")
 		}
 	}
 	if thinking == "" || signature == "" || id == "" || args != `{"value":"from-tool"}` {
@@ -567,4 +567,15 @@ func TestMidConversationSystemMessages(t *testing.T) {
 	if len(got[0].MidSystem) != 1 || got[0].MidSystem[0] != 2 || len(got[1].MidSystem) != 1 || got[1].MidSystem[0] != 3 {
 		t.Fatalf("recorded positions: %+v", got)
 	}
+}
+
+// field returns m[key] as a T, and fails the test, naming what it got, when it
+// is another type.
+func field[T any](t *testing.T, m map[string]any, key string) T {
+	t.Helper()
+	v, ok := m[key].(T)
+	if !ok {
+		t.Fatalf("field %q = %T, want %T", key, m[key], v)
+	}
+	return v
 }

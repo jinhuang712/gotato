@@ -157,7 +157,10 @@ func TestDurationsAreParsedAndRefusedWhenWrong(t *testing.T) {
 	if good.Connection.HTTPClient == nil {
 		t.Fatal("the timeouts must make an HTTP client")
 	}
-	transport := good.Connection.HTTPClient.Transport.(*http.Transport)
+	transport, ok := good.Connection.HTTPClient.Transport.(*http.Transport)
+	if !ok {
+		t.Fatalf("HTTPClient.Transport = %T, want *http.Transport", good.Connection.HTTPClient.Transport)
+	}
 	if transport.ResponseHeaderTimeout != 3*time.Minute || transport.TLSHandshakeTimeout != 4*time.Second {
 		t.Fatalf("timeouts: header %v, tls %v", transport.ResponseHeaderTimeout, transport.TLSHandshakeTimeout)
 	}
