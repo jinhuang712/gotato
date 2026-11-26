@@ -199,10 +199,7 @@ func runTasks(ctx context.Context, cfg workload.Config, tasks []reftasks.Task, s
 		fmt.Fprintln(stderr, "gotato-workload:", err)
 		return exitError
 	}
-	encoder := json.NewEncoder(stdout)
-	encoder.SetIndent("", "  ")
-	if err := encoder.Encode(report); err != nil {
-		fmt.Fprintln(stderr, "gotato-workload:", err)
+	if !printReport(stdout, stderr, report) {
 		return exitError
 	}
 	if report.GotatoFailures > 0 || report.ContextMismatches > 0 {
@@ -211,6 +208,18 @@ func runTasks(ctx context.Context, cfg workload.Config, tasks []reftasks.Task, s
 		return exitGoalFailed
 	}
 	return exitOK
+}
+
+// printReport writes the report to stdout as indented JSON. When it cannot, it
+// says so on stderr and returns false.
+func printReport[T any](stdout, stderr io.Writer, report T) bool {
+	encoder := json.NewEncoder(stdout)
+	encoder.SetIndent("", "  ")
+	if err := encoder.Encode(report); err != nil {
+		fmt.Fprintln(stderr, "gotato-workload:", err)
+		return false
+	}
+	return true
 }
 
 // runRecapCheck plays the payments check of B12 and prints its report. It
@@ -222,10 +231,7 @@ func runRecapCheck(ctx context.Context, cfg workload.RecapCheckConfig, minShare 
 		fmt.Fprintln(stderr, "gotato-workload:", err)
 		return exitError
 	}
-	encoder := json.NewEncoder(stdout)
-	encoder.SetIndent("", "  ")
-	if err := encoder.Encode(report); err != nil {
-		fmt.Fprintln(stderr, "gotato-workload:", err)
+	if !printReport(stdout, stderr, report) {
 		return exitError
 	}
 	fmt.Fprintf(stderr, "gotato-workload: answered %d of %d before the compaction, %d of %d after it\n",
