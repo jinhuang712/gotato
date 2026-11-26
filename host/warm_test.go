@@ -17,10 +17,17 @@ import (
 	"github.com/jinhuang712/gotato/testkit"
 )
 
+// warmAgent is the model of a warmInstance's Agent and its WarmPolicy.
+type warmAgent struct {
+	model gotato.Model
+	warm  host.WarmPolicy
+}
+
 // warmInstance is an Instance over store with the warm Session's clock. Its
 // Agent compacts an idle Session of any size, so a few short Runs are enough.
-func warmInstance(t *testing.T, st store.Store, name string, clock host.Clock, model gotato.Model, warm host.WarmPolicy) *host.Runner {
+func warmInstance(t *testing.T, st store.Store, name string, clock host.Clock, agent warmAgent) *host.Runner {
 	t.Helper()
+	model, warm := agent.model, agent.warm
 	if warm.IdleMinTokens == 0 {
 		warm.IdleMinTokens = -1
 	}
@@ -45,7 +52,7 @@ func TestWarmSessionIsReusedWhenTheHeadIsUnchanged(t *testing.T) {
 	for _, kind := range storeKinds {
 		t.Run(kind, func(t *testing.T) {
 			st := &tallyStore{parts: partsOf(sharedStores(t, kind)())}
-			runner := warmInstance(t, asStore(st), "a", newFakeClock(), testkit.EchoModel{}, host.WarmPolicy{})
+			runner := warmInstance(t, asStore(st), "a", newFakeClock(), warmAgent{testkit.EchoModel{}, host.WarmPolicy{}})
 			instance := instanceRecorder(t, runner)
 
 			first := runOn(t, runner, "", "one")
@@ -86,7 +93,7 @@ func TestWarmSessionIsReusedWhenTheHeadIsUnchanged(t *testing.T) {
 // session_saved counts the writes of its own Run. A warm copy writes for many
 // Runs, and each Run's save is not the sum of the ones before.
 func TestWarmRunsReportOnlyTheirOwnWrites(t *testing.T) {
-	runner := warmInstance(t, memStore(), "a", newFakeClock(), testkit.EchoModel{}, host.WarmPolicy{})
+	runner := warmInstance(t, memStore(), "a", newFakeClock(), warmAgent{testkit.EchoModel{}, host.WarmPolicy{}})
 	instance := instanceRecorder(t, runner)
 	first := runOn(t, runner, "", "one")
 	for _, prompt := range []string{"two", "three", "four"} {
@@ -120,14 +127,14 @@ func TestWarmCopyHoldsWhatALoadWouldBuild(t *testing.T) {
 	model := testkit.NewFuncModel(func(_ context.Context, request gotato.ModelRequest) (testkit.Script, error) {
 		return testkit.Text(fmt.Sprintf("seen %d", len(request.Messages))), nil
 	})
-	runner := warmInstance(t, store, "a", newFakeClock(), model, host.WarmPolicy{})
+	runner := warmInstance(t, store, "a", newFakeClock(), warmAgent{model, host.WarmPolicy{}})
 	first := runOn(t, runner, "", "one")
 	runOn(t, runner, first.SessionID, "two")
 	warm, err := runner.Inspect(ctx, first.SessionID, host.InspectConfig{})
 	if err != nil {
 		t.Fatal(err)
 	}
-	cold := warmInstance(t, store, "b", newFakeClock(), model, host.WarmPolicy{})
+	cold := warmInstance(t, store, "b", newFakeClock(), warmAgent{model, host.WarmPolicy{}})
 	loaded, err := cold.Inspect(ctx, first.SessionID, host.InspectConfig{})
 	if err != nil {
 		t.Fatal(err)
@@ -152,8 +159,8 @@ func TestStaleWarmCopyIsReloaded(t *testing.T) {
 			model := testkit.NewFuncModel(func(_ context.Context, _ gotato.ModelRequest) (testkit.Script, error) {
 				return testkit.Text("ok"), nil
 			})
-			a := warmInstance(t, asStore(aStore), "a", newFakeClock(), model, host.WarmPolicy{})
-			b := warmInstance(t, open(), "b", newFakeClock(), model, host.WarmPolicy{})
+			a := warmInstance(t, asStore(aStore), "a", newFakeClock(), warmAgent{model, host.WarmPolicy{}})
+			b := warmInstance(t, open(), "b", newFakeClock(), warmAgent{model, host.WarmPolicy{}})
 			instance := instanceRecorder(t, a)
 
 			first := runOn(t, a, "", "from-a-1")
@@ -209,8 +216,8 @@ func TestStaleWarmCopyIsReloaded(t *testing.T) {
 func TestWarmCopyOfARecreatedSessionIsDropped(t *testing.T) {
 	ctx := context.Background()
 	st := memStore()
-	a := warmInstance(t, st, "a", newFakeClock(), testkit.EchoModel{}, host.WarmPolicy{})
-	b := warmInstance(t, st, "b", newFakeClock(), testkit.EchoModel{}, host.WarmPolicy{})
+	a := warmInstance(t, st, "a", newFakeClock(), warmAgent{testkit.EchoModel{}, host.WarmPolicy{}})
+	b := warmInstance(t, st, "b", newFakeClock(), warmAgent{testkit.EchoModel{}, host.WarmPolicy{}})
 	first := runOn(t, a, "", "old")
 	if err := b.DeleteSession(ctx, first.SessionID); err != nil {
 		t.Fatal(err)
@@ -238,7 +245,7 @@ func TestWarmSessionLeavesMemoryAtItsTTL(t *testing.T) {
 		t.Run(kind, func(t *testing.T) {
 			clock := newFakeClock()
 			store := &tallyStore{parts: partsOf(sharedStores(t, kind)())}
-			runner := warmInstance(t, asStore(store), "a", clock, testkit.EchoModel{}, host.WarmPolicy{NoIdleCompaction: true})
+			runner := warmInstance(t, asStore(store), "a", clock, warmAgent{testkit.EchoModel{}, host.WarmPolicy{NoIdleCompaction: true}})
 			instance := instanceRecorder(t, runner)
 
 			first := runOn(t, runner, "", "one")
@@ -304,7 +311,7 @@ func TestIdleWarmSessionIsCompactedBeforeItLeaves(t *testing.T) {
 			t.Run(kind+"/"+c.name, func(t *testing.T) {
 				clock := newFakeClock()
 				store := &tallyStore{parts: partsOf(sharedStores(t, kind)())}
-				runner := warmInstance(t, asStore(store), "a", clock, c.model, c.warm)
+				runner := warmInstance(t, asStore(store), "a", clock, warmAgent{c.model, c.warm})
 				instance := instanceRecorder(t, runner)
 				first := runOn(t, runner, "", "one")
 				runOn(t, runner, first.SessionID, "two")
@@ -369,7 +376,7 @@ func TestIdleWarmSessionIsCompactedBeforeItLeaves(t *testing.T) {
 func TestIdleCompactionSkipsAShortStretch(t *testing.T) {
 	clock := newFakeClock()
 	store := &tallyStore{parts: partsOf(memStore())}
-	runner := warmInstance(t, asStore(store), "a", clock, testkit.EchoModel{}, host.WarmPolicy{IdleMinTokens: 20000})
+	runner := warmInstance(t, asStore(store), "a", clock, warmAgent{testkit.EchoModel{}, host.WarmPolicy{IdleMinTokens: 20000}})
 	first := runOn(t, runner, "", "one")
 	runOn(t, runner, first.SessionID, "two")
 	runOn(t, runner, first.SessionID, "three")
@@ -391,7 +398,7 @@ func TestIdleCompactionSkipsAShortStretch(t *testing.T) {
 func TestIdleCompactionCanBeTurnedOff(t *testing.T) {
 	clock := newFakeClock()
 	store := &tallyStore{parts: partsOf(memStore())}
-	runner := warmInstance(t, asStore(store), "a", clock, testkit.EchoModel{}, host.WarmPolicy{NoIdleCompaction: true})
+	runner := warmInstance(t, asStore(store), "a", clock, warmAgent{testkit.EchoModel{}, host.WarmPolicy{NoIdleCompaction: true}})
 	first := runOn(t, runner, "", "one")
 	runOn(t, runner, first.SessionID, "two")
 	runOn(t, runner, first.SessionID, "three")
@@ -466,7 +473,7 @@ func TestRunDuringAnIdleCompactionCancelsIt(t *testing.T) {
 func TestFailedIdleCompactionIsDroppedAndTheSessionStaysUsable(t *testing.T) {
 	clock := newFakeClock()
 	store := &tallyStore{parts: partsOf(memStore())}
-	runner := warmInstance(t, asStore(store), "a", clock, testkit.EchoModel{}, host.WarmPolicy{})
+	runner := warmInstance(t, asStore(store), "a", clock, warmAgent{testkit.EchoModel{}, host.WarmPolicy{}})
 	instance := instanceRecorder(t, runner)
 	first := runOn(t, runner, "", "one")
 	runOn(t, runner, first.SessionID, "two")
@@ -497,8 +504,8 @@ func TestFailedIdleCompactionIsDroppedAndTheSessionStaysUsable(t *testing.T) {
 func TestIdleCompactionDropsACopyAnotherInstanceReplaced(t *testing.T) {
 	clock := newFakeClock()
 	store := memStore()
-	a := warmInstance(t, store, "a", clock, testkit.EchoModel{}, host.WarmPolicy{})
-	b := warmInstance(t, store, "b", newFakeClock(), testkit.EchoModel{}, host.WarmPolicy{})
+	a := warmInstance(t, store, "a", clock, warmAgent{testkit.EchoModel{}, host.WarmPolicy{}})
+	b := warmInstance(t, store, "b", newFakeClock(), warmAgent{testkit.EchoModel{}, host.WarmPolicy{}})
 	instance := instanceRecorder(t, a)
 	first := runOn(t, a, "", "one")
 	runOn(t, a, first.SessionID, "two")
@@ -517,7 +524,7 @@ func TestIdleCompactionDropsACopyAnotherInstanceReplaced(t *testing.T) {
 func TestCompactUsesTheWarmCopy(t *testing.T) {
 	ctx := context.Background()
 	store := &tallyStore{parts: partsOf(memStore())}
-	runner := warmInstance(t, asStore(store), "a", newFakeClock(), testkit.EchoModel{}, host.WarmPolicy{})
+	runner := warmInstance(t, asStore(store), "a", newFakeClock(), warmAgent{testkit.EchoModel{}, host.WarmPolicy{}})
 	first := runOn(t, runner, "", "one")
 	runOn(t, runner, first.SessionID, "two")
 	result, err := runner.Compact(ctx, first.SessionID, record.CompactConfig{})
@@ -539,7 +546,7 @@ func TestWarmCopiesAreDroppedOnDeleteDrainAndClose(t *testing.T) {
 	ctx := context.Background()
 	store := &tallyStore{parts: partsOf(memStore())}
 	clock := newFakeClock()
-	runner := warmInstance(t, asStore(store), "a", clock, testkit.EchoModel{}, host.WarmPolicy{NoIdleCompaction: true})
+	runner := warmInstance(t, asStore(store), "a", clock, warmAgent{testkit.EchoModel{}, host.WarmPolicy{NoIdleCompaction: true}})
 	instance := instanceRecorder(t, runner)
 	a := runOn(t, runner, "", "a")
 	b := runOn(t, runner, "", "b")
@@ -576,7 +583,7 @@ func TestIdleScheduleOfAWarmPolicy(t *testing.T) {
 	// below the lead does not compact right after a Run.
 	clock := newFakeClock()
 	store := &tallyStore{parts: partsOf(memStore())}
-	runner := warmInstance(t, asStore(store), "a", clock, testkit.EchoModel{}, host.WarmPolicy{TTL: 4 * time.Minute})
+	runner := warmInstance(t, asStore(store), "a", clock, warmAgent{testkit.EchoModel{}, host.WarmPolicy{TTL: 4 * time.Minute}})
 	first := runOn(t, runner, "", "one")
 	runOn(t, runner, first.SessionID, "two")
 	runOn(t, runner, first.SessionID, "three")
@@ -621,7 +628,7 @@ func (s *cancelOnLog) Log(ctx context.Context, id string, after uint64, limit in
 
 func TestCanceledRunKeepsTheWarmCopy(t *testing.T) {
 	store := &cancelOnLog{parts: partsOf(sharedStores(t, "memory")())}
-	runner := warmInstance(t, asStore(store), "a", newFakeClock(), testkit.EchoModel{}, host.WarmPolicy{})
+	runner := warmInstance(t, asStore(store), "a", newFakeClock(), warmAgent{testkit.EchoModel{}, host.WarmPolicy{}})
 	first := runOn(t, runner, "", "one")
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
