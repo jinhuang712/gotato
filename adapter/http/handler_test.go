@@ -496,19 +496,28 @@ func forwardRunner(t *testing.T, st store.Store, agent profile.AgentProfile, mut
 	return r
 }
 
-// forwardMessage is how an embedder forwards a message it was not the writer
-// of, with its own HTTP client (FEATURES.md → F9.5.2).
-func forwardMessage(ctx context.Context, runner *host.Runner, client *http.Client, req host.MessageRequest, forwarded bool) (*http.Response, error) {
-	_, err := runner.Send(ctx, req)
+// embedderForward is an embedder that forwards a message it was not the writer
+// of, with its own HTTP client. forwarded says the request came forwarded once
+// already, so it goes no further.
+type embedderForward struct {
+	runner    *host.Runner
+	client    *http.Client
+	forwarded bool
+}
+
+// message is how an embedder forwards a message it was not the writer of, with
+// its own HTTP client (FEATURES.md → F9.5.2).
+func (e embedderForward) message(ctx context.Context, req host.MessageRequest) (*http.Response, error) {
+	_, err := e.runner.Send(ctx, req)
 	addr, ok := host.WriterOf(err)
-	if !ok || addr == "" || forwarded {
+	if !ok || addr == "" || e.forwarded {
 		return nil, err // not a not_writer, nowhere to go, or already forwarded once
 	}
 	body, _ := json.Marshal(map[string]string{"kind": string(req.Kind), "text": req.Text})
 	hr, _ := http.NewRequestWithContext(ctx, http.MethodPost, addr+"/v1/sessions/"+req.SessionID+"/messages", bytes.NewReader(body))
 	hr.Header.Set("Content-Type", "application/json")
 	hr.Header.Set(httpapi.ForwardedHeader, "true") // the writer never forwards it again
-	return client.Do(hr)                           // your own client, timeout and credentials
+	return e.client.Do(hr)                         // your own client, timeout and credentials
 }
 
 func TestEmbedderForwardsANotWriterMessageWithItsOwnClient(t *testing.T) {
@@ -518,7 +527,7 @@ func TestEmbedderForwardsANotWriterMessageWithItsOwnClient(t *testing.T) {
 	b := newInstance(t, store, "instance-b", testkit.EchoModel{}, true)
 	id, wait := running(t, a, g)
 
-	resp, err := forwardMessage(context.Background(), b.runner, http.DefaultClient, host.MessageRequest{SessionID: id, Kind: host.MessageKindSteer, Text: "via the embedder"}, false)
+	resp, err := embedderForward{b.runner, http.DefaultClient, false}.message(context.Background(), host.MessageRequest{SessionID: id, Kind: host.MessageKindSteer, Text: "via the embedder"})
 	if err != nil {
 		t.Fatal(err)
 	}
