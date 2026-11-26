@@ -360,14 +360,14 @@ func TestStreamRestartsWhenInterruptedBeforeOutput(t *testing.T) {
 		drop func(t *testing.T, w http.ResponseWriter)
 	}{
 		{"connection reset", func(t *testing.T, w http.ResponseWriter) { dropConnection(t, w, roleChunk) }},
-		{"clean close without [DONE]", func(t *testing.T, w http.ResponseWriter) {
+		{"clean close without [DONE]", func(_ *testing.T, w http.ResponseWriter) {
 			w.Header().Set("Content-Type", "text/event-stream")
 			_, _ = w.Write([]byte(roleChunk))
 		}},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			var calls atomic.Int32
-			server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
 				if calls.Add(1) == 1 {
 					tc.drop(t, w)
 					return
@@ -401,7 +401,7 @@ func TestStreamRestartsWhenInterruptedBeforeOutput(t *testing.T) {
 
 func TestStreamIsNotReplayedAfterOutputBegan(t *testing.T) {
 	var calls atomic.Int32
-	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
 		calls.Add(1)
 		dropConnection(t, w, "data: {\"choices\":[{\"delta\":{\"content\":\"partial\"}}]}\n\n")
 	}))
@@ -430,7 +430,7 @@ func TestStreamIsNotReplayedAfterOutputBegan(t *testing.T) {
 
 func TestStreamRestartsAreBounded(t *testing.T) {
 	var calls atomic.Int32
-	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
 		calls.Add(1)
 		dropConnection(t, w, "")
 	}))
@@ -457,7 +457,7 @@ func TestStreamRestartsAreBounded(t *testing.T) {
 func TestStreamRestartStopsOnCancellation(t *testing.T) {
 	var calls atomic.Int32
 	dropped := make(chan struct{})
-	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
 		dropConnection(t, w, "")
 		if calls.Add(1) == 1 {
 			close(dropped)
@@ -490,7 +490,7 @@ func TestStreamRestartStopsOnCancellation(t *testing.T) {
 
 func TestStreamToleratesMissingDoneAfterFinishReason(t *testing.T) {
 	var calls atomic.Int32
-	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
 		calls.Add(1)
 		w.Header().Set("Content-Type", "text/event-stream")
 		_, _ = w.Write([]byte("data: {\"choices\":[{\"delta\":{\"content\":\"done\"},\"finish_reason\":\"stop\"}]}\n\n"))
@@ -516,7 +516,7 @@ func TestStreamToleratesMissingDoneAfterFinishReason(t *testing.T) {
 
 func TestResponsesStreamRestartsWhenInterruptedBeforeOutput(t *testing.T) {
 	var calls atomic.Int32
-	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
 		if calls.Add(1) == 1 {
 			dropConnection(t, w, "data: {\"type\":\"response.created\",\"response\":{\"id\":\"resp_1\",\"status\":\"in_progress\"}}\n\n")
 			return
@@ -553,7 +553,7 @@ func TestResponsesStreamRestartsWhenInterruptedBeforeOutput(t *testing.T) {
 
 func TestResponsesStreamIsNotReplayedAfterOutputBegan(t *testing.T) {
 	var calls atomic.Int32
-	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
 		calls.Add(1)
 		dropConnection(t, w, "data: {\"type\":\"response.output_text.delta\",\"output_index\":0,\"delta\":\"partial\"}\n\n")
 	}))
@@ -581,7 +581,7 @@ const anthropicStart = "data: {\"type\":\"message_start\",\"message\":{\"usage\"
 
 func TestAnthropicStreamRestartsWhenInterruptedBeforeOutput(t *testing.T) {
 	var calls atomic.Int32
-	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
 		if calls.Add(1) == 1 {
 			dropConnection(t, w, anthropicStart)
 			return
@@ -621,7 +621,7 @@ func TestAnthropicStreamRestartsWhenInterruptedBeforeOutput(t *testing.T) {
 
 func TestAnthropicStreamIsNotReplayedAfterOutputBegan(t *testing.T) {
 	var calls atomic.Int32
-	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
 		calls.Add(1)
 		dropConnection(t, w, anthropicStart+
 			"data: {\"type\":\"content_block_start\",\"index\":0,\"content_block\":{\"type\":\"text\",\"text\":\"\"}}\n\n"+
