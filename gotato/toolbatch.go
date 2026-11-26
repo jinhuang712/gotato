@@ -195,7 +195,7 @@ func (a *Session) executeToolGroup(
 	if ctx.Err() != nil {
 		return run.cancelRest(false)
 	}
-	signals := make(chan toolSignal, len(group)*4+4)
+	signals := make(chan toolSignal, (len(group)+1)*signalsPerCall)
 	// abandon is closed when executeToolGroup returns. A worker that finishes
 	// after the batch was canceled or abandoned uses it so its final send
 	// never blocks forever, which removes the need for a drainer goroutine
@@ -207,6 +207,10 @@ func (a *Session) executeToolGroup(
 	}
 	return run.collect(signals)
 }
+
+// signalsPerCall sizes the buffer of a group's signals: this many for each
+// call of the group, and this many more.
+const signalsPerCall = 4
 
 // toolGroupRun is the Session goroutine's side of one group: it settles
 // outcomes, stages their Events, and waits for the workers' signals.
