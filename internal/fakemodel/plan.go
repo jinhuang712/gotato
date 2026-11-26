@@ -4,6 +4,7 @@ import (
 	"crypto/sha256"
 	"encoding/hex"
 	"encoding/json"
+	"slices"
 	"strconv"
 )
 
@@ -89,26 +90,28 @@ func (pl *plan) load(p *parsed, visible []toolDef, id string, searched bool) {
 	}
 }
 
+// argsFor returns arguments for a call of t: its first string property, by
+// name, set to a fixed value, or an empty object when it has none.
 func argsFor(t toolDef) string {
-	if props, ok := t.schema["properties"].(map[string]any); ok {
-		var names []string
-		for name, v := range props {
-			if m, ok := v.(map[string]any); ok && m["type"] == "string" {
-				names = append(names, name)
-			}
-		}
-		if len(names) > 0 {
-			first := names[0]
-			for _, n := range names {
-				if n < first {
-					first = n
-				}
-			}
-			b, _ := json.Marshal(map[string]string{first: "from-tool"})
-			return string(b)
+	names := stringProperties(t.schema)
+	if len(names) == 0 {
+		return "{}"
+	}
+	b, _ := json.Marshal(map[string]string{slices.Min(names): "from-tool"})
+	return string(b)
+}
+
+// stringProperties lists the names of the properties of a schema whose type is
+// string.
+func stringProperties(schema map[string]any) []string {
+	props, _ := schema["properties"].(map[string]any)
+	var names []string
+	for name, v := range props {
+		if m, ok := v.(map[string]any); ok && m["type"] == "string" {
+			names = append(names, name)
 		}
 	}
-	return "{}"
+	return names
 }
 
 // chunks splits s into pieces of about size bytes, at least two when s has
