@@ -26,7 +26,7 @@ func checkDelete(ctx context.Context, open Open) error {
 	if _, err := store.Log(ctx, "r1", 0, 0); !errors.Is(err, record.ErrNotFound) {
 		return failf("Log after Delete returned %v, want ErrNotFound: Delete must remove the whole Record", err)
 	}
-	if err := store.Append(ctx, "r1", 3, []record.Entry{fact(4, "a")}, header("r1", 4, "")); !errors.Is(err, record.ErrNotFound) {
+	if err := store.Append(ctx, "r1", createdHead, []record.Entry{fact(appendedFact, "a")}, header("r1", appendedFact, "")); !errors.Is(err, record.ErrNotFound) {
 		return failf("Append after Delete returned %v, want ErrNotFound", err)
 	}
 	if err := store.Delete(ctx, "r1"); !errors.Is(err, record.ErrNotFound) {
@@ -43,12 +43,12 @@ func checkDelete(ctx context.Context, open Open) error {
 // the same way on every store.
 func checkInvalidID(ctx context.Context, open Open) error {
 	st := open()
-	for _, id := range []string{"", "a/b", `a\b`, "..", "a..b", ".hidden", "a\x00b", "a\nb", "a\xffb", strings.Repeat("x", 101), strings.Repeat("A", 101)} {
+	for _, id := range []string{"", "a/b", `a\b`, "..", "a..b", ".hidden", "a\x00b", "a\nb", "a\xffb", strings.Repeat("x", store.MaxIDBytes+1), strings.Repeat("A", store.MaxIDBytes+1)} {
 		_, loadErr := st.Load(ctx, id)
 		_, logErr := st.Log(ctx, id, 0, 0)
 		calls := []error{
 			st.Create(ctx, id, []record.Entry{checkpoint(1, "a")}, header(id, 1, "")),
-			st.Append(ctx, id, 1, []record.Entry{fact(2, "a")}, header(id, 2, "")),
+			st.Append(ctx, id, 1, []record.Entry{fact(secondEntry, "a")}, header(id, secondEntry, "")),
 			loadErr,
 			logErr,
 			st.Delete(ctx, id),
@@ -68,22 +68,11 @@ func checkInvalidID(ctx context.Context, open Open) error {
 func checkIDCase(ctx context.Context, open Open) error {
 	store := open()
 	ids := []string{"Case", "case", "!case", "caf\u00e9", "cafe\u0301"}
-	for _, id := range ids {
-		if _, err := store.Load(ctx, id); !errors.Is(err, record.ErrNotFound) {
-			return fmt.Errorf("load of %q before it exists = %v, want ErrNotFound", id, err)
-		}
-		if err := store.Create(ctx, id, []record.Entry{checkpoint(1, id)}, header(id, 1, "")); err != nil {
-			return fmt.Errorf("create %q: %w", id, err)
-		}
+	if err := createIDs(ctx, store, ids); err != nil {
+		return err
 	}
-	for _, id := range ids {
-		log, err := open().Log(ctx, id, 0, 0)
-		if err != nil {
-			return fmt.Errorf("log of %q: %w", id, err)
-		}
-		if err := sameEntries(fmt.Sprintf("Log of %q", id), log, []record.Entry{checkpoint(1, id)}, ruleLog); err != nil {
-			return err
-		}
+	if err := verifyIDLogs(ctx, open, ids); err != nil {
+		return err
 	}
 	if err := store.Delete(ctx, "case"); err != nil {
 		return fmt.Errorf("delete: %w", err)
@@ -97,6 +86,34 @@ func checkIDCase(ctx context.Context, open Open) error {
 	return nil
 }
 
+// createIDs checks that none of ids exists, then creates a Record of each.
+func createIDs(ctx context.Context, st store.Records, ids []string) error {
+	for _, id := range ids {
+		if _, err := st.Load(ctx, id); !errors.Is(err, record.ErrNotFound) {
+			return fmt.Errorf("load of %q before it exists = %v, want ErrNotFound", id, err)
+		}
+		if err := st.Create(ctx, id, []record.Entry{checkpoint(1, id)}, header(id, 1, "")); err != nil {
+			return fmt.Errorf("create %q: %w", id, err)
+		}
+	}
+	return nil
+}
+
+// verifyIDLogs checks that the Log of each of ids holds the checkpoint written
+// under that ID alone.
+func verifyIDLogs(ctx context.Context, open Open, ids []string) error {
+	for _, id := range ids {
+		log, err := open().Log(ctx, id, 0, 0)
+		if err != nil {
+			return fmt.Errorf("log of %q: %w", id, err)
+		}
+		if err := sameEntries(fmt.Sprintf("Log of %q", id), log, []record.Entry{checkpoint(1, id)}, ruleLog); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
 func checkUnknown(ctx context.Context, open Open) error {
 	store := open()
 	if _, err := store.Load(ctx, "missing"); !errors.Is(err, record.ErrNotFound) {
@@ -105,7 +122,7 @@ func checkUnknown(ctx context.Context, open Open) error {
 	if _, err := store.Log(ctx, "missing", 0, 0); !errors.Is(err, record.ErrNotFound) {
 		return failf("Log of an unknown ID returned %v, want ErrNotFound", err)
 	}
-	if err := store.Append(ctx, "missing", 1, []record.Entry{fact(2, "a")}, header("missing", 2, "")); !errors.Is(err, record.ErrNotFound) {
+	if err := store.Append(ctx, "missing", 1, []record.Entry{fact(secondEntry, "a")}, header("missing", secondEntry, "")); !errors.Is(err, record.ErrNotFound) {
 		return failf("Append to an unknown ID returned %v, want ErrNotFound", err)
 	}
 	return nil
@@ -118,7 +135,7 @@ func checkCanceled(ctx context.Context, open Open) error {
 	}
 	canceled, cancel := context.WithCancel(ctx)
 	cancel()
-	if err := store.Append(canceled, "r1", 3, []record.Entry{fact(4, "a")}, header("r1", 4, "")); err == nil {
+	if err := store.Append(canceled, "r1", createdHead, []record.Entry{fact(appendedFact, "a")}, header("r1", appendedFact, "")); err == nil {
 		return failf("Append with a canceled context succeeded, want an error: every call must honor ctx")
 	}
 	if _, err := store.Load(canceled, "r1"); err == nil {
