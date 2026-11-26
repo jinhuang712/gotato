@@ -13,7 +13,20 @@ import (
 // LargeExportID is the ID of the tool LargeExport returns.
 const LargeExportID = "orders.export"
 
-const largeExportOrders = 7500
+const (
+	// largeExportOrders is how many orders the export holds.
+	largeExportOrders = 7500
+	// firstExportOrder is the number of the first order of the export.
+	firstExportOrder = 81500
+	// exportTotalStride steps the totals of the orders apart.
+	exportTotalStride = 37
+	// exportTotalSpread is the range of the totals, in cents.
+	exportTotalSpread = 9000
+	// exportTotalFloor is the least total, in cents.
+	exportTotalFloor = 1000
+	// centsPerUnit converts a total from cents.
+	centsPerUnit = 100
+)
 
 // largeExport is the export, built once: about 1 MB of indented JSON, an order
 // on six lines.
@@ -28,9 +41,9 @@ var largeExport = sync.OnceValue(func() string {
 	orders := make([]order, largeExportOrders)
 	for i := range orders {
 		orders[i] = order{
-			ID:     fmt.Sprintf("order-%05d", 81500+i),
+			ID:     fmt.Sprintf("order-%05d", firstExportOrder+i),
 			Status: statuses[i%len(statuses)],
-			Total:  float64(1000+(i*37)%9000) / 100,
+			Total:  float64(exportTotalFloor+(i*exportTotalStride)%exportTotalSpread) / centsPerUnit,
 			Note:   "packed by hand and checked twice before it leaves the shelf",
 		}
 	}
