@@ -340,6 +340,12 @@ func finalReplies(messages []gotato.Message) map[int]bool {
 			groups[i] = fmt.Sprintf("anon:%d", anon)
 		}
 	}
+	return lastPerGroup(messages, groups)
+}
+
+// lastPerGroup marks, for each group of groups, the last of messages in it that
+// is a reply without tool calls that has text and was not cut off.
+func lastPerGroup(messages []gotato.Message, groups []string) map[int]bool {
 	final := map[int]bool{}
 	seen := map[string]bool{}
 	for i, message := range slices.Backward(messages) {
