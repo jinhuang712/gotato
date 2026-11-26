@@ -585,7 +585,7 @@ func TestWireRequestOnlyGrowsAtItsEndAcrossCompactions(t *testing.T) {
 						wires[i] = enc.encode(t, request)
 					}
 					for n := 1; n < len(requests); n++ {
-						checkWirePair(t, enc, fmt.Sprintf("requests %d and %d", n, n+1), requests[n-1], requests[n], wires[n-1], wires[n], kinds[n])
+						wirePair{enc: enc, name: fmt.Sprintf("requests %d and %d", n, n+1), prevReq: requests[n-1], nextReq: requests[n], prev: wires[n-1], next: wires[n], kind: kinds[n]}.check(t)
 					}
 					t.Logf("%d request pairs, %d across a compaction and %d across a merge", len(requests)-1, closings, merges)
 				})
@@ -594,9 +594,30 @@ func TestWireRequestOnlyGrowsAtItsEndAcrossCompactions(t *testing.T) {
 	}
 }
 
-func checkWirePair(t *testing.T, enc *wireEncoder, pair string, prevReq, nextReq gotato.ModelRequest, prev, next wireRequest, kind pairKind) {
+// wirePair is two consecutive requests of a Session, as built and as encoded
+// for one wire API, and how the second follows the first.
+type wirePair struct {
+	enc              *wireEncoder
+	name             string
+	prevReq, nextReq gotato.ModelRequest
+	prev, next       wireRequest
+	kind             pairKind
+}
+
+// check holds the second request to what the first promised.
+func (w wirePair) check(t *testing.T) {
 	t.Helper()
-	// The options and the cache key.
+	w.checkOptions(t)
+	w.checkInstruction(t)
+	w.checkTools(t)
+	w.checkConversation(t)
+	w.checkBreakpoints(t)
+}
+
+// checkOptions checks the options and the cache key.
+func (w wirePair) checkOptions(t *testing.T) {
+	t.Helper()
+	pair, prev, next := w.name, w.prev, w.next
 	if prev.cacheKey == "" || prev.cacheKey != next.cacheKey {
 		t.Errorf("%s: cache key %q, then %q", pair, prev.cacheKey, next.cacheKey)
 	}
@@ -609,62 +630,81 @@ func checkWirePair(t *testing.T, enc *wireEncoder, pair string, prevReq, nextReq
 			t.Errorf("%s: %q changed\nbefore: %.200s\n after: %.200s", pair, key, a, b)
 		}
 	}
-	// The instruction.
+}
+
+// checkInstruction checks the instruction.
+func (w wirePair) checkInstruction(t *testing.T) {
+	t.Helper()
+	pair, prev, next := w.name, w.prev, w.next
 	if prev.instruction != next.instruction && next.instruction != prev.instruction+"\n\n"+gotato.TagsSentence && next.instruction != prev.instruction+gotato.TagsSentence {
 		t.Errorf("%s: the instruction changed beyond the sentence about the tags", pair)
 	}
 	if prev.instructionMarked != next.instructionMarked {
 		t.Errorf("%s: the cache mark on the instruction changed", pair)
 	}
-	// The tool list.
+}
+
+// checkTools checks the tool list.
+func (w wirePair) checkTools(t *testing.T) {
+	t.Helper()
+	pair, prev, next := w.name, w.prev, w.next
 	if !slices.Equal(prev.tools, next.tools) && !slices.Equal(prev.tools, withoutReadSegment(next.tools)) {
 		t.Errorf("%s: the tool list changed beyond read_segment joining it\nbefore: %v\n after: %v", pair, prev.tools, next.tools)
 	}
-	if len(next.tools) > 0 && enc.api == apiAnthropic && len(next.toolMarks) != 1 {
+	if len(next.tools) > 0 && w.enc.api == apiAnthropic && len(next.toolMarks) != 1 {
 		t.Errorf("%s: %d cache marks on the tools", pair, len(next.toolMarks))
 	}
-	// The conversation.
-	p, n := prev.elements, next.elements
+}
+
+// checkConversation checks the conversation.
+func (w wirePair) checkConversation(t *testing.T) {
+	t.Helper()
+	pair, enc, kind := w.name, w.enc, w.kind
+	p, n := w.prev.elements, w.next.elements
 	switch kind.kind {
 	case "extends":
 		if len(n) < len(p) || !slices.Equal(p, n[:len(p)]) {
 			t.Errorf("%s: the earlier elements do not come first, byte for byte", pair)
 		}
 	case "closing":
-		segment := enc.blocks(t, prevReq, kind.before)
+		segment := enc.blocks(t, w.prevReq, kind.before)
 		if (segment == 0 && kind.before > 0) || len(n) < segment || !slices.Equal(p[:segment], n[:segment]) {
 			t.Errorf("%s: the elements of the Segments before do not come first, byte for byte (%d of them)", pair, segment)
 		}
-		if enc.blocks(t, nextReq, kind.after) <= segment {
+		if enc.blocks(t, w.nextReq, kind.after) <= segment {
 			t.Errorf("%s: the new Segment adds no element", pair)
 		}
 	case "merge":
-		merged := enc.blocks(t, nextReq, 1)
-		from, to := enc.blocks(t, prevReq, kind.kept), enc.blocks(t, prevReq, kind.before)
+		merged := enc.blocks(t, w.nextReq, 1)
+		from, to := enc.blocks(t, w.prevReq, kind.kept), enc.blocks(t, w.prevReq, kind.before)
 		if to <= from || len(n) < merged+to-from || !slices.Equal(p[from:to], n[merged:merged+to-from]) {
 			t.Errorf("%s: the elements of the Segments left do not follow the merged Segment, byte for byte (%d of them)", pair, to-from)
 		}
 	}
-	// The breakpoints on Anthropic: each lands on the end of the Message it names.
-	if enc.api == apiAnthropic {
-		for _, point := range nextReq.CacheBreakpoints {
-			if point.After != gotato.CacheAnchorAfterMessage {
-				continue
-			}
-			end := enc.blocks(t, nextReq, point.Index+1) - 1
-			if !slices.Contains(next.marks, end) {
-				t.Errorf("%s: the breakpoint after Message %d (element %d) has no cache mark; marks at %v", pair, point.Index, end, next.marks)
-			}
-		}
-		if len(next.marks)+len(next.toolMarks)+btoi(next.instructionMarked) > 4 {
-			t.Errorf("%s: more than four cache marks", pair)
-		}
-	}
 }
 
-func btoi(b bool) int {
-	if b {
-		return 1
+// checkBreakpoints checks the breakpoints on Anthropic: each lands on the end
+// of the Message it names.
+func (w wirePair) checkBreakpoints(t *testing.T) {
+	t.Helper()
+	pair, next := w.name, w.next
+	if w.enc.api != apiAnthropic {
+		return
 	}
-	return 0
+	for _, point := range w.nextReq.CacheBreakpoints {
+		if point.After != gotato.CacheAnchorAfterMessage {
+			continue
+		}
+		end := w.enc.blocks(t, w.nextReq, point.Index+1) - 1
+		if !slices.Contains(next.marks, end) {
+			t.Errorf("%s: the breakpoint after Message %d (element %d) has no cache mark; marks at %v", pair, point.Index, end, next.marks)
+		}
+	}
+	marks := len(next.marks) + len(next.toolMarks)
+	if next.instructionMarked {
+		marks++
+	}
+	if marks > 4 {
+		t.Errorf("%s: more than four cache marks", pair)
+	}
 }
