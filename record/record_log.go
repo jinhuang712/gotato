@@ -169,6 +169,23 @@ func (s *Record) apply(entry Entry) error {
 		return gotato.ErrorOf(gotato.CodeNotSupported, fmt.Sprintf("record: entry %d has unknown kind %q", entry.Seq, entry.Kind))
 	}
 	event = gotato.WithNumber(event, entry.Seq)
+	if !s.foldCheckpoint(event) && !s.foldMessage(event) && !s.foldRun(event) {
+		s.foldSession(event)
+	}
+	at := event.Head().Time
+	if at.IsZero() {
+		at = entry.At
+	}
+	s.indexMessage(event, at)
+	if s.retainRead {
+		s.retain(gotato.WithoutBody(event))
+	}
+	return nil
+}
+
+// foldCheckpoint folds a Checkpoint Event into the Record's state, and says
+// whether event was one.
+func (s *Record) foldCheckpoint(event gotato.Event) bool {
 	switch e := event.(type) {
 	case gotato.SessionCreated:
 		s.id = string(e.SessionID)
@@ -178,14 +195,14 @@ func (s *Record) apply(entry Entry) error {
 		if e.ForkedFrom != nil {
 			s.parentID, s.parentSeq = string(e.ForkedFrom.SessionID), e.ForkedFrom.Number
 		}
-		s.restore(e.Messages, e.Metadata, e.Compactions, e.LoadedTools, e.Segments, e.Tail)
+		s.restore(checkpointState{messages: e.Messages, metadata: e.Metadata, compactions: e.Compactions, loaded: e.LoadedTools, segments: e.Segments, tail: e.Tail})
 		s.restoreTotals(e.Runs, e.Usage, e.LastRunEnd)
 	case gotato.CompactionEnded:
 		if s.id == "" {
 			// A load that starts at this Checkpoint has not read session_created.
 			s.id = string(e.SessionID)
 		}
-		s.restore(e.Messages, e.Metadata, e.History, e.LoadedTools, e.Segments, e.Tail)
+		s.restore(checkpointState{messages: e.Messages, metadata: e.Metadata, compactions: e.History, loaded: e.LoadedTools, segments: e.Segments, tail: e.Tail})
 		s.restoreTotals(e.Runs, e.Usage, e.LastRunEnd)
 		s.notices = slices.Clone(e.Notices)
 		s.running = e.Running
@@ -195,8 +212,16 @@ func (s *Record) apply(entry Entry) error {
 			s.claim = Claim{Instance: e.Instance, Epoch: e.Epoch}
 			s.busy = true
 		}
-	case gotato.SegmentClosed:
-		s.closeLocked(e.Segment)
+	default:
+		return false
+	}
+	return true
+}
+
+// foldMessage folds an Event that commits or queues a Message, or keeps a
+// part of a reply, into the Record's state, and says whether event was one.
+func (s *Record) foldMessage(event gotato.Event) bool {
+	switch e := event.(type) {
 	case gotato.MessageQueued:
 		s.foldQueued(e)
 	case gotato.MessageCommitted:
@@ -214,28 +239,27 @@ func (s *Record) apply(entry Entry) error {
 		s.addMessage(e.Message)
 	case gotato.ToolResultCommitted:
 		s.addMessage(e.Message)
+	case gotato.ReplyPartKept:
+		s.addPart(replyPart{RunID: e.RunID, MessageID: e.MessageID, Text: e.Text, Reasoning: e.Reasoning})
+	default:
+		return false
+	}
+	return true
+}
+
+// foldRun folds an Event of a Run or of its Tools into the Record's state, and
+// says whether event was one.
+func (s *Record) foldRun(event gotato.Event) bool {
+	switch e := event.(type) {
 	case gotato.ToolStarted:
 		if s.started == nil {
 			s.started = map[gotato.ToolCallID]bool{}
 		}
 		s.started[e.CallID] = true
-	case gotato.ReplyPartKept:
-		s.addPart(replyPart{RunID: e.RunID, MessageID: e.MessageID, Text: e.Text, Reasoning: e.Reasoning})
-	case gotato.MetadataChanged:
-		if e.Value == "" {
-			delete(s.metadata, e.Key)
-		} else {
-			s.metadata[e.Key] = e.Value
-		}
 	case gotato.ToolLoaded:
 		s.load(e.ToolID)
 	case gotato.ToolUnloaded:
 		s.unload(e.ToolID)
-	case gotato.SessionClaimed:
-		s.claim = Claim{Instance: e.Instance, Epoch: e.Epoch}
-		s.busy = true
-	case gotato.SessionReleased:
-		s.busy = false
 	case gotato.RunStarted:
 		s.runs = append(s.runs, runStarted(e))
 		s.running = e.RunID
@@ -244,29 +268,54 @@ func (s *Record) apply(entry Entry) error {
 		// A reply of a Run that ended and left parts but no Message was
 		// refused, by a limit for one: it is not part of the history.
 		s.dropParts(e.RunID)
+	default:
+		return false
 	}
-	at := event.Head().Time
-	if at.IsZero() {
-		at = entry.At
+	return true
+}
+
+// foldSession folds an Event of the Session itself, its Segments, Metadata or
+// Claim, into the Record's state.
+func (s *Record) foldSession(event gotato.Event) {
+	switch e := event.(type) {
+	case gotato.SegmentClosed:
+		s.closeLocked(e.Segment)
+	case gotato.MetadataChanged:
+		if e.Value == "" {
+			delete(s.metadata, e.Key)
+		} else {
+			s.metadata[e.Key] = e.Value
+		}
+	case gotato.SessionClaimed:
+		s.claim = Claim{Instance: e.Instance, Epoch: e.Epoch}
+		s.busy = true
+	case gotato.SessionReleased:
+		s.busy = false
 	}
-	s.indexMessage(event, at)
-	if s.retainRead {
-		s.retain(gotato.WithoutBody(event))
-	}
-	return nil
+}
+
+// checkpointState is the state a Checkpoint (session_created or
+// compaction_ended) holds that restore sets.
+type checkpointState struct {
+	messages    []gotato.Message
+	metadata    map[string]string
+	compactions []gotato.Compaction
+	loaded      []string
+	segments    []int
+	tail        []gotato.MessagePosition
 }
 
 // restore sets the state a Checkpoint (session_created or compaction_ended)
 // holds, and forgets what was in flight before it.
-func (s *Record) restore(messages []gotato.Message, metadata map[string]string, compactions []gotato.Compaction, loaded []string, segments []int, tail []gotato.MessagePosition) {
-	s.messages = messages
-	s.metadata = metadata
+func (s *Record) restore(state checkpointState) {
+	s.messages = state.messages
+	s.metadata = state.metadata
 	if s.metadata == nil {
 		s.metadata = map[string]string{}
 	}
-	s.compactions = compactions
-	s.loaded = slices.Clone(loaded)
-	s.startContext(segments, tail)
+	s.compactions = state.compactions
+	s.loaded = slices.Clone(state.loaded)
+	s.startContext(state.segments, state.tail)
 	s.started = nil
 	s.openParts = nil
 }
