@@ -117,10 +117,17 @@ func checkDefinitionInvalidKey(ctx context.Context, open OpenDefinitions) error 
 	return nil
 }
 
+const (
+	// concurrentSaves is how many writers save one definition at once.
+	concurrentSaves = 8
+	// concurrentDocBytes is the size of each document those writers save.
+	concurrentDocBytes = 64 << 10
+)
+
 func checkDefinitionConcurrentSaves(ctx context.Context, open OpenDefinitions) error {
-	docs := make([][]byte, 8)
+	docs := make([][]byte, concurrentSaves)
 	for i := range docs {
-		docs[i] = bytes.Repeat([]byte{byte('a' + i)}, 64<<10)
+		docs[i] = bytes.Repeat([]byte{byte('a' + i)}, concurrentDocBytes)
 	}
 	var wg sync.WaitGroup
 	errs := make([]error, len(docs))
