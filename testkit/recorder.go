@@ -22,13 +22,20 @@ type EventRecorder struct {
 	done      chan struct{}
 }
 
+const (
+	// recorderBuffer is the subscription buffer of RecordEvents: large enough that a test never overflows it.
+	recorderBuffer = 1 << 16
+	// settleTimeout is how long Events waits for the recorder to catch up with the Session.
+	settleTimeout = 5 * time.Second
+)
+
 // RecordEvents subscribes to a live Session and records every Event it
 // publishes from now on, the stored Events and the deltas. Call it right after
 // NewSession, before the first Prompt. Events waits until the recorder has
 // read everything the Session has published, so a test can read the
 // recording as soon as Prompt returns.
 func RecordEvents(s *gotato.Session) *EventRecorder {
-	sub, err := s.Subscribe(context.Background(), gotato.SubscribeBuffer(1<<16))
+	sub, err := s.Subscribe(context.Background(), gotato.SubscribeBuffer(recorderBuffer))
 	if err != nil {
 		panic("testkit: " + err.Error())
 	}
@@ -70,7 +77,7 @@ func (r *EventRecorder) Events() []gotato.Event {
 	r.mu.Lock()
 	defer r.mu.Unlock()
 	if r.published != nil {
-		deadline := time.Now().Add(5 * time.Second)
+		deadline := time.Now().Add(settleTimeout)
 		for uint64(len(r.events)) < r.published()-r.base && time.Now().Before(deadline) {
 			r.mu.Unlock()
 			time.Sleep(time.Millisecond)
