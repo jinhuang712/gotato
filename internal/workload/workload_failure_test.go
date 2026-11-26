@@ -326,209 +326,238 @@ func (r *rig) wantUsable(id string, before []gotato.Message) {
 // (wantSettled), the Record keeps the steps committed before it, and the
 // next Run on the Session succeeds (wantUsable).
 func TestFailureLeavesTheSessionUsable(t *testing.T) {
-	t.Run("a provider error", func(t *testing.T) {
-		for _, tc := range []struct {
-			name  string
-			fault rigFault
-		}{
-			{"on the first call", rigFault{model: "error"}},
-			{"after a tool step", rigFault{model: "error", afterTool: true}},
-			{"mid-reply on the first call", rigFault{model: "midstream"}},
-			{"mid-reply after a tool step", rigFault{model: "midstream", afterTool: true}},
-		} {
-			t.Run(tc.name, func(t *testing.T) {
-				r, _ := newRig(t)
-				id, before := r.seed()
-				r.arm(tc.fault)
-				res, _ := r.settled(host.RunRequest{SessionID: id, Prompt: "use-tool two"})
-				wantSettled(t, res, gotato.RunStatusFailed)
-				r.wantUsable(id, before)
-			})
-		}
-	})
+	t.Run("a provider error", testProviderError)
+	t.Run("a tool that panics", testToolPanics)
+	t.Run("a tool that hangs", testToolHangs)
+	t.Run("a store write that fails once", testStoreWriteFailsOnce)
+	t.Run("a subscriber that stops reading", testSubscriberStops)
+	t.Run("a stream sink that stops reading", testSinkStops)
+}
 
-	t.Run("a tool that panics", func(t *testing.T) {
-		r, _ := newRig(t)
-		id, before := r.seed()
-		r.arm(rigFault{tool: "panic"})
-		res, _ := r.settled(host.RunRequest{SessionID: id, Prompt: "use-tool two"})
-		wantSettled(t, res, "")
-		// The panic is a failed tool call the model is told about.
-		var failed bool
-		for _, m := range r.load(id)[len(before):] {
-			if m.ToolResult != nil && m.ToolResult.Status != gotato.ToolResultStatusOK {
-				failed = true
-			}
-		}
-		if !failed && res.Result.Status == gotato.RunStatusCompleted {
-			t.Fatal("the panic left no failed tool result in the Record")
-		}
-		r.wantUsable(id, before)
-	})
-
-	t.Run("a tool that hangs", func(t *testing.T) {
-		t.Run("until the Run's deadline", func(t *testing.T) {
+// testProviderError checks a provider error before a reply and mid-reply, on the first call and after a tool step.
+func testProviderError(t *testing.T) {
+	for _, tc := range []struct {
+		name  string
+		fault rigFault
+	}{
+		{"on the first call", rigFault{model: "error"}},
+		{"after a tool step", rigFault{model: "error", afterTool: true}},
+		{"mid-reply on the first call", rigFault{model: "midstream"}},
+		{"mid-reply after a tool step", rigFault{model: "midstream", afterTool: true}},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
 			r, _ := newRig(t)
 			id, before := r.seed()
-			r.arm(rigFault{tool: "hang"})
-			res, _ := r.settled(host.RunRequest{SessionID: id, Prompt: "use-tool two", Timeout: 100 * time.Millisecond})
-			wantSettled(t, res, gotato.RunStatusDeadlineExceeded)
+			r.arm(tc.fault)
+			res, _ := r.settled(host.RunRequest{SessionID: id, Prompt: "use-tool two"})
+			wantSettled(t, res, gotato.RunStatusFailed)
 			r.wantUsable(id, before)
 		})
-		t.Run("until the Run is canceled", func(t *testing.T) {
-			r, _ := newRig(t)
-			id, before := r.seed()
-			r.arm(rigFault{tool: "hang"})
-			_, started := r.current()
-			done := make(chan outcome, 1)
-			go func() {
-				res, err := r.runner.Run(context.Background(), host.RunRequest{SessionID: id, Prompt: "use-tool two"})
-				done <- outcome{res, err}
-			}()
-			select {
-			case <-started:
-			case <-time.After(10 * time.Second):
-				t.Fatal("the tool never started")
-			}
-			if err := r.runner.AbortSession(context.Background(), id); err != nil {
-				t.Fatal(err)
-			}
-			select {
-			case o := <-done:
-				wantSettled(t, o.res, gotato.RunStatusCanceled)
-			case <-time.After(10 * time.Second):
-				t.Fatal("the Run did not settle after it was canceled")
-			}
-			r.wantUsable(id, before)
-		})
-	})
+	}
+}
 
-	t.Run("a store write that fails once", func(t *testing.T) {
-		// A clean play of the faulted Run counts its writes and keeps the
-		// Record after each.
-		clean, cleanStore := newRig(t)
-		cleanID, _ := clean.seed()
-		cleanStore.reset(0)
-		if res, err := clean.settled(host.RunRequest{SessionID: cleanID, Prompt: "use-tool two"}); err != nil || res.Result.Status != gotato.RunStatusCompleted {
-			t.Fatalf("a clean Run = %+v, %v", res.Result, err)
+// testToolPanics checks a tool that panics.
+func testToolPanics(t *testing.T) {
+	r, _ := newRig(t)
+	id, before := r.seed()
+	r.arm(rigFault{tool: "panic"})
+	res, _ := r.settled(host.RunRequest{SessionID: id, Prompt: "use-tool two"})
+	wantSettled(t, res, "")
+	// The panic is a failed tool call the model is told about.
+	var failed bool
+	for _, m := range r.load(id)[len(before):] {
+		if m.ToolResult != nil && m.ToolResult.Status != gotato.ToolResultStatusOK {
+			failed = true
 		}
-		writes, states := cleanStore.writes, cleanStore.states
-		if writes < 3 {
-			t.Fatalf("a Run made %d writes", writes)
-		}
-		t.Logf("%d writes in a Run, a failure at each", writes)
-		for n := 1; n <= writes; n++ {
-			r, store := newRig(t)
-			id, before := r.seed()
-			store.reset(n)
-			res, err := r.settled(host.RunRequest{SessionID: id, Prompt: "use-tool two"})
-			// The last write only releases the Session: every fact of the Run is
-			// stored, so that Run completes. A failure of any earlier write does not.
-			if releaseOnly := n == writes; releaseOnly != (err == nil && res.Result.Status == gotato.RunStatusCompleted) {
-				t.Fatalf("write %d failed: the Run settled as %q with %v", n, res.Result.Status, err)
-			}
-			// completed never carries an error: a Run whose reply or end was
-			// not written settles as failed, and says why.
-			if err != nil && res.Result.Status == gotato.RunStatusCompleted {
-				t.Fatalf("write %d failed: the Run says completed and returns %v", n, err)
-			}
-			if res.Result.Status == gotato.RunStatusFailed && !errors.Is(err, host.ErrNotPersisted) {
-				t.Fatalf("write %d failed: failed with err = %v, want ErrNotPersisted", n, err)
-			}
-			if res.Result.Status == "" {
-				// A Run refused before it started has no result, and says why.
-				if err == nil {
-					t.Fatalf("write %d failed: the Run returned neither a result nor an error", n)
-				}
-			} else {
-				wantSettled(t, res, "")
-			}
-			// The Record holds what the write before the failed one left,
-			// and nothing the clean Run would not have written.
-			held := before
-			if n > 1 {
-				held = states[n-2]
-			}
-			// Opening a Session answers a tool call left open with a repair
-			// Message that is not stored; it is not a step of the Run.
-			got, held, final := unrepaired(r.load(id)), unrepaired(held), unrepaired(states[len(states)-1])
-			if len(got) < len(held) || shape(got[:len(held)]) != shape(held) {
-				t.Fatalf("write %d failed: the Record holds\n%s\nwant it to start with\n%s", n, shape(got), shape(held))
-			}
-			if len(got) > len(final) || shape(got) != shape(final[:len(got)]) {
-				t.Fatalf("write %d failed: the Record holds\n%s\nwhich the clean Run never wrote", n, shape(got))
-			}
-			r.wantUsable(id, before)
-		}
-	})
+	}
+	if !failed && res.Result.Status == gotato.RunStatusCompleted {
+		t.Fatal("the panic left no failed tool result in the Record")
+	}
+	r.wantUsable(id, before)
+}
 
-	t.Run("a subscriber that stops reading", func(t *testing.T) {
+// testToolHangs checks a tool that hangs until the Run's deadline or until the Run is canceled.
+func testToolHangs(t *testing.T) {
+	t.Run("until the Run's deadline", func(t *testing.T) {
 		r, _ := newRig(t)
-		ctx := context.Background()
 		id, before := r.seed()
-		instance, err := r.runner.SubscribeInstance(ctx, gotato.SubscribeBuffer(1))
-		if err != nil {
-			t.Fatal(err)
-		}
-		t.Cleanup(func() { _ = instance.Close() })
-		stream, err := r.runner.StreamSession(ctx, id, host.StreamFrom{After: 0})
-		if err != nil {
-			t.Fatal(err)
-		}
-		t.Cleanup(func() { _ = stream.Close() })
-		res, err := r.settled(host.RunRequest{SessionID: id, Prompt: "use-tool two"})
-		if err != nil || res.Result.Status != gotato.RunStatusCompleted {
-			t.Fatalf("a Run with a stalled subscriber = %+v, %v", res.Result, err)
-		}
-		if got := r.load(id); len(got) != len(before)+4 {
-			t.Fatalf("the Run left %d new Messages, want 4:\n%s", len(got)-len(before), shape(got))
-		}
+		r.arm(rigFault{tool: "hang"})
+		res, _ := r.settled(host.RunRequest{SessionID: id, Prompt: "use-tool two", Timeout: 100 * time.Millisecond})
+		wantSettled(t, res, gotato.RunStatusDeadlineExceeded)
 		r.wantUsable(id, before)
 	})
-
-	t.Run("a stream sink that stops reading", func(t *testing.T) {
+	t.Run("until the Run is canceled", func(t *testing.T) {
 		r, _ := newRig(t)
-		ctx := context.Background()
 		id, before := r.seed()
-		release := make(chan struct{})
-		got := make(chan struct{})
-		var once sync.Once
-		finished := make(chan error, 1)
+		r.arm(rigFault{tool: "hang"})
+		_, started := r.current()
+		done := make(chan outcome, 1)
 		go func() {
-			_, err := r.runner.StreamRun(ctx, host.RunRequest{SessionID: id, Prompt: "use-tool two"}, func(gotato.Event) error {
-				once.Do(func() { close(got) })
-				<-release
-				return nil
-			})
-			finished <- err
+			res, err := r.runner.Run(context.Background(), host.RunRequest{SessionID: id, Prompt: "use-tool two"})
+			done <- outcome{res, err}
 		}()
 		select {
-		case <-got:
+		case <-started:
 		case <-time.After(10 * time.Second):
-			t.Fatal("the sink got no Event")
+			t.Fatal("the tool never started")
 		}
-		// The sink is stuck; the Run must still settle and be saved.
-		deadline := time.Now().Add(10 * time.Second)
-		for {
-			view, err := r.runner.Record(ctx, id)
-			if err != nil {
-				t.Fatal(err)
-			}
-			if runs := view.Runs; len(runs) == 2 && runs[1].Status == gotato.RunStatusCompleted {
-				break
-			}
-			if time.Now().After(deadline) {
-				close(release)
-				t.Fatal("the Run waited for a sink that stopped reading")
-			}
-			time.Sleep(5 * time.Millisecond)
+		if err := r.runner.AbortSession(context.Background(), id); err != nil {
+			t.Fatal(err)
 		}
-		close(release)
-		if err := <-finished; err != nil {
-			t.Fatalf("StreamRun: %v", err)
+		select {
+		case o := <-done:
+			wantSettled(t, o.res, gotato.RunStatusCanceled)
+		case <-time.After(10 * time.Second):
+			t.Fatal("the Run did not settle after it was canceled")
 		}
 		r.wantUsable(id, before)
 	})
+}
+
+// testStoreWriteFailsOnce checks a store write that fails once, at each write
+// of a Run in turn.
+func testStoreWriteFailsOnce(t *testing.T) {
+	// A clean play of the faulted Run counts its writes and keeps the
+	// Record after each.
+	clean, cleanStore := newRig(t)
+	cleanID, _ := clean.seed()
+	cleanStore.reset(0)
+	if res, err := clean.settled(host.RunRequest{SessionID: cleanID, Prompt: "use-tool two"}); err != nil || res.Result.Status != gotato.RunStatusCompleted {
+		t.Fatalf("a clean Run = %+v, %v", res.Result, err)
+	}
+	writes, states := cleanStore.writes, cleanStore.states
+	if writes < 3 {
+		t.Fatalf("a Run made %d writes", writes)
+	}
+	t.Logf("%d writes in a Run, a failure at each", writes)
+	for n := 1; n <= writes; n++ {
+		r, store := newRig(t)
+		id, before := r.seed()
+		store.reset(n)
+		res, err := r.settled(host.RunRequest{SessionID: id, Prompt: "use-tool two"})
+		wantFailedWriteSettled(t, n, writes, res, err)
+		r.wantRecordAfterFailedWrite(id, n, before, states)
+		r.wantUsable(id, before)
+	}
+}
+
+// wantFailedWriteSettled checks how a Run settled when write n of writes
+// failed.
+func wantFailedWriteSettled(t *testing.T, n, writes int, res host.RunResponse, err error) {
+	t.Helper()
+	// The last write only releases the Session: every fact of the Run is
+	// stored, so that Run completes. A failure of any earlier write does not.
+	if releaseOnly := n == writes; releaseOnly != (err == nil && res.Result.Status == gotato.RunStatusCompleted) {
+		t.Fatalf("write %d failed: the Run settled as %q with %v", n, res.Result.Status, err)
+	}
+	// completed never carries an error: a Run whose reply or end was
+	// not written settles as failed, and says why.
+	if err != nil && res.Result.Status == gotato.RunStatusCompleted {
+		t.Fatalf("write %d failed: the Run says completed and returns %v", n, err)
+	}
+	if res.Result.Status == gotato.RunStatusFailed && !errors.Is(err, host.ErrNotPersisted) {
+		t.Fatalf("write %d failed: failed with err = %v, want ErrNotPersisted", n, err)
+	}
+	if res.Result.Status == "" {
+		// A Run refused before it started has no result, and says why.
+		if err == nil {
+			t.Fatalf("write %d failed: the Run returned neither a result nor an error", n)
+		}
+	} else {
+		wantSettled(t, res, "")
+	}
+}
+
+// wantRecordAfterFailedWrite checks the Record of Session id after write n
+// failed: states holds the Messages after each write of the clean Run.
+func (r *rig) wantRecordAfterFailedWrite(id string, n int, before []gotato.Message, states [][]gotato.Message) {
+	t := r.t
+	t.Helper()
+	// The Record holds what the write before the failed one left,
+	// and nothing the clean Run would not have written.
+	held := before
+	if n > 1 {
+		held = states[n-2]
+	}
+	// Opening a Session answers a tool call left open with a repair
+	// Message that is not stored; it is not a step of the Run.
+	got, held, final := unrepaired(r.load(id)), unrepaired(held), unrepaired(states[len(states)-1])
+	if len(got) < len(held) || shape(got[:len(held)]) != shape(held) {
+		t.Fatalf("write %d failed: the Record holds\n%s\nwant it to start with\n%s", n, shape(got), shape(held))
+	}
+	if len(got) > len(final) || shape(got) != shape(final[:len(got)]) {
+		t.Fatalf("write %d failed: the Record holds\n%s\nwhich the clean Run never wrote", n, shape(got))
+	}
+}
+
+// testSubscriberStops checks a subscriber that stops reading.
+func testSubscriberStops(t *testing.T) {
+	r, _ := newRig(t)
+	ctx := context.Background()
+	id, before := r.seed()
+	instance, err := r.runner.SubscribeInstance(ctx, gotato.SubscribeBuffer(1))
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = instance.Close() })
+	stream, err := r.runner.StreamSession(ctx, id, host.StreamFrom{After: 0})
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = stream.Close() })
+	res, err := r.settled(host.RunRequest{SessionID: id, Prompt: "use-tool two"})
+	if err != nil || res.Result.Status != gotato.RunStatusCompleted {
+		t.Fatalf("a Run with a stalled subscriber = %+v, %v", res.Result, err)
+	}
+	if got := r.load(id); len(got) != len(before)+4 {
+		t.Fatalf("the Run left %d new Messages, want 4:\n%s", len(got)-len(before), shape(got))
+	}
+	r.wantUsable(id, before)
+}
+
+// testSinkStops checks a stream sink that stops reading.
+func testSinkStops(t *testing.T) {
+	r, _ := newRig(t)
+	ctx := context.Background()
+	id, before := r.seed()
+	release := make(chan struct{})
+	got := make(chan struct{})
+	var once sync.Once
+	finished := make(chan error, 1)
+	go func() {
+		_, err := r.runner.StreamRun(ctx, host.RunRequest{SessionID: id, Prompt: "use-tool two"}, func(gotato.Event) error {
+			once.Do(func() { close(got) })
+			<-release
+			return nil
+		})
+		finished <- err
+	}()
+	select {
+	case <-got:
+	case <-time.After(10 * time.Second):
+		t.Fatal("the sink got no Event")
+	}
+	// The sink is stuck; the Run must still settle and be saved.
+	deadline := time.Now().Add(10 * time.Second)
+	for {
+		view, err := r.runner.Record(ctx, id)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if runs := view.Runs; len(runs) == 2 && runs[1].Status == gotato.RunStatusCompleted {
+			break
+		}
+		if time.Now().After(deadline) {
+			close(release)
+			t.Fatal("the Run waited for a sink that stopped reading")
+		}
+		time.Sleep(5 * time.Millisecond)
+	}
+	close(release)
+	if err := <-finished; err != nil {
+		t.Fatalf("StreamRun: %v", err)
+	}
+	r.wantUsable(id, before)
 }
 
 // unrepaired leaves out the answers that opening a Session adds to tool calls
