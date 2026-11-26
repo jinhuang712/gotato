@@ -107,10 +107,7 @@ func (r refusal) Unwrap() error { return r.err }
 // Admitter decides. It returns the func that ends the admission, to call
 // exactly once when the Run is over: the Admitter's release, then the count.
 func (r *Runner) admit(ctx context.Context, handle *runHandle, request RunRequest, agent string) (func(), error) {
-	admission := Admission{SessionID: handle.sessionID, Agent: agent}
-	if request.task != nil {
-		admission.Task = request.task.spec.Name
-	}
+	admission := admissionOf(handle, request, agent)
 	decide := func(counts runs.Counts) (release func(), err error) {
 		defer func() {
 			// [CONTRACT] a panic in the Admitter refuses the Run; it does not take the Runner down with the table's lock held.
@@ -133,24 +130,48 @@ func (r *Runner) admit(ctx context.Context, handle *runHandle, request RunReques
 			r.dropEntry(victim, "evicted")
 			continue
 		}
-		var refused refusal
-		switch {
-		case errors.Is(err, runs.ErrDraining):
-			return nil, ErrDraining
-		case errors.Is(err, runs.ErrOverloaded):
-			return nil, ErrOverloaded
-		case errors.As(err, &refused):
-			return nil, refusedByAdmitter(refused.err)
+		if err := admitError(err); err != nil {
+			return nil, err
 		}
-		return sync.OnceFunc(func() {
-			// The Admitter's count is given back before the Run stops counting
-			// as in flight, so a drain that saw the last Run end saw it all.
-			if release != nil {
-				release()
-			}
-			r.runs.Done()
-		}), nil
+		return r.endAdmission(release), nil
 	}
+}
+
+// admissionOf is the Admission the Admitter is asked about for a Run.
+func admissionOf(handle *runHandle, request RunRequest, agent string) Admission {
+	admission := Admission{SessionID: handle.sessionID, Agent: agent}
+	if request.task != nil {
+		admission.Task = request.task.spec.Name
+	}
+	return admission
+}
+
+// admitError is the Run's error for the table's refusal err, or nil when the
+// table admitted the Run.
+func admitError(err error) error {
+	var refused refusal
+	switch {
+	case errors.Is(err, runs.ErrDraining):
+		return ErrDraining
+	case errors.Is(err, runs.ErrOverloaded):
+		return ErrOverloaded
+	case errors.As(err, &refused):
+		return refusedByAdmitter(refused.err)
+	}
+	return nil
+}
+
+// endAdmission is the func that ends an admission, once: the Admitter's
+// release, when it gave one, then the count.
+func (r *Runner) endAdmission(release func()) func() {
+	return sync.OnceFunc(func() {
+		// The Admitter's count is given back before the Run stops counting
+		// as in flight, so a drain that saw the last Run end saw it all.
+		if release != nil {
+			release()
+		}
+		r.runs.Done()
+	})
 }
 
 // refusedByAdmitter makes the Admitter's error the Run's: a Run it refuses
