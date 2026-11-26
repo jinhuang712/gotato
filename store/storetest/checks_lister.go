@@ -31,7 +31,7 @@ func checkList(ctx context.Context, open Open) error {
 			return fmt.Errorf("create: %w", err)
 		}
 	}
-	if err := st.Append(ctx, "older", 1, []record.Entry{fact(2, "a")}, header("older", 2, "2026-10-17T00:00:03.000Z")); err != nil {
+	if err := st.Append(ctx, "older", 1, []record.Entry{fact(secondEntry, "a")}, header("older", secondEntry, "2026-10-17T00:00:03.000Z")); err != nil {
 		return fmt.Errorf("append: %w", err)
 	}
 	list, err := listAll(ctx, lister, 0)
@@ -41,7 +41,7 @@ func checkList(ctx context.Context, open Open) error {
 	if got, want := idsOf(list), []string{"older", "newer", "tie-a", "tie-b"}; !slices.Equal(got, want) {
 		return failf("List returned %v, want %v: %s", got, want, ruleListOrder)
 	}
-	if list[0].Messages != 2 || !list[0].UpdatedAt.Equal(infoTime("2026-10-17T00:00:03.000Z")) {
+	if list[0].Messages != secondEntry || !list[0].UpdatedAt.Equal(infoTime("2026-10-17T00:00:03.000Z")) {
 		return failf("List returned %+v for the Record appended to, want the Info of its last write (Messages 2): %s", list[0], ruleListOrder)
 	}
 	first, err := lister.List(ctx, store.ListQuery{})
@@ -51,30 +51,35 @@ func checkList(ctx context.Context, open Open) error {
 	return nil
 }
 
+// secondEntry is the position of the second Entry of a Record, the first an
+// Append adds after a one-Entry Create.
+const secondEntry = 2
+
+const (
+	// pagedRecords is how many Records the paging check lists.
+	pagedRecords = 7
+	// pagedFirstSecond is the second of the day at which the first Record was updated; each later Record is one second older.
+	pagedFirstSecond = 9
+	// pagedTie is the index of the Record that shares its update time with the one before it, so the cursor must break the tie.
+	pagedTie = 3
+	// pagedLimit is the page size of the last, partial walk.
+	pagedLimit = 2
+)
+
 func checkListPaging(ctx context.Context, open Open) error {
 	st, lister, err := listerOf(open)
 	if err != nil {
 		return err
 	}
-	var want []string
-	for i := range 7 {
-		id := fmt.Sprintf("r%d", i)
-		// Two Records share an update time, so the cursor must break ties.
-		second := 9 - i
-		if i == 3 {
-			second = 9 - 2
-		}
-		updated := fmt.Sprintf("2026-10-17T00:00:%02d.000Z", second)
-		if err := st.Create(ctx, id, []record.Entry{checkpoint(1, "a")}, header(id, 1, updated)); err != nil {
-			return fmt.Errorf("create: %w", err)
-		}
+	if err := createPaged(ctx, st); err != nil {
+		return err
 	}
 	all, err := listAll(ctx, lister, 0)
 	if err != nil {
 		return err
 	}
-	want = idsOf(all)
-	if len(want) != 7 {
+	want := idsOf(all)
+	if len(want) != pagedRecords {
 		return failf("List returned %d Records (%v), want 7: %s", len(want), want, ruleListPages)
 	}
 	for _, limit := range []int{1, 2, 3, 6, 7, 100} {
@@ -88,12 +93,30 @@ func checkListPaging(ctx context.Context, open Open) error {
 	}
 	// A Record updated while a caller pages may repeat or be skipped, but a
 	// walk still ends, and the Records it did not touch are each seen once.
-	page, err := lister.List(ctx, store.ListQuery{Limit: 2})
+	page, err := lister.List(ctx, store.ListQuery{Limit: pagedLimit})
 	if err != nil {
 		return fmt.Errorf("list: %w", err)
 	}
 	if page.Next == "" {
 		return failf("List with Limit 2 of 7 Records returned Next %q, want a Cursor: %s", page.Next, ruleListPages)
+	}
+	return nil
+}
+
+// createPaged creates the pagedRecords Records of the paging check, each
+// updated a second before the one before it, except the one at pagedTie.
+func createPaged(ctx context.Context, st store.Records) error {
+	for i := range pagedRecords {
+		id := fmt.Sprintf("r%d", i)
+		// Two Records share an update time, so the cursor must break ties.
+		second := pagedFirstSecond - i
+		if i == pagedTie {
+			second = pagedFirstSecond - (pagedTie - 1)
+		}
+		updated := fmt.Sprintf("2026-10-17T00:00:%02d.000Z", second)
+		if err := st.Create(ctx, id, []record.Entry{checkpoint(1, "a")}, header(id, 1, updated)); err != nil {
+			return fmt.Errorf("create: %w", err)
+		}
 	}
 	return nil
 }
@@ -140,7 +163,7 @@ func checkListInfoKept(ctx context.Context, open Open) error {
 	}
 	// A second value, so that Append is told from Create.
 	next.Info.Messages, next.Info.Runs = first.Info.Messages+1, first.Info.Runs+1
-	if err := store.Append(ctx, "shape", 1, []record.Entry{fact(2, "a")}, next); err != nil {
+	if err := store.Append(ctx, "shape", 1, []record.Entry{fact(secondEntry, "a")}, next); err != nil {
 		return fmt.Errorf("append: %w", err)
 	}
 	list, err := listAll(ctx, lister, 0)
