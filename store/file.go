@@ -255,28 +255,7 @@ func (f *FileStore) Log(ctx context.Context, id string, after uint64, limit int)
 	if err != nil {
 		return nil, err
 	}
-	var out []record.Entry
-	for i, first := range firsts {
-		if i+1 < len(firsts) && firsts[i+1] <= after+1 {
-			continue
-		}
-		batch, err := readBatch(filepath.Join(dir, batchName(first)))
-		if errors.Is(err, os.ErrNotExist) {
-			return nil, record.ErrNotFound
-		}
-		if err != nil {
-			return nil, err
-		}
-		for _, entry := range batch.Entries {
-			if entry.Seq > after {
-				out = append(out, entry)
-			}
-		}
-		if limit > 0 && len(out) >= limit {
-			return out[:limit], nil
-		}
-	}
-	return out, nil
+	return readLog(dir, firsts, after, limit)
 }
 
 // List implements Lister: a page of the Records, the most recently updated

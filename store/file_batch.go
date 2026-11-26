@@ -166,6 +166,51 @@ func (f *FileStore) batchList(id string) (string, []uint64, error) {
 	return dir, firsts, nil
 }
 
+// readLog returns the Entries after position after of the writes that begin at
+// firsts in dir, at most limit of them when limit is positive.
+func readLog(dir string, firsts []uint64, after uint64, limit int) ([]record.Entry, error) {
+	var out []record.Entry
+	for i, first := range firsts {
+		if endsBefore(firsts, i, after) {
+			continue
+		}
+		batch, err := readBatchFound(filepath.Join(dir, batchName(first)))
+		if err != nil {
+			return nil, err
+		}
+		out = appendAfter(out, batch.Entries, after)
+		if limit > 0 && len(out) >= limit {
+			return out[:limit], nil
+		}
+	}
+	return out, nil
+}
+
+// endsBefore reports whether the write firsts[i] holds only positions up to
+// after, because the next write begins at or before after+1.
+func endsBefore(firsts []uint64, i int, after uint64) bool {
+	return i+1 < len(firsts) && firsts[i+1] <= after+1
+}
+
+// appendAfter appends to out the Entries whose position is past after.
+func appendAfter(out, entries []record.Entry, after uint64) []record.Entry {
+	for _, entry := range entries {
+		if entry.Seq > after {
+			out = append(out, entry)
+		}
+	}
+	return out
+}
+
+// readBatchFound reads the write at path, and returns ErrNotFound when the file is gone.
+func readBatchFound(path string) (fileBatch, error) {
+	batch, err := readBatch(path)
+	if errors.Is(err, os.ErrNotExist) {
+		return fileBatch{}, record.ErrNotFound
+	}
+	return batch, err
+}
+
 // segmentBatch is a write read for its segment_closed Entries alone: any other
 // Entry is scanned and dropped, so a Record's long past is not held in memory.
 type segmentBatch struct {
