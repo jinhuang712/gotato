@@ -452,15 +452,11 @@ func responsesLoadedTools(result *gotato.ToolResult, names map[string]string, la
 			if entry.spec.ID != id {
 				continue
 			}
-			name, err := assignFunctionName(names, id)
+			tool, err := responsesFunctionTool(names, layoutTool{spec: entry.spec, deferred: true})
 			if err != nil {
 				return nil, err
 			}
-			parameters, err := toolSchema(entry.spec, `{"type":"object"}`)
-			if err != nil {
-				return nil, err
-			}
-			loaded = append(loaded, responsesTool{Type: "function", Name: name, Description: entry.spec.Description, Parameters: parameters, DeferLoading: true})
+			loaded = append(loaded, tool)
 		}
 	}
 	return loaded, nil
