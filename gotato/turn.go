@@ -17,7 +17,10 @@ type turnRun struct {
 
 // turnEnded is the TurnEnded Event of the Turn, which stopped for stop.
 func (t *turnRun) turnEnded(st *runState, stop StopReason) TurnEnded {
-	return newTurnEnded(st.header(t.turn), stop, t.usage, t.started, t.text, t.reasoning)
+	return TurnEnded{
+		Header: st.header(t.turn), StopReason: stop, Usage: t.usage,
+		ElapsedMS: millis(time.Since(t.started)), TextBytes: t.text, ReasoningBytes: t.reasoning,
+	}
 }
 
 // afterModelError settles a Turn whose Model call failed: an Interrupt cut it

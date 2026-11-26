@@ -473,11 +473,3 @@ func (a *Session) discardControl(runID RunID, turn TurnNumber) {
 		a.stage(MessageDropped{Header: NewHeader(a.def.id, runID, turn), MessageID: queued.message.ID, Source: queued.source, Why: "run_ended"})
 	}
 }
-
-// newTurnEnded builds the TurnEnded of a Turn that ran from started until now.
-func newTurnEnded(header Header, stop StopReason, usage Usage, started time.Time, textBytes, reasoningBytes uint64) TurnEnded {
-	return TurnEnded{
-		Header: header, StopReason: stop, Usage: usage,
-		ElapsedMS: millis(time.Since(started)), TextBytes: textBytes, ReasoningBytes: reasoningBytes,
-	}
-}
