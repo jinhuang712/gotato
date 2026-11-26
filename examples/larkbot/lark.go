@@ -43,10 +43,13 @@ func sessionIDFor(threadKey string) string {
 	return sessionPrefix + "h" + hex.EncodeToString(sum[:16])
 }
 
+// shortIDChars is how many characters of a Session ID the card footer shows.
+const shortIDChars = 8
+
 // shortID is the last 8 characters of a Session ID, for the card footer.
 func shortID(id string) string {
-	if len(id) > 8 {
-		return id[len(id)-8:]
+	if len(id) > shortIDChars {
+		return id[len(id)-shortIDChars:]
 	}
 	return id
 }
