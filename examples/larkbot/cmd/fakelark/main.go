@@ -14,6 +14,12 @@ import (
 	"github.com/jinhuang712/gotato/examples/larkbot/internal/fakelark"
 )
 
+const (
+	exitUsage         = 2    // the exit status of a start with no bots
+	idsPerSecond      = 1000 // how many message IDs the clock counts in one second
+	readHeaderTimeout = 5 * time.Second
+)
+
 func main() {
 	addr := flag.String("addr", "127.0.0.1:9000", "listen address")
 	bots := flag.String("bots", "", "comma-separated bot base URLs, e.g. http://127.0.0.1:8080,http://127.0.0.1:8081")
@@ -24,18 +30,18 @@ func main() {
 	flag.Parse()
 	if *bots == "" && *dns == "" {
 		fmt.Fprintln(os.Stderr, "fakelark: set -bots or -bots-dns")
-		os.Exit(2)
+		os.Exit(exitUsage)
 	}
 	cfg := fakelark.Config{BotsDNS: *dns, Redeliver: *redeliver, Seed: *seed}
 	if *fromClock {
-		cfg.SeqStart = int(time.Now().Unix()) * 1000
+		cfg.SeqStart = int(time.Now().Unix()) * idsPerSecond
 	}
 	for b := range strings.SplitSeq(*bots, ",") {
 		if b = strings.TrimRight(strings.TrimSpace(b), "/"); b != "" {
 			cfg.Bots = append(cfg.Bots, b)
 		}
 	}
-	srv := &http.Server{Addr: *addr, Handler: fakelark.New(cfg).Handler(), ReadHeaderTimeout: 5 * time.Second}
+	srv := &http.Server{Addr: *addr, Handler: fakelark.New(cfg).Handler(), ReadHeaderTimeout: readHeaderTimeout}
 	log.Printf("fakelark listening on %s", *addr)
 	log.Fatal(srv.ListenAndServe())
 }
