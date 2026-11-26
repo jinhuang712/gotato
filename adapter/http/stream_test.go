@@ -48,7 +48,7 @@ func TestRunStreamAnswersRefusalsAsRunDoes(t *testing.T) {
 
 	t.Run("busy here", func(t *testing.T) {
 		g := newGate()
-		in := newInstance(t, memStore(), "a", g, false)
+		in := newInstance(t, memStore(), "a", g)
 		id, wait := running(t, in, g)
 		same(t, in, id, http.StatusConflict)
 		close(g.release)
@@ -57,20 +57,20 @@ func TestRunStreamAnswersRefusalsAsRunDoes(t *testing.T) {
 	t.Run("held on another instance", func(t *testing.T) {
 		g := newGate()
 		store := memStore()
-		a := newInstance(t, store, "a", g, false)
-		b := newInstance(t, store, "b", testkit.NewFakeModel(testkit.Text("x")), false)
+		a := newInstance(t, store, "a", g)
+		b := newInstance(t, store, "b", testkit.NewFakeModel(testkit.Text("x")))
 		id, wait := running(t, a, g)
 		same(t, b, id, http.StatusConflict)
 		close(g.release)
 		wait()
 	})
 	t.Run("missing session", func(t *testing.T) {
-		in := newInstance(t, memStore(), "a", testkit.NewFakeModel(testkit.Text("x")), false)
+		in := newInstance(t, memStore(), "a", testkit.NewFakeModel(testkit.Text("x")))
 		same(t, in, "nope", http.StatusNotFound)
 	})
 	t.Run("unknown agent", func(t *testing.T) {
 		store := memStore()
-		a := newInstance(t, store, "a", testkit.NewFakeModel(testkit.Text("x")), false)
+		a := newInstance(t, store, "a", testkit.NewFakeModel(testkit.Text("x")))
 		s, err := a.runner.CreateSession(t.Context(), host.CreateSessionRequest{Agent: "echo"})
 		if err != nil {
 			t.Fatal(err)

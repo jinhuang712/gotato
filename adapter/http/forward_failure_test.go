@@ -20,9 +20,8 @@ func (failingTransport) RoundTrip(*http.Request) (*http.Response, error) {
 func TestForwardFailureSays502BadGateway(t *testing.T) {
 	store := memStore()
 	g := newGate()
-	a := newInstance(t, store, "instance-a", g, true)
-	b := newInstance(t, store, "instance-b", testkit.EchoModel{}, true,
-		httpapi.WithForwarding(&http.Client{Transport: failingTransport{}}, anyAddress))
+	a := newAdvertisedInstance(t, store, "instance-a", g)
+	b := newAdvertisedInstance(t, store, "instance-b", testkit.EchoModel{}, httpapi.WithForwarding(&http.Client{Transport: failingTransport{}}, anyAddress))
 	id, wait := running(t, a, g)
 	defer func() { close(g.release); wait() }()
 

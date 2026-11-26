@@ -100,18 +100,27 @@ type instance struct {
 	requests atomic.Int64
 }
 
-func newInstance(t *testing.T, st store.Store, name string, model gotato.Model, advertise bool, options ...httpapi.Option) *instance {
+// newInstance starts an instance that advertises no address.
+func newInstance(t *testing.T, st store.Store, name string, model gotato.Model, options ...httpapi.Option) *instance {
 	t.Helper()
-	in := &instance{}
-	in.server = httptest.NewUnstartedServer(nil)
-	address := ""
-	if advertise {
-		address = "http://" + in.server.Listener.Addr().String()
-	}
-	runner, err := host.New(withAgents(host.Config{
-		Store: st, Instance: name, Address: address,
-		Heartbeat: host.Heartbeat{TTL: 5 * time.Second, Wait: 3 * time.Second},
-	}, []profile.AgentProfile{{Name: "echo", Model: model}}...))
+	in := &instance{server: httptest.NewUnstartedServer(nil)}
+	return in.start(t, host.Config{Store: st, Instance: name}, model, options)
+}
+
+// newAdvertisedInstance starts an instance that advertises its own address, so
+// another instance can forward to it.
+func newAdvertisedInstance(t *testing.T, st store.Store, name string, model gotato.Model, options ...httpapi.Option) *instance {
+	t.Helper()
+	in := &instance{server: httptest.NewUnstartedServer(nil)}
+	address := "http://" + in.server.Listener.Addr().String()
+	return in.start(t, host.Config{Store: st, Instance: name, Address: address}, model, options)
+}
+
+// start runs the instance's server over a Runner made from cfg.
+func (in *instance) start(t *testing.T, cfg host.Config, model gotato.Model, options []httpapi.Option) *instance {
+	t.Helper()
+	cfg.Heartbeat = host.Heartbeat{TTL: 5 * time.Second, Wait: 3 * time.Second}
+	runner, err := host.New(withAgents(cfg, []profile.AgentProfile{{Name: "echo", Model: model}}...))
 	if err != nil {
 		t.Fatal(err)
 	}

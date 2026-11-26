@@ -523,8 +523,8 @@ func (e embedderForward) message(ctx context.Context, req host.MessageRequest) (
 func TestEmbedderForwardsANotWriterMessageWithItsOwnClient(t *testing.T) {
 	store := memStore()
 	g := newGate()
-	a := newInstance(t, store, "instance-a", g, true)
-	b := newInstance(t, store, "instance-b", testkit.EchoModel{}, true)
+	a := newAdvertisedInstance(t, store, "instance-a", g)
+	b := newAdvertisedInstance(t, store, "instance-b", testkit.EchoModel{})
 	id, wait := running(t, a, g)
 
 	resp, err := embedderForward{b.runner, http.DefaultClient, false}.message(context.Background(), host.MessageRequest{SessionID: id, Kind: host.MessageKindSteer, Text: "via the embedder"})

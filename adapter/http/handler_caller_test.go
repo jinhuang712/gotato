@@ -306,7 +306,7 @@ func TestReadyzReportsALapsedRow(t *testing.T) {
 // same request again may succeed. A 404 is the first and not the second.
 func TestRetryableHeaderFollowsTheRuntimesAnswer(t *testing.T) {
 	g := newGate()
-	in := newInstance(t, memStore(), "a", g, false)
+	in := newInstance(t, memStore(), "a", g)
 	id, wait := running(t, in, g)
 	resp, data := in.post(t, "/v1/sessions/"+id+"/runs", map[string]any{"prompt": "again"})
 	if resp.StatusCode != http.StatusConflict || resp.Header.Get(httpapi.NotRunHeader) != "true" || resp.Header.Get(httpapi.RetryableHeader) != "true" {
@@ -385,7 +385,7 @@ func TestWithMaxBodyRaisesAndLowersTheCap(t *testing.T) {
 // agent rebinds it, which is the way to repair it over HTTP.
 func TestRunBodyAgentRepairsASessionWhoseAgentIsGone(t *testing.T) {
 	store := memStore()
-	a := newInstance(t, store, "a", testkit.EchoModel{}, false)
+	a := newInstance(t, store, "a", testkit.EchoModel{})
 	s, err := a.runner.CreateSession(t.Context(), host.CreateSessionRequest{Agent: "echo"})
 	if err != nil {
 		t.Fatal(err)
@@ -417,9 +417,9 @@ func TestForwardingOnlyToAnAllowedAddress(t *testing.T) {
 	for _, allowed := range []bool{false, true} {
 		store := memStore()
 		g := newGate()
-		a := newInstance(t, store, "instance-a", g, true)
+		a := newAdvertisedInstance(t, store, "instance-a", g)
 		var asked string
-		b := newInstance(t, store, "instance-b", testkit.EchoModel{}, true, httpapi.WithForwarding(nil, func(address string) bool {
+		b := newAdvertisedInstance(t, store, "instance-b", testkit.EchoModel{}, httpapi.WithForwarding(nil, func(address string) bool {
 			asked = address
 			return allowed
 		}))

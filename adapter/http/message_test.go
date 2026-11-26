@@ -35,7 +35,7 @@ func transcript(t *testing.T, in *instance, id string) string {
 func TestMessageIsQueuedForTheRunInFlight(t *testing.T) {
 	store := memStore()
 	g := newGate()
-	a := newInstance(t, store, "instance-a", g, true)
+	a := newAdvertisedInstance(t, store, "instance-a", g)
 	id, wait := running(t, a, g)
 
 	resp, body := a.post(t, "/v1/sessions/"+id+"/messages", map[string]string{"kind": "steer", "text": "prefer metric"})
@@ -68,7 +68,7 @@ func TestMessageIsQueuedForTheRunInFlight(t *testing.T) {
 }
 
 func TestMessageValidation(t *testing.T) {
-	a := newInstance(t, memStore(), "instance-a", testkit.EchoModel{}, false)
+	a := newInstance(t, memStore(), "instance-a", testkit.EchoModel{})
 	s, _ := a.runner.CreateSession(context.Background(), host.CreateSessionRequest{Agent: "echo"})
 	for name, body := range map[string]map[string]string{
 		"bad kind": {"kind": "shout", "text": "hi"},
@@ -87,8 +87,8 @@ func TestMessageValidation(t *testing.T) {
 func TestMessageForARunElsewhereAnswersNotWriter(t *testing.T) {
 	store := memStore()
 	g := newGate()
-	a := newInstance(t, store, "instance-a", g, true)
-	b := newInstance(t, store, "instance-b", testkit.EchoModel{}, true)
+	a := newAdvertisedInstance(t, store, "instance-a", g)
+	b := newAdvertisedInstance(t, store, "instance-b", testkit.EchoModel{})
 	id, wait := running(t, a, g)
 
 	for _, path := range []string{"/messages", "/abort"} {
@@ -131,8 +131,8 @@ func TestMessageForARunElsewhereAnswersNotWriter(t *testing.T) {
 func TestNotWriterNamesNoAddressWhenNoneIsAdvertised(t *testing.T) {
 	store := memStore()
 	g := newGate()
-	a := newInstance(t, store, "instance-a", g, false)
-	b := newInstance(t, store, "instance-b", testkit.EchoModel{}, false, httpapi.WithForwarding(nil, anyAddress))
+	a := newInstance(t, store, "instance-a", g)
+	b := newInstance(t, store, "instance-b", testkit.EchoModel{}, httpapi.WithForwarding(nil, anyAddress))
 	id, wait := running(t, a, g)
 
 	// Forwarding is on, but there is nowhere to forward to.
@@ -147,8 +147,8 @@ func TestNotWriterNamesNoAddressWhenNoneIsAdvertised(t *testing.T) {
 func TestForwardingSendsTheMessageToTheWriter(t *testing.T) {
 	store := memStore()
 	g := newGate()
-	a := newInstance(t, store, "instance-a", g, true)
-	b := newInstance(t, store, "instance-b", testkit.EchoModel{}, true, httpapi.WithForwarding(nil, anyAddress))
+	a := newAdvertisedInstance(t, store, "instance-a", g)
+	b := newAdvertisedInstance(t, store, "instance-b", testkit.EchoModel{}, httpapi.WithForwarding(nil, anyAddress))
 	id, wait := running(t, a, g)
 	before := a.requests.Load()
 
@@ -169,8 +169,8 @@ func TestForwardingSendsTheMessageToTheWriter(t *testing.T) {
 func TestForwardingStopsTheRunOnTheWriter(t *testing.T) {
 	store := memStore()
 	g := newGate()
-	a := newInstance(t, store, "instance-a", g, true)
-	b := newInstance(t, store, "instance-b", testkit.EchoModel{}, true, httpapi.WithForwarding(nil, anyAddress))
+	a := newAdvertisedInstance(t, store, "instance-a", g)
+	b := newAdvertisedInstance(t, store, "instance-b", testkit.EchoModel{}, httpapi.WithForwarding(nil, anyAddress))
 	id, wait := running(t, a, g)
 
 	resp, body := b.post(t, "/v1/sessions/"+id+"/abort", nil)
@@ -185,8 +185,8 @@ func TestForwardingStopsTheRunOnTheWriter(t *testing.T) {
 func TestAForwardedRequestIsNeverForwardedAgain(t *testing.T) {
 	store := memStore()
 	g := newGate()
-	a := newInstance(t, store, "instance-a", g, true)
-	b := newInstance(t, store, "instance-b", testkit.EchoModel{}, true, httpapi.WithForwarding(nil, anyAddress))
+	a := newAdvertisedInstance(t, store, "instance-a", g)
+	b := newAdvertisedInstance(t, store, "instance-b", testkit.EchoModel{}, httpapi.WithForwarding(nil, anyAddress))
 	id, wait := running(t, a, g)
 	before := a.requests.Load()
 
@@ -208,7 +208,7 @@ func (f cannedTransport) RoundTrip(r *http.Request) (*http.Response, error) { re
 func TestForwardingDoesNotRelayHopByHopHeaders(t *testing.T) {
 	store := memStore()
 	g := newGate()
-	a := newInstance(t, store, "instance-a", g, true)
+	a := newAdvertisedInstance(t, store, "instance-a", g)
 	canned := &http.Client{Transport: cannedTransport(func(r *http.Request) *http.Response {
 		h := http.Header{}
 		h.Set("Keep-Alive", "timeout=5")
@@ -218,7 +218,7 @@ func TestForwardingDoesNotRelayHopByHopHeaders(t *testing.T) {
 		h.Set("X-Kept", "yes")
 		return &http.Response{StatusCode: http.StatusAccepted, Header: h, Body: io.NopCloser(strings.NewReader("{}")), Request: r}
 	})}
-	b := newInstance(t, store, "instance-b", testkit.EchoModel{}, true, httpapi.WithForwarding(canned, anyAddress))
+	b := newAdvertisedInstance(t, store, "instance-b", testkit.EchoModel{}, httpapi.WithForwarding(canned, anyAddress))
 	id, wait := running(t, a, g)
 	resp, _ := b.post(t, "/v1/sessions/"+id+"/abort", nil)
 	for _, name := range []string{"Keep-Alive", "Proxy-Authenticate", "X-Hop"} {
@@ -258,7 +258,7 @@ func (g *releaseGate) Append(ctx context.Context, id string, after uint64, entri
 // waits for the release and runs in a following Run, instead of answering busy.
 func TestMessageWhileARunIsEndingRunsInTheNextRun(t *testing.T) {
 	gate := &releaseGate{parts: partsOf(memStore()), reached: make(chan struct{}), proceed: make(chan struct{})}
-	a := newInstance(t, asStore(gate), "instance-a", testkit.EchoModel{}, false)
+	a := newInstance(t, asStore(gate), "instance-a", testkit.EchoModel{})
 	s, err := a.runner.CreateSession(context.Background(), host.CreateSessionRequest{Agent: "echo"})
 	if err != nil {
 		t.Fatal(err)
@@ -313,7 +313,7 @@ type noticeAnswer struct {
 // Session's next Run, after its prompt.
 func TestNoticeIsQueuedForTheNextModelCall(t *testing.T) {
 	g := newGate()
-	a := newInstance(t, memStore(), "instance-a", g, true)
+	a := newAdvertisedInstance(t, memStore(), "instance-a", g)
 	id, wait := running(t, a, g)
 
 	resp, body := a.post(t, "/v1/sessions/"+id+"/notices", map[string]string{"kind": "order_update", "text": "Order 42 was delivered."})
@@ -337,7 +337,7 @@ func TestNoticeIsQueuedForTheNextModelCall(t *testing.T) {
 }
 
 func TestNoticeValidation(t *testing.T) {
-	a := newInstance(t, memStore(), "instance-a", testkit.EchoModel{}, false)
+	a := newInstance(t, memStore(), "instance-a", testkit.EchoModel{})
 	s, _ := a.runner.CreateSession(context.Background(), host.CreateSessionRequest{Agent: "echo"})
 	for name, body := range map[string]map[string]string{
 		"no kind":       {"text": "hi"},
@@ -358,9 +358,9 @@ func TestNoticeValidation(t *testing.T) {
 func TestNoticeForARunElsewhereAnswersNotWriterOrIsForwarded(t *testing.T) {
 	store := memStore()
 	g := newGate()
-	a := newInstance(t, store, "instance-a", g, true)
-	plain := newInstance(t, store, "instance-b", testkit.EchoModel{}, true)
-	forwarding := newInstance(t, store, "instance-c", testkit.EchoModel{}, true, httpapi.WithForwarding(nil, anyAddress))
+	a := newAdvertisedInstance(t, store, "instance-a", g)
+	plain := newAdvertisedInstance(t, store, "instance-b", testkit.EchoModel{})
+	forwarding := newAdvertisedInstance(t, store, "instance-c", testkit.EchoModel{}, httpapi.WithForwarding(nil, anyAddress))
 	id, wait := running(t, a, g)
 
 	resp, body := plain.post(t, "/v1/sessions/"+id+"/notices", map[string]string{"kind": "k", "text": "from b"})
