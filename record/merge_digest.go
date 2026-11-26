@@ -20,6 +20,9 @@ const (
 	digestRecapChars   = 300
 	digestMergedChars  = 1200
 	digestToolsPerLine = 5
+	// digestNoteBytes is the room past digestMaxBytes for the note of what was
+	// left out.
+	digestNoteBytes = 120
 )
 
 // mergeDigest is the Recap of a merge when no model writes it: a digest built
@@ -50,7 +53,7 @@ func mergeDigest(segments []gotato.Segment, loc *time.Location) string {
 		fmt.Fprintf(&b, "- … %d earlier lines left out; read_segment returns the Segments.\n", dropped)
 	}
 	b.WriteString(strings.Join(lines, "\n"))
-	return cutRunes(b.String(), digestMaxBytes+120)
+	return cutRunes(b.String(), digestMaxBytes+digestNoteBytes)
 }
 
 func digestLine(segment gotato.Segment, loc *time.Location) string {
