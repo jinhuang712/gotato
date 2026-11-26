@@ -127,6 +127,39 @@ func (c *toolCatalog) install(results []setResult) {
 	}
 }
 
+// settle sorts the loaded Tools ids against the catalog: parked are those of
+// a ToolSet that is unavailable now, and report names the Tools that are gone
+// and the ToolSets that are unavailable.
+func (c *toolCatalog) settle(ids []string) (report setReport, parked []string) {
+	for _, id := range ids {
+		name, _, _ := strings.Cut(id, ".")
+		state := c.setNamed(name)
+		if state == nil || state.mode == modeActive {
+			continue
+		}
+		switch {
+		case state.failure != nil:
+			addUnique(&parked, id)
+		case c.byCatalog[id] == nil:
+			addUnique(&report.gone, id)
+		}
+	}
+	report.unavailable = c.unavailableNames()
+	return report, parked
+}
+
+// unavailableNames lists the names of the ToolSets that did not resolve, in
+// install order.
+func (c *toolCatalog) unavailableNames() []string {
+	var names []string
+	for _, state := range c.sets {
+		if state.failure != nil {
+			names = append(names, state.spec.Name)
+		}
+	}
+	return names
+}
+
 func (c *toolCatalog) setNamed(name string) *toolSetState {
 	for _, state := range c.sets {
 		if state.spec.Name == name {

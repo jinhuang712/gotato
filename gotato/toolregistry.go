@@ -178,30 +178,7 @@ func (r *toolRegistry) apply(results []setResult, kept map[string]bool, recorded
 	if recorded != nil {
 		ids = *recorded
 	}
-	var report setReport
-	var parked []string
-	for _, id := range ids {
-		name, _, _ := strings.Cut(id, ".")
-		state := r.setNamed(name)
-		if state == nil || state.mode == modeActive {
-			continue
-		}
-		switch {
-		case state.failure != nil:
-			if !slices.Contains(parked, id) {
-				parked = append(parked, id)
-			}
-		case r.byCatalog[id] == nil:
-			if !slices.Contains(report.gone, id) {
-				report.gone = append(report.gone, id)
-			}
-		}
-	}
-	for _, state := range r.sets {
-		if state.failure != nil {
-			report.unavailable = append(report.unavailable, state.spec.Name)
-		}
-	}
+	report, parked := r.settle(ids)
 	r.loaded, r.parked = r.known(ids), parked
 	r.rebuild()
 	return report
