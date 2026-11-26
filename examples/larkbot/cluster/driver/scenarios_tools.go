@@ -116,10 +116,7 @@ func (e *env) s7(ctx context.Context) bool {
 
 	fmt.Printf("\n%s results\n", st.at())
 	faults := e.report(ctx, all)
-	for _, s := range storeErrors(e.readLogs()) {
-		faults++
-		fmt.Printf("  %s store error in a bot log: %s\n", fault, s)
-	}
+	faults += e.reportStoreErrors()
 	tl := e.s7Tally(ctx, all)
 	e.s7PrintTally(ctx, tl, p, statsBefore)
 	ok, errs, stuck, unanswered, emptyErr := tl.ok, tl.errs, tl.stuck, tl.unanswered, tl.emptyErr
@@ -344,10 +341,7 @@ func (e *env) s8(ctx context.Context) bool {
 	faults, yes, no := e.s8Results(ctx, ts, onV, victimInst, killAt)
 	fmt.Println()
 	faults += e.report(ctx, ts)
-	for _, s := range storeErrors(e.readLogs()) {
-		faults++
-		fmt.Printf("  %s store error in a bot log: %s\n", fault, s)
-	}
+	faults += e.reportStoreErrors()
 	fmt.Printf("  tool still loaded on the next message: victims %d of %d, survivors %d of %d\n", yes["victim"], yes["victim"]+no["victim"], yes["survivor"], yes["survivor"]+no["survivor"])
 	return verdict("s8", faults == 0, fmt.Sprintf("%d GOTATO-FAULT", faults))
 }

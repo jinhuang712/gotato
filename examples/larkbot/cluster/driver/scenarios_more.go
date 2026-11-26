@@ -46,6 +46,15 @@ func allReady(ps map[string]bool) bool {
 	return ready
 }
 
+// reportStoreErrors prints the store errors of the bot logs, each a GOTATO-FAULT, and returns how many there are.
+func (e *env) reportStoreErrors() (faults int) {
+	for _, s := range storeErrors(e.readLogs()) {
+		faults++
+		fmt.Printf("  %s store error in a bot log: %s\n", fault, s)
+	}
+	return faults
+}
+
 // unansweredThreads counts the threads whose Transcript ends on a user message.
 func (e *env) unansweredThreads(ctx context.Context, ts []*thread) (n int) {
 	for _, t := range ts {
@@ -83,10 +92,7 @@ func (e *env) s3(ctx context.Context) bool {
 
 	fmt.Printf("\n%s results\n", st.at())
 	faults := e.report(ctx, ts)
-	for _, s := range storeErrors(e.readLogs()) {
-		faults++
-		fmt.Printf("  %s store error in a bot log: %s\n", fault, s)
-	}
+	faults += e.reportStoreErrors()
 	unanswered := e.unansweredThreads(ctx, ts)
 	fmt.Printf("  threads whose Transcript ends on an unanswered user message: %d\n", unanswered)
 
@@ -233,10 +239,7 @@ func (e *env) s4(ctx context.Context) bool {
 
 	fmt.Printf("\n%s results\n", st.at())
 	faults := e.report(ctx, ts)
-	for _, s := range storeErrors(e.readLogs()) {
-		faults++
-		fmt.Printf("  %s store error in a bot log: %s\n", fault, s)
-	}
+	faults += e.reportStoreErrors()
 	logs := e.readLogs()
 	count := func(msg string) (n int) {
 		for _, l := range logs {
@@ -358,10 +361,7 @@ func (e *env) s5(ctx context.Context) bool {
 
 	fmt.Printf("\n%s results\n", st.at())
 	faults := e.report(ctx, ts)
-	for _, s := range storeErrors(e.readLogs()) {
-		faults++
-		fmt.Printf("  %s store error in a bot log: %s\n", fault, s)
-	}
+	faults += e.reportStoreErrors()
 	all := e.s5Dups(ctx, ts, inflight, fresh)
 	fmt.Println("\nDESIGN INPUT (KNOWN-BOT-GAP, not a Gotato fault): a redelivery that lands on a pod that has not seen the message_id is handled as a new message.")
 	fmt.Printf("  duplicate user messages in Transcripts: %d, duplicate reply cards: %d, duplicate assistant replies: %d\n", all.ExtraUserCopies, all.ExtraCards, all.ExtraAssistant)
