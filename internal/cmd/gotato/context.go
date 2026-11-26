@@ -55,27 +55,38 @@ func (c *cli) contextInspect(mode string, args []string) int {
 		if c.machine() {
 			return c.writeJSON(report.Request)
 		}
-		fmt.Fprintf(c.stdout, "system:\n%s\n\n", report.Request.SystemInstructions)
-		for _, message := range report.Request.Messages {
-			fmt.Fprintf(c.stdout, "%-11s %s\n", message.Role, strings.TrimSpace(gotato.TextOf(message)))
-		}
+		printBuild(c.stdout, report)
 		return ExitOK
 	}
 	if c.machine() {
 		return c.writeJSON(report)
 	}
-	fmt.Fprintf(c.stdout, "session %s\nstrategy %s (append-only)\nmessages %d · ~%d tokens · system %d bytes · tools %d\nprefix_hash %s\n",
-		report.SessionID, report.Strategy, report.SelectedMessages, report.ApproxTokens, report.SystemBytes, len(report.Request.Tools), report.PrefixHash)
-	printParts(c.stdout, report)
-	fmt.Fprintf(c.stdout, "compact_ceiling_tokens %d", report.CompactCeilingTokens)
-	if report.CompactCeilingTokens == 0 {
-		fmt.Fprint(c.stdout, " (off: compacts only after a refusal as too long)")
-	}
-	fmt.Fprintln(c.stdout)
-	if len(report.Compactions) > 0 {
-		fmt.Fprintf(c.stdout, "compactions %d (last replaced %d messages)\n", len(report.Compactions), report.Compactions[len(report.Compactions)-1].ReplacedMessages)
-	}
+	printInspect(c.stdout, report)
 	return ExitOK
+}
+
+// printBuild writes the system instruction and the messages of the request the
+// model would receive.
+func printBuild(w io.Writer, report record.Report) {
+	fmt.Fprintf(w, "system:\n%s\n\n", report.Request.SystemInstructions)
+	for _, message := range report.Request.Messages {
+		fmt.Fprintf(w, "%-11s %s\n", message.Role, strings.TrimSpace(gotato.TextOf(message)))
+	}
+}
+
+// printInspect writes the summary of an inspection report.
+func printInspect(w io.Writer, report record.Report) {
+	fmt.Fprintf(w, "session %s\nstrategy %s (append-only)\nmessages %d · ~%d tokens · system %d bytes · tools %d\nprefix_hash %s\n",
+		report.SessionID, report.Strategy, report.SelectedMessages, report.ApproxTokens, report.SystemBytes, len(report.Request.Tools), report.PrefixHash)
+	printParts(w, report)
+	fmt.Fprintf(w, "compact_ceiling_tokens %d", report.CompactCeilingTokens)
+	if report.CompactCeilingTokens == 0 {
+		fmt.Fprint(w, " (off: compacts only after a refusal as too long)")
+	}
+	fmt.Fprintln(w)
+	if len(report.Compactions) > 0 {
+		fmt.Fprintf(w, "compactions %d (last replaced %d messages)\n", len(report.Compactions), report.Compactions[len(report.Compactions)-1].ReplacedMessages)
+	}
 }
 
 func (c *cli) contextCompact(args []string) int {
