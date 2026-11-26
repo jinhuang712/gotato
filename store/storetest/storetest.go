@@ -266,23 +266,17 @@ func CheckLiveness(ctx context.Context, backing LivenessBacking, options ...Live
 	return problems
 }
 
-func runCheck(ctx context.Context, backing Backing, c check) (err error) {
-	open, cleanup, err := backing()
-	if err != nil {
-		return fmt.Errorf("backing: %w", err)
-	}
-	if cleanup != nil {
-		defer cleanup()
-	}
-	defer func() {
-		if recovered := recover(); recovered != nil {
-			err = fmt.Errorf("panic: %v", recovered)
-		}
-	}()
-	return c.run(ctx, open)
+func runCheck(ctx context.Context, backing Backing, c check) error {
+	return runBacked(backing, func(open Open) error { return c.run(ctx, open) })
 }
 
-func runLivenessCheck(ctx context.Context, backing LivenessBacking, config livenessConfig, c livenessCheck) (err error) {
+func runLivenessCheck(ctx context.Context, backing LivenessBacking, config livenessConfig, c livenessCheck) error {
+	return runBacked(backing, func(open OpenLiveness) error { return c.run(ctx, open, config) })
+}
+
+// runBacked opens the backing, runs the check on what it opened, and cleans up
+// after it. A panic of the check is its error.
+func runBacked[O any](backing func() (O, func(), error), run func(O) error) (err error) {
 	open, cleanup, err := backing()
 	if err != nil {
 		return fmt.Errorf("backing: %w", err)
@@ -295,5 +289,5 @@ func runLivenessCheck(ctx context.Context, backing LivenessBacking, config liven
 			err = fmt.Errorf("panic: %v", recovered)
 		}
 	}()
-	return c.run(ctx, open, config)
+	return run(open)
 }
