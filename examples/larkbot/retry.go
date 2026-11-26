@@ -122,7 +122,7 @@ func (d *delivery) elapsed() time.Duration {
 // again makes one attempt and reports whether deliver should go on with the
 // next one.
 func (d *delivery) again(ctx context.Context, attempt int) bool {
-	err := d.b.attempt(ctx, d.chatID, d.id, d.messageID, d.text, func() { d.leave() })
+	err := d.attempt(ctx)
 	switch {
 	case err == nil:
 		d.logDelivered(attempt)

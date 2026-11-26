@@ -256,41 +256,42 @@ func (b *bot) await(ctx context.Context, wait <-chan struct{}) bool {
 
 // attempt is one try. It returns nil when the message was accepted, and
 // otherwise an error: a *deliveryError for a forward, with notRun set when
-// nothing was delivered, or Send's own error. accepted is called when a Send
+// nothing was delivered, or Send's own error. leave is called when a Send
 // has gone on longer than acceptGrace, since a refusal comes back at once.
-func (b *bot) attempt(ctx context.Context, chatID, id, messageID, text string, accepted func()) error {
+func (d *delivery) attempt(ctx context.Context) error {
+	b := d.b
 	// Send queues the text when a Run is going here, and otherwise runs it and
 	// returns when that Run settles.
-	tm := time.AfterFunc(acceptGrace, accepted)
+	tm := time.AfterFunc(acceptGrace, func() { d.leave() })
 	defer tm.Stop()
 	// A Run this process starts streams into a card (stream.go). Anything else
 	// goes to Send, which queues the text into a Run that is going.
-	if ran, err := b.streamRun(ctx, id, messageID, text); ran {
+	if ran, err := b.streamRun(ctx, d.id, d.messageID, d.text); ran {
 		if err != nil {
 			return err
 		}
-		b.log.Info("send ran a new run", "chat", chatID, "instance", b.label, "session", id, "message_id", messageID, "streamed", true)
+		b.log.Info("send ran a new run", "chat", d.chatID, "instance", b.label, "session", d.id, "message_id", d.messageID, "streamed", true)
 		return nil
 	}
-	res, err := b.runner.Send(ctx, host.MessageRequest{SessionID: id, Kind: host.MessageKindFollowUp, Text: text, RequestID: messageID})
+	res, err := b.runner.Send(ctx, host.MessageRequest{SessionID: d.id, Kind: host.MessageKindFollowUp, Text: d.text, RequestID: d.messageID})
 	switch {
 	case err == nil && res.Queued:
-		b.log.Info("send queued", "chat", chatID, "instance", b.label, "session", id, "message_id", messageID)
+		b.log.Info("send queued", "chat", d.chatID, "instance", b.label, "session", d.id, "message_id", d.messageID)
 		return nil
 	case err == nil:
-		b.log.Info("send ran a new run", "chat", chatID, "instance", b.label, "session", id, "message_id", messageID)
+		b.log.Info("send ran a new run", "chat", d.chatID, "instance", b.label, "session", d.id, "message_id", d.messageID)
 		return nil
 	}
 	addr, ok := host.WriterOf(err)
 	if !ok {
 		return err
 	}
-	b.log.Info("send not_writer, forwarding", "chat", chatID, "instance", b.label, "session", id, "message_id", messageID, "to", addr)
-	if ferr := b.forward(ctx, addr, id, text); ferr != nil {
-		b.log.Warn("forward failed", "chat", chatID, "instance", b.label, "session", id, "message_id", messageID, "to", addr, "err", ferr)
+	b.log.Info("send not_writer, forwarding", "chat", d.chatID, "instance", b.label, "session", d.id, "message_id", d.messageID, "to", addr)
+	if ferr := b.forward(ctx, addr, d.id, d.text); ferr != nil {
+		b.log.Warn("forward failed", "chat", d.chatID, "instance", b.label, "session", d.id, "message_id", d.messageID, "to", addr, "err", ferr)
 		return ferr
 	}
-	b.log.Info("forwarded", "chat", chatID, "instance", b.label, "session", id, "message_id", messageID, "to", addr)
+	b.log.Info("forwarded", "chat", d.chatID, "instance", b.label, "session", d.id, "message_id", d.messageID, "to", addr)
 	return nil
 }
 
