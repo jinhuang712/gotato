@@ -136,7 +136,11 @@ func CreateWriter(ctx context.Context, store Records, r *record.Record, instance
 	if r.Head() > 0 {
 		return nil, gotato.ErrorOf(gotato.CodeInvalidState, "store: the Record is stored already")
 	}
-	r.StartWriting(instance, config.idle)
+	r.StartWriting(instance)
+	if config.idle {
+		// WithIdle: nothing runs against the Record, so its release is queued with its first Claim.
+		r.Release()
+	}
 	entries, events, header, err := r.TakePending()
 	if err != nil {
 		return nil, storeFailure(err)

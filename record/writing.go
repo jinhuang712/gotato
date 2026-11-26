@@ -13,10 +13,8 @@ import (
 // StartWriting readies a Record that was never stored for its first write: it
 // turns the log on, so that the Record's state is its first Event
 // (session_created, a Checkpoint), and claims the Record for instance as a new
-// Session. The Record is busy until Release, unless idle: nothing runs against
-// it, and its release is queued with its first Claim, so another Instance may
-// claim it at once.
-func (s *Record) StartWriting(instance string, idle bool) {
+// Session. The Record is busy until Release.
+func (s *Record) StartWriting(instance string) {
 	s.mu.Lock()
 	s.instance = instance
 	s.claim = Claim{}
@@ -26,10 +24,6 @@ func (s *Record) StartWriting(instance string, idle bool) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	s.busy = true
-	if idle {
-		s.busy = false
-		s.emit(gotato.SessionReleased{Header: s.header(), Instance: s.claim.Instance, Epoch: s.claim.Epoch})
-	}
 }
 
 // Attach makes the Record instance's, with its log on, and returns who held
