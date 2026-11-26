@@ -35,6 +35,15 @@ func CommittedMessages(ctx context.Context, log EntryLog, id string, from, to ui
 		return nil, false, err
 	}
 	complete = len(entries) > 0 && entries[0].Seq == from
+	messages, err = committedIn(entries, id, to)
+	if err != nil {
+		return nil, false, err
+	}
+	return messages, complete, nil
+}
+
+// committedIn returns the Messages that entries up to to committed, each once.
+func committedIn(entries []Entry, id string, to uint64) (messages []gotato.Message, err error) {
 	seen := map[gotato.MessageID]bool{}
 	for _, entry := range entries {
 		if entry.Seq > to {
@@ -42,7 +51,7 @@ func CommittedMessages(ctx context.Context, log EntryLog, id string, from, to ui
 		}
 		event, err := entry.Event(gotato.SessionID(id))
 		if err != nil {
-			return nil, false, err
+			return nil, err
 		}
 		message, ok := messageOf(event)
 		if !ok || (message.ID != "" && seen[message.ID]) {
@@ -51,7 +60,7 @@ func CommittedMessages(ctx context.Context, log EntryLog, id string, from, to ui
 		seen[message.ID] = true
 		messages = append(messages, message)
 	}
-	return messages, complete, nil
+	return messages, nil
 }
 
 // messageOf returns the Message a commit Event carries.
