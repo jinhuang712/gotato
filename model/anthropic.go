@@ -211,17 +211,7 @@ func anthropicBlocks(message gotato.Message, names map[string]string, replay rea
 	case gotato.RoleToolResult:
 		return "user", []anthropicBlock{anthropicToolResultBlock(message)}, nil
 	case gotato.RoleAssistant:
-		var blocks []anthropicBlock
-		for _, part := range message.Parts {
-			if part.Kind == gotato.ContentKindReasoning && replay == reasoningDropped {
-				continue
-			}
-			var err error
-			if blocks, err = appendAnthropicAssistantPart(blocks, part); err != nil {
-				return "", nil, err
-			}
-		}
-		blocks, err := appendAnthropicToolUses(blocks, message.ToolCalls, names)
+		blocks, err := anthropicAssistantBlocks(message, names, replay)
 		if err != nil {
 			return "", nil, err
 		}
@@ -229,6 +219,22 @@ func anthropicBlocks(message gotato.Message, names map[string]string, replay rea
 	default:
 		return "", nil, fmt.Errorf("model: unsupported Message role %q", message.Role)
 	}
+}
+
+// anthropicAssistantBlocks encodes the parts and Tool Calls of an assistant
+// Message, leaving its reasoning out when replay drops it.
+func anthropicAssistantBlocks(message gotato.Message, names map[string]string, replay reasoningReplay) ([]anthropicBlock, error) {
+	var blocks []anthropicBlock
+	for _, part := range message.Parts {
+		if part.Kind == gotato.ContentKindReasoning && replay == reasoningDropped {
+			continue
+		}
+		var err error
+		if blocks, err = appendAnthropicAssistantPart(blocks, part); err != nil {
+			return nil, err
+		}
+	}
+	return appendAnthropicToolUses(blocks, message.ToolCalls, names)
 }
 
 // anthropicReasoningBlock decodes a signed thinking or redacted_thinking block for replay.
