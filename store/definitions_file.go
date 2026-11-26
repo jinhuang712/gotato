@@ -24,7 +24,7 @@ type FileDefinitions struct {
 // NewFileDefinitions returns a FileDefinitions that keeps its documents under
 // dir. It creates dir when it is not there.
 func NewFileDefinitions(dir string) (*FileDefinitions, error) {
-	if err := os.MkdirAll(dir, 0o755); err != nil {
+	if err := os.MkdirAll(dir, dirMode); err != nil {
 		return nil, err
 	}
 	return &FileDefinitions{dir: dir}, nil
