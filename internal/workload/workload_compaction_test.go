@@ -160,7 +160,7 @@ func startsWith(list, prefix []string) bool {
 func TestRequestOnlyGrowsAtItsEndAcrossCompactions(t *testing.T) {
 	for _, recap := range []bool{false, true} {
 		t.Run(fmt.Sprintf("recap=%t", recap), func(t *testing.T) {
-			task := reftasks.LongSession(compactingTurns, 10, 4096, 32_000, recap)
+			task := reftasks.LongSession(reftasks.LongSessionConfig{Turns: compactingTurns, PerRun: 10, ResultBytes: 4096, Window: 32_000, Recap: recap})
 			st := memStore()
 			id, sent := playLongAcross(t, st, task, nil)
 			final, err := store.Open(context.Background(), st.Records, id)
@@ -269,7 +269,7 @@ func jsonOf2(v any) []byte {
 func TestSameRecordSameRequestAcrossCompactions(t *testing.T) {
 	for _, recap := range []bool{false, true} {
 		t.Run(fmt.Sprintf("recap=%t", recap), func(t *testing.T) {
-			task := reftasks.LongSession(compactingTurns, 10, 4096, 32_000, recap)
+			task := reftasks.LongSession(reftasks.LongSessionConfig{Turns: compactingTurns, PerRun: 10, ResultBytes: 4096, Window: 32_000, Recap: recap})
 			st := memStore()
 			model := windowedLogging{inner: task.Model, window: task.Window, log: &requestLog{}}
 			compared := 0
@@ -552,7 +552,7 @@ func withoutReadSegment(tools []string) []string {
 func TestWireRequestOnlyGrowsAtItsEndAcrossCompactions(t *testing.T) {
 	for _, recap := range []bool{false, true} {
 		t.Run(fmt.Sprintf("recap=%t", recap), func(t *testing.T) {
-			task := reftasks.LongSession(compactingTurns, 10, 4096, 32_000, recap)
+			task := reftasks.LongSession(reftasks.LongSessionConfig{Turns: compactingTurns, PerRun: 10, ResultBytes: 4096, Window: 32_000, Recap: recap})
 			store := memStore()
 			id, sent := playLongAcross(t, store, task, nil)
 			segments := segmentTexts(t, store, id)

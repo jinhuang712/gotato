@@ -36,43 +36,70 @@ const (
 // 20 KB Tool Results in 100 Runs on one Session, against a Model whose window
 // is 128K tokens.
 func LongSessionTask() Task {
-	return LongSession(LongSessionTurns, LongSessionTurnsPerRun, LongSessionResultBytes, LongSessionWindow, false)
+	return LongSession(LongSessionConfig{
+		Turns:       LongSessionTurns,
+		PerRun:      LongSessionTurnsPerRun,
+		ResultBytes: LongSessionResultBytes,
+		Window:      LongSessionWindow,
+	})
 }
 
 // LongSessionRecapTask is LongSessionTask with the model's Recap turned on
 // (M3): the task long_session_recap.
 func LongSessionRecapTask() Task {
-	return LongSession(LongSessionTurns, LongSessionTurnsPerRun, LongSessionResultBytes, LongSessionWindow, true)
+	return LongSession(LongSessionConfig{
+		Turns:       LongSessionTurns,
+		PerRun:      LongSessionTurnsPerRun,
+		ResultBytes: LongSessionResultBytes,
+		Window:      LongSessionWindow,
+		Recap:       true,
+	})
 }
 
-// LongSession is the long_session task at the size given: turns Turns in Runs
-// of perRun Turns each, every Tool Result resultBytes long, against a fake
-// Model whose window is window tokens. With recap, the Agent turns the model's
-// Recap on (M3), and the fake Model writes one when asked.
+// LongSessionConfig is the size of a long_session task.
+type LongSessionConfig struct {
+	// Turns is how many Turns the task plays.
+	Turns int
+	// PerRun is how many Turns one Run takes.
+	PerRun int
+	// ResultBytes is the size of each Tool Result.
+	ResultBytes int
+	// Window is the fake Model's window, in tokens.
+	Window int
+	// Recap turns the model's Recap on (M3), and the fake Model writes one when
+	// asked.
+	Recap bool
+}
+
+// LongSession is the long_session task at the size given: cfg.Turns Turns in
+// Runs of cfg.PerRun Turns each, every Tool Result cfg.ResultBytes long,
+// against a fake Model whose window is cfg.Window tokens. With cfg.Recap, the
+// Agent turns the model's Recap on (M3), and the fake Model writes one when
+// asked.
 //
 // The Model plays from the request alone: it calls logs.read at every Turn of
 // a Run but the last, which answers, and it reads where it is in the Run from
 // the ID of the last Tool call, which a compaction always keeps. It reports the
 // size of each request as its input tokens (bytes ÷ 4, see RequestTokens), as a
 // provider does, so a Session sees the usage it would see.
-func LongSession(turns, perRun, resultBytes, window int, recap bool) Task {
-	runs := max(turns/perRun, 1)
+func LongSession(cfg LongSessionConfig) Task {
+	runs := max(cfg.Turns/cfg.PerRun, 1)
 	name := LongSessionName
-	if recap {
+	if cfg.Recap {
 		name += "_recap"
 	}
 	prompts := make([]string, runs)
 	for i := range prompts {
-		prompts[i] = fmt.Sprintf("Run %d: read the next %d logs of batch B-%04d, one after the other, and tell me when you are done.", i+1, perRun-1, i+1)
+		prompts[i] = fmt.Sprintf("Run %d: read the next %d logs of batch B-%04d, one after the other, and tell me when you are done.", i+1, cfg.PerRun-1, i+1)
 	}
 	return Task{
 		Name:        name,
 		Instruction: "You read the logs of a batch, one part at a time, and say when you are done.",
 		Prompts:     prompts,
-		Tools:       []gotato.Tool{logsRead(resultBytes)},
-		Model:       longSessionModel{parts: perRun - 1},
-		Window:      window,
-		Recap:       recap,
+		Tools:       []gotato.Tool{logsRead(cfg.ResultBytes)},
+		Model:       longSessionModel{parts: cfg.PerRun - 1},
+		Window:      cfg.Window,
+		Recap:       cfg.Recap,
 		Check: func(answers []string) error {
 			if len(answers) != runs {
 				return fmt.Errorf("got %d answers, want %d", len(answers), runs)

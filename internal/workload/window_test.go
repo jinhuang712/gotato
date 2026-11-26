@@ -29,7 +29,7 @@ func TestALongSessionStaysWithinItsWindow(t *testing.T) {
 	task := reftasks.LongSessionTask()
 	turns := reftasks.LongSessionTurns
 	if raceEnabled {
-		task = reftasks.LongSession(300, reftasks.LongSessionTurnsPerRun, reftasks.LongSessionResultBytes, reftasks.LongSessionWindow, false)
+		task = reftasks.LongSession(reftasks.LongSessionConfig{Turns: 300, PerRun: reftasks.LongSessionTurnsPerRun, ResultBytes: reftasks.LongSessionResultBytes, Window: reftasks.LongSessionWindow})
 		turns = 300
 	}
 	report := playLong(t, task)
@@ -63,7 +63,7 @@ func TestALongSessionStaysWithinItsWindow(t *testing.T) {
 // The oldest Segments merge in a long Session: the Segments stay within their
 // budget, one merged Segment opens the Context, and no Run fails for it.
 func TestALongSessionMergesTheOldestSegments(t *testing.T) {
-	report := playLong(t, reftasks.LongSession(300, 10, 4096, 32_000, false))
+	report := playLong(t, reftasks.LongSession(reftasks.LongSessionConfig{Turns: 300, PerRun: 10, ResultBytes: 4096, Window: 32_000}))
 	w := report.Window
 	if report.Passed != 1 || len(report.Failures) != 0 || w.OverWindow != 0 {
 		t.Fatalf("passed %d, failures %+v, %d requests over the window", report.Passed, report.Failures, w.OverWindow)
@@ -80,7 +80,7 @@ func TestALongSessionMergesTheOldestSegments(t *testing.T) {
 // what each compaction took out of the Context (M3). A Recap's request is the
 // Context plus an ask, so it fits the window too.
 func TestALongSessionWithTheModelsRecapCountsItsCost(t *testing.T) {
-	report := playLong(t, reftasks.LongSession(300, 10, 4096, 32_000, true))
+	report := playLong(t, reftasks.LongSession(reftasks.LongSessionConfig{Turns: 300, PerRun: 10, ResultBytes: 4096, Window: 32_000, Recap: true}))
 	w := report.Window
 	if report.Passed != 1 || len(report.Failures) != 0 || w.OverWindow != 0 || w.RecapOver != 0 {
 		t.Fatalf("passed %d, failures %+v, over %d, recap over %d", report.Passed, report.Failures, w.OverWindow, w.RecapOver)
@@ -101,7 +101,7 @@ func TestALongSessionWithTheModelsRecapCountsItsCost(t *testing.T) {
 // Result makes every later request over it, and the report says so, with the
 // Runs that failed for it.
 func TestALongSessionPastItsWindowIsReported(t *testing.T) {
-	report := playLong(t, reftasks.LongSession(20, 10, 80_000, 1_500, false))
+	report := playLong(t, reftasks.LongSession(reftasks.LongSessionConfig{Turns: 20, PerRun: 10, ResultBytes: 80_000, Window: 1_500}))
 	w := report.Window
 	if w.OverWindow == 0 || report.Passed != 0 || len(report.Failures) == 0 {
 		t.Fatalf("over %d, passed %d, failures %+v: a Session that cannot fit its window must fail the check", w.OverWindow, report.Passed, report.Failures)
