@@ -79,19 +79,8 @@ func DecodeAgentProfile(name string, doc []byte, catalog *Catalog) (AgentProfile
 		return AgentProfile{}, err
 	}
 	p := AgentProfile{Name: name, Model: model, ModelName: d.Model, Instruction: d.Instruction, MaxEffect: gotato.ToolEffect(d.MaxEffect), Sampling: d.Sampling, Limits: d.Limits}
-	for _, id := range d.Tools {
-		tool, err := catalog.Tool(id)
-		if err != nil {
-			return AgentProfile{}, err
-		}
-		p.Tools = append(p.Tools, tool)
-	}
-	for _, ref := range d.ToolSets {
-		set, err := catalog.ToolSet(ref.Name)
-		if err != nil {
-			return AgentProfile{}, err
-		}
-		p.ToolSets = append(p.ToolSets, ToolSet{Set: set, Mode: ref.Mode})
+	if err := decodeToolRefs(&p, d, catalog); err != nil {
+		return AgentProfile{}, err
 	}
 	if d.RunTimeout != "" {
 		if p.RunTimeout, err = time.ParseDuration(d.RunTimeout); err != nil {
@@ -99,14 +88,44 @@ func DecodeAgentProfile(name string, doc []byte, catalog *Catalog) (AgentProfile
 		}
 	}
 	if c := d.Compact; c != nil {
-		p.Compact.CompactPolicy = record.CompactPolicy{CeilingTokens: c.CeilingTokens, SegmentBudgetTokens: c.SegmentBudgetTokens, DropReasoning: c.DropReasoning}
-		if c.Location != "" {
-			if p.Compact.Location, err = time.LoadLocation(c.Location); err != nil {
-				return AgentProfile{}, invalid(fmt.Sprintf("AgentProfile %q: compact.location: %v", name, err))
-			}
+		if err := decodeCompact(&p, c); err != nil {
+			return AgentProfile{}, err
 		}
 	}
 	return p, p.validate()
+}
+
+// decodeToolRefs resolves the Tools and ToolSets d names through the Catalog into p.
+func decodeToolRefs(p *AgentProfile, d AgentProfileDoc, catalog *Catalog) error {
+	for _, id := range d.Tools {
+		tool, err := catalog.Tool(id)
+		if err != nil {
+			return err
+		}
+		p.Tools = append(p.Tools, tool)
+	}
+	for _, ref := range d.ToolSets {
+		set, err := catalog.ToolSet(ref.Name)
+		if err != nil {
+			return err
+		}
+		p.ToolSets = append(p.ToolSets, ToolSet{Set: set, Mode: ref.Mode})
+	}
+	return nil
+}
+
+// decodeCompact sets the CompactPolicy of p from c, and loads the time zone c names.
+func decodeCompact(p *AgentProfile, c *CompactDoc) error {
+	p.Compact.CompactPolicy = record.CompactPolicy{CeilingTokens: c.CeilingTokens, SegmentBudgetTokens: c.SegmentBudgetTokens, DropReasoning: c.DropReasoning}
+	if c.Location == "" {
+		return nil
+	}
+	loc, err := time.LoadLocation(c.Location)
+	if err != nil {
+		return invalid(fmt.Sprintf("AgentProfile %q: compact.location: %v", p.Name, err))
+	}
+	p.Compact.Location = loc
+	return nil
 }
 
 // EncodeAgentProfile writes p as a document a store can keep, naming its model
