@@ -26,7 +26,7 @@ func TestAReservedMetadataKeyAnswers400(t *testing.T) {
 		"gotato.anything_later",
 	} {
 		for _, id := range []string{"", "chosen"} {
-			resp, body := send(t, server, http.MethodPost, "/v1/sessions", map[string]any{"id": id, "metadata": map[string]string{"tenant": "x", key: "y"}}, nil)
+			resp, body := via(server).send(t, http.MethodPost, "/v1/sessions", map[string]any{"id": id, "metadata": map[string]string{"tenant": "x", key: "y"}}, nil)
 			var failure struct {
 				Code    string `json:"code"`
 				Message string `json:"message"`

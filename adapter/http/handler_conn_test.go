@@ -351,7 +351,7 @@ func TestStreamingRoutesAnswerCapacityBeforeTheStream(t *testing.T) {
 		t.Fatal(err)
 	}
 	for _, path := range []string{"/v1/sessions/" + fresh.ID + "/runs", "/v1/sessions/" + fresh.ID + "/runs/stream"} {
-		resp, data := send(t, server, http.MethodPost, path, map[string]any{"prompt": "new"}, nil)
+		resp, data := via(server).send(t, http.MethodPost, path, map[string]any{"prompt": "new"}, nil)
 		if resp.StatusCode != http.StatusTooManyRequests || resp.Header.Get(httpapi.NotRunHeader) != "true" {
 			t.Fatalf("%s at capacity = %d %s, mark %q; want 429, marked not run", path, resp.StatusCode, data, resp.Header.Get(httpapi.NotRunHeader))
 		}
@@ -497,7 +497,7 @@ func TestDrainEndsStreamsInOrder(t *testing.T) {
 		t.Fatal(err)
 	}
 	for _, path := range []string{"/v1/sessions/" + fresh.ID + "/runs", "/v1/sessions/" + fresh.ID + "/runs/stream"} {
-		resp, body := send(t, server, http.MethodPost, path, map[string]any{"prompt": "new"}, nil)
+		resp, body := via(server).send(t, http.MethodPost, path, map[string]any{"prompt": "new"}, nil)
 		if resp.StatusCode != http.StatusServiceUnavailable || resp.Header.Get(httpapi.NotRunHeader) != "true" ||
 			!strings.Contains(string(body), `"code":"draining"`) || !strings.Contains(string(body), `"not_run":true`) || !strings.Contains(string(body), `"retryable":true`) {
 			t.Fatalf("a new Run on %s while draining = %d %s (not run %q), want 503, draining, not run, retryable", path, resp.StatusCode, body, resp.Header.Get(httpapi.NotRunHeader))
@@ -535,14 +535,20 @@ func TestDrainEndsStreamsInOrder(t *testing.T) {
 	}
 }
 
+// serverClient is a client of one test server.
+type serverClient struct{ server *httptest.Server }
+
+// via makes the client of server.
+func via(server *httptest.Server) serverClient { return serverClient{server} }
+
 // send makes a request with extra headers and returns the whole response.
-func send(t *testing.T, server *httptest.Server, method, path string, body any, headers map[string]string) (*http.Response, []byte) {
+func (c serverClient) send(t *testing.T, method, path string, body any, headers map[string]string) (*http.Response, []byte) {
 	t.Helper()
 	var raw []byte
 	if body != nil {
 		raw, _ = json.Marshal(body)
 	}
-	req, err := http.NewRequest(method, server.URL+path, bytes.NewReader(raw))
+	req, err := http.NewRequest(method, c.server.URL+path, bytes.NewReader(raw))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -589,18 +595,18 @@ func TestSessionIDHeaderMustAgreeWithThePath(t *testing.T) {
 		if strings.HasSuffix(route.path, "/runs") || strings.HasSuffix(route.path, "/runs/stream") {
 			body = map[string]any{"prompt": "hi"}
 		}
-		resp, data := send(t, server, route.method, route.path, body, map[string]string{"session-id": other.ID})
+		resp, data := via(server).send(t, route.method, route.path, body, map[string]string{"session-id": other.ID})
 		if resp.StatusCode != http.StatusBadRequest || !strings.Contains(string(data), "session-id") {
 			t.Fatalf("%s %s with a header for another Session = %d %s, want 400 naming session-id", route.method, route.path, resp.StatusCode, data)
 		}
 	}
 	// The same ID, in any letter case of the header name, is accepted.
-	resp, data := send(t, server, http.MethodGet, "/v1/sessions/"+created.ID, nil, map[string]string{"Session-Id": created.ID})
+	resp, data := via(server).send(t, http.MethodGet, "/v1/sessions/"+created.ID, nil, map[string]string{"Session-Id": created.ID})
 	if resp.StatusCode != http.StatusOK {
 		t.Fatalf("matching header = %d %s", resp.StatusCode, data)
 	}
 	// An empty header counts as none.
-	resp, data = send(t, server, http.MethodGet, "/v1/sessions/"+created.ID, nil, map[string]string{"session-id": " "})
+	resp, data = via(server).send(t, http.MethodGet, "/v1/sessions/"+created.ID, nil, map[string]string{"session-id": " "})
 	if resp.StatusCode != http.StatusOK {
 		t.Fatalf("blank header = %d %s", resp.StatusCode, data)
 	}
@@ -616,14 +622,14 @@ func TestSessionIDHeaderMustAgreeWithThePath(t *testing.T) {
 func TestRequestsThatCreateASessionSetTheSessionIDHeader(t *testing.T) {
 	server, _ := newServer(t)
 
-	resp, data := send(t, server, http.MethodPost, "/v1/sessions", map[string]any{}, nil)
+	resp, data := via(server).send(t, http.MethodPost, "/v1/sessions", map[string]any{}, nil)
 	var created record.Info
 	_ = json.Unmarshal(data, &created)
 	if resp.StatusCode != http.StatusCreated || created.ID == "" || resp.Header.Get("session-id") != created.ID {
 		t.Fatalf("create: %d header %q body %s", resp.StatusCode, resp.Header.Get("session-id"), data)
 	}
 
-	resp, data = send(t, server, http.MethodPost, "/v1/sessions/"+created.ID+"/fork", nil, nil)
+	resp, data = via(server).send(t, http.MethodPost, "/v1/sessions/"+created.ID+"/fork", nil, nil)
 	var fork record.Info
 	_ = json.Unmarshal(data, &fork)
 	if resp.StatusCode != http.StatusCreated || fork.ID == "" || resp.Header.Get("session-id") != fork.ID {
@@ -631,11 +637,11 @@ func TestRequestsThatCreateASessionSetTheSessionIDHeader(t *testing.T) {
 	}
 
 	// An explicit ID in the body is the Session's ID, and the header must agree.
-	resp, data = send(t, server, http.MethodPost, "/v1/sessions", map[string]any{"id": "mine"}, map[string]string{"session-id": "mine"})
+	resp, data = via(server).send(t, http.MethodPost, "/v1/sessions", map[string]any{"id": "mine"}, map[string]string{"session-id": "mine"})
 	if resp.StatusCode != http.StatusCreated || resp.Header.Get("session-id") != "mine" {
 		t.Fatalf("create with a matching ID: %d header %q body %s", resp.StatusCode, resp.Header.Get("session-id"), data)
 	}
-	resp, data = send(t, server, http.MethodPost, "/v1/sessions", map[string]any{"id": "yours"}, map[string]string{"session-id": "mine"})
+	resp, data = via(server).send(t, http.MethodPost, "/v1/sessions", map[string]any{"id": "yours"}, map[string]string{"session-id": "mine"})
 	if resp.StatusCode != http.StatusBadRequest {
 		t.Fatalf("create with a header for another ID = %d %s, want 400", resp.StatusCode, data)
 	}
@@ -698,7 +704,7 @@ func TestActivationLimitAnswers503MarkedNotRun(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	resp, data := send(t, server, http.MethodPost, "/v1/sessions/"+idle.ID+"/runs", map[string]any{"prompt": "wake"}, map[string]string{"session-id": idle.ID})
+	resp, data := via(server).send(t, http.MethodPost, "/v1/sessions/"+idle.ID+"/runs", map[string]any{"prompt": "wake"}, map[string]string{"session-id": idle.ID})
 	if resp.StatusCode != http.StatusServiceUnavailable || resp.Header.Get(httpapi.NotRunHeader) != "true" {
 		t.Fatalf("an idle Session on a full instance = %d, header %q: %s", resp.StatusCode, resp.Header.Get(httpapi.NotRunHeader), data)
 	}
@@ -717,7 +723,7 @@ func TestActivationLimitAnswers503MarkedNotRun(t *testing.T) {
 	// A streaming request is refused before the stream starts, with the same
 	// 503 and mark, so a load balancer can retry it on another instance.
 	for _, path := range []string{"/v1/sessions/" + idle.ID + "/runs/stream"} {
-		resp, data = send(t, server, http.MethodPost, path, map[string]any{"prompt": "new"}, nil)
+		resp, data = via(server).send(t, http.MethodPost, path, map[string]any{"prompt": "new"}, nil)
 		if resp.StatusCode != http.StatusServiceUnavailable || resp.Header.Get(httpapi.NotRunHeader) != "true" || !strings.Contains(string(data), `"not_run":true`) {
 			t.Fatalf("a streamed refusal on %s = %d %s, header %q", path, resp.StatusCode, data, resp.Header.Get(httpapi.NotRunHeader))
 		}
@@ -727,7 +733,7 @@ func TestActivationLimitAnswers503MarkedNotRun(t *testing.T) {
 	}
 
 	// Other 503s are not marked: a refusal for any other reason keeps it off.
-	resp, _ = send(t, server, http.MethodGet, "/readyz", nil, nil)
+	resp, _ = via(server).send(t, http.MethodGet, "/readyz", nil, nil)
 	if resp.StatusCode != http.StatusOK || resp.Header.Get(httpapi.NotRunHeader) != "" {
 		t.Fatalf("readyz on a full instance = %d, mark %q; a full instance stays ready for the Sessions it holds", resp.StatusCode, resp.Header.Get(httpapi.NotRunHeader))
 	}
@@ -737,7 +743,7 @@ func TestActivationLimitAnswers503MarkedNotRun(t *testing.T) {
 // instance has active, so an operator sees how close it is to its limit.
 func TestReadyzReportsActiveSessions(t *testing.T) {
 	server, _, _ := fullServer(t)
-	resp, data := send(t, server, http.MethodGet, "/readyz", nil, nil)
+	resp, data := via(server).send(t, http.MethodGet, "/readyz", nil, nil)
 	var body struct {
 		OK             bool `json:"ok"`
 		ActiveRuns     int  `json:"active_runs"`
