@@ -113,7 +113,7 @@ func (s *overwriting) Append(ctx context.Context, id string, after uint64, entri
 	return nil
 }
 
-func (s *overwriting) Log(ctx context.Context, id string, after uint64, limit int) ([]record.Entry, error) {
+func (s *overwriting) Log(_ context.Context, id string, after uint64, limit int) ([]record.Entry, error) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	rec, ok := s.records[id]
