@@ -75,11 +75,33 @@ func seqs(entries []record.Entry) []uint64 {
 	return out
 }
 
+// The positions of the Entries that create writes (a checkpoint at 1, a fact
+// and a log Entry) and of the two that createAndAppend adds after them.
+const (
+	createdFact  = 2
+	createdHead  = 3 // where the Record that create makes stands
+	appendedFact = createdHead + 1
+	appendedHead = createdHead + 2 // where the Record stands after createAndAppend
+)
+
 // create writes a Record with a checkpoint, a fact and a log Entry.
 func create(ctx context.Context, st store.Records, id string) ([]record.Entry, error) {
-	entries := []record.Entry{checkpoint(1, "a"), fact(2, "a"), logEntry(3, "a")}
+	entries := []record.Entry{checkpoint(1, "a"), fact(createdFact, "a"), logEntry(createdHead, "a")}
 	entries[1].Instance = "instance-a"
-	return entries, st.Create(ctx, id, entries, header(id, 3, "2026-10-17T00:00:03.000Z"))
+	return entries, st.Create(ctx, id, entries, header(id, createdHead, "2026-10-17T00:00:03.000Z"))
+}
+
+// createAndAppend writes Record "r1" with create, then appends a fact and a log
+// Entry to it, and returns what each write held.
+func createAndAppend(ctx context.Context, st store.Records) (entries, more []record.Entry, err error) {
+	if entries, err = create(ctx, st, "r1"); err != nil {
+		return nil, nil, fmt.Errorf("create: %w", err)
+	}
+	more = []record.Entry{fact(appendedFact, "a"), logEntry(appendedHead, "a")}
+	if err := st.Append(ctx, "r1", createdHead, more, header("r1", appendedHead, "2026-10-17T00:00:05.000Z")); err != nil {
+		return nil, nil, fmt.Errorf("append: %w", err)
+	}
+	return entries, more, nil
 }
 
 // listerOf returns the handle as a Lister, or says what the Lister suite needs.
