@@ -62,7 +62,7 @@ type OldestToHalf struct{}
 
 // Pick implements Picker.
 func (OldestToHalf) Pick(segments []gotato.Segment, budgetTokens int) int {
-	if len(segments) < 2 {
+	if len(segments) < minMergeSegments {
 		return 0
 	}
 	sizes := make([]int, len(segments))
