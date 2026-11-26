@@ -99,17 +99,17 @@ func (e *env) s7(ctx context.Context) bool {
 	}
 	p, out, err := e.s7KillMCP(ctx, st, mk, sendAll)
 	if err != nil {
-		return verdict("s7", false, out)
+		return fail("s7", out)
 	}
 	if out, err := e.s7DeployBot(ctx, st, mk, sendAll); err != nil {
-		return verdict("s7", false, out)
+		return fail("s7", out)
 	}
 	e.waitQuiet(ctx, all, 10*time.Second, 120*time.Second)
 
 	// G, H, N, G2: a graceful roll of the MCP server.
 	roll, out, err := e.rollMCP(ctx, st, mk, sendAll)
 	if err != nil {
-		return verdict("s7", false, out)
+		return fail("s7", out)
 	}
 	fmt.Printf("%s waiting for the Runs to settle\n", st.at())
 	e.waitQuiet(ctx, all, 20*time.Second, 120*time.Second)
@@ -127,7 +127,7 @@ func (e *env) s7(ctx context.Context) bool {
 		faults += unanswered
 		fmt.Printf("  %s %d thread(s) end on a user message with no reply\n", fault, unanswered)
 	}
-	return verdict("s7", faults == 0, fmt.Sprintf("%d GOTATO-FAULT", faults))
+	return faultVerdict("s7", faults)
 }
 
 // s7KillMCP plays s7's phases around the SIGKILL of the MCP server (W, A, B, R, P, A2) and returns the P threads;
@@ -333,7 +333,7 @@ func (e *env) s8(ctx context.Context) bool {
 	loadedInFlight := func(r record) bool { return inFlight(r) > 0 && r.hasEvent("tool_loaded", catalogTool) }
 	victimInst, onVictim, killAt, err := e.killWriter(ctx, st, ts, loadedInFlight, 40*time.Second)
 	if err != nil {
-		return verdict("s8", false, err.Error())
+		return fail("s8", err.Error())
 	}
 	onV := e.s8AskLoaded(ctx, st, ts, onVictim, killAt)
 
@@ -343,7 +343,7 @@ func (e *env) s8(ctx context.Context) bool {
 	faults += e.report(ctx, ts)
 	faults += e.reportStoreErrors()
 	fmt.Printf("  tool still loaded on the next message: victims %d of %d, survivors %d of %d\n", yes["victim"], yes["victim"]+no["victim"], yes["survivor"], yes["survivor"]+no["survivor"])
-	return verdict("s8", faults == 0, fmt.Sprintf("%d GOTATO-FAULT", faults))
+	return faultVerdict("s8", faults)
 }
 
 // s8AskLoaded asks each thread whether the tool is still loaded: first the threads of the killed writer, inside

@@ -10,13 +10,24 @@ import (
 
 func runID() string { return time.Now().Format("150405") }
 
-func verdict(name string, ok bool, why string) bool {
-	if ok {
-		fmt.Printf("\n%s: PASS\n", name)
-	} else {
-		fmt.Printf("\n%s: FAIL: %s\n", name, why)
+// pass reports a scenario that passed.
+func pass(name string) bool {
+	fmt.Printf("\n%s: PASS\n", name)
+	return true
+}
+
+// fail reports a scenario that failed, and why.
+func fail(name, why string) bool {
+	fmt.Printf("\n%s: FAIL: %s\n", name, why)
+	return false
+}
+
+// faultVerdict reports a scenario by the number of GOTATO-FAULTs it found.
+func faultVerdict(name string, faults int) bool {
+	if faults == 0 {
+		return pass(name)
 	}
-	return ok
+	return fail(name, fmt.Sprintf("%d GOTATO-FAULT", faults))
 }
 
 // stamper prints elapsed time since a scenario began.
@@ -78,13 +89,13 @@ func (e *env) smoke(ctx context.Context) bool {
 	fmt.Println("== smoke")
 	pods, err := e.pods(ctx)
 	if err != nil {
-		return verdict("smoke", false, err.Error())
+		return fail("smoke", err.Error())
 	}
 	fmt.Printf("bot pods: %d\n", len(pods))
 	t := &thread{chat: "oc_smoke_" + runID()}
 	m := e.say(ctx, t, "smoke", "")
 	if m.err != nil {
-		return verdict("smoke", false, m.err.Error())
+		return fail("smoke", m.err.Error())
 	}
 	fmt.Printf("sent %s, deliveries %+v\n", m.sent.MessageID, m.sent.Deliveries)
 	cs := e.waitCards(ctx, t.chat)
@@ -92,25 +103,25 @@ func (e *env) smoke(ctx context.Context) bool {
 		e.printErrors()
 	}
 	if len(cs) != 1 {
-		return verdict("smoke", false, fmt.Sprintf("want 1 card, got %d", len(cs)))
+		return fail("smoke", fmt.Sprintf("want 1 card, got %d", len(cs)))
 	}
 	c := cs[0]
 	fmt.Printf("card: instance %s, session %s, text %q\n", c.Instance, c.Session, c.Text)
 	if _, ok := pods[c.Instance]; !ok {
-		return verdict("smoke", false, fmt.Sprintf("card footer instance %q is not one of the bot pods", c.Instance))
+		return fail("smoke", fmt.Sprintf("card footer instance %q is not one of the bot pods", c.Instance))
 	}
 	rec, err := e.record(ctx, t.session())
 	if err != nil {
-		return verdict("smoke", false, err.Error())
+		return fail("smoke", err.Error())
 	}
 	fmt.Printf("Transcript: %q in %d user message(s), %d assistant reply(ies), %d run(s)\n", m.tag, rec.count(m.tag), rec.assistantReplies(), len(rec.Runs))
 	if rec.count(m.tag) != 1 || rec.assistantReplies() != 1 {
-		return verdict("smoke", false, "Transcript does not hold the message once with one reply")
+		return fail("smoke", "Transcript does not hold the message once with one reply")
 	}
 	if faults := recordFaults(rec); len(faults) > 0 {
-		return verdict("smoke", false, strings.Join(faults, "; "))
+		return fail("smoke", strings.Join(faults, "; "))
 	}
-	return verdict("smoke", true, "")
+	return pass("smoke")
 }
 
 // The shape of s3: the pods it starts with and ends with, its threads, the threads with a Run in flight at the
@@ -191,7 +202,7 @@ func (e *env) s1(ctx context.Context) bool {
 	}
 	fmt.Printf("%s kubectl rollout restart deployment/larkbot\n", at())
 	if out, err := e.kubectl(ctx, "rollout", "restart", "deployment/larkbot"); err != nil {
-		return verdict("s1", false, out)
+		return fail("s1", out)
 	}
 	rolled := e.rolloutStatus(ctx, "larkbot")
 	e.s1DuringRollout(ctx, ts, at)
@@ -208,7 +219,7 @@ func (e *env) s1(ctx context.Context) bool {
 	e.waitQuiet(ctx, ts, s1Quiet, s1Settle)
 	fmt.Printf("\n%s results\n", at())
 	faults := e.report(ctx, ts)
-	return verdict("s1", faults == 0, fmt.Sprintf("%d GOTATO-FAULT", faults))
+	return faultVerdict("s1", faults)
 }
 
 // s1DuringRollout sends while the bot rolls: new threads, replies into threads whose Run is still going, and
@@ -305,11 +316,11 @@ func (e *env) s2(ctx context.Context) bool {
 	victim, victimInst := e.s2FindWriter(ctx, ts)
 	if victim == "" {
 		e.printErrors()
-		return verdict("s2", false, "could not find the pod that writes thread 1")
+		return fail("s2", "could not find the pod that writes thread 1")
 	}
 	onVictim, killAt, err := e.s2Kill(ctx, ts, victim, victimInst, at)
 	if err != nil {
-		return verdict("s2", false, "kill failed")
+		return fail("s2", "kill failed")
 	}
 	e.s2Replies(ctx, onVictim, killAt, at)
 	fmt.Printf("%s waiting for the Runs to settle\n", at())
@@ -327,7 +338,7 @@ func (e *env) s2(ctx context.Context) bool {
 	}
 	fmt.Println()
 	faults := e.report(ctx, ts)
-	return verdict("s2", faults == 0, fmt.Sprintf("%d GOTATO-FAULT", faults))
+	return faultVerdict("s2", faults)
 }
 
 // s2FindWriter waits for the Run of the first thread to hold the Claim, and returns the pod and the instance

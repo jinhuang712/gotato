@@ -36,7 +36,7 @@ func (e *env) s3(ctx context.Context) bool {
 	st := newStamper()
 	before, err := e.pods(ctx)
 	if err != nil || len(before) != s3PodsAtStart {
-		return verdict("s3", false, fmt.Sprintf("want 3 bot pods to start with, have %v (%v)", podNames(before), err))
+		return fail("s3", fmt.Sprintf("want 3 bot pods to start with, have %v (%v)", podNames(before), err))
 	}
 	ts := chats("s3", s3Threads)
 	say := func(i int, tag, d, what string) {
@@ -47,11 +47,11 @@ func (e *env) s3(ctx context.Context) bool {
 	fmt.Printf("%s 3 pods: %v\n", st.at(), podNames(before))
 	run := &s3Run{e: e, st: st, ts: ts, say: say, delay: delay}
 	if err := run.scaleDown(ctx); err != nil {
-		return verdict("s3", false, err.Error())
+		return fail("s3", err.Error())
 	}
 	five, err := run.scaleUp(ctx)
 	if err != nil {
-		return verdict("s3", false, err.Error())
+		return fail("s3", err.Error())
 	}
 
 	fmt.Printf("\n%s results\n", st.at())
@@ -62,9 +62,9 @@ func (e *env) s3(ctx context.Context) bool {
 
 	claimsByNew := run.claims(ctx, before, five)
 	if claimsByNew == 0 {
-		return verdict("s3", false, "no pod added by the scale-up claimed a Session")
+		return fail("s3", "no pod added by the scale-up claimed a Session")
 	}
-	return verdict("s3", faults == 0, fmt.Sprintf("%d GOTATO-FAULT", faults))
+	return faultVerdict("s3", faults)
 }
 
 // s3Run is one play of s3: the driver, the stamper, the threads, the Run's delay and the sender into a thread.
@@ -233,7 +233,7 @@ func (e *env) s4(ctx context.Context) bool {
 	if inv > 0 {
 		fmt.Printf("  KNOWN-BOT-GAP %d message(s) sent in a row landed in the Transcript out of order (two pods, no cross-pod order)\n", inv)
 	}
-	return verdict("s4", faults == 0, fmt.Sprintf("%d GOTATO-FAULT", faults))
+	return faultVerdict("s4", faults)
 }
 
 // s4Thread plays s4's phases in one thread: a root message, a burst into its Run, messages in a row, and a
@@ -327,7 +327,7 @@ func (e *env) s5(ctx context.Context) bool {
 	d := e.ackDelay(ctx)
 	if d == "" || d == "0s" || d == "0" {
 		fmt.Println("the bots run with -ack-delay=0; start them with: ACK_DELAY=4s cluster/run.sh up")
-		return verdict("s5", false, "the bot's -ack-delay is "+fmt.Sprintf("%q", d)+" (needs more than fakelark's 3 s ack timeout)")
+		return fail("s5", "the bot's -ack-delay is "+fmt.Sprintf("%q", d)+" (needs more than fakelark's 3 s ack timeout)")
 	}
 	fmt.Printf("bots' -ack-delay=%s, fakelark's ack timeout 3s, up to 3 redeliveries\n", d)
 	st := newStamper()
@@ -341,7 +341,7 @@ func (e *env) s5(ctx context.Context) bool {
 	all := e.s5Dups(ctx, ts, inflight, fresh)
 	fmt.Println("\nDESIGN INPUT (KNOWN-BOT-GAP, not a Gotato fault): a redelivery that lands on a pod that has not seen the message_id is handled as a new message.")
 	fmt.Printf("  duplicate user messages in Transcripts: %d, duplicate reply cards: %d, duplicate assistant replies: %d\n", all.ExtraUserCopies, all.ExtraCards, all.ExtraAssistant)
-	return verdict("s5", faults == 0, fmt.Sprintf("%d GOTATO-FAULT", faults))
+	return faultVerdict("s5", faults)
 }
 
 // s5Send plays the two waves of s5: the first message of each thread, then a second message in the threads of
