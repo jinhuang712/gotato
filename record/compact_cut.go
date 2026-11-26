@@ -61,20 +61,9 @@ func withinBudget(messages []gotato.Message, budget, floor int) int {
 // counting the Run skip, the one that is starting. Without Run IDs it is the
 // last user Message.
 func runStart(messages []gotato.Message, skip gotato.RunID) int {
-	var latest gotato.RunID
-	for _, message := range slices.Backward(messages) {
-		if id := message.RunID; id != "" && id != skip {
-			latest = id
-			break
-		}
-	}
+	latest := latestRun(messages, skip)
 	if latest == "" {
-		for i, message := range slices.Backward(messages) {
-			if message.Role == gotato.RoleUser {
-				return i
-			}
-		}
-		return 0
+		return lastUserMessage(messages)
 	}
 	// Messages with no Run after the Run's last stay in the tail; one before
 	// its first is not part of it.
@@ -87,6 +76,28 @@ func runStart(messages []gotato.Message, skip gotato.RunID) int {
 		}
 	}
 	return start
+}
+
+// latestRun returns the Run of the last Message that has one other than skip,
+// or "" when none has.
+func latestRun(messages []gotato.Message, skip gotato.RunID) gotato.RunID {
+	for _, message := range slices.Backward(messages) {
+		if id := message.RunID; id != "" && id != skip {
+			return id
+		}
+	}
+	return ""
+}
+
+// lastUserMessage returns the index of the last user Message, or 0 when there
+// is none.
+func lastUserMessage(messages []gotato.Message) int {
+	for i, message := range slices.Backward(messages) {
+		if message.Role == gotato.RoleUser {
+			return i
+		}
+	}
+	return 0
 }
 
 // turnCut returns the first index >= want that starts a Turn: a Message that
