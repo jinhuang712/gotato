@@ -34,7 +34,7 @@ func (t *turnRun) afterModelError(st *runState, modelErr *RuntimeError) (bool, R
 			a.stage(ReplyCutOff{Header: hd(t.turn), Message: t.assistant.Clone(), Cause: modelErr.Code})
 		}
 		a.stage(t.turnEnded(st, StopReasonCutOff))
-		if _, controlErr := a.consumeControl(st.runCtx, st.runID, t.turn, false); controlErr != nil {
+		if _, controlErr := a.consumeControl(st.runCtx, st.runID, t.turn, a.queue.takeBetweenTurns()); controlErr != nil {
 			return st.failTurn(controlErr)
 		}
 		return true, RunResult{}, nil
@@ -68,7 +68,7 @@ func (t *turnRun) endAnswerTurn(st *runState, replyNumber uint64) (bool, RunResu
 	// Safe boundary at settlement: Steer and FollowUp both apply here.
 	// Cancellation is checked first so a queued continuation is never
 	// committed to a Run that is already ending.
-	injected, controlErr := st.boundary(turn, true)
+	injected, controlErr := t.settlementBoundary(st)
 	if controlErr != nil {
 		return st.failTurn(controlErr)
 	}
@@ -112,10 +112,29 @@ func (t *turnRun) endToolTurn(st *runState) (bool, RunResult, error) {
 	}
 	// Safe boundary between Turns: Steer applies, FollowUp waits for
 	// settlement.
-	if _, controlErr := st.boundary(turn, false); controlErr != nil {
+	if _, controlErr := t.boundary(st); controlErr != nil {
 		return st.failTurn(controlErr)
 	}
 	return true, RunResult{}, nil
+}
+
+// boundary is the safe boundary after a Turn when the Run goes on: Steer
+// applies. Cancellation is checked first so a queued continuation is never
+// committed to a Run that is already ending.
+func (t *turnRun) boundary(st *runState) (bool, *RuntimeError) {
+	if err := contextFailure(st.runCtx, "continuation"); err != nil {
+		return false, err
+	}
+	return st.a.consumeControl(st.runCtx, st.runID, t.turn, st.a.queue.takeBetweenTurns())
+}
+
+// settlementBoundary is boundary when the Run is settling: Steer and FollowUp
+// apply.
+func (t *turnRun) settlementBoundary(st *runState) (bool, *RuntimeError) {
+	if err := contextFailure(st.runCtx, "continuation"); err != nil {
+		return false, err
+	}
+	return st.a.consumeControl(st.runCtx, st.runID, t.turn, st.a.queue.takeAtSettlement())
 }
 
 // runToolBatch runs the Tool calls of the Turn's reply: it checks them in

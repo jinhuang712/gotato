@@ -129,24 +129,28 @@ func (q *controlQueue) interrupting() bool {
 	return slices.ContainsFunc(q.items, func(c control) bool { return c.source == MessageSourceInterrupt })
 }
 
-// take removes what a Run takes at a boundary, in the order it was accepted:
-// the Steers and Interrupts, and the FollowUps too when the Run is settling,
-// and the notices with them. A notice never keeps a Run going: at settlement
-// they are taken only along with another message. The messages are the Run's
-// until the lease says what became of each.
-func (q *controlQueue) take(settling bool) *lease {
+// takeBetweenTurns removes what a Run takes at the boundary between two
+// Turns, in the order it was accepted: the Steers and Interrupts, and the
+// notices with them. The messages are the Run's until the lease says what
+// became of each.
+func (q *controlQueue) takeBetweenTurns() *lease {
 	q.mu.Lock()
 	defer q.mu.Unlock()
-	withNotices := !settling
-	for _, item := range q.items {
-		if kind := item.kind; kind == kindSteer || (settling && kind == kindFollowUp) {
-			withNotices = true
-			break
-		}
-	}
+	return q.lease(func(c control) bool { return c.kind == kindSteer || c.kind == kindNotice })
+}
+
+// takeAtSettlement removes what a settling Run takes, in the order it was
+// accepted: the Steers, Interrupts and FollowUps, and the notices with them.
+// A notice never keeps a Run going: at settlement they are taken only along
+// with another message. The messages are the Run's until the lease says what
+// became of each.
+func (q *controlQueue) takeAtSettlement() *lease {
+	q.mu.Lock()
+	defer q.mu.Unlock()
+	withNotices := slices.ContainsFunc(q.items, func(c control) bool { return c.kind == kindSteer || c.kind == kindFollowUp })
 	return q.lease(func(c control) bool {
 		kind := c.kind
-		return kind == kindSteer || (settling && kind == kindFollowUp) || (withNotices && kind == kindNotice)
+		return kind == kindSteer || kind == kindFollowUp || (withNotices && kind == kindNotice)
 	})
 }
 

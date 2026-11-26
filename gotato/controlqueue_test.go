@@ -9,7 +9,7 @@ func TestAMessagePutBackKeepsItsPlaceAmongTheOthers(t *testing.T) {
 
 	// A Run between Turns takes the Steer and leaves the FollowUp, then fails
 	// before it commits the Steer.
-	taken := q.take(false)
+	taken := q.takeBetweenTurns()
 	if len(taken.items) != 1 || taken.items[0].message.ID != "steer" {
 		t.Fatalf("took %+v, want the Steer only", taken.items)
 	}

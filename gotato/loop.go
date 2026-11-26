@@ -220,16 +220,6 @@ func (st *runState) callOnce(turn TurnNumber, current *turnBuild) (assistant Mes
 	return assistant, usage, modelErr, nil
 }
 
-// boundary is the safe boundary after a Turn: Steer applies, and FollowUp too
-// when the Run is settling. Cancellation is checked first so a queued
-// continuation is never committed to a Run that is already ending.
-func (st *runState) boundary(turn TurnNumber, settling bool) (bool, *RuntimeError) {
-	if err := contextFailure(st.runCtx, "continuation"); err != nil {
-		return false, err
-	}
-	return st.a.consumeControl(st.runCtx, st.runID, turn, settling)
-}
-
 // executeRun runs the one canonical Loop. A nil prompt is a Continue: the Run
 // appends no user Message and picks up the committed transcript as it stands.
 func (a *Session) executeRun(ctx context.Context, prompt *Message) (RunResult, error) {
@@ -410,15 +400,15 @@ func (st *runState) prepareTurn(turn TurnNumber, runStart int, request ModelRequ
 	})
 }
 
-// consumeControl commits the control Messages that apply at this boundary. It
-// runs inside the Session execution unit, so committing them keeps the Session
-// goroutine as the only mutation authority for the transcript.
+// consumeControl commits items, the control Messages that apply at this
+// boundary. It runs inside the Session execution unit, so committing them
+// keeps the Session goroutine as the only mutation authority for the
+// transcript.
 //
 // Notices wait in the same queue and go in with them, in the order they
 // arrived. A notice never keeps a Run going: at settlement they are committed
 // only when a Steer or FollowUp is, and otherwise wait for the next Run.
-func (a *Session) consumeControl(ctx context.Context, runID RunID, turn TurnNumber, settling bool) (bool, *RuntimeError) {
-	items := a.queue.take(settling)
+func (a *Session) consumeControl(ctx context.Context, runID RunID, turn TurnNumber, items *lease) (bool, *RuntimeError) {
 	// [DATA-LOSS] a message taken and not committed goes back to the queue, whatever stops the commits.
 	defer items.putBack()
 	injected := false
