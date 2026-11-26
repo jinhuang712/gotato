@@ -347,20 +347,28 @@ type reply struct {
 	body   []byte
 }
 
+// clusterCall is one request of a client of the cluster, with the Session it is about.
+type clusterCall struct {
+	method    string
+	path      string
+	body      any
+	sessionID string
+}
+
 // clusterSend makes one request, to the proxy or straight to an member.
-func clusterSend(t *testing.T, base, method, path string, body any, sessionID string) reply {
+func clusterSend(t *testing.T, base string, call clusterCall) reply {
 	t.Helper()
 	var raw []byte
-	if body != nil {
-		raw, _ = json.Marshal(body)
+	if call.body != nil {
+		raw, _ = json.Marshal(call.body)
 	}
-	req, err := http.NewRequest(method, base+path, bytes.NewReader(raw))
+	req, err := http.NewRequest(call.method, base+call.path, bytes.NewReader(raw))
 	if err != nil {
 		t.Fatal(err)
 	}
 	req.Header.Set("Content-Type", "application/json")
-	if sessionID != "" {
-		req.Header.Set(httpapi.SessionIDHeader, sessionID)
+	if call.sessionID != "" {
+		req.Header.Set(httpapi.SessionIDHeader, call.sessionID)
 	}
 	resp, err := http.DefaultClient.Do(req)
 	if err != nil {
@@ -378,7 +386,7 @@ func (c *cluster) prompt(sessionID, text string) reply {
 	if !c.coin() {
 		base = c.anyInstance().server.URL
 	}
-	return clusterSend(c.t, base, http.MethodPost, "/v1/sessions/"+sessionID+"/runs", map[string]any{"prompt": text}, sessionID)
+	return clusterSend(c.t, base, clusterCall{http.MethodPost, "/v1/sessions/" + sessionID + "/runs", map[string]any{"prompt": text}, sessionID})
 }
 
 // create makes a Session for a task. A task with a history is created on an
@@ -393,7 +401,7 @@ func (c *cluster) create(task reftasks.Task) string {
 		}
 		return s.ID
 	}
-	r := clusterSend(c.t, c.front.URL, http.MethodPost, "/v1/sessions", map[string]any{"agent": task.Name}, "")
+	r := clusterSend(c.t, c.front.URL, clusterCall{http.MethodPost, "/v1/sessions", map[string]any{"agent": task.Name}, ""})
 	id := r.header.Get(httpapi.SessionIDHeader)
 	if r.status != http.StatusCreated || id == "" {
 		c.t.Fatalf("create = %d %s", r.status, r.body)

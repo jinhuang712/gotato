@@ -326,7 +326,7 @@ func TestProxyKeepsASessionOnItsWriter(t *testing.T) {
 	c := newCluster(t, 3, []reftasks.Task{task}, 3)
 	id := c.create(task)
 	for _, prompt := range task.Prompts[:4] {
-		if r := clusterSend(t, c.front.URL, http.MethodPost, "/v1/sessions/"+id+"/runs", map[string]any{"prompt": prompt}, id); r.status != http.StatusOK {
+		if r := clusterSend(t, c.front.URL, clusterCall{http.MethodPost, "/v1/sessions/" + id + "/runs", map[string]any{"prompt": prompt}, id}); r.status != http.StatusOK {
 			t.Fatalf("prompt = %d %s", r.status, r.body)
 		}
 	}
@@ -468,7 +468,7 @@ func TestKilledInstanceMidTrafficLosesOnlyTheStepInFlight(t *testing.T) {
 	// kill comes when that Run has started, and not before.
 	lost := make(chan reply, 1)
 	go func() {
-		lost <- clusterSend(t, victim.server.URL, http.MethodPost, "/v1/sessions/"+target+"/runs", map[string]any{"prompt": "hold"}, target)
+		lost <- clusterSend(t, victim.server.URL, clusterCall{http.MethodPost, "/v1/sessions/" + target + "/runs", map[string]any{"prompt": "hold"}, target})
 	}()
 	<-model.started
 	c.kill(victim)
@@ -481,7 +481,7 @@ func TestKilledInstanceMidTrafficLosesOnlyTheStepInFlight(t *testing.T) {
 	// Session over.
 	for k := range 3 {
 		text := fmt.Sprintf("after-%d", k)
-		r := clusterSend(t, c.front.URL, http.MethodPost, "/v1/sessions/"+target+"/runs", map[string]any{"prompt": text}, target)
+		r := clusterSend(t, c.front.URL, clusterCall{http.MethodPost, "/v1/sessions/" + target + "/runs", map[string]any{"prompt": text}, target})
 		if r.status != http.StatusOK {
 			t.Fatalf("a prompt for the Session the dead instance held = %d %s", r.status, r.body)
 		}
@@ -639,7 +639,7 @@ func TestProxyRetriesAFullInstancesRefusalElsewhere(t *testing.T) {
 	}
 	before := c.proxy.retries.Load()
 	for i, id := range ids {
-		r := clusterSend(t, c.front.URL, http.MethodPost, "/v1/sessions/"+id+"/runs", map[string]any{"prompt": fmt.Sprintf("p%d", i)}, id)
+		r := clusterSend(t, c.front.URL, clusterCall{http.MethodPost, "/v1/sessions/" + id + "/runs", map[string]any{"prompt": fmt.Sprintf("p%d", i)}, id})
 		if r.status != http.StatusOK {
 			t.Fatalf("request %d = %d %s", i, r.status, r.body)
 		}
