@@ -69,7 +69,7 @@ func (r *Runner) open(ctx context.Context, sessionID string) (*store.Writer, []g
 	if err := r.live(ctx); err != nil {
 		return nil, nil, err
 	}
-	wait := openWait{deadline: r.clock.Now().Add(r.heartbeat.Wait), pause: 20 * time.Millisecond}
+	wait := openWait{deadline: r.clock.Now().Add(r.heartbeat.Wait), pause: openFirstPause}
 	for {
 		writer, early, err := r.openOnce(ctx, sessionID, wait)
 		if err == nil {
@@ -83,6 +83,14 @@ func (r *Runner) open(ctx context.Context, sessionID string) (*store.Writer, []g
 		}
 	}
 }
+
+const (
+	// openFirstPause is open's first pause before it looks again at a Session
+	// another Instance holds; each pause doubles, up to openMaxPause.
+	openFirstPause = 20 * time.Millisecond
+	// openMaxPause is the longest pause of open between two looks.
+	openMaxPause = 500 * time.Millisecond
+)
 
 // openWait is where open stands in its wait for a Session another Instance
 // holds: when it gives up, its next pause and whether it waited already.
@@ -141,7 +149,7 @@ func (r *Runner) waitToOpen(ctx context.Context, sessionID string, wait *openWai
 	if err := clock.Sleep(ctx, r.clock, min(wait.pause, remaining)); err != nil {
 		return err
 	}
-	wait.pause = min(wait.pause*2, 500*time.Millisecond)
+	wait.pause = min(wait.pause*2, openMaxPause)
 	return nil
 }
 
