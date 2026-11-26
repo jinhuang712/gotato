@@ -88,7 +88,7 @@ func withAgentModel(writer record.RecapWriter, model gotato.Model) (out record.R
 // built by a live Session that is inspected and not run.
 func (r *Runner) recapContext(spec profile.AgentProfile, rec *record.Record) func(context.Context) (gotato.ModelRequest, error) {
 	return func(ctx context.Context) (gotato.ModelRequest, error) {
-		live, _, err := r.buildSession(ctx, spec, rec, nil, InspectConfig{})
+		live, _, err := r.buildSession(ctx, spec, rec, buildConfig{})
 		if err != nil {
 			return gotato.ModelRequest{}, err
 		}

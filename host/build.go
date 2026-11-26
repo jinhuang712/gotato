@@ -12,6 +12,14 @@ import (
 	"github.com/jinhuang712/gotato/store"
 )
 
+// buildConfig is what one build of a live Session takes besides its
+// AgentProfile, Record and extra options: the writer and the inspection's
+// override.
+type buildConfig struct {
+	writer   *store.Writer
+	override InspectConfig
+}
+
 // buildSession builds the live Session for one Run from its AgentProfile: every
 // SessionOption is the Runner's, built from the profile's typed fields and the
 // Record's tool switches. override replaces the instruction for an inspection
@@ -19,21 +27,11 @@ import (
 // step of a Run is written as it happens; without one the Record is, and keeps
 // the Session's Events in memory. extra options come after the Agent's own, and
 // NewSession refuses one that repeats a single-valued option.
-func (r *Runner) buildSession(ctx context.Context, spec profile.AgentProfile, s *record.Record, writer *store.Writer, override InspectConfig, extra ...gotato.SessionOption) (*gotato.Session, *record.AutoCompactor, error) {
-	// Without a writer nothing is stored: the live Session numbers its Events
-	// on its own stream, and does not use the Record's numbers, which are
-	// positions in the log that this Run does not write.
-	var transcript gotato.Transcript = unjournaled{s}
-	if writer != nil {
-		transcript = writer
-	}
+func (r *Runner) buildSession(ctx context.Context, spec profile.AgentProfile, s *record.Record, config buildConfig, extra ...gotato.SessionOption) (*gotato.Session, *record.AutoCompactor, error) {
+	transcript := sessionTranscript(s, config.writer)
 	instruction := spec.Instruction
-	if override.Instruction != "" {
-		instruction = override.Instruction
-	}
-	builder := spec.ContextBuilder
-	if builder == nil {
-		builder = gotato.FullHistoryContext()
+	if config.override.Instruction != "" {
+		instruction = config.override.Instruction
 	}
 	// Every Run has its Session compacted when the provider refuses a request
 	// as too long, and past the ceiling when there is one.
@@ -42,7 +40,7 @@ func (r *Runner) buildSession(ctx context.Context, spec profile.AgentProfile, s 
 		gotato.WithModel(spec.Model),
 		gotato.WithInstruction(instruction),
 		gotato.WithTranscript(transcript),
-		gotato.WithContextBuilder(builder),
+		gotato.WithContextBuilder(contextBuilderOf(spec)),
 		gotato.WithCacheKey(sessionCacheKey(s)),
 		gotato.WithSampling(spec.Sampling),
 	}
@@ -79,6 +77,29 @@ func (r *Runner) buildSession(ctx context.Context, spec profile.AgentProfile, s 
 		return nil, nil, err
 	}
 	return agent, auto, nil
+}
+
+// sessionTranscript is the Transcript of a live Session over s: the writer
+// when there is one, or else s, unjournaled.
+func sessionTranscript(s *record.Record, writer *store.Writer) gotato.Transcript {
+	// Without a writer nothing is stored: the live Session numbers its Events
+	// on its own stream, and does not use the Record's numbers, which are
+	// positions in the log that this Run does not write.
+	var transcript gotato.Transcript = unjournaled{s}
+	if writer != nil {
+		transcript = writer
+	}
+	return transcript
+}
+
+// contextBuilderOf is the profile's ContextBuilder, or the full history when
+// it sets none.
+func contextBuilderOf(spec profile.AgentProfile) gotato.ContextBuilder {
+	builder := spec.ContextBuilder
+	if builder == nil {
+		builder = gotato.FullHistoryContext()
+	}
+	return builder
 }
 
 // unjournaled is a Record as a Transcript that is not a Journal, so a Session

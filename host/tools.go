@@ -192,7 +192,7 @@ func (r *Runner) addLiveToolEntries(ctx context.Context, spec profile.AgentProfi
 	// switched off or not, and search_tools, whose description is the catalog.
 	toolCtx, cancel := r.toolSetContext(ctx)
 	defer cancel()
-	live, _, err := r.buildSession(toolCtx, spec, s, nil, InspectConfig{})
+	live, _, err := r.buildSession(toolCtx, spec, s, buildConfig{})
 	if err != nil {
 		if r.toolSetsTimedOut(ctx, err) {
 			// The Agent's own tools are listed; the error says the ToolSets did not answer.
@@ -328,7 +328,7 @@ func toolSetsTimeout(cause error) error {
 func (r *Runner) findSetTool(ctx context.Context, spec profile.AgentProfile, s *record.Record, toolID string) (*gotato.ToolSpec, string, bool, error) {
 	toolCtx, cancel := r.toolSetContext(ctx)
 	defer cancel()
-	live, _, err := r.buildSession(toolCtx, spec, s, nil, InspectConfig{})
+	live, _, err := r.buildSession(toolCtx, spec, s, buildConfig{})
 	if err != nil {
 		if r.toolSetsTimedOut(ctx, err) {
 			return nil, "", false, toolSetsTimeout(err)

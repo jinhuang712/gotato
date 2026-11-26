@@ -195,7 +195,7 @@ func (st *runState) startRun(ctx, runCtx context.Context, spec profile.AgentProf
 		handle.attachRunID(runID)
 		handle.abortIfStopped()
 	})
-	live, auto, err := r.buildSession(runCtx, spec, s, st.writer, InspectConfig{}, onRunStart, withFeed(st.feed), withQueueHandoff(), withRequestID(st.request.RequestID))
+	live, auto, err := r.buildSession(runCtx, spec, s, buildConfig{writer: st.writer}, onRunStart, withFeed(st.feed), withQueueHandoff(), withRequestID(st.request.RequestID))
 	if err != nil {
 		return nil, nil, err
 	}

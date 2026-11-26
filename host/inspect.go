@@ -29,7 +29,7 @@ func (r *Runner) Inspect(ctx context.Context, sessionID string, config InspectCo
 	if err != nil {
 		return record.Report{}, err
 	}
-	live, auto, err := r.buildSession(ctx, spec, s, nil, config)
+	live, auto, err := r.buildSession(ctx, spec, s, buildConfig{override: config})
 	if err != nil {
 		return record.Report{}, err
 	}
