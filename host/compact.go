@@ -29,42 +29,50 @@ func (r *Runner) Compact(ctx context.Context, sessionID string, opts record.Comp
 		return record.Result{}, ErrDraining
 	}
 	var result record.Result
-	err := r.withSessionLock(ctx, sessionID, func() error {
-		writer, early, _, err := r.acquire(ctx, sessionID)
-		if err != nil {
-			return err
-		}
-		agentName, _ := writer.Record().Get(metaAgent)
-		r.publishOpened(writer, early, agentName)
-		spec, err := r.agentOf(ctx, writer.Record())
-		known := err == nil
-		if err != nil && !errors.Is(err, ErrUnknownAgent) {
-			_ = r.releaseWriter(ctx, writer)
-			return err
-		}
-		var compactor record.Compactor
-		var compactOpts []record.CompactOption
-		if known {
-			compactor = compactorFor(spec)
-			if opts.Recap != nil {
-				opts.Recap = withAgentModel(opts.Recap, spec.Model)
-			}
-			compactOpts = append(compactOpts, record.WithRecapContext(r.recapContext(spec, writer.Record())))
-		}
-		result, err = record.Compact(ctx, writer.Record(), compactor, opts, compactOpts...)
-		releaseErr := r.releaseWriter(ctx, writer)
-		if known && releaseErr == nil {
-			r.keepWarm(writer, spec)
-		}
-		if err != nil {
-			return err
-		}
-		return releaseErr
+	err := r.withSessionLock(ctx, sessionID, func() (err error) {
+		result, err = r.compactLocked(ctx, sessionID, opts)
+		return err
 	})
 	if err != nil {
 		return record.Result{}, err
 	}
 	return result, nil
+}
+
+// compactLocked is Compact under the Session lock: it claims the Session,
+// compacts its Record with its Agent's Compactor when the Agent is known, and
+// releases it.
+func (r *Runner) compactLocked(ctx context.Context, sessionID string, opts record.CompactConfig) (record.Result, error) {
+	writer, early, _, err := r.acquire(ctx, sessionID)
+	if err != nil {
+		return record.Result{}, err
+	}
+	agentName, _ := writer.Record().Get(metaAgent)
+	r.publishOpened(writer, early, agentName)
+	spec, err := r.agentOf(ctx, writer.Record())
+	known := err == nil
+	if err != nil && !errors.Is(err, ErrUnknownAgent) {
+		_ = r.releaseWriter(ctx, writer)
+		return record.Result{}, err
+	}
+	var compactor record.Compactor
+	var compactOpts []record.CompactOption
+	if known {
+		compactor = compactorFor(spec)
+		if opts.Recap != nil {
+			opts.Recap = withAgentModel(opts.Recap, spec.Model)
+		}
+		compactOpts = append(compactOpts, record.WithRecapContext(r.recapContext(spec, writer.Record())))
+	}
+	result, err := record.Compact(ctx, writer.Record(), compactor, opts, compactOpts...)
+	releaseErr := r.releaseWriter(ctx, writer)
+	if known && releaseErr == nil {
+		r.keepWarm(writer, spec)
+	}
+	if err != nil {
+		return result, err
+	}
+	return result, releaseErr
 }
 
 // withAgentModel gives a RecapWriter that names no Model the Agent's own
