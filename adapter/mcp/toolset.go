@@ -362,15 +362,7 @@ func (s *ToolSet) list(ctx context.Context) ([]*sdk.Tool, uint64, error) {
 		}
 		// Read after the connect, which counts itself, so the first list is kept.
 		gen := s.gen.Load()
-		var tools []*sdk.Tool
-		var listErr error
-		for tool, err := range session.Tools(ctx, nil) {
-			if err != nil {
-				listErr = err
-				break
-			}
-			tools = append(tools, tool)
-		}
+		tools, listErr := collectTools(ctx, session)
 		if listErr == nil {
 			return tools, gen, nil
 		}
@@ -379,6 +371,18 @@ func (s *ToolSet) list(ctx context.Context) ([]*sdk.Tool, uint64, error) {
 			return nil, 0, fmt.Errorf("mcp %s: list tools: %w", s.name, listErr)
 		}
 	}
+}
+
+// collectTools reads every page of session's tools, and stops at the first error.
+func collectTools(ctx context.Context, session *sdk.ClientSession) ([]*sdk.Tool, error) {
+	var tools []*sdk.Tool
+	for tool, err := range session.Tools(ctx, nil) {
+		if err != nil {
+			return tools, err
+		}
+		tools = append(tools, tool)
+	}
+	return tools, nil
 }
 
 // dial makes one connection, bounded by the connect timeout. timedOut says the
