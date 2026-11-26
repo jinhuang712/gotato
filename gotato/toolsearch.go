@@ -87,7 +87,7 @@ func (t *searchTool) Spec() ToolSpec {
 	}
 }
 
-func (t *searchTool) Execute(ctx context.Context, use ToolUse, progress ToolProgressFunc) (ToolResult, error) {
+func (t *searchTool) Execute(ctx context.Context, use ToolUse, _ ToolProgressFunc) (ToolResult, error) {
 	var input struct {
 		Names   []string `json:"names"`
 		Queries []string `json:"queries"`
