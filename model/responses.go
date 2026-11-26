@@ -20,6 +20,10 @@ const defaultResponsesCacheKeyField = "prompt_cache_key"
 // the retention explicit.
 const responsesCacheTTL = 30 * time.Minute
 
+// responsesItemsPerMessage is the input items a Message is expected to give,
+// to size the input list.
+const responsesItemsPerMessage = 2
+
 // Responses is the OpenAI Responses wire API. The zero value is the default.
 type Responses struct {
 	// CacheKeyField names the top-level body field that carries the request's
@@ -116,7 +120,7 @@ func encodeResponsesRequest(model gotato.ModelConfig, request gotato.ModelReques
 
 // responsesInput converts the history into the request's input items.
 func responsesInput(model gotato.ModelConfig, messages []gotato.Message, names map[string]string, layout *deferredLayout) ([]any, error) {
-	input := make([]any, 0, len(messages)*2)
+	input := make([]any, 0, len(messages)*responsesItemsPerMessage)
 	start := roundStart(messages)
 	for i, message := range messages {
 		items, err := convertResponsesMessage(message, names, keepsReasoning(model.Facts.RoundReasoning, i, start), layout)
