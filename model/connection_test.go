@@ -39,11 +39,19 @@ func (s *headerServer) header() http.Header {
 	return s.last
 }
 
+// clientSetup is the wire, Connection and model a test builds a Client from.
+type clientSetup struct {
+	wire  WireAPI
+	conn  Connection
+	model gotato.ModelConfig
+}
+
 // send builds a Client for the wire over the server and streams one request.
-func (s *headerServer) send(t *testing.T, wire WireAPI, conn Connection, model gotato.ModelConfig, ctx context.Context, request gotato.ModelRequest) http.Header {
+func (s *headerServer) send(t *testing.T, setup clientSetup, ctx context.Context, request gotato.ModelRequest) http.Header {
 	t.Helper()
+	conn := setup.conn
 	conn.Endpoint = s.URL
-	client, err := New(wire, conn, model, WithRetry(Retry{}))
+	client, err := New(setup.wire, conn, setup.model, WithRetry(Retry{}))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -77,7 +85,7 @@ func TestAPIKeyIsPlacedByTheWire(t *testing.T) {
 		{APIAnthropicMessages, "", "X-Api-Key", "", []string{"Authorization"}},
 	} {
 		server := newHeaderServer(t, tc.api)
-		header := server.send(t, wireOf(tc.api), Connection{APIKey: tc.key}, modelOf(gotato.ModelFacts{}), context.Background(), hello())
+		header := server.send(t, clientSetup{wire: wireOf(tc.api), conn: Connection{APIKey: tc.key}, model: modelOf(gotato.ModelFacts{})}, context.Background(), hello())
 		if got := header.Get(tc.authHeader); got != tc.want {
 			t.Errorf("%s key %q: %s = %q, want %q", tc.api, tc.key, tc.authHeader, got, tc.want)
 		}
@@ -99,7 +107,7 @@ func TestConfiguredHeadersCannotReplaceTheWiresOwn(t *testing.T) {
 	}
 	for _, api := range wireAPIs {
 		server := newHeaderServer(t, api)
-		header := server.send(t, wireOf(api), Connection{APIKey: "real", Headers: configured}, modelOf(gotato.ModelFacts{}), context.Background(), hello())
+		header := server.send(t, clientSetup{wire: wireOf(api), conn: Connection{APIKey: "real", Headers: configured}, model: modelOf(gotato.ModelFacts{})}, context.Background(), hello())
 		if got := header.Get("Content-Type"); got != "application/json" {
 			t.Errorf("%s: Content-Type = %q", api, got)
 		}
@@ -131,16 +139,15 @@ func TestHeaderPrecedenceIsConnectionThenContextThenWire(t *testing.T) {
 	ctx := WithRequestHeaders(context.Background(), map[string]string{"X-Team": "from-context", "X-Run": "r1"})
 	request := hello()
 	request.CacheKey = "ck"
-	header := server.send(t, ChatCompletions{}, Connection{APIKey: "k", CacheKeyHeader: "session-id",
-		Headers: map[string]string{"X-Team": "from-connection", "X-Fixed": "f", "User-Agent": "team-agent/1"}},
-		modelOf(gotato.ModelFacts{}), ctx, request)
+	header := server.send(t, clientSetup{wire: ChatCompletions{}, conn: Connection{APIKey: "k", CacheKeyHeader: "session-id",
+		Headers: map[string]string{"X-Team": "from-connection", "X-Fixed": "f", "User-Agent": "team-agent/1"}}, model: modelOf(gotato.ModelFacts{})}, ctx, request)
 	for name, want := range map[string]string{"X-Team": "from-context", "X-Run": "r1", "X-Fixed": "f", "Session-Id": "ck", "User-Agent": "team-agent/1"} {
 		if got := header.Get(name); got != want {
 			t.Errorf("%s = %q, want %q", name, got, want)
 		}
 	}
 	// The default User-Agent when none is configured.
-	header = server.send(t, ChatCompletions{}, Connection{}, modelOf(gotato.ModelFacts{}), context.Background(), hello())
+	header = server.send(t, clientSetup{wire: ChatCompletions{}, conn: Connection{}, model: modelOf(gotato.ModelFacts{})}, context.Background(), hello())
 	if got := header.Get("User-Agent"); got != defaultUserAgent || !strings.HasPrefix(got, "gotato/") {
 		t.Errorf("User-Agent = %q", got)
 	}
@@ -153,15 +160,15 @@ func TestCacheKeyHeaderIsSentOnEveryWire(t *testing.T) {
 		server := newHeaderServer(t, api)
 		request := hello()
 		request.CacheKey = "session-42"
-		header := server.send(t, wireOf(api), Connection{APIKey: "k", CacheKeyHeader: "x-session-affinity"}, modelOf(gotato.ModelFacts{}), context.Background(), request)
+		header := server.send(t, clientSetup{wire: wireOf(api), conn: Connection{APIKey: "k", CacheKeyHeader: "x-session-affinity"}, model: modelOf(gotato.ModelFacts{})}, context.Background(), request)
 		if got := header.Get("X-Session-Affinity"); got != "session-42" {
 			t.Errorf("%s: header = %q", api, got)
 		}
-		header = server.send(t, wireOf(api), Connection{APIKey: "k", CacheKeyHeader: "x-session-affinity"}, modelOf(gotato.ModelFacts{}), context.Background(), hello())
+		header = server.send(t, clientSetup{wire: wireOf(api), conn: Connection{APIKey: "k", CacheKeyHeader: "x-session-affinity"}, model: modelOf(gotato.ModelFacts{})}, context.Background(), hello())
 		if got := header.Get("X-Session-Affinity"); got != "" {
 			t.Errorf("%s: no cache key but header = %q", api, got)
 		}
-		header = server.send(t, wireOf(api), Connection{APIKey: "k"}, modelOf(gotato.ModelFacts{}), context.Background(), request)
+		header = server.send(t, clientSetup{wire: wireOf(api), conn: Connection{APIKey: "k"}, model: modelOf(gotato.ModelFacts{})}, context.Background(), request)
 		if got := header.Get("X-Session-Affinity"); got != "" {
 			t.Errorf("%s: no header name but header = %q", api, got)
 		}
@@ -187,7 +194,7 @@ func TestAnthropicVersionPrecedence(t *testing.T) {
 		if tc.configured != "" {
 			conn.Headers = map[string]string{"anthropic-version": tc.configured}
 		}
-		header := server.send(t, tc.wire, conn, modelOf(gotato.ModelFacts{}), context.Background(), hello())
+		header := server.send(t, clientSetup{wire: tc.wire, conn: conn, model: modelOf(gotato.ModelFacts{})}, context.Background(), hello())
 		if got := header.Get("anthropic-version"); got != tc.want {
 			t.Errorf("%s: anthropic-version = %q, want %q", tc.name, got, tc.want)
 		}
@@ -214,7 +221,7 @@ func TestThinkingBindingFactSendsTheBetaHeaderMergedWithTheConfiguredOne(t *test
 		if tc.configured != "" {
 			conn.Headers = map[string]string{"anthropic-beta": tc.configured}
 		}
-		header := server.send(t, AnthropicMessages{}, conn, modelOf(gotato.ModelFacts{ThinkingBinding: tc.binding}), context.Background(), hello())
+		header := server.send(t, clientSetup{wire: AnthropicMessages{}, conn: conn, model: modelOf(gotato.ModelFacts{ThinkingBinding: tc.binding})}, context.Background(), hello())
 		if got := header.Get("anthropic-beta"); got != tc.want {
 			t.Errorf("%s: anthropic-beta = %q, want %q", tc.name, got, tc.want)
 		}
@@ -222,7 +229,7 @@ func TestThinkingBindingFactSendsTheBetaHeaderMergedWithTheConfiguredOne(t *test
 	// A beta from the request's context is merged too.
 	server := newHeaderServer(t, APIAnthropicMessages)
 	ctx := WithRequestHeaders(context.Background(), map[string]string{"anthropic-beta": "ctx-beta"})
-	header := server.send(t, AnthropicMessages{}, Connection{APIKey: "k"}, modelOf(gotato.ModelFacts{ThinkingBinding: true}), ctx, hello())
+	header := server.send(t, clientSetup{wire: AnthropicMessages{}, conn: Connection{APIKey: "k"}, model: modelOf(gotato.ModelFacts{ThinkingBinding: true})}, ctx, hello())
 	if got := header.Get("anthropic-beta"); got != "ctx-beta,"+anthropicBindingBeta {
 		t.Errorf("anthropic-beta = %q", got)
 	}
