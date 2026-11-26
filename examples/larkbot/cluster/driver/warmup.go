@@ -29,7 +29,7 @@ func (e *env) warmUp(ctx context.Context) bool {
 		if m := e.say(ctx, t, fmt.Sprintf("warm-%d", attempt), ""); m.err != nil {
 			sleep(ctx, warmUpRetry)
 		} else if e.cardBack(ctx, t) {
-			fmt.Printf("warm-up: a card came back on attempt %d after %s\n", attempt, time.Since(start).Round(100*time.Millisecond))
+			fmt.Printf("warm-up: a card came back on attempt %d after %s\n", attempt, round(time.Since(start)))
 			return true
 		}
 	}

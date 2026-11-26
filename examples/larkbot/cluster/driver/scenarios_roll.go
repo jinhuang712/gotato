@@ -16,15 +16,16 @@ type mcpRoll struct {
 }
 
 // The shape of the graceful roll of the MCP server: the G and N threads, the gap between the sends, how long the
-// pods get to be ready, the pause before the roll, the most H threads, and how long it waits afterwards.
+// pods get to be ready, the pause before the roll, the most H threads, how long it waits afterwards, and the characters of a drain log line it prints.
 const (
-	mcpRollThreads = 6
-	mcpRollGap     = 200 * time.Millisecond
-	mcpRollReady   = 60 * time.Second
-	mcpRollHold    = 2 * time.Second
-	mcpRollMaxH    = 60
-	mcpRollQuiet   = 4 * time.Second
-	mcpRollSettle  = 60 * time.Second
+	mcpRollThreads  = 6
+	mcpRollGap      = 200 * time.Millisecond
+	mcpRollReady    = 60 * time.Second
+	mcpRollHold     = 2 * time.Second
+	mcpRollMaxH     = 60
+	mcpRollQuiet    = 4 * time.Second
+	mcpRollSettle   = 60 * time.Second
+	mcpRollLogChars = 220
 )
 
 // rollMCP is the last phase of s7: a graceful roll of the MCP server, the way a deploy does it (rollout restart:
@@ -137,7 +138,7 @@ func printDrain(roll mcpRoll) {
 	if data, err := os.ReadFile(roll.logPath); err == nil { //nolint:gosec // our own temp directory
 		for l := range strings.SplitSeq(string(data), "\n") {
 			if strings.Contains(l, "msg=draining ") || strings.Contains(l, "msg=drained ") {
-				fmt.Printf("  old fakemcp pod %s: %s\n", roll.oldPod, trunc(l, 220))
+				fmt.Printf("  old fakemcp pod %s: %s\n", roll.oldPod, trunc(l, mcpRollLogChars))
 			}
 		}
 	}

@@ -355,7 +355,7 @@ func (e *env) s5Send(ctx context.Context, st stamper, ts, inflight, fresh []*thr
 		wg.Go(func() { e.say(ctx, t, fmt.Sprintf("s5-%02d-a", i+s5Inflight+1), "") })
 	}
 	wg.Wait() // every send returns after its last delivery
-	fmt.Printf("%s first messages sent (%d threads)\n", st.at(), 14)
+	fmt.Printf("%s first messages sent (%d threads)\n", st.at(), s5FirstWave)
 	e.waitQuiet(ctx, ts[:s5FirstWave], s5Quiet1, s5Settle1)
 	// A second message in each of the 14 threads, now idle, and 6 new threads' messages.
 	for i, t := range ts[:s5FirstWave] {

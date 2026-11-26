@@ -8,7 +8,7 @@ import (
 )
 
 // The shape of s7: the threads of its phases, the pauses between sends, how long it waits for the MCP server and
-// how often it asks, the width of an error text it counts by, the port of fakemcp, and the waits after each part.
+// how often it asks, the width of an error text it counts by, the width of a cause it prints, the port of fakemcp, and the waits after each part.
 const (
 	s7WarmThreads  = 9  // W
 	s7PhaseThreads = 6  // A, B, R, C, D, G, N
@@ -19,6 +19,7 @@ const (
 	s7KillAfter    = 3 * time.Second
 	s7UpWait       = 60 * time.Second
 	s7ErrTextChars = 110
+	s7CauseChars   = 200
 	mcpStatsPort   = 8090
 	s7WarmQuiet    = 4 * time.Second
 	s7WarmSettle   = 40 * time.Second
@@ -330,7 +331,7 @@ func (e *env) s7PrintTally(ctx context.Context, tl s7Tally, p []*thread, statsBe
 	}))
 	causes := toolsetErrors(e.readLogs())
 	for _, k := range sortedKeys(causes) {
-		fmt.Printf("    bot log \"toolset unavailable\" x%d: %s\n", causes[k], trunc(k, 200))
+		fmt.Printf("    bot log \"toolset unavailable\" x%d: %s\n", causes[k], trunc(k, s7CauseChars))
 	}
 	fmt.Printf("  Runs that did not complete: %d\n", failedRuns)
 	fmt.Printf("  Runs not ended %d, threads that end on a user message %d, tool errors with no text %d\n", stuck, unanswered, emptyErr)
