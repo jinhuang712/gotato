@@ -123,43 +123,10 @@ func (c *cli) newRuntime(flags modelFlags) (*cliRuntime, error) {
 	if err != nil {
 		return nil, err
 	}
-	agents := []profile.AgentProfile{
-		{Name: "echo", Model: testkit.EchoModel{}, ModelName: "echo", Instruction: defaultInstruction, Tools: tools},
-		{Name: "demo", Model: testkit.DemoModel{}, ModelName: "demo", Instruction: defaultInstruction, Tools: tools},
-	}
-	agents = append(agents, testAgents...)
 	rt := &cliRuntime{store: st, defs: defs, storeDir: dir, gatewayCfg: c.gatewayConfigPath(flags)}
-	if config, err := gatewayconf.Load(rt.gatewayCfg); err != nil {
-		rt.gatewayErr = err
-	} else if client, err := config.New(); err != nil {
-		rt.gatewayErr = err
-	} else {
-		agents = append(agents, profile.AgentProfile{Name: "gateway", Model: client, ModelName: config.Model.Name, Instruction: defaultInstruction, Tools: tools})
-	}
-	// The Catalog holds what a stored variant of these AgentProfiles may name.
-	models := map[string]gotato.Model{}
-	var catalogTools []gotato.Tool
-	seen := map[string]bool{}
-	for _, agent := range agents {
-		if agent.ModelName != "" {
-			models[agent.ModelName] = agent.Model
-		}
-		for _, tool := range agent.Tools {
-			if id := tool.Spec().ID; !seen[id] {
-				seen[id] = true
-				catalogTools = append(catalogTools, tool)
-			}
-		}
-	}
-	catalog, err := profile.NewCatalog(models, catalogTools, nil)
-	if err != nil {
+	agents := rt.agentProfiles(tools)
+	if err := rt.registerAgents(agents); err != nil {
 		return nil, err
-	}
-	rt.profiles = profile.NewRegistry(catalog)
-	for _, agent := range agents {
-		if err := rt.profiles.RegisterAgentProfileInline(agent); err != nil {
-			return nil, err
-		}
 	}
 	ctx, cancel := c.ctx()
 	err = rt.registerStoredVariants(ctx)
@@ -175,6 +142,62 @@ func (c *cli) newRuntime(flags modelFlags) (*cliRuntime, error) {
 	c.runners = append(c.runners, runner)
 	rt.runner = runner
 	return rt, nil
+}
+
+// agentProfiles is the AgentProfiles of the CLI: echo, demo, those the tests
+// add, and gateway when its YAML loads. When it does not, the reason is kept in
+// gatewayErr.
+func (rt *cliRuntime) agentProfiles(tools []gotato.Tool) []profile.AgentProfile {
+	agents := []profile.AgentProfile{
+		{Name: "echo", Model: testkit.EchoModel{}, ModelName: "echo", Instruction: defaultInstruction, Tools: tools},
+		{Name: "demo", Model: testkit.DemoModel{}, ModelName: "demo", Instruction: defaultInstruction, Tools: tools},
+	}
+	agents = append(agents, testAgents...)
+	if config, err := gatewayconf.Load(rt.gatewayCfg); err != nil {
+		rt.gatewayErr = err
+	} else if client, err := config.New(); err != nil {
+		rt.gatewayErr = err
+	} else {
+		agents = append(agents, profile.AgentProfile{Name: "gateway", Model: client, ModelName: config.Model.Name, Instruction: defaultInstruction, Tools: tools})
+	}
+	return agents
+}
+
+// registerAgents builds the profiles Registry over a Catalog of what the
+// agents name, and registers the agents in it.
+func (rt *cliRuntime) registerAgents(agents []profile.AgentProfile) error {
+	catalog, err := catalogOf(agents)
+	if err != nil {
+		return err
+	}
+	rt.profiles = profile.NewRegistry(catalog)
+	for _, agent := range agents {
+		if err := rt.profiles.RegisterAgentProfileInline(agent); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+// catalogOf holds what a stored variant of the agents may name: their models
+// by name and their Tools once each.
+func catalogOf(agents []profile.AgentProfile) (*profile.Catalog, error) {
+	// The Catalog holds what a stored variant of these AgentProfiles may name.
+	models := map[string]gotato.Model{}
+	var tools []gotato.Tool
+	seen := map[string]bool{}
+	for _, agent := range agents {
+		if agent.ModelName != "" {
+			models[agent.ModelName] = agent.Model
+		}
+		for _, tool := range agent.Tools {
+			if id := tool.Spec().ID; !seen[id] {
+				seen[id] = true
+				tools = append(tools, tool)
+			}
+		}
+	}
+	return profile.NewCatalog(models, tools, nil)
 }
 
 // resolveAgent validates a --model value against the registered agents. An
