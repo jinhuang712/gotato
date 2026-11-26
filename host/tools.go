@@ -363,7 +363,13 @@ func (r *Runner) findSetTool(ctx context.Context, spec profile.AgentProfile, s *
 		return nil, "", false, err
 	}
 	defer func() { _ = live.Close(context.Background()) }()
-	for _, set := range live.ToolSets() {
+	return setToolOf(live.ToolSets(), toolID)
+}
+
+// setToolOf looks for toolID among the tools of sets, as findSetTool reports
+// it.
+func setToolOf(sets []gotato.ToolSetStatus, toolID string) (*gotato.ToolSpec, string, bool, error) {
+	for _, set := range sets {
 		if set.Unavailable && strings.HasPrefix(toolID, set.Name+".") {
 			return nil, "", false, gotato.ErrorOf(gotato.CodeInvalidArgument, "host: tool set "+set.Name+" is unavailable now; "+toolID+" cannot be checked")
 		}
