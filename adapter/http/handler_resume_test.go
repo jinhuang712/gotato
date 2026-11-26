@@ -518,11 +518,25 @@ func taskRunner(t *testing.T, task reftasks.Task) (*httptest.Server, *host.Runne
 	return server, runner
 }
 
+// resumeStyle makes the query and the headers of a reconnect after the k-th
+// stored Event, with the epoch the client was told.
+type resumeStyle func(epoch string, k int) (query string, headers map[string]string)
+
+// resumeByAfter resumes with the after parameter.
+func resumeByAfter(epoch string, k int) (string, map[string]string) {
+	return "?record_epoch=" + epoch + "&after=" + strconv.Itoa(k), map[string]string(nil)
+}
+
+// resumeByHeader resumes with the Last-Event-ID header.
+func resumeByHeader(epoch string, k int) (string, map[string]string) {
+	return "?record_epoch=" + epoch, map[string]string{"Last-Event-ID": strconv.Itoa(k)}
+}
+
 // cutAndResume plays task once, with one reader that never lets go and one
 // that is cut after its k-th stored Event and reconnects after k, with the
 // epoch it was told, by Last-Event-ID or by the after parameter. It returns the
 // Events of the uncut reader and of the cut one, the two parts joined.
-func cutAndResume(t *testing.T, task reftasks.Task, k int, viaHeader bool) (uncut, resumed []storedFrame) {
+func cutAndResume(t *testing.T, task reftasks.Task, k int, resume resumeStyle) (uncut, resumed []storedFrame) {
 	server, runner := taskRunner(t, task)
 	created, err := runner.CreateSession(context.Background(), host.CreateSessionRequest{Agent: task.Name, Messages: task.History})
 	if err != nil {
@@ -545,10 +559,7 @@ func cutAndResume(t *testing.T, task reftasks.Task, k int, viaHeader bool) (uncu
 
 	firstPart, deltasBefore := readStored(t, cf, k)
 	cancel() // the connection is cut here
-	query, headers := "?record_epoch="+start.RecordEpoch+"&after="+strconv.Itoa(k), map[string]string(nil)
-	if viaHeader {
-		query, headers = "?record_epoch="+start.RecordEpoch, map[string]string{"Last-Event-ID": strconv.Itoa(k)}
-	}
+	query, headers := resume(start.RecordEpoch, k)
 	resp, rf, _ := openSession(t, server, id, query, headers)
 	if resp.StatusCode != http.StatusOK {
 		t.Fatalf("resume after %d: %d", k, resp.StatusCode)
@@ -590,14 +601,18 @@ func cutAndResume(t *testing.T, task reftasks.Task, k int, viaHeader bool) (uncu
 func TestStreamCutAtEveryEventResumesEqualToAnUncutOne(t *testing.T) {
 	for _, task := range reftasks.ReferenceTasks() {
 		t.Run(task.Name, func(t *testing.T) {
-			calibration, _ := cutAndResume(t, task, 1, true)
+			calibration, _ := cutAndResume(t, task, 1, resumeByHeader)
 			total := len(calibration)
 			if total < 6 {
 				t.Fatalf("a play made only %d Events", total)
 			}
 			t.Logf("%d Events, a cut after each", total)
 			for k := 1; k <= total; k++ {
-				uncut, resumed := cutAndResume(t, task, k, k%2 == 0)
+				resume := resumeByAfter
+				if k%2 == 0 {
+					resume = resumeByHeader
+				}
+				uncut, resumed := cutAndResume(t, task, k, resume)
 				for i, e := range uncut {
 					if e.number != uint64(i+1) {
 						t.Fatalf("cut after %d: the uncut stream has Event %d at place %d", k, e.number, i+1)
