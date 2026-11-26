@@ -390,18 +390,22 @@ func sameJSON(a, b string) bool {
 func firstText(parts []gotato.ContentPart, limit int) string {
 	for _, part := range parts {
 		if part.Kind == gotato.ContentKindText && part.Text != "" {
-			text := strings.TrimSpace(part.Text)
-			if len(text) > limit {
-				// [WORKAROUND] a copy of internal/text.Cut, because this module pins root v0.2.0, which lacks it; it can go when the module requires a root release that has it.
-				// Cut on a rune boundary: text[:limit] can split a rune.
-				cut := limit
-				for cut > 0 && !utf8.RuneStart(text[cut]) {
-					cut--
-				}
-				text = text[:cut]
-			}
-			return text
+			return cutText(strings.TrimSpace(part.Text), limit)
 		}
 	}
 	return ""
+}
+
+// cutText cuts text to at most limit bytes, on a rune boundary.
+func cutText(text string, limit int) string {
+	if len(text) <= limit {
+		return text
+	}
+	// [WORKAROUND] a copy of internal/text.Cut, because this module pins root v0.2.0, which lacks it; it can go when the module requires a root release that has it.
+	// Cut on a rune boundary: text[:limit] can split a rune.
+	cut := limit
+	for cut > 0 && !utf8.RuneStart(text[cut]) {
+		cut--
+	}
+	return text[:cut]
 }
