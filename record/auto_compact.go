@@ -34,6 +34,10 @@ type AutoCompactor struct {
 	started bool
 }
 
+// laterTurn is a Turn number past the first, as which PendingFor asks the
+// Trigger.
+const laterTurn gotato.TurnNumber = 2
+
 type turnKey struct {
 	run  gotato.RunID
 	turn gotato.TurnNumber
@@ -261,7 +265,7 @@ func (a *AutoCompactor) PendingFor(request gotato.ModelRequest) bool {
 		return false
 	}
 	state := TurnState{
-		Turn: 2, CeilingTokens: ceiling, BudgetTokens: a.compactor.effectiveBudget(),
+		Turn: laterTurn, CeilingTokens: ceiling, BudgetTokens: a.compactor.effectiveBudget(),
 		Tokens: a.size(slices.Concat(flatten(a.store.Segments()), a.store.Tail()), requestOverhead(request)),
 	}
 	trigger := a.compactor.trigger()
