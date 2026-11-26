@@ -335,15 +335,21 @@ func expandEnvScalars(node *yaml.Node) {
 			expandEnvScalars(child)
 		}
 	case yaml.MappingNode:
-		for index, child := range node.Content {
-			// Odd indices are values; keys (even) stay literal.
-			if index%2 == 1 {
-				expandEnvScalars(child)
-			}
-		}
+		expandEnvMappingValues(node)
 	case yaml.ScalarNode:
 		if node.Tag == "!!str" && strings.Contains(node.Value, "${") {
 			node.Value = expandBraceEnv(node.Value)
+		}
+	}
+}
+
+// expandEnvMappingValues expands the values of a mapping node and leaves its
+// keys literal.
+func expandEnvMappingValues(node *yaml.Node) {
+	for index, child := range node.Content {
+		// Odd indices are values; keys (even) stay literal.
+		if index%2 == 1 {
+			expandEnvScalars(child)
 		}
 	}
 }
