@@ -350,34 +350,7 @@ func (d *dupStats) addThread(msgs []*msg, rec record, cards int, logs []logLine)
 		d.Attempts, d.PodsHandled = map[int]int{}, map[int]int{}
 	}
 	for _, m := range msgs {
-		d.Messages++
-		n := len(m.sent.Deliveries)
-		d.Attempts[n]++
-		if n > 1 {
-			d.DeliveredTwice++
-			d.ExtraDeliveries += n - 1
-		}
-		if m.sent.acked() {
-			d.Acked++
-		}
-		if c := rec.count(m.tag); c > 1 {
-			d.InTranscriptTwice++
-			d.ExtraUserCopies += c - 1
-			d.MaxCopies = max(d.MaxCopies, c)
-		}
-		pods := map[string]bool{}
-		for _, l := range logs {
-			if m.sent.MessageID == "" || l.KV["message_id"] != m.sent.MessageID {
-				continue
-			}
-			switch l.Msg {
-			case "message received":
-				pods[l.Pod] = true
-			case "duplicate suspected":
-				d.DupSuspectedCaught++
-			}
-		}
-		d.PodsHandled[len(pods)]++
+		d.addMessage(m, rec, logs)
 	}
 	if extra := rec.assistantReplies() - len(msgs); extra > 0 {
 		d.ExtraAssistant += extra
@@ -387,4 +360,41 @@ func (d *dupStats) addThread(msgs []*msg, rec record, cards int, logs []logLine)
 	} else {
 		d.MissingCards += len(msgs) - cards
 	}
+}
+
+// addMessage counts one sent message: its deliveries, its copies in the Transcript and the pods that handled it.
+func (d *dupStats) addMessage(m *msg, rec record, logs []logLine) {
+	d.Messages++
+	n := len(m.sent.Deliveries)
+	d.Attempts[n]++
+	if n > 1 {
+		d.DeliveredTwice++
+		d.ExtraDeliveries += n - 1
+	}
+	if m.sent.acked() {
+		d.Acked++
+	}
+	if c := rec.count(m.tag); c > 1 {
+		d.InTranscriptTwice++
+		d.ExtraUserCopies += c - 1
+		d.MaxCopies = max(d.MaxCopies, c)
+	}
+	d.PodsHandled[d.podsHandling(m, logs)]++
+}
+
+// podsHandling counts the pods that logged receiving the message, and the redeliveries a seen-set caught.
+func (d *dupStats) podsHandling(m *msg, logs []logLine) int {
+	pods := map[string]bool{}
+	for _, l := range logs {
+		if m.sent.MessageID == "" || l.KV["message_id"] != m.sent.MessageID {
+			continue
+		}
+		switch l.Msg {
+		case "message received":
+			pods[l.Pod] = true
+		case "duplicate suspected":
+			d.DupSuspectedCaught++
+		}
+	}
+	return len(pods)
 }
