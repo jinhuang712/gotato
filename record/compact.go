@@ -261,7 +261,7 @@ func (call compactCall) closeStretch(ctx context.Context, store SegmentStore, al
 		return Result{}, err
 	}
 
-	tail := keptTail(stretch[cut:], call.DropReasoning)
+	tail := call.keptTail(stretch[cut:])
 	loaded := store.LoadedTools()
 	info := SegmentInfo{Number: store.NextSegment(), Location: call.location(), Recap: recap.text, Position: store.Position}
 	info.From, info.To, _ = stamps(closed, store.Position)
@@ -415,10 +415,10 @@ func writeRecap(ctx context.Context, store SegmentStore, call compactCall, close
 }
 
 // keptTail copies the Messages the Context keeps whole after a compaction.
-func keptTail(messages []gotato.Message, dropReasoning bool) []gotato.Message {
+func (call compactCall) keptTail(messages []gotato.Message) []gotato.Message {
 	tail := make([]gotato.Message, 0, len(messages))
 	for _, message := range messages {
-		if dropReasoning {
+		if call.DropReasoning {
 			message = withoutReasoning(message)
 		}
 		// The usage a reply reported was for the request that Context no
