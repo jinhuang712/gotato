@@ -30,6 +30,14 @@ import (
 	"time"
 )
 
+// The exit codes of the driver, and how long one call through the proxy may take.
+const (
+	exitFault   = 1 // a GOTATO-FAULT
+	exitSetup   = 2 // a usage or setup error
+	callTimeout = 60 * time.Second
+	logFileMode = 0o600 // the mode of a followed log file
+)
+
 // busyNoticePrefix is how the bot's busy notice starts (busyNotice in the bot's bot.go); the driver finds it in a card.
 const busyNoticePrefix = "I am busy right now"
 
@@ -54,7 +62,7 @@ func main() {
 	flag.Parse()
 	if *kubeconfig == "" || flag.NArg() != 1 {
 		flag.Usage()
-		os.Exit(2)
+		os.Exit(exitSetup)
 	}
 	os.Exit(drive(*kubeconfig, *kctx, *ns, *kill, flag.Arg(0)))
 }
@@ -63,17 +71,17 @@ func main() {
 func drive(kubeconfig, kctx, ns, kill, scenario string) int {
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt)
 	defer stop()
-	e := &env{kubeconfig: kubeconfig, context: kctx, namespace: ns, killMode: kill, http: &http.Client{Timeout: 60 * time.Second}}
+	e := &env{kubeconfig: kubeconfig, context: kctx, namespace: ns, killMode: kill, http: &http.Client{Timeout: callTimeout}}
 	dir, err := os.MkdirTemp("", "larkbot-cluster-logs-")
 	if err != nil {
 		fmt.Fprintln(os.Stderr, "driver:", err)
-		return 2
+		return exitSetup
 	}
 	e.logDir = dir
 	stopProxy, err := e.startProxy(ctx)
 	if err != nil {
 		fmt.Fprintln(os.Stderr, "driver:", err)
-		return 2
+		return exitSetup
 	}
 	stopLogs := e.followLogs(ctx)
 
@@ -81,14 +89,14 @@ func drive(kubeconfig, kctx, ns, kill, scenario string) int {
 		fmt.Printf("\nbot pod logs: %s\n", e.logDir)
 		stopLogs()
 		stopProxy()
-		return 2
+		return exitSetup
 	}
 	ok := run(ctx, e, scenario)
 	fmt.Printf("\nbot pod logs: %s\n", e.logDir)
 	stopLogs()
 	stopProxy()
 	if !ok {
-		return 1
+		return exitFault
 	}
 	return 0
 }
@@ -114,7 +122,7 @@ func run(ctx context.Context, e *env, scenario string) bool {
 		ok = e.s8(ctx)
 	default:
 		flag.Usage()
-		os.Exit(2)
+		os.Exit(exitSetup)
 	}
 	return ok
 }
@@ -170,7 +178,7 @@ func (e *env) do(ctx context.Context, method, url string, in, out any) error {
 	}
 	defer func() { _ = resp.Body.Close() }()
 	data, _ := io.ReadAll(resp.Body)
-	if resp.StatusCode/100 != 2 {
+	if resp.StatusCode < http.StatusOK || resp.StatusCode >= http.StatusMultipleChoices {
 		return fmt.Errorf("%s %s: %d %s", method, url, resp.StatusCode, strings.TrimSpace(string(data)))
 	}
 	if out != nil {
@@ -217,7 +225,7 @@ func (e *env) followPod(ctx context.Context, pod string) {
 	path := filepath.Join(e.logDir, pod+".log")
 	since := ""
 	for ctx.Err() == nil {
-		f, err := os.OpenFile(path, os.O_CREATE|os.O_APPEND|os.O_WRONLY, 0o600) //nolint:gosec // our own temp directory
+		f, err := os.OpenFile(path, os.O_CREATE|os.O_APPEND|os.O_WRONLY, logFileMode) //nolint:gosec // our own temp directory
 		if err != nil {
 			return
 		}
