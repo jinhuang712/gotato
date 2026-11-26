@@ -29,18 +29,21 @@ func chats(scenario string, n int) []*thread {
 func (e *env) waitPods(ctx context.Context, n int, limit time.Duration) error {
 	deadline := time.Now().Add(limit)
 	for time.Now().Before(deadline) && ctx.Err() == nil {
-		if ps, err := e.pods(ctx); err == nil && len(ps) == n {
-			ready := true
-			for _, ok := range ps {
-				ready = ready && ok
-			}
-			if ready {
-				return nil
-			}
+		if ps, err := e.pods(ctx); err == nil && len(ps) == n && allReady(ps) {
+			return nil
 		}
 		sleep(ctx, time.Second)
 	}
 	return fmt.Errorf("the bot did not settle at %d ready pods within %s", n, limit)
+}
+
+// allReady says every pod of the list (name -> ready) is ready.
+func allReady(ps map[string]bool) bool {
+	ready := true
+	for _, ok := range ps {
+		ready = ready && ok
+	}
+	return ready
 }
 
 // unansweredThreads counts the threads whose Transcript ends on a user message.
