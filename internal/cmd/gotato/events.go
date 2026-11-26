@@ -34,15 +34,26 @@ func (c *cli) cmdEvents(args []string) int {
 	if err != nil {
 		return c.failErr(err)
 	}
-	if *kind != "" {
-		filtered := events[:0]
-		for _, event := range events {
-			if string(event.Kind()) == *kind {
-				filtered = append(filtered, event)
-			}
-		}
-		events = filtered
+	return c.printEvents(eventsOfKind(events, *kind))
+}
+
+// eventsOfKind keeps the events of one kind, or all of them when kind is empty.
+func eventsOfKind(events []gotato.Event, kind string) []gotato.Event {
+	if kind == "" {
+		return events
 	}
+	filtered := events[:0]
+	for _, event := range events {
+		if string(event.Kind()) == kind {
+			filtered = append(filtered, event)
+		}
+	}
+	return filtered
+}
+
+// printEvents writes the events as one JSON array with --json, and as JSON
+// Lines otherwise.
+func (c *cli) printEvents(events []gotato.Event) int {
 	if c.json {
 		if events == nil {
 			events = []gotato.Event{}
