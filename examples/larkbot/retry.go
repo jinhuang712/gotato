@@ -62,20 +62,34 @@ type gate struct {
 	n    int
 }
 
-// enter returns the channel to wait on before sending (nil: go at once) and the
-// function that lets the next message go on. The gate is entered only by a
-// message that is retrying, or behind one that is.
-func (b *bot) enter(session string, force bool) (wait <-chan struct{}, leave func(), entered bool) {
+// join returns the channel to wait on before sending (nil: go at once) and the
+// function that lets the next message go on. It enters the gate only when the
+// Session has one: a message behind one that retries.
+func (b *bot) join(session string) (wait <-chan struct{}, leave func(), entered bool) {
 	b.mu.Lock()
 	defer b.mu.Unlock()
 	g := b.gates[session]
 	if g == nil {
-		if !force {
-			return nil, func() {}, false
-		}
+		return nil, func() {}, false
+	}
+	return b.enter(g, session)
+}
+
+// open is join for a message that is retrying: it makes the gate when the
+// Session has none.
+func (b *bot) open(session string) (wait <-chan struct{}, leave func(), entered bool) {
+	b.mu.Lock()
+	defer b.mu.Unlock()
+	g := b.gates[session]
+	if g == nil {
 		g = &gate{}
 		b.gates[session] = g
 	}
+	return b.enter(g, session)
+}
+
+// enter puts a message at the tail of the gate. The caller holds b.mu.
+func (b *bot) enter(g *gate, session string) (wait <-chan struct{}, leave func(), entered bool) {
 	done := make(chan struct{})
 	wait, g.tail = g.tail, done
 	g.n++
@@ -163,7 +177,7 @@ func (d *delivery) pause(ctx context.Context, attempt int, err error) bool {
 	if !d.gated {
 		// From here on, a later message of this Session waits for this one.
 		var w <-chan struct{}
-		w, d.leave, d.gated = d.b.enter(d.id, true)
+		w, d.leave, d.gated = d.b.open(d.id)
 		if !d.b.await(ctx, w) {
 			return false
 		}

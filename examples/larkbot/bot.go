@@ -228,7 +228,7 @@ func (b *bot) deliver(ctx context.Context, chatID, id, messageID, text string) {
 	// Messages of one Session keep their order: one that comes while an earlier
 	// message retries waits for it.
 	var wait <-chan struct{}
-	wait, d.leave, d.gated = b.enter(id, false)
+	wait, d.leave, d.gated = b.join(id)
 	defer func() { d.leave() }()
 	if !b.await(ctx, wait) {
 		return
