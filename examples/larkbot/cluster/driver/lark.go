@@ -36,7 +36,13 @@ type card struct {
 	Instance string    `json:"instance"` // the pod name
 }
 
-func (e *env) larkURL() string { return e.svc("fakelark", 9000) }
+// The ports of the fake Lark's driver API and of the bot's HTTP API in the cluster.
+const (
+	fakelarkPort = 9000
+	larkbotPort  = 8080
+)
+
+func (e *env) larkURL() string { return e.svc("fakelark", fakelarkPort) }
 
 // send fabricates one user message: a new message, or a reply inside a thread when replyTo is set.
 func (e *env) send(ctx context.Context, chat, text, replyTo string) (sent, error) {
@@ -166,7 +172,7 @@ func (r record) userIndex(tag string) int {
 
 func (e *env) record(ctx context.Context, id string) (record, error) {
 	var r record
-	err := e.do(ctx, "GET", e.svc("larkbot", 8080)+"/v1/sessions/"+id, nil, &r)
+	err := e.do(ctx, "GET", e.svc("larkbot", larkbotPort)+"/v1/sessions/"+id, nil, &r)
 	return r, err
 }
 
