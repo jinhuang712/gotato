@@ -59,7 +59,7 @@
 //     (InspectContext), spill.go (a long result kept out of the Context), and
 //     for Tools toolregistry.go and toolcatalog.go (the Session's catalog), toolsource.go and
 //     toolrefresh.go (Tools that change between Turns), toolsearch.go (loading
-//     Tools on demand) and toolbatch.go (parallel calls).
+//     Tools on demand) and toolbatch.go and toolworker.go (parallel calls).
 //
 // A SessionOption is declared in sessionoptions.go even when it configures a
 // part of layer 2, because it names sessionConfig, which belongs to layer 3.

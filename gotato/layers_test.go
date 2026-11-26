@@ -79,6 +79,7 @@ var fileLayer = map[string]int{
 	"toolregistry.go":     layerSession,
 	"toolsearch.go":       layerSession,
 	"toolsource.go":       layerSession,
+	"toolworker.go":       layerSession,
 	"turn.go":             layerSession,
 }
 
