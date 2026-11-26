@@ -59,37 +59,19 @@ func (a agentReadBack) Tools(ctx context.Context) ([]gotato.Tool, error) {
 }
 
 func (t *sessionTools) Tools(ctx context.Context) ([]gotato.Tool, error) {
-	type offered struct {
-		tool gotato.Tool
-		id   string
+	tools, err := t.offer(nil, t.spec.Tools)
+	if err != nil {
+		return nil, err
 	}
-	var tools []offered
-	var failure error
-	add := func(list []gotato.Tool) {
-		for _, tool := range list {
-			spec, err := specOf(tool)
-			if err != nil {
-				failure = err
-				return
-			}
-			if t.allowed(spec) && t.active(spec.ID) {
-				tools = append(tools, offered{tool, spec.ID})
-			}
-		}
-	}
-	add(t.spec.Tools)
 	for _, source := range t.spec.ToolSources {
-		if failure != nil {
-			return nil, failure
-		}
 		supplied, err := source.Tools(ctx)
 		if err != nil {
 			return nil, err
 		}
-		add(supplied)
-	}
-	if failure != nil {
-		return nil, failure
+		tools, err = t.offer(tools, supplied)
+		if err != nil {
+			return nil, err
+		}
 	}
 	sort.Slice(tools, func(i, j int) bool { return tools[i].id < tools[j].id })
 	out := make([]gotato.Tool, len(tools))
@@ -97,6 +79,27 @@ func (t *sessionTools) Tools(ctx context.Context) ([]gotato.Tool, error) {
 		out[i] = o.tool
 	}
 	return out, nil
+}
+
+// offeredTool is a Tool the Session is offered, with its ID.
+type offeredTool struct {
+	tool gotato.Tool
+	id   string
+}
+
+// offer appends to tools the Tools of list that are within the Agent's
+// MaxEffect and active for the Session.
+func (t *sessionTools) offer(tools []offeredTool, list []gotato.Tool) ([]offeredTool, error) {
+	for _, tool := range list {
+		spec, err := specOf(tool)
+		if err != nil {
+			return nil, err
+		}
+		if t.allowed(spec) && t.active(spec.ID) {
+			tools = append(tools, offeredTool{tool, spec.ID})
+		}
+	}
+	return tools, nil
 }
 
 // specOf reads a Tool's Spec, and a panic in it is an extension failure.
