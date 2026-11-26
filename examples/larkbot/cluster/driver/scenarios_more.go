@@ -327,6 +327,20 @@ func (e *env) s4Results(ctx context.Context, ts []*thread, seq [][]string) (int,
 	return faults, inv
 }
 
+// The shape of s5: its threads, how many have a Run in flight when the redelivery arrives, how many have a quick
+// Run, the threads of the first wave (both), the Run's delay, and how long it waits after each wave.
+const (
+	s5Threads   = 20
+	s5Inflight  = 6
+	s5Quick     = 8
+	s5FirstWave = s5Inflight + s5Quick
+	s5Delay     = "[quirk:delay=8s]"
+	s5Quiet1    = 10 * time.Second
+	s5Settle1   = 90 * time.Second
+	s5Quiet2    = 15 * time.Second
+	s5Settle2   = 120 * time.Second
+)
+
 // s5: the bots ack late, so fakelark redelivers the same event to other pods. It measures, and does not judge:
 // the bot has no key that tells a redelivery from a new message.
 func (e *env) s5(ctx context.Context) bool {
@@ -338,28 +352,9 @@ func (e *env) s5(ctx context.Context) bool {
 	}
 	fmt.Printf("bots' -ack-delay=%s, fakelark's ack timeout 3s, up to 3 redeliveries\n", d)
 	st := newStamper()
-	ts := chats("s5", 20)
-	inflight, fresh := ts[:6], ts[6:] // inflight: a Run of 8 s is going when the redelivery arrives
-	var wg sync.WaitGroup
-	for i, t := range inflight {
-		wg.Go(func() { e.say(ctx, t, fmt.Sprintf("s5-%02d-a", i+1), "[quirk:delay=8s]") })
-	}
-	for i, t := range fresh[:8] { // a quick Run, over before the redelivery arrives
-		wg.Go(func() { e.say(ctx, t, fmt.Sprintf("s5-%02d-a", i+7), "") })
-	}
-	wg.Wait() // every send returns after its last delivery
-	fmt.Printf("%s first messages sent (%d threads)\n", st.at(), 14)
-	e.waitQuiet(ctx, ts[:14], 10*time.Second, 90*time.Second)
-	// A second message in each of the 14 threads, now idle, and 6 new threads' messages.
-	for i, t := range ts[:14] {
-		wg.Go(func() { e.say(ctx, t, fmt.Sprintf("s5-%02d-b", i+1), "") })
-	}
-	for i, t := range fresh[8:] {
-		wg.Go(func() { e.say(ctx, t, fmt.Sprintf("s5-%02d-a", i+15), "") })
-	}
-	wg.Wait()
-	fmt.Printf("%s second messages sent\n", st.at())
-	e.waitQuiet(ctx, ts, 15*time.Second, 120*time.Second)
+	ts := chats("s5", s5Threads)
+	inflight, fresh := ts[:s5Inflight], ts[s5Inflight:] // inflight: a Run of 8 s is going when the redelivery arrives
+	e.s5Send(ctx, st, ts, inflight, fresh)
 
 	fmt.Printf("\n%s results\n", st.at())
 	faults := e.report(ctx, ts)
@@ -367,14 +362,48 @@ func (e *env) s5(ctx context.Context) bool {
 		faults++
 		fmt.Printf("  %s store error in a bot log: %s\n", fault, s)
 	}
+	all := e.s5Dups(ctx, ts, inflight, fresh)
+	fmt.Println("\nDESIGN INPUT (KNOWN-BOT-GAP, not a Gotato fault): a redelivery that lands on a pod that has not seen the message_id is handled as a new message.")
+	fmt.Printf("  duplicate user messages in Transcripts: %d, duplicate reply cards: %d, duplicate assistant replies: %d\n", all.ExtraUserCopies, all.ExtraCards, all.ExtraAssistant)
+	return verdict("s5", faults == 0, fmt.Sprintf("%d GOTATO-FAULT", faults))
+}
+
+// s5Send plays the two waves of s5: the first message of each thread, then a second message in the threads of
+// the first wave and the first message of the threads that are left.
+func (e *env) s5Send(ctx context.Context, st stamper, ts, inflight, fresh []*thread) {
+	var wg sync.WaitGroup
+	for i, t := range inflight {
+		wg.Go(func() { e.say(ctx, t, fmt.Sprintf("s5-%02d-a", i+1), s5Delay) })
+	}
+	for i, t := range fresh[:s5Quick] { // a quick Run, over before the redelivery arrives
+		wg.Go(func() { e.say(ctx, t, fmt.Sprintf("s5-%02d-a", i+s5Inflight+1), "") })
+	}
+	wg.Wait() // every send returns after its last delivery
+	fmt.Printf("%s first messages sent (%d threads)\n", st.at(), 14)
+	e.waitQuiet(ctx, ts[:s5FirstWave], s5Quiet1, s5Settle1)
+	// A second message in each of the 14 threads, now idle, and 6 new threads' messages.
+	for i, t := range ts[:s5FirstWave] {
+		wg.Go(func() { e.say(ctx, t, fmt.Sprintf("s5-%02d-b", i+1), "") })
+	}
+	for i, t := range fresh[s5Quick:] {
+		wg.Go(func() { e.say(ctx, t, fmt.Sprintf("s5-%02d-a", i+s5FirstWave+1), "") })
+	}
+	wg.Wait()
+	fmt.Printf("%s second messages sent\n", st.at())
+	e.waitQuiet(ctx, ts, s5Quiet2, s5Settle2)
+}
+
+// s5Dups prints what the Records, the cards and the logs say about duplicates, by group of threads, and returns
+// the totals over all threads.
+func (e *env) s5Dups(ctx context.Context, ts, inflight, fresh []*thread) dupStats {
 	logs := e.readLogs()
 	groups := []struct {
 		name string
 		ts   []*thread
 	}{
 		{"threads 1-6: first message a Run of 8 s (in flight when redelivered), then one more message", inflight},
-		{"threads 7-14: first message a quick Run, then one more message", fresh[:8]},
-		{"threads 15-20: one message, a quick Run", fresh[8:]},
+		{"threads 7-14: first message a quick Run, then one more message", fresh[:s5Quick]},
+		{"threads 15-20: one message, a quick Run", fresh[s5Quick:]},
 		{"all threads", ts},
 	}
 	var all dupStats
@@ -390,9 +419,7 @@ func (e *env) s5(ctx context.Context) bool {
 			all = s
 		}
 	}
-	fmt.Println("\nDESIGN INPUT (KNOWN-BOT-GAP, not a Gotato fault): a redelivery that lands on a pod that has not seen the message_id is handled as a new message.")
-	fmt.Printf("  duplicate user messages in Transcripts: %d, duplicate reply cards: %d, duplicate assistant replies: %d\n", all.ExtraUserCopies, all.ExtraCards, all.ExtraAssistant)
-	return verdict("s5", faults == 0, fmt.Sprintf("%d GOTATO-FAULT", faults))
+	return all
 }
 
 func printDup(name string, s dupStats) {
