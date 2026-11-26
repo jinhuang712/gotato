@@ -35,7 +35,7 @@ type toolStages struct {
 	tag     string
 }
 
-func (e *toolStages) Before(ctx context.Context, use ToolUse) (PreToolDecision, error) {
+func (e *toolStages) Before(_ context.Context, _ ToolUse) (PreToolDecision, error) {
 	e.trace.add("pre:" + e.name)
 	if e.preErr != nil {
 		return PreToolDecision{}, e.preErr
@@ -46,7 +46,7 @@ func (e *toolStages) Before(ctx context.Context, use ToolUse) (PreToolDecision, 
 	return PreToolDecision{}, nil
 }
 
-func (e *toolStages) After(ctx context.Context, result ToolResult) (ToolResult, error) {
+func (e *toolStages) After(_ context.Context, result ToolResult) (ToolResult, error) {
 	e.trace.add("post:" + e.name)
 	if e.postErr != nil {
 		return result, e.postErr
@@ -140,11 +140,11 @@ type contextShaper struct {
 	convert func([]Message) []Message
 }
 
-func (s contextShaper) Transform(ctx context.Context, snapshot ContextSnapshot) ([]Message, error) {
+func (s contextShaper) Transform(_ context.Context, snapshot ContextSnapshot) ([]Message, error) {
 	return append(snapshot.Messages, UserMessage(s.extra)), nil
 }
 
-func (s contextShaper) Convert(ctx context.Context, messages []Message) ([]Message, error) {
+func (s contextShaper) Convert(_ context.Context, messages []Message) ([]Message, error) {
 	if s.convert == nil {
 		return messages, nil
 	}
@@ -245,7 +245,7 @@ type extensionFault struct {
 	panics   bool
 }
 
-func (f extensionFault) Transform(ctx context.Context, snapshot ContextSnapshot) ([]Message, error) {
+func (f extensionFault) Transform(_ context.Context, _ ContextSnapshot) ([]Message, error) {
 	if f.panics {
 		panic("extension exploded")
 	}
@@ -345,7 +345,7 @@ type turnStopper struct {
 	reason string
 }
 
-func (s turnStopper) Stop(ctx context.Context, snapshot TurnSnapshot) (StopDecision, error) {
+func (s turnStopper) Stop(_ context.Context, snapshot TurnSnapshot) (StopDecision, error) {
 	if snapshot.Turn >= s.after {
 		return StopDecision{Stop: true, Reason: s.reason}, nil
 	}
@@ -442,7 +442,7 @@ type reentrantExtension struct {
 	once  sync.Once
 }
 
-func (o *reentrantExtension) Transform(ctx context.Context, snapshot ContextSnapshot) ([]Message, error) {
+func (o *reentrantExtension) Transform(_ context.Context, snapshot ContextSnapshot) ([]Message, error) {
 	o.once.Do(func() {
 		_, o.err = o.agent.Prompt(context.Background(), UserMessage("reentrant"))
 	})
