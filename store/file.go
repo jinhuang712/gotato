@@ -69,7 +69,7 @@ func NewFileStore(dir string, options ...Option) (*FileStore, error) {
 	if strings.TrimSpace(dir) == "" {
 		return nil, errors.New("store: store directory is empty")
 	}
-	if err := os.MkdirAll(dir, 0o755); err != nil {
+	if err := os.MkdirAll(dir, dirMode); err != nil {
 		return nil, err
 	}
 	sweepDir(dir, leftoverAge, ".creating-", ".deleted-")
@@ -116,7 +116,7 @@ func (f *FileStore) publishRecord(id string, entries []record.Entry, h record.He
 	}
 	defer func() { _ = os.RemoveAll(building) }()
 	epochDir := filepath.Join(building, filepath.Base(f.epochDir(id, h.Epoch)))
-	if err := os.Mkdir(epochDir, 0o755); err != nil {
+	if err := os.Mkdir(epochDir, dirMode); err != nil {
 		return err
 	}
 	if err := f.writeBatch(epochDir, fileBatch{Entries: entries, Header: h}); err != nil {
