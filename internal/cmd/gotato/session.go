@@ -86,7 +86,13 @@ func (c *cli) sessionMessage(args []string) int {
 		}
 		return c.emit(map[string]any{"session_id": result.SessionID, "message_id": result.MessageID, "queued": result.Queued}, "queued "+result.MessageID)
 	}
-	outcome := outcomeOf(*result.Run)
+	return c.reportMessageRun(*result.Run, err)
+}
+
+// reportMessageRun prints the Run that a message started and returns the exit
+// code of its outcome.
+func (c *cli) reportMessageRun(run host.RunResponse, err error) int {
+	outcome := outcomeOf(run)
 	code := ExitOK
 	switch {
 	case errors.Is(err, host.ErrNotPersisted):
