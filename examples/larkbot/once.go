@@ -12,6 +12,9 @@ import (
 	"github.com/jinhuang712/gotato/store"
 )
 
+// onceTimeout bounds the one prompt of runOnce.
+const onceTimeout = 2 * time.Minute
+
 // runOnce sends one prompt through a Runner with an in-memory store and prints
 // the reply to stdout. It is the smoke test for a model, without Lark.
 func runOnce(model, prompt string) error {
@@ -28,7 +31,7 @@ func runOnce(model, prompt string) error {
 		return err
 	}
 	defer func() { _ = runner.Close(context.Background()) }()
-	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Minute)
+	ctx, cancel := context.WithTimeout(context.Background(), onceTimeout)
 	defer cancel()
 
 	const id = "once"
