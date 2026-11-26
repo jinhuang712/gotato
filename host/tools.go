@@ -245,33 +245,66 @@ func (r *Runner) SetToolActive(ctx context.Context, sessionID, toolID string, ac
 	if err != nil {
 		return ToolEntry{}, err
 	}
-	var found *gotato.ToolSpec
-	var result ToolEntry
-	offered, err := (&sessionTools{spec: spec}).Tools(ctx)
+	found, result, err := r.lookupTool(ctx, spec, read, toolID)
 	if err != nil {
 		return ToolEntry{}, err
 	}
-	for _, tool := range offered {
-		ts, err := specOf(tool)
-		if err != nil {
-			return ToolEntry{}, err
-		}
-		if ts.ID == toolID {
-			found = &ts
-			break
-		}
+	value := ""
+	if !active {
+		value = "inactive"
+	}
+	if err := r.writeToolSwitch(ctx, sessionID, spec, metaToolPrefix+toolID, value); err != nil {
+		return ToolEntry{}, err
+	}
+	result.Spec, result.Active = *found, active
+	return result, nil
+}
+
+// lookupTool finds toolID among the Agent's own Tools, then among its
+// ToolSets' tools. It returns the tool's spec, and an entry with its ToolSet
+// and whether it is loaded; an unknown tool is an error.
+func (r *Runner) lookupTool(ctx context.Context, spec profile.AgentProfile, read *record.Record, toolID string) (*gotato.ToolSpec, ToolEntry, error) {
+	var result ToolEntry
+	found, err := findAgentTool(ctx, spec, toolID)
+	if err != nil {
+		return nil, ToolEntry{}, err
 	}
 	if found == nil {
 		found, result.ToolSet, result.Loaded, err = r.findSetTool(ctx, spec, read, toolID)
 		if err != nil {
-			return ToolEntry{}, err
+			return nil, ToolEntry{}, err
 		}
 	}
 	if found == nil {
 		// Refused before the Session is claimed, so an unknown tool writes nothing.
-		return ToolEntry{}, gotato.ErrorOf(gotato.CodeInvalidArgument, "host: unknown tool "+toolID)
+		return nil, ToolEntry{}, gotato.ErrorOf(gotato.CodeInvalidArgument, "host: unknown tool "+toolID)
 	}
-	err = r.withSessionLock(ctx, sessionID, func() error {
+	return found, result, nil
+}
+
+// findAgentTool looks for toolID among the Tools the Agent offers, nil when
+// none has it.
+func findAgentTool(ctx context.Context, spec profile.AgentProfile, toolID string) (*gotato.ToolSpec, error) {
+	offered, err := (&sessionTools{spec: spec}).Tools(ctx)
+	if err != nil {
+		return nil, err
+	}
+	for _, tool := range offered {
+		ts, err := specOf(tool)
+		if err != nil {
+			return nil, err
+		}
+		if ts.ID == toolID {
+			return &ts, nil
+		}
+	}
+	return nil, nil
+}
+
+// writeToolSwitch sets the Session's metadata key to value as its writer,
+// under the Session lock.
+func (r *Runner) writeToolSwitch(ctx context.Context, sessionID string, spec profile.AgentProfile, key, value string) error {
+	return r.withSessionLock(ctx, sessionID, func() error {
 		writer, early, _, err := r.acquire(ctx, sessionID)
 		if err != nil {
 			return err
@@ -279,22 +312,13 @@ func (r *Runner) SetToolActive(ctx context.Context, sessionID, toolID string, ac
 		s := writer.Record()
 		held, _ := s.Get(metaAgent)
 		r.publishOpened(writer, early, held)
-		if active {
-			s.Set(metaToolPrefix+toolID, "")
-		} else {
-			s.Set(metaToolPrefix+toolID, "inactive")
-		}
+		s.Set(key, value)
 		err = r.releaseWriter(ctx, writer)
 		if err == nil {
 			r.keepWarm(writer, spec)
 		}
 		return err
 	})
-	if err != nil {
-		return ToolEntry{}, err
-	}
-	result.Spec, result.Active = *found, active
-	return result, nil
 }
 
 // toolSetContext bounds the ToolSet resolution of one call by the Runner's
