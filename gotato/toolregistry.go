@@ -44,7 +44,8 @@ type toolRegistry struct {
 	fresh    bool
 	search   *searchTool
 	searcher ToolSearcher
-	// mu guards sets, loaded, kept, specs, and byQualified. The only updater
+	// mu guards specs and byQualified, and the sets, loaded and kept of the
+	// embedded toolCatalog. The only updater
 	// is the holder of the Session's admission token: it asks the host
 	// (ToolSources, ToolSets, the filter) with no lock held, takes in what it
 	// learned through intake, where every check lives, and takes the locks
