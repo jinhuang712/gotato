@@ -88,27 +88,33 @@ func (st *runState) persist(runCtx context.Context, spec profile.AgentProfile, r
 	// every fact of the Run is stored, so the Run keeps its status; the
 	// warning Events above tell the operator.
 	if saveErr != nil && !wroteAll {
-		// An earlier write of the Run failed, and the Writer refuses
-		// the release too: keep the Run error and add the persistence
-		// failure so callers can observe both (errors.Is still matches
-		// each).
-		var saveFailure *gotato.RuntimeError
-		if !errors.As(saveErr, &saveFailure) {
-			saveFailure = foreignError(gotato.CodeStoreFailure, "host: the Run could not be saved", saveErr)
-			saveErr = saveFailure
-		}
-		// completed never carries an error. The Run's own writes
-		// settle it as failed, so this only guards the rule.
-		if result.Status == gotato.RunStatusCompleted {
-			result.Status = gotato.RunStatusFailed
-			result.Error = saveFailure
-		}
-		persistErr := error(notPersisted{saveErr})
-		if st.runErr == nil {
-			st.runErr = persistErr
-		} else {
-			st.runErr = errors.Join(st.runErr, persistErr)
-		}
+		st.addSaveFailure(result, saveErr)
+	}
+}
+
+// addSaveFailure adds the failed save saveErr of a Run whose earlier write
+// failed too to the Run's error, and to its result.
+func (st *runState) addSaveFailure(result *gotato.RunResult, saveErr error) {
+	// An earlier write of the Run failed, and the Writer refuses
+	// the release too: keep the Run error and add the persistence
+	// failure so callers can observe both (errors.Is still matches
+	// each).
+	var saveFailure *gotato.RuntimeError
+	if !errors.As(saveErr, &saveFailure) {
+		saveFailure = foreignError(gotato.CodeStoreFailure, "host: the Run could not be saved", saveErr)
+		saveErr = saveFailure
+	}
+	// completed never carries an error. The Run's own writes
+	// settle it as failed, so this only guards the rule.
+	if result.Status == gotato.RunStatusCompleted {
+		result.Status = gotato.RunStatusFailed
+		result.Error = saveFailure
+	}
+	persistErr := error(notPersisted{saveErr})
+	if st.runErr == nil {
+		st.runErr = persistErr
+	} else {
+		st.runErr = errors.Join(st.runErr, persistErr)
 	}
 }
 
