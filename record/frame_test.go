@@ -710,7 +710,11 @@ func TestRecapWritersGetTheAgentModelThroughTheirMethods(t *testing.T) {
 	if err := (record.Compactor{Recap: plain}).Validate(); !errors.Is(err, record.ErrNoRecapModel) {
 		t.Fatalf("Validate = %v", err)
 	}
-	if got := plain.WithAgentModel(model).(record.ModelRecap); got.Model == nil || plain.Model != nil {
+	got, ok := plain.WithAgentModel(model).(record.ModelRecap)
+	if !ok {
+		t.Fatalf("WithAgentModel = %T, want record.ModelRecap", plain.WithAgentModel(model))
+	}
+	if got.Model == nil || plain.Model != nil {
 		t.Fatalf("WithAgentModel = %+v; the original %+v must stay as it was", got, plain)
 	}
 	pointer := &record.ModelRecap{}

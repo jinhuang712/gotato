@@ -131,7 +131,10 @@ func TestCheckpointWritesCompactionEndedAndALoadStartsThere(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	ended := event.(gotato.CompactionEnded)
+	ended, ok := event.(gotato.CompactionEnded)
+	if !ok {
+		t.Fatalf("event = %T, want gotato.CompactionEnded", event)
+	}
 	if ended.Why != gotato.CompactionWhyBeforeUnload || ended.Compaction == nil || ended.Compaction.ReplacedMessages != 2 || len(ended.Messages) != 2 || len(ended.History) != 1 {
 		t.Fatalf("compaction_ended = %+v", ended)
 	}
