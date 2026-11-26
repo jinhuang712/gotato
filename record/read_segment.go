@@ -14,6 +14,14 @@ import (
 	"github.com/jinhuang712/gotato/ref"
 )
 
+// minLinesPerPage is how many of its longest lines a page of read_segment
+// holds: a longer line is cut at the page size over it.
+const minLinesPerPage = 2
+
+// wholeArgsChars is a limit no call's arguments reach, so cutArgs keeps them
+// whole.
+const wholeArgsChars = 1 << 30
+
 // readSegmentInput is the input of read_segment.
 type readSegmentInput struct {
 	Segment int `json:"segment" description:"the number of the segment, as in <segment n=\"3\">; for a merged segment such as n=\"1-3\", the number of one of the segments it merged"`
@@ -90,7 +98,7 @@ func (r ReadBack) readSegment(ctx context.Context, in readSegmentInput) (string,
 		loc = time.UTC
 	}
 	limit := r.PageBytes()
-	pages := text.Paginate(renderOriginals(messages, limit/2), limit)
+	pages := text.Paginate(renderOriginals(messages, limit/minLinesPerPage), limit)
 	if page > len(pages) {
 		return "", readErrorf("segment %d has %d pages; there is no page %d", in.Segment, len(pages), page)
 	}
@@ -304,5 +312,5 @@ func textOfPart(part gotato.ContentPart) string {
 
 // cutArgsFull is a call's arguments as compact JSON on one line, whole.
 func cutArgsFull(arguments []byte) string {
-	return cutArgs(arguments, 1<<30)
+	return cutArgs(arguments, wholeArgsChars)
 }
