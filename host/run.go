@@ -262,7 +262,7 @@ func (r *Runner) runWith(ctx context.Context, request RunRequest, stream *runStr
 			release()
 		}
 	}()
-	out, err := r.serve(ctx, runCtx, request, stream, handle, nil)
+	out, err := r.serve(ctx, runCtx, r.newRun(request, stream, handle, nil))
 	if out.SessionID != "" {
 		out.RequestID = request.RequestID
 	}

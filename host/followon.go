@@ -48,7 +48,7 @@ func (r *Runner) followOn(ctx context.Context, handle *runHandle, next []gotato.
 			// and Agent override are not theirs: the Agent's RunTimeout bounds
 			// the Run, and its Agent is the one the Record names.
 			request := RunRequest{SessionID: handle.sessionID, Prompt: gotato.TextOf(first.Message)}
-			_, _ = r.serve(runCtx, runCtx, request, nil, handle, &followOn{first: first, rest: next[1:]})
+			_, _ = r.serve(runCtx, runCtx, r.newRun(request, nil, handle, &followOn{first: first, rest: next[1:]}))
 			next = handle.takeNext()
 			if len(next) > 0 {
 				r.rearm(handle, cancel)

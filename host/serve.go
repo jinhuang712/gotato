@@ -43,12 +43,17 @@ type runState struct {
 	runErr        error
 }
 
+// newRun is the state of one admitted Run of request, before it is served.
+func (r *Runner) newRun(request RunRequest, stream *runStream, handle *runHandle, follow *followOn) *runState {
+	return &runState{r: r, request: request, stream: stream, handle: handle, follow: follow, track: &tracker{}, sessionID: request.SessionID}
+}
+
 // serve runs one admitted Run.
-func (r *Runner) serve(ctx, runCtx context.Context, request RunRequest, stream *runStream, handle *runHandle, follow *followOn) (RunResponse, error) {
+func (r *Runner) serve(ctx, runCtx context.Context, st *runState) (RunResponse, error) {
 	// Create the Session, or name the one to load. runCtx carries the
 	// cancellation that Stop/Drain apply, so a stalled Store call does not
 	// outlive them.
-	st := &runState{r: r, request: request, stream: stream, handle: handle, follow: follow, track: &tracker{}, sessionID: request.SessionID}
+	request, stream, handle := st.request, st.stream, st.handle
 	// The Run's stream ends with the Run: what is queued is still delivered.
 	defer st.endStream()
 	// A Record's Feed is shared and counted; a Run that is not saved has a
