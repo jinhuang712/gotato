@@ -314,26 +314,9 @@ func buildMerged(number int, segments []gotato.Segment, recap string, loc *time.
 		loc = time.UTC
 	}
 	merged := gotato.Segment{Number: number, Recap: recap}
-	var tools []string
 	for _, segment := range segments {
-		if len(segment.Merged) > 0 {
-			merged.Merged = append(merged.Merged, segment.Merged...)
-		} else {
-			merged.Merged = append(merged.Merged, gotato.MergedSegment{Number: segment.Number, From: segment.From, To: segment.To, Source: segment.Source})
-		}
-		if merged.From.IsZero() || (!segment.From.IsZero() && segment.From.Before(merged.From)) {
-			merged.From = segment.From
-		}
-		if segment.To.After(merged.To) {
-			merged.To = segment.To
-		}
-		for _, id := range segment.LoadedTools {
-			if !slices.Contains(tools, id) {
-				tools = append(tools, id)
-			}
-		}
+		absorbSegment(&merged, segment)
 	}
-	merged.LoadedTools = tools
 	first, last := merged.Merged[0].Source, merged.Merged[len(merged.Merged)-1].Source
 	// [DATA-LOSS] a stretch that spans two Records, or two epochs of one, cannot be read back as one source.
 	if first.RecordRef == last.RecordRef {
@@ -357,4 +340,25 @@ func buildMerged(number int, segments []gotato.Segment, recap string, loc *time.
 	}
 	merged.Messages = out.messages
 	return merged
+}
+
+// absorbSegment adds segment to merged: its range, its times and the loaded
+// Tools it called.
+func absorbSegment(merged *gotato.Segment, segment gotato.Segment) {
+	if len(segment.Merged) > 0 {
+		merged.Merged = append(merged.Merged, segment.Merged...)
+	} else {
+		merged.Merged = append(merged.Merged, gotato.MergedSegment{Number: segment.Number, From: segment.From, To: segment.To, Source: segment.Source})
+	}
+	if merged.From.IsZero() || (!segment.From.IsZero() && segment.From.Before(merged.From)) {
+		merged.From = segment.From
+	}
+	if segment.To.After(merged.To) {
+		merged.To = segment.To
+	}
+	for _, id := range segment.LoadedTools {
+		if !slices.Contains(merged.LoadedTools, id) {
+			merged.LoadedTools = append(merged.LoadedTools, id)
+		}
+	}
 }
