@@ -79,6 +79,7 @@ var fileLayer = map[string]int{
 	"toolregistry.go":     layerSession,
 	"toolsearch.go":       layerSession,
 	"toolsource.go":       layerSession,
+	"turn.go":             layerSession,
 }
 
 // knownBackEdges lists the uses that point up, as "user -> used" with the

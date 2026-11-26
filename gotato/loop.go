@@ -3,7 +3,6 @@ package gotato
 import (
 	"context"
 	"errors"
-	"maps"
 	"time"
 )
 
@@ -220,81 +219,6 @@ func (st *runState) callOnce(turn TurnNumber, current *turnBuild) (assistant Mes
 	return assistant, usage, modelErr, nil
 }
 
-// runToolBatch runs the Tool calls of assistant, the reply of this Turn: it
-// checks them in source order, runs them in groups, commits their results in
-// source order and commits the Tools they loaded. It returns what the calls
-// came to. A non-nil failure is an error of the Run.
-func (st *runState) runToolBatch(turn TurnNumber, assistant Message) (toolOutcomes []ToolOutcome, settledResults []ToolResult, failure *RuntimeError) {
-	a, runCtx, runID, hd := st.a, st.runCtx, st.runID, st.header
-	// Preflight is source ordered: resolve, validate, and run the Pre
-	// chain before any executor starts.
-	plans, planErr := a.preflightTools(runCtx, runID, turn, assistant.ToolCalls, &st.toolCalls)
-	if planErr != nil {
-		return nil, nil, planErr
-	}
-	// A blocked Tool is already settled at preflight: it ends without
-	// having started.
-	outcomes := make(map[int]ToolResult, len(plans))
-	st.batch.outcomes = outcomes
-	for i := range plans {
-		if plans[i].blocked {
-			outcomes[i] = plans[i].result
-			a.stage(ToolEnded{Header: hd(turn), CallID: plans[i].call.ID, ToolID: plans[i].call.ToolID, Status: plans[i].result.Status, Code: plans[i].result.Code, Executed: plans[i].result.Executed})
-		}
-	}
-
-	// Results commit in source order, as soon as every call before them
-	// has settled: after each group runs, and for blocked calls, which
-	// settled at preflight. So a crash loses at most the group in flight.
-	toolOutcomes = make([]ToolOutcome, 0, len(plans))
-	settledResults = make([]ToolResult, 0, len(plans))
-	committed := 0
-	commitUpTo := func(end int) *RuntimeError {
-		for ; committed < end; committed++ {
-			toolResult, err := st.commitResult(turn, committed, plans[committed].call, outcomes[committed])
-			if err != nil {
-				return err
-			}
-			call := plans[committed].call
-			settledResults = append(settledResults, toolResult.Clone())
-			toolOutcomes = append(toolOutcomes, ToolOutcome{ToolID: call.ToolID, CallID: call.ID, Status: toolResult.Status, Executed: toolResult.Executed})
-		}
-		return nil
-	}
-
-	// Execution may be sequential or bounded parallel. Completion Events
-	// follow actual completion order; commitment stays source ordered.
-	for _, group := range groupPlans(plans, a.parallelWorkers()) {
-		// The calls are written before they run, so a crash during them
-		// leaves calls that are known to have started.
-		for _, index := range group {
-			a.stage(ToolStarted{Header: hd(turn), MessageID: assistant.ID, CallID: plans[index].call.ID, ToolID: plans[index].call.ToolID})
-		}
-		if err := a.flush(runCtx); err != nil {
-			return nil, nil, err
-		}
-		completed := a.executeToolGroup(runCtx, runID, turn, plans, group)
-		// A canceled group still reports what it knows, so the closing
-		// results of the failed Run keep Executed true for started Tools.
-		maps.Copy(outcomes, completed)
-		if err := commitUpTo(group[len(group)-1] + 1); err != nil {
-			return nil, nil, err
-		}
-	}
-	if err := commitUpTo(len(plans)); err != nil {
-		return nil, nil, err
-	}
-	st.batch = openBatch{}
-	return toolOutcomes, settledResults, nil
-}
-
-// stopTurn asks the TurnStoppers whether the Run stops after this Turn.
-func (st *runState) stopTurn(turn TurnNumber, assistant Message, results []ToolResult, reason StopReason) (StopDecision, *RuntimeError) {
-	return st.a.def.extensions.stopTurn(st.runCtx, TurnSnapshot{
-		SessionID: st.a.def.id, RunID: st.runID, Turn: turn, Assistant: assistant.Clone(), ToolResults: results, StopReason: reason,
-	})
-}
-
 // boundary is the safe boundary after a Turn: Steer applies, and FollowUp too
 // when the Run is settling. Cancellation is checked first so a queued
 // continuation is never committed to a Run that is already ending.
@@ -394,21 +318,6 @@ func (st *runState) commitPrompt(prompt *Message) *RuntimeError {
 	return a.flush(st.runCtx)
 }
 
-// turnRun is one Turn as it goes: what its reply cost and said.
-type turnRun struct {
-	turn      TurnNumber
-	started   time.Time
-	assistant Message
-	usage     Usage
-	text      uint64 // bytes of text in the reply
-	reasoning uint64 // bytes of reasoning in the reply
-}
-
-// turnEnded is the TurnEnded Event of the Turn, which stopped for stop.
-func (st *runState) turnEnded(t *turnRun, stop StopReason) TurnEnded {
-	return newTurnEnded(st.header(t.turn), stop, t.usage, t.started, t.text, t.reasoning)
-}
-
 // failTurn ends the Run as failed by err. It is fail in the form runTurn
 // returns: the Run does not go on.
 func (st *runState) failTurn(err *RuntimeError) (bool, RunResult, error) {
@@ -455,7 +364,7 @@ func (st *runState) runTurn(turn TurnNumber, runStart int) (more bool, result Ru
 	st.textBytes += t.text
 	st.reasoningBytes += t.reasoning
 	if modelErr != nil {
-		return st.afterModelError(t, modelErr)
+		return t.afterModelError(st, modelErr)
 	}
 
 	// A Message with Tool calls stopped for them, unless the output limit
@@ -475,102 +384,9 @@ func (st *runState) runTurn(turn TurnNumber, runStart int) (more bool, result Ru
 		return st.failTurn(flushErr)
 	}
 	if len(t.assistant.ToolCalls) == 0 {
-		return st.endAnswerTurn(t, replyNumber)
+		return t.endAnswerTurn(st, replyNumber)
 	}
-	return st.endToolTurn(t)
-}
-
-// afterModelError settles a Turn whose Model call failed: an Interrupt cut it
-// short and the Run goes on, or the Run fails with the Model's error.
-func (st *runState) afterModelError(t *turnRun, modelErr *RuntimeError) (bool, RunResult, error) {
-	a, hd := st.a, st.header
-	if modelErr.Code == CodeCanceled && st.runCtx.Err() == nil && a.queue.interrupting() {
-		// An Interrupt cut the call short: the text it had sent is kept as
-		// a Cut-off reply, and the Interrupt starts the next Turn.
-		if t.assistant.StopReason == StopReasonCutOff && a.commitMessage(t.assistant) == nil {
-			a.stage(ReplyCutOff{Header: hd(t.turn), Message: t.assistant.Clone(), Cause: modelErr.Code})
-		}
-		a.stage(st.turnEnded(t, StopReasonCutOff))
-		if _, controlErr := a.consumeControl(st.runCtx, st.runID, t.turn, false); controlErr != nil {
-			return st.failTurn(controlErr)
-		}
-		return true, RunResult{}, nil
-	}
-	// The text the Model sent before its stream broke is committed, so the
-	// Transcript keeps it; the Run still fails as it did.
-	if t.assistant.StopReason == StopReasonCutOff && a.commitMessage(t.assistant) == nil {
-		// The Run fails with the model's error either way; a cut-off reply
-		// that cannot be written fails the Run's last write.
-		a.stage(ReplyCutOff{Header: hd(t.turn), Message: t.assistant.Clone(), Cause: modelErr.Code})
-		_ = a.flush(st.runCtx)
-	}
-	return st.failTurn(modelErr)
-}
-
-// endAnswerTurn ends a Turn whose reply asked for no Tool: the Run settles on
-// it unless a TurnStopper, a queued message or the output limit says
-// otherwise. replyNumber is the number of the reply's Event.
-func (st *runState) endAnswerTurn(t *turnRun, replyNumber uint64) (bool, RunResult, error) {
-	a, turn, assistant := st.a, t.turn, t.assistant
-	a.stage(st.turnEnded(t, assistant.StopReason))
-	// A TurnStopper runs after TurnEnded and before continuation
-	// selection. A stop preserves the Turn and settles the Run.
-	decision, stopErr := st.stopTurn(turn, assistant, nil, assistant.StopReason)
-	if stopErr != nil {
-		return st.failTurn(stopErr)
-	}
-	if decision.Stop {
-		return st.settleTurn(turn, assistant, true, decision.Reason)
-	}
-	// Safe boundary at settlement: Steer and FollowUp both apply here.
-	// Cancellation is checked first so a queued continuation is never
-	// committed to a Run that is already ending.
-	injected, controlErr := st.boundary(turn, true)
-	if controlErr != nil {
-		return st.failTurn(controlErr)
-	}
-	if injected {
-		return true, RunResult{}, nil
-	}
-	// A Turn cut off at the output limit before any Tool Call is not an
-	// answer: the Model ran out of room, often while reasoning. Within the
-	// configured bound the Run continues instead of settling on it.
-	if assistant.StopReason == StopReasonMaxTokens && st.truncatedContinuations < a.def.limits.MaxTruncatedContinuations {
-		st.truncatedContinuations++
-		// A notice, not a user Message: it starts no Round, so the
-		// reasoning of the cut reply stays in the request.
-		if err := a.commitNotice(st.runCtx, st.runID, turn, NewNotice(NoticeSourceGotato, NoticeContinue, TruncatedContinuationText), 0, replyNumber, nil); err != nil {
-			return st.failTurn(err)
-		}
-		return true, RunResult{}, nil
-	}
-	return st.settleTurn(turn, assistant, false, "")
-}
-
-// endToolTurn runs the Tool calls of a Turn's reply and ends the Turn: the Run
-// goes on to the next Turn unless a TurnStopper stops it.
-func (st *runState) endToolTurn(t *turnRun) (bool, RunResult, error) {
-	a, turn, assistant := st.a, t.turn, t.assistant
-	toolOutcomes, settledResults, failure := st.runToolBatch(turn, assistant)
-	if failure != nil {
-		return st.failTurn(failure)
-	}
-	turnEnded := st.turnEnded(t, StopReasonToolCalls)
-	turnEnded.ToolCalls, turnEnded.Tools = len(assistant.ToolCalls), toolOutcomes
-	a.stage(turnEnded)
-	decision, stopErr := st.stopTurn(turn, assistant, settledResults, StopReasonToolCalls)
-	if stopErr != nil {
-		return st.failTurn(stopErr)
-	}
-	if decision.Stop {
-		return st.settleTurn(turn, assistant, true, decision.Reason)
-	}
-	// Safe boundary between Turns: Steer applies, FollowUp waits for
-	// settlement.
-	if _, controlErr := st.boundary(turn, false); controlErr != nil {
-		return st.failTurn(controlErr)
-	}
-	return true, RunResult{}, nil
+	return t.endToolTurn(st)
 }
 
 // prepareTurn gives the TurnPreparers their chance before a model call. It

@@ -52,7 +52,7 @@
 //  3. The Session and its Loop, and everything that runs on them. session.go
 //     (Session, NewSession, Prompt), sessionoptions.go (every SessionOption,
 //     with sessionConfig), sessionlifecycle.go (Abort, Close, the command
-//     loop), loop.go (the Turn loop), reply.go (reading the Model's reply),
+//     loop), loop.go and turn.go (the Turn loop), reply.go (reading the Model's reply),
 //     request.go (the Model's request), history.go and eventwrite.go (what a
 //     Turn writes), sessionrun.go (the Run in flight), hostlink.go (the calls
 //     the core hands to its host, see internal/hostlink), queue.go (Steer, FollowUp), notice.go (Notice), inspect.go
