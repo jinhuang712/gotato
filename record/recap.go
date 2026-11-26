@@ -9,7 +9,6 @@ import (
 	"slices"
 	"strings"
 	"time"
-	"unicode/utf8"
 
 	"github.com/jinhuang712/gotato/gotato"
 	"github.com/jinhuang712/gotato/internal/text"
@@ -88,33 +87,33 @@ func (t TruncateRecap) WriteRecap(_ context.Context, request RecapRequest) (gota
 	var b strings.Builder
 	fmt.Fprintf(&b, "Summary of earlier conversation (%d messages):\n", len(messages))
 	for _, message := range messages {
-		line := strings.TrimSpace(gotato.TextOf(message))
-		if line == "" && message.ToolResult != nil {
-			line = "[tool " + string(message.ToolResult.Status) + "]"
+		if line := truncateLine(message); line != "" {
+			fmt.Fprintf(&b, "- %s: %s\n", message.Role, line)
 		}
-		if len(message.ToolCalls) > 0 {
-			names := make([]string, 0, len(message.ToolCalls))
-			for _, call := range message.ToolCalls {
-				names = append(names, call.ToolID)
-			}
-			line = strings.TrimSpace(line + " [called " + strings.Join(names, ", ") + "]")
-		}
-		if line == "" {
-			continue
-		}
-		fmt.Fprintf(&b, "- %s: %s\n", message.Role, line)
 	}
 	text := b.String()
 	if len(text) > limit {
 		// Cut on a rune boundary: text[:limit] can split a multi-byte rune,
 		// and json.Marshal would then turn the invalid bytes into U+FFFD.
-		cut := limit
-		for cut > 0 && !utf8.RuneStart(text[cut]) {
-			cut--
-		}
-		text = text[:cut] + "…"
+		text = cutRunes(text, limit) + "…"
 	}
 	return gotato.UserMessage(text), nil
+}
+
+// truncateLine is the text TruncateRecap lists for message, or "".
+func truncateLine(message gotato.Message) string {
+	line := strings.TrimSpace(gotato.TextOf(message))
+	if line == "" && message.ToolResult != nil {
+		line = "[tool " + string(message.ToolResult.Status) + "]"
+	}
+	if len(message.ToolCalls) > 0 {
+		names := make([]string, 0, len(message.ToolCalls))
+		for _, call := range message.ToolCalls {
+			names = append(names, call.ToolID)
+		}
+		line = strings.TrimSpace(line + " [called " + strings.Join(names, ", ") + "]")
+	}
+	return line
 }
 
 // ModelRecap is the Agent's model writing the Recap. It sends the Context the
