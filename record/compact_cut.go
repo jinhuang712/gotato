@@ -14,18 +14,8 @@ import (
 // results.
 func lastTurnStart(messages []gotato.Message, run gotato.RunID) int {
 	if run != "" {
-		first := -1
-		for i, message := range slices.Backward(messages) {
-			if message.RunID != run {
-				continue
-			}
-			if message.Role == gotato.RoleAssistant {
-				return i
-			}
-			first = i
-		}
-		if first >= 0 {
-			return first
+		if start := runTurnStart(messages, run); start >= 0 {
+			return start
 		}
 	}
 	i := len(messages) - 1
@@ -33,6 +23,22 @@ func lastTurnStart(messages []gotato.Message, run gotato.RunID) int {
 		i--
 	}
 	return max(i, 0)
+}
+
+// runTurnStart returns the index of run's last reply, or of its first Message
+// when it has no reply yet, or -1 when no Message is of run.
+func runTurnStart(messages []gotato.Message, run gotato.RunID) int {
+	first := -1
+	for i, message := range slices.Backward(messages) {
+		if message.RunID != run {
+			continue
+		}
+		if message.Role == gotato.RoleAssistant {
+			return i
+		}
+		first = i
+	}
+	return first
 }
 
 // withinBudget returns the lowest index, not below floor, from which the
