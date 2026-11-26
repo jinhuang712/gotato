@@ -4,7 +4,6 @@ import (
 	"encoding/base64"
 	"encoding/json"
 	"fmt"
-	"net/http"
 	"reflect"
 	"strings"
 	"time"
@@ -67,17 +66,10 @@ func (w Responses) Encode(call Call) (*Request, error) {
 		return nil, err
 	}
 	body, names, err := encodeResponsesRequest(call.Model, call.Request, native)
-	if err == nil {
-		body, err = withCacheKeyField(body, w.cacheKeyField(), call.CacheKey)
-	}
 	if err != nil {
 		return nil, err
 	}
-	header := http.Header{}
-	if call.APIKey != "" {
-		header.Set("Authorization", "Bearer "+call.APIKey)
-	}
-	return &Request{Body: body, Header: header, NewDecoder: func() Decoder { return newResponsesDecoder(names) }}, nil
+	return bearerRequest(call, body, w.cacheKeyField(), func() Decoder { return newResponsesDecoder(names) })
 }
 
 func encodeResponsesRequest(model gotato.ModelConfig, request gotato.ModelRequest, native bool) ([]byte, map[string]string, error) {

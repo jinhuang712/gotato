@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"encoding/json"
 	"fmt"
+	"net/http"
 	"strings"
 
 	"github.com/jinhuang712/gotato/gotato"
@@ -78,4 +79,18 @@ func refuseReasoningConfig(wire string, sampling gotato.Sampling) error {
 		return nil
 	}
 	return gotato.ErrorOf(gotato.CodeNotSupported, fmt.Sprintf("model: Sampling.ReasoningEffort and ReasoningSummary are not sent by %s; use the Responses wire or leave them empty", wire))
+}
+
+// bearerRequest finishes an encoded body as a Request of the OpenAI wire APIs:
+// the call's cache key in the body field, and its API key as a bearer token.
+func bearerRequest(call Call, body []byte, cacheKeyField string, newDecoder func() Decoder) (*Request, error) {
+	body, err := withCacheKeyField(body, cacheKeyField, call.CacheKey)
+	if err != nil {
+		return nil, err
+	}
+	header := http.Header{}
+	if call.APIKey != "" {
+		header.Set("Authorization", "Bearer "+call.APIKey)
+	}
+	return &Request{Body: body, Header: header, NewDecoder: newDecoder}, nil
 }

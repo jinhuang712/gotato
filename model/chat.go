@@ -3,7 +3,6 @@ package model
 import (
 	"encoding/json"
 	"fmt"
-	"net/http"
 	"reflect"
 	"strings"
 
@@ -39,17 +38,10 @@ var chatReservedFields = []string{"tool_choice", "parallel_tool_calls", "max_com
 // that sets a reasoning effort or summary, which it cannot carry.
 func (w ChatCompletions) Encode(call Call) (*Request, error) {
 	body, names, err := encodeChatRequest(call.Model, call.Request)
-	if err == nil {
-		body, err = withCacheKeyField(body, w.cacheKeyField(), call.CacheKey)
-	}
 	if err != nil {
 		return nil, err
 	}
-	header := http.Header{}
-	if call.APIKey != "" {
-		header.Set("Authorization", "Bearer "+call.APIKey)
-	}
-	return &Request{Body: body, Header: header, NewDecoder: func() Decoder { return newChatDecoder(names) }}, nil
+	return bearerRequest(call, body, w.cacheKeyField(), func() Decoder { return newChatDecoder(names) })
 }
 
 func (w ChatCompletions) cacheKeyField() string {
