@@ -256,14 +256,18 @@ func (supportModel) Stream(_ context.Context, request gotato.ModelRequest) (gota
 // Config states nothing: no window, no retention, no sampling.
 func (supportModel) Config() gotato.ModelConfig { return gotato.ModelConfig{} }
 
-func playSupport(request gotato.ModelRequest) testkit.Script {
-	prompt, results := lastPrompt(request.Messages)
-	calls := toolCallsByID(request.Messages)
-	n := len(request.Messages) + 1
-	call := func(toolID string, arguments any) testkit.Script {
+// supportCaller returns the function that makes the tool call of turn n.
+func supportCaller(n int) func(toolID string, arguments any) testkit.Script {
+	return func(toolID string, arguments any) testkit.Script {
 		encoded, _ := json.Marshal(arguments)
 		return testkit.ToolCalls(gotato.ToolCall{ID: gotato.ToolCallID("call-" + strconv.Itoa(n)), ToolID: toolID, Arguments: encoded})
 	}
+}
+
+func playSupport(request gotato.ModelRequest) testkit.Script {
+	prompt, results := lastPrompt(request.Messages)
+	calls := toolCallsByID(request.Messages)
+	call := supportCaller(len(request.Messages) + 1)
 	if len(results) == 0 {
 		return call(CustomerOrdersID, map[string]string{"customer_id": customerID.FindString(prompt)})
 	}
@@ -273,42 +277,58 @@ func playSupport(request gotato.ModelRequest) testkit.Script {
 	}
 	switch calls[last.CallID].ToolID {
 	case CustomerOrdersID:
-		var listed struct {
-			Orders []supportOrder `json:"orders"`
-		}
-		_ = json.Unmarshal([]byte(resultText(last)), &listed)
-		sort.Slice(listed.Orders, func(i, j int) bool { return listed.Orders[i].Placed > listed.Orders[j].Placed })
-		if len(listed.Orders) == 0 {
-			return testkit.Text("The customer has no orders.")
-		}
-		return call(OrderDetailsID, map[string]string{"id": listed.Orders[0].ID})
+		return supportOpenNewest(call, last)
 	case OrderDetailsID:
 		return call(PolicySearchID, map[string]string{"query": "refund for an item that arrived damaged"})
 	case PolicySearchID:
-		var order supportOrder
-		for _, result := range results {
-			if calls[result.CallID].ToolID == OrderDetailsID {
-				_ = json.Unmarshal([]byte(resultText(result)), &order)
-			}
-		}
-		for _, item := range order.Items {
-			if mentionsItem(prompt, item.Name) {
-				return call(OrderRefundID, map[string]string{"order_id": order.ID, "sku": item.SKU, "reason": "arrived damaged"})
-			}
-		}
-		return testkit.Text("The customer's most recent order has no item matching the case.")
+		return supportRefundDamaged(call, prompt, results, calls)
 	case OrderRefundID:
-		var refund struct {
-			RefundID string  `json:"refund_id"`
-			OrderID  string  `json:"order_id"`
-			SKU      string  `json:"sku"`
-			Amount   float64 `json:"amount"`
-		}
-		_ = json.Unmarshal([]byte(resultText(last)), &refund)
-		return testkit.Text(fmt.Sprintf("Order %s, the customer's most recent, was delivered within the 30 days policy RR-3 allows for damaged items. "+
-			"I refunded the teapot (%s, %.2f USD) to the original payment method; refund ID %s.", refund.OrderID, refund.SKU, refund.Amount, refund.RefundID))
+		return supportReportRefund(last)
 	}
 	return testkit.Text("I could not finish the case.")
+}
+
+// supportOpenNewest reads the most recent order of the listed ones.
+func supportOpenNewest(call func(string, any) testkit.Script, listing gotato.ToolResult) testkit.Script {
+	var listed struct {
+		Orders []supportOrder `json:"orders"`
+	}
+	_ = json.Unmarshal([]byte(resultText(listing)), &listed)
+	sort.Slice(listed.Orders, func(i, j int) bool { return listed.Orders[i].Placed > listed.Orders[j].Placed })
+	if len(listed.Orders) == 0 {
+		return testkit.Text("The customer has no orders.")
+	}
+	return call(OrderDetailsID, map[string]string{"id": listed.Orders[0].ID})
+}
+
+// supportRefundDamaged refunds the item of the order read that the prompt
+// names.
+func supportRefundDamaged(call func(string, any) testkit.Script, prompt string, results []gotato.ToolResult, calls map[gotato.ToolCallID]gotato.ToolCall) testkit.Script {
+	var order supportOrder
+	for _, result := range results {
+		if calls[result.CallID].ToolID == OrderDetailsID {
+			_ = json.Unmarshal([]byte(resultText(result)), &order)
+		}
+	}
+	for _, item := range order.Items {
+		if mentionsItem(prompt, item.Name) {
+			return call(OrderRefundID, map[string]string{"order_id": order.ID, "sku": item.SKU, "reason": "arrived damaged"})
+		}
+	}
+	return testkit.Text("The customer's most recent order has no item matching the case.")
+}
+
+// supportReportRefund answers with the refund the last result describes.
+func supportReportRefund(last gotato.ToolResult) testkit.Script {
+	var refund struct {
+		RefundID string  `json:"refund_id"`
+		OrderID  string  `json:"order_id"`
+		SKU      string  `json:"sku"`
+		Amount   float64 `json:"amount"`
+	}
+	_ = json.Unmarshal([]byte(resultText(last)), &refund)
+	return testkit.Text(fmt.Sprintf("Order %s, the customer's most recent, was delivered within the 30 days policy RR-3 allows for damaged items. "+
+		"I refunded the teapot (%s, %.2f USD) to the original payment method; refund ID %s.", refund.OrderID, refund.SKU, refund.Amount, refund.RefundID))
 }
 
 // toolCallsByID indexes the tool calls the model made, so a tool result can
