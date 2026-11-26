@@ -191,7 +191,7 @@ func applyResponsesSampling(payload *responsesRequest, model gotato.ModelConfig,
 
 // convertResponsesMessage turns one Message into the Responses input items it
 // stands for: none, one or several.
-func convertResponsesMessage(message gotato.Message, names map[string]string, keepReasoning bool, native ...*deferredLayout) ([]any, error) {
+func convertResponsesMessage(message gotato.Message, names map[string]string, replay reasoningReplay, native ...*deferredLayout) ([]any, error) {
 	var layout *deferredLayout
 	if len(native) > 0 {
 		layout = native[0]
@@ -208,7 +208,7 @@ func convertResponsesMessage(message gotato.Message, names map[string]string, ke
 		}
 		return []any{responsesMessage{Role: "user", Content: content}}, nil
 	case gotato.RoleAssistant:
-		return responsesAssistantItems(message, names, keepReasoning, layout)
+		return responsesAssistantItems(message, names, replay, layout)
 	case gotato.RoleToolResult:
 		return responsesToolResultItems(message, names, layout)
 	default:
@@ -218,13 +218,13 @@ func convertResponsesMessage(message gotato.Message, names map[string]string, ke
 
 // responsesAssistantItems is an assistant Message as output messages,
 // reasoning items and function calls, in that order.
-func responsesAssistantItems(message gotato.Message, names map[string]string, keepReasoning bool, layout *deferredLayout) ([]any, error) {
+func responsesAssistantItems(message gotato.Message, names map[string]string, replay reasoningReplay, layout *deferredLayout) ([]any, error) {
 	items := make([]any, 0, len(message.Parts)+len(message.ToolCalls))
 	// Adjacent text Parts are one output message: transcripts saved
 	// before Gotato coalesced deltas hold a reply as its fragments.
 	var text strings.Builder
 	for _, part := range message.Parts {
-		if part.Kind == gotato.ContentKindReasoning && !keepReasoning {
+		if part.Kind == gotato.ContentKindReasoning && replay == reasoningDropped {
 			continue
 		}
 		var err error
@@ -246,7 +246,7 @@ func responsesAssistantItems(message gotato.Message, names map[string]string, ke
 		// A call whose reasoning item is left out goes without its item
 		// ID too, as a call from another wire API does, so it never
 		// names an output its reasoning came with.
-		if !keepReasoning {
+		if replay == reasoningDropped {
 			item.ID = ""
 		}
 		items = append(items, item)

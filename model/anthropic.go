@@ -203,7 +203,7 @@ func anthropicTools(ordered []layoutTool, names map[string]string) ([]anthropicT
 	return tools, nil
 }
 
-func anthropicBlocks(message gotato.Message, names map[string]string, keepReasoning bool) (string, []anthropicBlock, error) {
+func anthropicBlocks(message gotato.Message, names map[string]string, replay reasoningReplay) (string, []anthropicBlock, error) {
 	switch message.Role {
 	case gotato.RoleUser, gotato.RoleNotice:
 		// A notice (F4.4) is tagged text in the adjacent user turn.
@@ -213,7 +213,7 @@ func anthropicBlocks(message gotato.Message, names map[string]string, keepReason
 	case gotato.RoleAssistant:
 		var blocks []anthropicBlock
 		for _, part := range message.Parts {
-			if part.Kind == gotato.ContentKindReasoning && !keepReasoning {
+			if part.Kind == gotato.ContentKindReasoning && replay == reasoningDropped {
 				continue
 			}
 			var err error

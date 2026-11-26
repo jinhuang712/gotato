@@ -28,9 +28,20 @@ func roundStart(messages []gotato.Message) int {
 	return -1
 }
 
+// reasoningReplay says whether a reply is sent with its reasoning.
+type reasoningReplay bool
+
+// The values of reasoningReplay.
+const (
+	// reasoningKept sends a reply with its reasoning.
+	reasoningKept reasoningReplay = true
+	// reasoningDropped sends a reply without its reasoning.
+	reasoningDropped reasoningReplay = false
+)
+
 // keepsReasoning reports whether the reply at index keeps its reasoning: always,
 // unless the model takes only the current Round's, and then from the Round's
 // start on.
-func keepsReasoning(roundReasoning bool, index, start int) bool {
-	return !roundReasoning || index > start
+func keepsReasoning(roundReasoning bool, index, start int) reasoningReplay {
+	return reasoningReplay(!roundReasoning || index > start)
 }

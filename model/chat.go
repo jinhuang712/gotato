@@ -73,13 +73,13 @@ func encodeChatRequest(model gotato.ModelConfig, request gotato.ModelRequest) ([
 	}
 	start := roundStart(request.Messages)
 	for i, message := range request.Messages {
-		keep := keepsReasoning(model.Facts.RoundReasoning, i, start)
-		converted, err := convertChatMessage(message, names, keep)
+		replay := keepsReasoning(model.Facts.RoundReasoning, i, start)
+		converted, err := convertChatMessage(message, names, replay)
 		if err != nil {
 			return nil, nil, err
 		}
 		// A reply that was only reasoning has nothing left to send.
-		if !keep && converted.Role == "assistant" && converted.Content == "" && len(converted.ToolCalls) == 0 && gotato.ReasoningOf(message) != "" {
+		if replay == reasoningDropped && converted.Role == "assistant" && converted.Content == "" && len(converted.ToolCalls) == 0 && gotato.ReasoningOf(message) != "" {
 			continue
 		}
 		messages = append(messages, converted)
@@ -106,7 +106,7 @@ func encodeChatRequest(model gotato.ModelConfig, request gotato.ModelRequest) ([
 	return body, names, nil
 }
 
-func convertChatMessage(message gotato.Message, names map[string]string, keepReasoning bool) (chatMessage, error) {
+func convertChatMessage(message gotato.Message, names map[string]string, replay reasoningReplay) (chatMessage, error) {
 	role := string(message.Role)
 	if role == string(gotato.RoleToolResult) {
 		content := toolResultOutput(message)
@@ -131,7 +131,7 @@ func convertChatMessage(message gotato.Message, names map[string]string, keepRea
 		}
 	}
 	out := chatMessage{Role: role, Content: gotato.TextOf(message)}
-	if role == string(gotato.RoleAssistant) && keepReasoning {
+	if role == string(gotato.RoleAssistant) && replay == reasoningKept {
 		out.ReasoningContent = gotato.ReasoningOf(message)
 	}
 	for _, call := range message.ToolCalls {
