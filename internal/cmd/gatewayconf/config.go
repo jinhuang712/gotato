@@ -154,51 +154,79 @@ func (in file) config() (Config, error) {
 			},
 		},
 	}
-	var retention, backoff, maxWait, connect, header time.Duration
+	durations, err := in.durations()
+	if err != nil {
+		return Config{}, err
+	}
+	config.Model.Facts.CacheRetention = durations.retention
+	if err := in.addOptions(&config, durations); err != nil {
+		return Config{}, err
+	}
+	return config, nil
+}
+
+// fileDurations holds the duration keys of a file, parsed.
+type fileDurations struct {
+	retention, backoff, maxWait, connect, header time.Duration
+}
+
+// durations parses the keys of a file that hold a Go duration.
+func (in file) durations() (fileDurations, error) {
+	var d fileDurations
 	for _, field := range []struct {
 		key   string
 		value string
 		into  *time.Duration
 	}{
-		{"cache_retention", in.CacheRetention, &retention},
-		{"retry_backoff", in.RetryBackoff, &backoff},
-		{"max_retry_wait", in.MaxRetryWait, &maxWait},
-		{"connect_timeout", in.ConnectTimeout, &connect},
-		{"response_header_timeout", in.ResponseHeaderTimeout, &header},
+		{"cache_retention", in.CacheRetention, &d.retention},
+		{"retry_backoff", in.RetryBackoff, &d.backoff},
+		{"max_retry_wait", in.MaxRetryWait, &d.maxWait},
+		{"connect_timeout", in.ConnectTimeout, &d.connect},
+		{"response_header_timeout", in.ResponseHeaderTimeout, &d.header},
 	} {
 		if field.value == "" {
 			continue
 		}
 		duration, err := time.ParseDuration(strings.TrimSpace(field.value))
 		if err != nil {
-			return Config{}, fmt.Errorf("invalid %s %q: %w", field.key, field.value, err)
+			return fileDurations{}, fmt.Errorf("invalid %s %q: %w", field.key, field.value, err)
 		}
 		*field.into = duration
 	}
-	config.Model.Facts.CacheRetention = retention
-	if in.MaxRetries != nil || backoff != 0 || maxWait != 0 {
-		retry := model.DefaultRetry
-		if in.MaxRetries != nil {
-			retry.Max = *in.MaxRetries
-		}
-		if backoff != 0 {
-			retry.Backoff = backoff
-		}
-		if maxWait != 0 {
-			retry.MaxWait = maxWait
-		}
-		config.Options = append(config.Options, model.WithRetry(retry))
+	return d, nil
+}
+
+// addOptions sets the HTTP client and appends the model.Options that the
+// retry, timeout and overflow keys of a file stand for.
+func (in file) addOptions(config *Config, d fileDurations) error {
+	if in.MaxRetries != nil || d.backoff != 0 || d.maxWait != 0 {
+		config.Options = append(config.Options, model.WithRetry(in.retry(d)))
 	}
-	if connect != 0 || header != 0 {
-		if connect < 0 || header < 0 {
-			return Config{}, fmt.Errorf("connect_timeout and response_header_timeout cannot be negative")
+	if d.connect != 0 || d.header != 0 {
+		if d.connect < 0 || d.header < 0 {
+			return fmt.Errorf("connect_timeout and response_header_timeout cannot be negative")
 		}
-		config.Connection.HTTPClient = model.NewHTTPClient(withDefault(connect, 10*time.Second), withDefault(header, 60*time.Second))
+		config.Connection.HTTPClient = model.NewHTTPClient(withDefault(d.connect, 10*time.Second), withDefault(d.header, 60*time.Second))
 	}
 	if phrases := cleanPhrases(in.OverflowPhrases); len(phrases) > 0 {
 		config.Options = append(config.Options, model.WithClassifier(withOverflowPhrases(model.DefaultClassifier, phrases)))
 	}
-	return config, nil
+	return nil
+}
+
+// retry is model.DefaultRetry with the retry keys the file sets.
+func (in file) retry(d fileDurations) model.Retry {
+	retry := model.DefaultRetry
+	if in.MaxRetries != nil {
+		retry.Max = *in.MaxRetries
+	}
+	if d.backoff != 0 {
+		retry.Backoff = d.backoff
+	}
+	if d.maxWait != 0 {
+		retry.MaxWait = d.maxWait
+	}
+	return retry
 }
 
 // wire maps the name of a wire API to its value, with the wire's own options.
