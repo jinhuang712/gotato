@@ -19,6 +19,19 @@ import (
 	"time"
 )
 
+// The defaults of a Config, the numbers Lark answers with, and the longest wait of a conversation.
+const (
+	defaultAckTimeout   = 3 * time.Second
+	defaultMaxRedeliver = 3
+	defaultThinkTime    = 100 * time.Millisecond
+	tokenExpireSeconds  = 7200
+	codeInvalidBody     = 99992402 // Lark's code for a body it cannot read
+	codeMessageNotFound = 230002   // Lark's code for an id it does not know
+	defaultConverseWait = 15 * time.Second
+	cardPoll            = 10 * time.Millisecond // how often Converse looks for the bot's card
+	decimal             = 10                    // the base the millisecond times are written in
+)
+
 // EventPath is where a bot endpoint receives events (bot flag -lark-events http).
 const EventPath = "/lark/event"
 
@@ -84,13 +97,13 @@ type Server struct {
 // New returns a Server. Zero Config fields get Lark-like defaults.
 func New(cfg Config) *Server {
 	if cfg.AckTimeout == 0 {
-		cfg.AckTimeout = 3 * time.Second
+		cfg.AckTimeout = defaultAckTimeout
 	}
 	if cfg.Redeliver && cfg.MaxRedeliver == 0 {
-		cfg.MaxRedeliver = 3
+		cfg.MaxRedeliver = defaultMaxRedeliver
 	}
 	if cfg.ThinkTime == 0 {
-		cfg.ThinkTime = 100 * time.Millisecond
+		cfg.ThinkTime = defaultThinkTime
 	}
 	if cfg.Seed == 0 {
 		cfg.Seed = time.Now().UnixNano()
@@ -113,7 +126,10 @@ func (s *Server) Handler() http.Handler {
 	mux.HandleFunc("POST /send", s.send)
 	mux.HandleFunc("POST /conversation", s.conversation)
 	mux.HandleFunc("GET /cards", s.listCards)
-	mux.HandleFunc("POST /reset", func(w http.ResponseWriter, _ *http.Request) { s.Reset(); writeJSON(w, 200, map[string]any{"ok": true}) })
+	mux.HandleFunc("POST /reset", func(w http.ResponseWriter, _ *http.Request) {
+		s.Reset()
+		writeJSON(w, http.StatusOK, map[string]any{"ok": true})
+	})
 	mux.HandleFunc("GET /healthz", func(w http.ResponseWriter, _ *http.Request) { _, _ = io.WriteString(w, "ok\n") })
 	return mux
 }
@@ -148,7 +164,7 @@ func (s *Server) nextID(prefix string) string {
 // --- the Lark API subset ---
 
 func (s *Server) token(w http.ResponseWriter, _ *http.Request) {
-	writeJSON(w, 200, map[string]any{"code": 0, "msg": "ok", "tenant_access_token": "t-fake", "expire": 7200})
+	writeJSON(w, http.StatusOK, map[string]any{"code": 0, "msg": "ok", "tenant_access_token": "t-fake", "expire": tokenExpireSeconds})
 }
 
 type postBody struct {
@@ -173,7 +189,7 @@ func (s *Server) create(w http.ResponseWriter, r *http.Request) {
 func (s *Server) record(w http.ResponseWriter, r *http.Request, chat, replyTo string) {
 	var b postBody
 	if err := json.NewDecoder(r.Body).Decode(&b); err != nil {
-		writeJSON(w, 400, map[string]any{"code": 99992402, "msg": "invalid body: " + err.Error()})
+		writeJSON(w, http.StatusBadRequest, map[string]any{"code": codeInvalidBody, "msg": "invalid body: " + err.Error()})
 		return
 	}
 	if chat == "" {
@@ -188,15 +204,15 @@ func (s *Server) record(w http.ResponseWriter, r *http.Request, chat, replyTo st
 	s.cards = append(s.cards, c)
 	s.msgChat[c.MessageID] = chat
 	s.mu.Unlock()
-	writeJSON(w, 200, map[string]any{"code": 0, "msg": "success", "data": map[string]any{
-		"message_id": c.MessageID, "chat_id": chat, "msg_type": b.MsgType, "create_time": strconv.FormatInt(c.Time.UnixMilli(), 10)}})
+	writeJSON(w, http.StatusOK, map[string]any{"code": 0, "msg": "success", "data": map[string]any{
+		"message_id": c.MessageID, "chat_id": chat, "msg_type": b.MsgType, "create_time": strconv.FormatInt(c.Time.UnixMilli(), decimal)}})
 }
 
 // patch is "update a card": it replaces the content of a card the bot posted.
 func (s *Server) patch(w http.ResponseWriter, r *http.Request) {
 	var b postBody
 	if err := json.NewDecoder(r.Body).Decode(&b); err != nil {
-		writeJSON(w, 400, map[string]any{"code": 99992402, "msg": "invalid body: " + err.Error()})
+		writeJSON(w, http.StatusBadRequest, map[string]any{"code": codeInvalidBody, "msg": "invalid body: " + err.Error()})
 		return
 	}
 	id := r.PathValue("id")
@@ -213,10 +229,10 @@ func (s *Server) patch(w http.ResponseWriter, r *http.Request) {
 		}
 		c.Text, c.Session, c.Instance = parseCard(b.Content)
 		c.Updates++
-		writeJSON(w, 200, map[string]any{"code": 0, "msg": "success", "data": map[string]any{}})
+		writeJSON(w, http.StatusOK, map[string]any{"code": 0, "msg": "success", "data": map[string]any{}})
 		return
 	}
-	writeJSON(w, 200, map[string]any{"code": 230002, "msg": "message not found: " + id})
+	writeJSON(w, http.StatusOK, map[string]any{"code": codeMessageNotFound, "msg": "message not found: " + id})
 }
 
 // remove recalls a card.
@@ -230,7 +246,7 @@ func (s *Server) remove(w http.ResponseWriter, r *http.Request) {
 			break
 		}
 	}
-	writeJSON(w, 200, map[string]any{"code": 0, "msg": "success", "data": map[string]any{}})
+	writeJSON(w, http.StatusOK, map[string]any{"code": 0, "msg": "success", "data": map[string]any{}})
 }
 
 var footerRe = regexp.MustCompile(`session (\S+) · instance (\S+)`)
@@ -277,7 +293,7 @@ type sendReq struct {
 func (s *Server) send(w http.ResponseWriter, r *http.Request) {
 	var q sendReq
 	if err := json.NewDecoder(r.Body).Decode(&q); err != nil || q.Chat == "" || q.Text == "" {
-		writeJSON(w, 400, map[string]any{"error": "need JSON {chat, text, reply_to?, count?, parallel?}"})
+		writeJSON(w, http.StatusBadRequest, map[string]any{"error": "need JSON {chat, text, reply_to?, count?, parallel?}"})
 		return
 	}
 	if q.Count < 1 {
@@ -296,7 +312,7 @@ func (s *Server) send(w http.ResponseWriter, r *http.Request) {
 			one(i)
 		}
 	}
-	writeJSON(w, 200, map[string]any{"sent": res})
+	writeJSON(w, http.StatusOK, map[string]any{"sent": res})
 }
 
 type conversationReq struct {
@@ -309,17 +325,17 @@ type conversationReq struct {
 func (s *Server) conversation(w http.ResponseWriter, r *http.Request) {
 	var q conversationReq
 	if err := json.NewDecoder(r.Body).Decode(&q); err != nil || q.Chat == "" || len(q.Turns) == 0 {
-		writeJSON(w, 400, map[string]any{"error": "need JSON {chat, turns:[...], gap_ms?, wait_ms?}"})
+		writeJSON(w, http.StatusBadRequest, map[string]any{"error": "need JSON {chat, turns:[...], gap_ms?, wait_ms?}"})
 		return
 	}
 	res, err := s.Converse(r.Context(), q.Chat, q.Turns, time.Duration(q.GapMS)*time.Millisecond, time.Duration(q.WaitMS)*time.Millisecond)
 	out := map[string]any{"sent": res}
 	if err != nil {
 		out["error"] = err.Error()
-		writeJSON(w, 504, out)
+		writeJSON(w, http.StatusGatewayTimeout, out)
 		return
 	}
-	writeJSON(w, 200, out)
+	writeJSON(w, http.StatusOK, out)
 }
 
 // Converse sends turns[0], waits for the bot's card (a reply to it), then
@@ -327,7 +343,7 @@ func (s *Server) conversation(w http.ResponseWriter, r *http.Request) {
 // message, parent_id the bot's card, one every gap.
 func (s *Server) Converse(ctx context.Context, chat string, turns []string, gap, wait time.Duration) ([]Sent, error) {
 	if wait <= 0 {
-		wait = 15 * time.Second
+		wait = defaultConverseWait
 	}
 	first := s.Deliver(ctx, chat, turns[0], "", "")
 	res := []Sent{first}
@@ -344,7 +360,7 @@ func (s *Server) Converse(ctx context.Context, chat string, turns []string, gap,
 		if time.Now().After(deadline) || ctx.Err() != nil {
 			return res, fmt.Errorf("no card in reply to %s within %s", first.MessageID, wait)
 		}
-		time.Sleep(10 * time.Millisecond)
+		time.Sleep(cardPoll)
 	}
 	time.Sleep(s.cfg.ThinkTime) // the bot posts the card just before its Session is free again; a person is slower than that
 	rest := make([]Sent, len(turns)-1)
@@ -365,12 +381,12 @@ func (s *Server) listCards(w http.ResponseWriter, r *http.Request) {
 	if v := q.Get("since"); v != "" {
 		t, err := time.Parse(time.RFC3339Nano, v)
 		if err != nil {
-			writeJSON(w, 400, map[string]any{"error": "since must be RFC 3339"})
+			writeJSON(w, http.StatusBadRequest, map[string]any{"error": "since must be RFC 3339"})
 			return
 		}
 		since = t
 	}
-	writeJSON(w, 200, map[string]any{"cards": s.Cards(q.Get("chat"), q.Get("reply_to"), since)})
+	writeJSON(w, http.StatusOK, map[string]any{"cards": s.Cards(q.Get("chat"), q.Get("reply_to"), since)})
 }
 
 func writeJSON(w http.ResponseWriter, code int, v any) {
