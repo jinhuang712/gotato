@@ -100,7 +100,7 @@ func (a *Session) enqueueControl(ctx context.Context, message Message, operation
 		}
 		return err
 	}
-	switch a.fillControl(control{message: message, source: source, kind: kindOf(source)}, source == MessageSourceInterrupt) {
+	switch a.fillControl(control{message: message, source: source, kind: kindOf(source)}) {
 	case sentControl:
 		return nil
 	case controlRunEnded:
@@ -127,26 +127,40 @@ const (
 // is ending has dropped its queue already or is about to, and a Session whose
 // last drop pass is done takes no more. A message put in before either is
 // dropped by that pass. A Run that leaves its queue for the host
-// (withQueueHandoff) keeps what arrives as it ends.
-//
-// An Interrupt needs a Run in flight (needsRun): one that finds the Run over
-// is refused, since it would otherwise cancel the first model call of the
-// next Run. The caller holds run.mu.
-func (a *Session) controlGate(needsRun bool) controlOutcome {
-	inRun := a.run.inRun.Load()
-	if (needsRun && !inRun) || (inRun && a.run.ending && !a.run.keeps) {
+// (withQueueHandoff) keeps what arrives as it ends. The caller holds run.mu.
+func (a *Session) controlGate() controlOutcome {
+	if a.run.inRun.Load() && a.run.ending && !a.run.keeps {
 		return controlRunEnded
 	}
 	return sentControl
 }
 
+// interruptGate is controlGate for an Interrupt, which needs a Run in flight:
+// one that finds the Run over is refused, since it would otherwise cancel the
+// first model call of the next Run. The caller holds run.mu.
+func (a *Session) interruptGate() controlOutcome {
+	if !a.run.inRun.Load() || (a.run.ending && !a.run.keeps) {
+		return controlRunEnded
+	}
+	return sentControl
+}
+
+// gateFor is the gate of queued: interruptGate for an Interrupt, controlGate
+// for any other message. The caller holds run.mu.
+func (a *Session) gateFor(queued control) controlOutcome {
+	if queued.source == MessageSourceInterrupt {
+		return a.interruptGate()
+	}
+	return a.controlGate()
+}
+
 // fillControl puts a message in the place reserved for it, once its
 // message_queued is written. A message that is not put in gives the place back.
 // [CONCURRENCY] the gate and the fill run under run.mu, so a message is never queued after the last drop pass or into the next Run.
-func (a *Session) fillControl(queued control, needsRun bool) controlOutcome {
+func (a *Session) fillControl(queued control) controlOutcome {
 	a.run.mu.Lock()
 	defer a.run.mu.Unlock()
-	if outcome := a.controlGate(needsRun); outcome != sentControl {
+	if outcome := a.gateFor(queued); outcome != sentControl {
 		a.queue.release(queued.kind)
 		return outcome
 	}
@@ -236,8 +250,8 @@ func (a *Session) requeue(messages []Queued) (rest []Queued) {
 		}
 		// [CONCURRENCY] the gate and the put are one step under run.mu, so a message never lands in a Session that closed.
 		a.run.mu.Lock()
-		put := a.controlGate(false) == sentControl && a.queue.add(queued)
-		if !put && queued.kind == kindSteer && a.controlGate(false) == sentControl {
+		put := a.controlGate() == sentControl && a.queue.add(queued)
+		if !put && queued.kind == kindSteer && a.controlGate() == sentControl {
 			queued.kind = kindFollowUp
 			put = a.queue.add(queued)
 		}
