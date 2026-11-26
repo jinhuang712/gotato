@@ -110,23 +110,11 @@ func reportRoll(roll mcpRoll, ok, errs map[string]int, full map[string][]string)
 	}
 	fmt.Printf("  `rejected by transport` reported: SIGKILL A %d, graceful G %d; `session not found` reported to the model: %d\n",
 		transport("A"), transport("G"), sessionNotFound)
-	if data, err := os.ReadFile(roll.logPath); err == nil { //nolint:gosec // our own temp directory
-		for l := range strings.SplitSeq(string(data), "\n") {
-			if strings.Contains(l, "msg=draining ") || strings.Contains(l, "msg=drained ") {
-				fmt.Printf("  old fakemcp pod %s: %s\n", roll.oldPod, trunc(l, 220))
-			}
-		}
-	}
+	printDrain(roll)
 	// KNOWN-MCP-GAP: a stateful server (the SDK's default) keeps its sessions in the pod. While the old and the new
 	// pod both answer, a session can be sent to the pod that does not know it. Not the bot's and not a fault
 	// of the roll itself; a stateless server (MCP_STATELESS=true) has none. Once the old pod is gone it must not happen.
-	snf := func(phases ...string) int {
-		n := 0
-		for _, ph := range phases {
-			n += countIn(full[ph], "session not found")
-		}
-		return n
-	}
+	snf := func(phases ...string) int { return sessionNotFoundIn(full, phases...) }
 	during, after := snf("G", "H"), snf("N", "G2")
 	if during > 0 {
 		fmt.Printf("  KNOWN-MCP-GAP x%d: `session not found` reached the model while the old and the new pod both answered (G %d, H %d); after the roll (N, G2) %d\n", during, snf("G"), snf("H"), after)
@@ -142,6 +130,26 @@ func reportRoll(roll mcpRoll, ok, errs map[string]int, full map[string][]string)
 		fmt.Printf("  %s %d call(s) after the roll did not succeed on the first try (`session not found` among them: %d)\n", fault, n, after)
 	}
 	return faults
+}
+
+// printDrain prints the draining and drained lines of the old fakemcp pod's log.
+func printDrain(roll mcpRoll) {
+	if data, err := os.ReadFile(roll.logPath); err == nil { //nolint:gosec // our own temp directory
+		for l := range strings.SplitSeq(string(data), "\n") {
+			if strings.Contains(l, "msg=draining ") || strings.Contains(l, "msg=drained ") {
+				fmt.Printf("  old fakemcp pod %s: %s\n", roll.oldPod, trunc(l, 220))
+			}
+		}
+	}
+}
+
+// sessionNotFoundIn counts the `session not found` texts of the phases.
+func sessionNotFoundIn(full map[string][]string, phases ...string) int {
+	n := 0
+	for _, ph := range phases {
+		n += countIn(full[ph], "session not found")
+	}
+	return n
 }
 
 // errorsByPhase groups the model's tool-error reports by phase: the full texts, to look inside.
