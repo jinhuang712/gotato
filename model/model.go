@@ -77,39 +77,18 @@ type Client struct {
 // provider more reasoning than it takes, and one that omits CacheRetention
 // gets the provider's default retention; a provider accepts both.
 func New(wire WireAPI, conn Connection, model gotato.ModelConfig, opts ...Option) (*Client, error) {
-	if wire == nil {
-		return nil, fmt.Errorf("model: a WireAPI is required (use model.ChatCompletions{}, model.Responses{} or model.AnthropicMessages{})")
-	}
-	if validator, ok := wire.(interface{ Validate() error }); ok {
-		if err := validator.Validate(); err != nil {
-			return nil, err
-		}
-	}
-	if err := checkEndpoint(conn.Endpoint); err != nil {
+	if err := checkWire(wire); err != nil {
 		return nil, err
 	}
-	if err := checkHeaders(conn.Headers); err != nil {
-		return nil, fmt.Errorf("model: Headers: %w", err)
-	}
-	if conn.CacheKeyHeader != "" && !validHeaderName(conn.CacheKeyHeader) {
-		return nil, fmt.Errorf("model: CacheKeyHeader %q is not a header name", conn.CacheKeyHeader)
+	if err := checkConnection(conn); err != nil {
+		return nil, err
 	}
 	if err := checkModel(model); err != nil {
 		return nil, err
 	}
-	var set options
-	set.retry = DefaultRetry
-	for _, opt := range opts {
-		if opt != nil {
-			opt(&set)
-		}
-	}
-	retry, err := set.retry.checked()
+	set, retry, err := applyOptions(opts)
 	if err != nil {
 		return nil, err
-	}
-	if set.classify == nil {
-		set.classify = DefaultClassifier
 	}
 	client := conn.HTTPClient
 	if client == nil {
@@ -121,6 +100,54 @@ func New(wire WireAPI, conn Connection, model gotato.ModelConfig, opts ...Option
 		model.Sampling.Temperature = &temperature
 	}
 	return &Client{wire: wire, conn: conn, httpClient: client, model: model, retry: retry, classify: set.classify}, nil
+}
+
+// checkWire refuses a missing WireAPI, and one whose Validate refuses it.
+func checkWire(wire WireAPI) error {
+	if wire == nil {
+		return fmt.Errorf("model: a WireAPI is required (use model.ChatCompletions{}, model.Responses{} or model.AnthropicMessages{})")
+	}
+	if validator, ok := wire.(interface{ Validate() error }); ok {
+		if err := validator.Validate(); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+// checkConnection refuses an endpoint, headers or a cache key header that
+// cannot be sent.
+func checkConnection(conn Connection) error {
+	if err := checkEndpoint(conn.Endpoint); err != nil {
+		return err
+	}
+	if err := checkHeaders(conn.Headers); err != nil {
+		return fmt.Errorf("model: Headers: %w", err)
+	}
+	if conn.CacheKeyHeader != "" && !validHeaderName(conn.CacheKeyHeader) {
+		return fmt.Errorf("model: CacheKeyHeader %q is not a header name", conn.CacheKeyHeader)
+	}
+	return nil
+}
+
+// applyOptions applies the Options over the defaults, and returns them with
+// their Retry checked.
+func applyOptions(opts []Option) (options, Retry, error) {
+	var set options
+	set.retry = DefaultRetry
+	for _, opt := range opts {
+		if opt != nil {
+			opt(&set)
+		}
+	}
+	retry, err := set.retry.checked()
+	if err != nil {
+		return options{}, Retry{}, err
+	}
+	if set.classify == nil {
+		set.classify = DefaultClassifier
+	}
+	return set, retry, nil
 }
 
 // checkModel refuses a model this package cannot call: no name, a window not
