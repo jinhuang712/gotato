@@ -358,27 +358,32 @@ func (b *bot) replyLoop(ctx context.Context) {
 			}
 			return
 		}
-		switch e := ev.(type) {
-		case gotato.ReplyEnded:
-			// The last reply of a Run is its final text; earlier ones end in tool calls.
-			if e.ToolCalls == 0 && isBotSession(string(e.SessionID)) {
-				b.mu.Lock()
-				b.replies[e.RunID] = gotato.TextOf(e.Message)
-				b.mu.Unlock()
-			}
-		case gotato.RunEnded:
-			if !isBotSession(string(e.SessionID)) {
-				continue
-			}
+		b.onEvent(ctx, ev)
+	}
+}
+
+// onEvent keeps the final text of a Run, and posts it when the Run ends.
+func (b *bot) onEvent(ctx context.Context, ev gotato.Event) {
+	switch e := ev.(type) {
+	case gotato.ReplyEnded:
+		// The last reply of a Run is its final text; earlier ones end in tool calls.
+		if e.ToolCalls == 0 && isBotSession(string(e.SessionID)) {
 			b.mu.Lock()
-			text := b.replies[e.RunID]
-			delete(b.replies, e.RunID)
+			b.replies[e.RunID] = gotato.TextOf(e.Message)
 			b.mu.Unlock()
-			if b.ownsRun(string(e.SessionID), e.RunID) {
-				continue // streamRun finishes the card of a Run it started
-			}
-			b.post(ctx, string(e.SessionID), replyCard(b.card(string(e.SessionID)), e.Status, text))
 		}
+	case gotato.RunEnded:
+		if !isBotSession(string(e.SessionID)) {
+			return
+		}
+		b.mu.Lock()
+		text := b.replies[e.RunID]
+		delete(b.replies, e.RunID)
+		b.mu.Unlock()
+		if b.ownsRun(string(e.SessionID), e.RunID) {
+			return // streamRun finishes the card of a Run it started
+		}
+		b.post(ctx, string(e.SessionID), replyCard(b.card(string(e.SessionID)), e.Status, text))
 	}
 }
 
