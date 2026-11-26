@@ -31,6 +31,9 @@ import (
 	"github.com/jinhuang712/gotato/store"
 )
 
+// closeTimeout is how long Runner.Close may take to remove its Liveness row.
+const closeTimeout = 5 * time.Second
+
 // Version is the version reported by doctor.
 const Version = "1"
 
@@ -61,7 +64,7 @@ type cli struct {
 // closeRunners removes the Liveness rows of the Runners this invocation built.
 func (c *cli) closeRunners() {
 	for _, runner := range c.runners {
-		ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+		ctx, cancel := context.WithTimeout(context.Background(), closeTimeout)
 		_ = runner.Close(ctx)
 		cancel()
 	}
