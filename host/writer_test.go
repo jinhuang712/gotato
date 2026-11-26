@@ -160,20 +160,7 @@ func TestManyInstancesOneWriter(t *testing.T) {
 	for _, kind := range []string{"memory", "file"} {
 		t.Run(kind, func(t *testing.T) {
 			ctx := context.Background()
-			var open func() store.Store
-			if kind == "memory" {
-				backing := memStore()
-				open = func() store.Store { return backing }
-			} else {
-				dir := t.TempDir()
-				open = func() store.Store {
-					st, err := store.NewFileStore(dir)
-					if err != nil {
-						t.Fatal(err)
-					}
-					return asStore(st)
-				}
-			}
+			open := sharedStores(t, kind)
 			var violations, calls atomic.Int64
 			const instances = 3
 			runners := make([]*host.Runner, instances)
@@ -189,14 +176,7 @@ func TestManyInstancesOneWriter(t *testing.T) {
 				}
 				runners[i] = instanceRunner(t, asStore(stores[i]), model.instance, model, liveness)
 			}
-			var ids []string
-			for range 2 {
-				s, err := runners[0].CreateSession(ctx, host.CreateSessionRequest{Agent: "echo"})
-				if err != nil {
-					t.Fatal(err)
-				}
-				ids = append(ids, s.ID)
-			}
+			ids := createSessions(t, ctx, runners[0], 2)
 
 			type outcome struct {
 				prompt, session string
@@ -245,27 +225,7 @@ func TestManyInstancesOneWriter(t *testing.T) {
 			if n := violations.Load(); n != 0 {
 				t.Fatalf("%d of %d model calls came from an instance that did not hold the Session", n, calls.Load())
 			}
-			seen := map[string]int{}
-			for _, id := range ids {
-				view, err := store.View(ctx, open().Records, id)
-				if err != nil {
-					t.Fatal(err)
-				}
-				messages := view.Messages()
-				for i, message := range messages {
-					if message.Role != gotato.RoleUser {
-						continue
-					}
-					prompt := gotato.TextOf(message)
-					seen[prompt]++
-					if !completed[prompt] {
-						continue
-					}
-					if i+1 >= len(messages) || !strings.HasSuffix(gotato.TextOf(messages[i+1]), ": "+prompt) {
-						t.Fatalf("the reply to %q does not follow it", prompt)
-					}
-				}
-			}
+			seen := landedPrompts(t, ctx, open, ids, completed)
 			for prompt, n := range seen {
 				if n > 1 {
 					t.Fatalf("prompt %q landed %d times", prompt, n)
@@ -279,6 +239,49 @@ func TestManyInstancesOneWriter(t *testing.T) {
 			t.Logf("%d of 30 Runs completed, %d model calls, one instance killed", len(completed), calls.Load())
 		})
 	}
+}
+
+// createSessions creates n Sessions of the echo Agent on runner, and returns
+// their IDs.
+func createSessions(t *testing.T, ctx context.Context, runner *host.Runner, n int) []string {
+	t.Helper()
+	var ids []string
+	for range n {
+		s, err := runner.CreateSession(ctx, host.CreateSessionRequest{Agent: "echo"})
+		if err != nil {
+			t.Fatal(err)
+		}
+		ids = append(ids, s.ID)
+	}
+	return ids
+}
+
+// landedPrompts counts how many times each prompt landed in the Sessions ids
+// of the store open opens, and checks that the reply to each completed prompt follows it.
+func landedPrompts(t *testing.T, ctx context.Context, open func() store.Store, ids []string, completed map[string]bool) map[string]int {
+	t.Helper()
+	seen := map[string]int{}
+	for _, id := range ids {
+		view, err := store.View(ctx, open().Records, id)
+		if err != nil {
+			t.Fatal(err)
+		}
+		messages := view.Messages()
+		for i, message := range messages {
+			if message.Role != gotato.RoleUser {
+				continue
+			}
+			prompt := gotato.TextOf(message)
+			seen[prompt]++
+			if !completed[prompt] {
+				continue
+			}
+			if i+1 >= len(messages) || !strings.HasSuffix(gotato.TextOf(messages[i+1]), ": "+prompt) {
+				t.Fatalf("the reply to %q does not follow it", prompt)
+			}
+		}
+	}
+	return seen
 }
 
 // TestClosedRunnerNeverBeatsAgain: after Close removes its row, a Runner
