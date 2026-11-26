@@ -118,37 +118,70 @@ func chatTools(specs []gotato.ToolSpec, names map[string]string) ([]chatTool, er
 }
 
 func convertChatMessage(message gotato.Message, names map[string]string, replay reasoningReplay) (chatMessage, error) {
-	role := string(message.Role)
-	if role == string(gotato.RoleToolResult) {
-		content := toolResultOutput(message)
-		callID := ""
-		if message.ToolResult != nil {
-			callID = string(message.ToolResult.CallID)
-		}
-		return chatMessage{Role: "tool", Content: content, ToolCallID: callID}, nil
+	if message.Role == gotato.RoleToolResult {
+		return chatToolResultMessage(message), nil
 	}
-	if message.Role == gotato.RoleNotice {
+	role, err := chatRole(message.Role)
+	if err != nil {
+		return chatMessage{}, err
+	}
+	if err := checkChatParts(message.Parts); err != nil {
+		return chatMessage{}, err
+	}
+	out := chatMessage{Role: role, Content: gotato.TextOf(message)}
+	if role == string(gotato.RoleAssistant) && replay == reasoningKept {
+		out.ReasoningContent = gotato.ReasoningOf(message)
+	}
+	if out.ToolCalls, err = chatToolCalls(message.ToolCalls, names); err != nil {
+		return chatMessage{}, err
+	}
+	return out, nil
+}
+
+// chatToolResultMessage is a Tool Result as a tool message.
+func chatToolResultMessage(message gotato.Message) chatMessage {
+	content := toolResultOutput(message)
+	callID := ""
+	if message.ToolResult != nil {
+		callID = string(message.ToolResult.CallID)
+	}
+	return chatMessage{Role: "tool", Content: content, ToolCallID: callID}
+}
+
+// chatRole is the wire role of a user, notice or assistant Message; it refuses
+// any other role.
+func chatRole(messageRole gotato.Role) (string, error) {
+	role := string(messageRole)
+	if messageRole == gotato.RoleNotice {
 		// Chat Completions has no system message mid-conversation: a notice
 		// (F4.4) goes as a user message on the wire, and the Record keeps
 		// it a notice. Its tag comes from where the notice is built.
 		role = string(gotato.RoleUser)
 	}
 	if role != string(gotato.RoleUser) && role != string(gotato.RoleAssistant) {
-		return chatMessage{}, fmt.Errorf("model: unsupported Message role %q", role)
+		return "", fmt.Errorf("model: unsupported Message role %q", role)
 	}
-	for _, part := range message.Parts {
+	return role, nil
+}
+
+// checkChatParts refuses a Part with content that is neither text nor
+// reasoning.
+func checkChatParts(parts []gotato.ContentPart) error {
+	for _, part := range parts {
 		if part.Kind != gotato.ContentKindText && part.Kind != gotato.ContentKindReasoning && (part.Text != "" || len(part.Data) > 0) {
-			return chatMessage{}, fmt.Errorf("model: unsupported content kind %q", part.Kind)
+			return fmt.Errorf("model: unsupported content kind %q", part.Kind)
 		}
 	}
-	out := chatMessage{Role: role, Content: gotato.TextOf(message)}
-	if role == string(gotato.RoleAssistant) && replay == reasoningKept {
-		out.ReasoningContent = gotato.ReasoningOf(message)
-	}
-	for _, call := range message.ToolCalls {
+	return nil
+}
+
+// chatToolCalls replays the Tool Calls of an assistant Message.
+func chatToolCalls(calls []gotato.ToolCall, names map[string]string) ([]chatToolCall, error) {
+	var out []chatToolCall
+	for _, call := range calls {
 		name, err := assignFunctionName(names, call.ToolID)
 		if err != nil {
-			return chatMessage{}, err
+			return nil, err
 		}
 		wire := chatToolCall{ID: string(call.ID), Type: "function", Function: chatFunctionCall{Name: name, Arguments: string(replayArguments(call.Arguments))}}
 		// The call's extra_content goes back as it came. Another wire API's
@@ -156,7 +189,7 @@ func convertChatMessage(message gotato.Message, names map[string]string, replay 
 		if isJSONObject(call.Signature) {
 			wire.ExtraContent = json.RawMessage(call.Signature)
 		}
-		out.ToolCalls = append(out.ToolCalls, wire)
+		out = append(out, wire)
 	}
 	return out, nil
 }
