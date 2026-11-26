@@ -197,7 +197,7 @@ func (st *runState) abandon(runCtx context.Context, err error) error {
 // Stop or Drain that arrives before the handle reaches the live Session
 // cancels it.
 func (st *runState) startRun(ctx, runCtx context.Context, spec profile.AgentProfile) (*gotato.Session, *record.AutoCompactor, error) {
-	r, s, handle, follow := st.r, st.s, st.handle, st.follow
+	r, s, handle := st.r, st.s, st.handle
 	onRunStart := withRunStart(func(runID gotato.RunID) {
 		st.track.set(runID)
 		handle.attachRunID(runID)
@@ -207,33 +207,7 @@ func (st *runState) startRun(ctx, runCtx context.Context, spec profile.AgentProf
 	if err != nil {
 		return nil, nil, err
 	}
-	// The notices that wait in the Record are read before this Run queues
-	// any of its own.
-	kept := s.PendingNotices()
-	if follow == nil && !st.request.Continue {
-		// A message that starts a Run after a long absence is followed by
-		// a notice with the time.
-		r.queueTimeAway(ctx, spec, s, live)
-	}
-	if len(kept) > 0 {
-		// Notices that were queued and not committed, by an earlier Run or
-		// by a call between Runs, on this Instance or another, go in after
-		// this Run's prompt. The Record is where they wait.
-		queued := make([]gotato.Queued, len(kept))
-		for i, notice := range kept {
-			queued[i] = notice.Queued()
-		}
-		if rest := requeue(live, queued); len(rest) > 0 {
-			dropQueued(live, rest, "queue_full")
-		}
-	}
-	if follow != nil {
-		// The messages that waited behind the first one wait in this Run's
-		// queues, in order, before anything new can reach them.
-		if rest := requeue(live, follow.rest); len(rest) > 0 {
-			dropQueued(live, rest, "queue_full")
-		}
-	}
+	st.queueWaiting(ctx, spec, live)
 	st.started = true
 	// The Run is really starting: a stream may begin.
 	if st.stream != nil && st.stream.admitted != nil {
@@ -246,6 +220,46 @@ func (st *runState) startRun(ctx, runCtx context.Context, spec profile.AgentProf
 	handle.attachAbort(live.Abort)
 	handle.attachLive(live)
 	return live, auto, nil
+}
+
+// queueWaiting queues in the live Session what waits for it: the notice of
+// a long absence, the notices that wait in the Record and the messages that
+// followed the first one.
+func (st *runState) queueWaiting(ctx context.Context, spec profile.AgentProfile, live *gotato.Session) {
+	r, s, follow := st.r, st.s, st.follow
+	// The notices that wait in the Record are read before this Run queues
+	// any of its own.
+	kept := s.PendingNotices()
+	if follow == nil && !st.request.Continue {
+		// A message that starts a Run after a long absence is followed by
+		// a notice with the time.
+		r.queueTimeAway(ctx, spec, s, live)
+	}
+	if len(kept) > 0 {
+		requeueNotices(live, kept)
+	}
+	if follow != nil {
+		// The messages that waited behind the first one wait in this Run's
+		// queues, in order, before anything new can reach them.
+		if rest := requeue(live, follow.rest); len(rest) > 0 {
+			dropQueued(live, rest, "queue_full")
+		}
+	}
+}
+
+// requeueNotices queues the notices kept in the Record in the live Session,
+// and drops those its queue has no room for.
+func requeueNotices(live *gotato.Session, kept []gotato.PendingNotice) {
+	// Notices that were queued and not committed, by an earlier Run or
+	// by a call between Runs, on this Instance or another, go in after
+	// this Run's prompt. The Record is where they wait.
+	queued := make([]gotato.Queued, len(kept))
+	for i, notice := range kept {
+		queued[i] = notice.Queued()
+	}
+	if rest := requeue(live, queued); len(rest) > 0 {
+		dropQueued(live, rest, "queue_full")
+	}
 }
 
 // promptWithDeadline runs the Run's prompt, or its continuation, on the live
