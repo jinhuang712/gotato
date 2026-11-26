@@ -24,33 +24,57 @@ type Catalog struct {
 // that two Tools, or two ToolSets, share.
 func NewCatalog(models map[string]gotato.Model, tools []gotato.Tool, toolSets []gotato.ToolSet) (*Catalog, error) {
 	c := &Catalog{models: map[string]gotato.Model{}, tools: map[string]gotato.Tool{}, toolSets: map[string]gotato.ToolSet{}}
+	if err := c.addModels(models); err != nil {
+		return nil, err
+	}
+	if err := c.addTools(tools); err != nil {
+		return nil, err
+	}
+	if err := c.addToolSets(toolSets); err != nil {
+		return nil, err
+	}
+	return c, nil
+}
+
+// addModels adds the models by name, and refuses an empty name or a nil model.
+func (c *Catalog) addModels(models map[string]gotato.Model) error {
 	for name, model := range models {
 		if name == "" || model == nil {
-			return nil, invalid(fmt.Sprintf("Catalog model %q is empty or nil", name))
+			return invalid(fmt.Sprintf("Catalog model %q is empty or nil", name))
 		}
 		c.models[name] = model
 	}
+	return nil
+}
+
+// addTools adds the Tools by ID, and refuses a nil Tool and an ID that is empty or taken.
+func (c *Catalog) addTools(tools []gotato.Tool) error {
 	for _, tool := range tools {
 		if tool == nil {
-			return nil, invalid("Catalog holds a nil Tool")
+			return invalid("Catalog holds a nil Tool")
 		}
 		id := tool.Spec().ID
 		if _, dup := c.tools[id]; id == "" || dup {
-			return nil, invalid(fmt.Sprintf("Catalog Tool ID %q is empty or taken", id))
+			return invalid(fmt.Sprintf("Catalog Tool ID %q is empty or taken", id))
 		}
 		c.tools[id] = tool
 	}
+	return nil
+}
+
+// addToolSets adds the ToolSets by name, and refuses a nil ToolSet and a name that is empty or taken.
+func (c *Catalog) addToolSets(toolSets []gotato.ToolSet) error {
 	for _, set := range toolSets {
 		if set == nil {
-			return nil, invalid("Catalog holds a nil ToolSet")
+			return invalid("Catalog holds a nil ToolSet")
 		}
 		name := set.Spec().Name
 		if _, dup := c.toolSets[name]; name == "" || dup {
-			return nil, invalid(fmt.Sprintf("Catalog ToolSet name %q is empty or taken", name))
+			return invalid(fmt.Sprintf("Catalog ToolSet name %q is empty or taken", name))
 		}
 		c.toolSets[name] = set
 	}
-	return c, nil
+	return nil
 }
 
 // Model returns the model of that name, or an *UnknownNameError.
