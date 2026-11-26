@@ -82,7 +82,7 @@ func (c CodeSegments) Build(closed []gotato.Message, info SegmentInfo) (gotato.S
 	}
 
 	var out messageList
-	out.add(gotato.RoleUser, taggedPart(gotato.TagSegment, headerAttrs(number, segment, loc), headerText(number, info.Recap != "")))
+	out.add(gotato.RoleUser, taggedPart(gotato.TagSegment, headerAttrs(number, segment, loc), headerText(info)))
 	for _, it := range items {
 		if !it.isCalls {
 			out.add(it.role, it.parts...)
@@ -180,9 +180,12 @@ func headerAttrs(number int, segment gotato.Segment, loc *time.Location) [][2]st
 	return attrs
 }
 
-func headerText(number int, hasRecap bool) string {
+// headerText is the text of the header of Segment info.Number, worded by
+// whether a Recap ends it.
+func headerText(info SegmentInfo) string {
+	number := info.Number
 	upTo := "The messages are word for word"
-	if hasRecap {
+	if info.Recap != "" {
 		upTo = fmt.Sprintf("The messages up to recap %d are word for word", number)
 	}
 	return fmt.Sprintf("Segment %d. %s; reasoning,\nintermediate steps and tool results were left out. read_segment(%d) returns\nthe segment in full; read_result(ref) returns one tool result or message by its ref.", number, upTo, number)
