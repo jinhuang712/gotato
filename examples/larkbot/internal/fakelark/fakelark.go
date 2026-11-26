@@ -72,11 +72,10 @@ func (s Sent) Redeliveries() int { return len(s.Deliveries) - 1 }
 
 // Server is the fake Lark.
 type Server struct {
-	cfg    Config
-	client *http.Client
+	cfg     Config
+	courier *courier
 
 	mu      sync.Mutex
-	rng     *rand.Rand
 	seq     int
 	cards   []Card
 	msgChat map[string]string // message id -> chat, for replies
@@ -100,7 +99,7 @@ func New(cfg Config) *Server {
 		cfg.Resolver = net.DefaultResolver.LookupHost
 	}
 	rng := rand.New(rand.NewSource(cfg.Seed)) //nolint:gosec // picks a test endpoint, not a secret
-	return &Server{cfg: cfg, client: &http.Client{Timeout: cfg.AckTimeout}, seq: cfg.SeqStart, rng: rng, msgChat: map[string]string{}}
+	return &Server{cfg: cfg, courier: &courier{cfg: cfg, client: &http.Client{Timeout: cfg.AckTimeout}, rng: rng}, seq: cfg.SeqStart, msgChat: map[string]string{}}
 }
 
 // Handler serves the Lark API subset and the driver API.

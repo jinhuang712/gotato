@@ -6,19 +6,31 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
+	"math/rand"
 	"net"
 	"net/http"
 	"strconv"
+	"sync"
 	"time"
 )
 
 // --- events out ---
 
+// courier hands events to the bot endpoints: it picks an endpoint and repeats a delivery that is not answered.
+type courier struct {
+	cfg    Config
+	client *http.Client
+
+	mu  sync.Mutex // guards rng
+	rng *rand.Rand
+}
+
 type eventSpec struct {
 	Chat, Text, RootID, ParentID string
 }
 
-func (s *Server) envelope(eventID, messageID string, e eventSpec) []byte {
+// envelope is the body of the im.message.receive_v1 event for one message.
+func envelope(eventID, messageID string, e eventSpec) []byte {
 	content, _ := json.Marshal(map[string]string{"text": e.Text})
 	now := strconv.FormatInt(time.Now().UnixMilli(), 10)
 	msg := map[string]any{"message_id": messageID, "create_time": now, "chat_id": e.Chat, "chat_type": "group",
@@ -41,18 +53,18 @@ func (s *Server) envelope(eventID, messageID string, e eventSpec) []byte {
 	return b
 }
 
-func (s *Server) endpoints(ctx context.Context) ([]string, error) {
-	if len(s.cfg.Bots) > 0 {
-		return s.cfg.Bots, nil
+func (c *courier) endpoints(ctx context.Context) ([]string, error) {
+	if len(c.cfg.Bots) > 0 {
+		return c.cfg.Bots, nil
 	}
-	if s.cfg.BotsDNS == "" {
+	if c.cfg.BotsDNS == "" {
 		return nil, fmt.Errorf("no bots: set Bots or BotsDNS")
 	}
-	host, port, err := net.SplitHostPort(s.cfg.BotsDNS)
+	host, port, err := net.SplitHostPort(c.cfg.BotsDNS)
 	if err != nil {
 		return nil, err
 	}
-	addrs, err := s.cfg.Resolver(ctx, host)
+	addrs, err := c.cfg.Resolver(ctx, host)
 	if err != nil {
 		return nil, err
 	}
@@ -64,17 +76,17 @@ func (s *Server) endpoints(ctx context.Context) ([]string, error) {
 }
 
 // pick chooses one endpoint at random, like Lark's cluster mode.
-func (s *Server) pick(ctx context.Context) (string, error) {
-	eps, err := s.endpoints(ctx)
+func (c *courier) pick(ctx context.Context) (string, error) {
+	eps, err := c.endpoints(ctx)
 	if err != nil {
 		return "", err
 	}
 	if len(eps) == 0 {
 		return "", fmt.Errorf("no bot endpoints resolved")
 	}
-	s.mu.Lock()
-	defer s.mu.Unlock()
-	return eps[s.rng.Intn(len(eps))], nil
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	return eps[c.rng.Intn(len(eps))], nil
 }
 
 // Deliver fabricates one message and delivers its event. A delivery that is
@@ -86,13 +98,13 @@ func (s *Server) Deliver(ctx context.Context, chat, text, rootID, parentID strin
 	s.mu.Lock()
 	s.msgChat[messageID] = chat
 	s.mu.Unlock()
-	return s.deliverEvent(ctx, Sent{EventID: eventID, MessageID: messageID, Chat: chat, RootID: rootID, ParentID: parentID}, s.envelope(eventID, messageID, spec))
+	return s.courier.deliverEvent(ctx, Sent{EventID: eventID, MessageID: messageID, Chat: chat, RootID: rootID, ParentID: parentID}, envelope(eventID, messageID, spec))
 }
 
-func (s *Server) deliverEvent(ctx context.Context, out Sent, body []byte) Sent {
+func (c *courier) deliverEvent(ctx context.Context, out Sent, body []byte) Sent {
 	for attempt := 0; ; attempt++ {
 		d := Delivery{}
-		ep, err := s.pick(ctx)
+		ep, err := c.pick(ctx)
 		if err != nil {
 			d.Error = err.Error()
 			out.Deliveries = append(out.Deliveries, d)
@@ -102,7 +114,7 @@ func (s *Server) deliverEvent(ctx context.Context, out Sent, body []byte) Sent {
 		start := time.Now()
 		req, _ := http.NewRequestWithContext(ctx, http.MethodPost, ep+EventPath, bytes.NewReader(body))
 		req.Header.Set("Content-Type", "application/json")
-		resp, err := s.client.Do(req)
+		resp, err := c.client.Do(req)
 		if err != nil {
 			d.Error = err.Error()
 		} else {
@@ -112,9 +124,9 @@ func (s *Server) deliverEvent(ctx context.Context, out Sent, body []byte) Sent {
 		}
 		d.Millis = time.Since(start).Milliseconds()
 		out.Deliveries = append(out.Deliveries, d)
-		if (d.Status >= 200 && d.Status < 300) || !s.cfg.Redeliver || attempt >= s.cfg.MaxRedeliver || ctx.Err() != nil {
+		if (d.Status >= 200 && d.Status < 300) || !c.cfg.Redeliver || attempt >= c.cfg.MaxRedeliver || ctx.Err() != nil {
 			return out
 		}
-		time.Sleep(s.cfg.RetryDelay)
+		time.Sleep(c.cfg.RetryDelay)
 	}
 }
