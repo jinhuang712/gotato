@@ -7,6 +7,43 @@ import (
 	"time"
 )
 
+// The shape of s7: the threads of its phases, the pauses between sends, how long it waits for the MCP server and
+// how often it asks, the width of an error text it counts by, the port of fakemcp, and the waits after each part.
+const (
+	s7WarmThreads  = 9  // W
+	s7PhaseThreads = 6  // A, B, R, C, D, G, N
+	s7ProbeThreads = 15 // P
+	s7QueuedC      = 3  // the C threads that get a message while their Run is going
+	s7Gap          = 200 * time.Millisecond
+	s7WarmGap      = 100 * time.Millisecond
+	s7KillAfter    = 3 * time.Second
+	s7UpWait       = 60 * time.Second
+	s7ErrTextChars = 110
+	mcpStatsPort   = 8090
+	s7WarmQuiet    = 4 * time.Second
+	s7WarmSettle   = 40 * time.Second
+	s7ProbeQuiet   = 6 * time.Second
+	s7ProbeSettle  = 90 * time.Second
+	s7A2Settle     = 60 * time.Second
+	s7BotQuiet     = 10 * time.Second
+	s7BotSettle    = 120 * time.Second
+	s7FinalQuiet   = 20 * time.Second
+	s7FinalSettle  = 120 * time.Second
+	scenarioPoll   = 500 * time.Millisecond // how often a scenario looks at what it waits for
+)
+
+// The shape of s8: its threads, how long it waits for the load to be a fact, how long after the kill it asks, and
+// the waits.
+const (
+	s8Threads  = 6
+	s8CutWait  = 40 * time.Second
+	s8AskAfter = 3 * time.Second
+	s8Quiet1   = 15 * time.Second
+	s8Settle1  = 100 * time.Second
+	s8Quiet2   = 10 * time.Second
+	s8Settle2  = 60 * time.Second
+)
+
 // killWriter finds the pod that writes ts[0], waits until ready holds for every thread that pod writes (a
 // Run in flight that has reached the point the scenario wants to cut), and kills the pod.
 func (e *env) killWriter(ctx context.Context, st stamper, ts []*thread, ready func(record) bool, limit time.Duration) (inst string, onVictim []*thread, killAt time.Time, err error) {
@@ -17,7 +54,7 @@ func (e *env) killWriter(ctx context.Context, st stamper, ts []*thread, ready fu
 		return "", nil, time.Time{}, fmt.Errorf("could not find the pod that writes thread 1")
 	}
 	pending := 0
-	for deadline := time.Now().Add(limit); time.Now().Before(deadline); sleep(ctx, 500*time.Millisecond) {
+	for deadline := time.Now().Add(limit); time.Now().Before(deadline); sleep(ctx, scenarioPoll) {
 		onVictim, pending = e.writerThreads(ctx, ts, inst, ready, onVictim)
 		if pending == 0 && len(onVictim) > 0 {
 			break
@@ -105,7 +142,7 @@ func (e *env) s7(ctx context.Context) bool {
 	if out, err := run.deployBot(ctx); err != nil {
 		return fail("s7", out)
 	}
-	e.waitQuiet(ctx, all, 10*time.Second, 120*time.Second)
+	e.waitQuiet(ctx, all, s7BotQuiet, s7BotSettle)
 
 	// G, H, N, G2: a graceful roll of the MCP server.
 	roll, out, err := e.rollMCP(ctx, st, mk, sendAll)
@@ -113,7 +150,7 @@ func (e *env) s7(ctx context.Context) bool {
 		return fail("s7", out)
 	}
 	fmt.Printf("%s waiting for the Runs to settle\n", st.at())
-	e.waitQuiet(ctx, all, 20*time.Second, 120*time.Second)
+	e.waitQuiet(ctx, all, s7FinalQuiet, s7FinalSettle)
 
 	fmt.Printf("\n%s results\n", st.at())
 	faults := e.report(ctx, all)
@@ -144,14 +181,14 @@ type s7Run struct {
 func (run *s7Run) killMCP(ctx context.Context) (p []*thread, out string, err error) {
 	e, st, mk, sendAll := run.e, run.st, run.mk, run.sendAll
 	// W: every pod connects to the MCP server and loads its tools.
-	w := mk("W", 9)
-	sendAll(w, "W", "a", "[script:mcp=100ms]", 100*time.Millisecond)
-	e.waitQuiet(ctx, w, 4*time.Second, 40*time.Second)
+	w := mk("W", s7WarmThreads)
+	sendAll(w, "W", "a", "[script:mcp=100ms]", s7WarmGap)
+	e.waitQuiet(ctx, w, s7WarmQuiet, s7WarmSettle)
 
 	// A: calls of 8 s are in flight when the MCP server pod is killed.
-	a := mk("A", 6)
-	sendAll(a, "A", "a", "[script:mcp=8s]", 200*time.Millisecond)
-	sleep(ctx, 3*time.Second)
+	a := mk("A", s7PhaseThreads)
+	sendAll(a, "A", "a", "[script:mcp=8s]", s7Gap)
+	sleep(ctx, s7KillAfter)
 	// SIGKILL of the container, not `delete --force`: the kubelet sends SIGTERM first even then, and a server that
 	// drains on SIGTERM (phase G) would finish its calls and not show what an abrupt end costs.
 	fmt.Printf("%s SIGKILL of the fakemcp container (crictl stop -t 0); it restarts in its pod\n", st.at())
@@ -159,15 +196,15 @@ func (run *s7Run) killMCP(ctx context.Context) (p []*thread, out string, err err
 		return nil, out, err
 	}
 	// B: new threads while the server is down or starting: the Runs resolve the ToolSet and call at once.
-	b := mk("B", 6)
-	sendAll(b, "B", "a", "[script:mcp=2s]", 200*time.Millisecond)
-	up := e.waitMCP(ctx, 60*time.Second)
+	b := mk("B", s7PhaseThreads)
+	sendAll(b, "B", "a", "[script:mcp=2s]", s7Gap)
+	up := e.waitMCP(ctx, s7UpWait)
 	fmt.Printf("%s fakemcp answers again: %s\n", st.at(), up)
 	// R: new threads on bot pods that were connected to the old server.
-	r := mk("R", 6)
-	sendAll(r, "R", "a", "[script:mcp=2s]", 200*time.Millisecond)
+	r := mk("R", s7PhaseThreads)
+	sendAll(r, "R", "a", "[script:mcp=2s]", s7Gap)
 	// P: one new thread a second, to see when the calls start to work again on the bot pods.
-	p = mk("P", 15)
+	p = mk("P", s7ProbeThreads)
 	for i, t := range p {
 		m := e.say(ctx, t, fmt.Sprintf("s7-P-%02d-a", i+1), "[script:mcp=100ms]")
 		if m.err != nil {
@@ -175,10 +212,10 @@ func (run *s7Run) killMCP(ctx context.Context) (p []*thread, out string, err err
 		}
 		sleep(ctx, time.Second)
 	}
-	e.waitQuiet(ctx, append(append(append(append([]*thread{}, a...), b...), r...), p...), 6*time.Second, 90*time.Second)
+	e.waitQuiet(ctx, append(append(append(append([]*thread{}, a...), b...), r...), p...), s7ProbeQuiet, s7ProbeSettle)
 	// A2: a message in each thread whose call was cut, once the server is back.
-	sendAll(a, "A2", "b", "[script:mcp=2s]", 200*time.Millisecond)
-	e.waitQuiet(ctx, a, 6*time.Second, 60*time.Second)
+	sendAll(a, "A2", "b", "[script:mcp=2s]", s7Gap)
+	e.waitQuiet(ctx, a, s7ProbeQuiet, s7A2Settle)
 	return p, "", nil
 }
 
@@ -187,26 +224,19 @@ func (run *s7Run) killMCP(ctx context.Context) (p []*thread, out string, err err
 func (run *s7Run) deployBot(ctx context.Context) (out string, err error) {
 	e, st, mk, sendAll := run.e, run.st, run.mk, run.sendAll
 	// C: calls of 8 s are in flight when the bot is deployed.
-	c := mk("C", 6)
-	sendAll(c, "C", "a", "[script:mcp=8s]", 200*time.Millisecond)
+	c := mk("C", s7PhaseThreads)
+	sendAll(c, "C", "a", "[script:mcp=8s]", s7Gap)
 	fmt.Printf("%s kubectl rollout restart deployment/larkbot\n", st.at())
 	if out, err := e.kubectl(ctx, "rollout", "restart", "deployment/larkbot"); err != nil {
 		return out, err
 	}
-	rolled := make(chan error, 1)
-	go func() {
-		out, err := e.kubectl(ctx, "rollout", "status", "deployment/larkbot", "--timeout=170s")
-		if err != nil {
-			err = fmt.Errorf("%w: %s", err, out)
-		}
-		rolled <- err
-	}()
-	for i, t := range c[:3] { // into Runs that are going
+	rolled := e.rolloutStatus(ctx, "larkbot")
+	for i, t := range c[:s7QueuedC] { // into Runs that are going
 		sleep(ctx, time.Second)
 		m := e.say(ctx, t, fmt.Sprintf("s7-C-%02d-q", i+1), "[script:mcp=2s]")
 		fmt.Printf("%s C-q %d (into the running thread): %s\n", st.at(), i+1, shortDeliveries(m))
 	}
-	d := mk("D", 6) // new threads while the pods are replaced
+	d := mk("D", s7PhaseThreads) // new threads while the pods are replaced
 	for i, t := range d {
 		sleep(ctx, time.Second)
 		m := e.say(ctx, t, fmt.Sprintf("s7-D-%02d-a", i+1), "[script:mcp=4s]")
@@ -216,7 +246,7 @@ func (run *s7Run) deployBot(ctx context.Context) (out string, err error) {
 		fmt.Println("rollout:", err)
 	}
 	fmt.Printf("%s rollout done\n", st.at())
-	sendAll(c, "C2", "b", "[script:mcp=2s]", 200*time.Millisecond) // pods that never saw these threads
+	sendAll(c, "C2", "b", "[script:mcp=2s]", s7Gap) // pods that never saw these threads
 	return "", nil
 }
 
@@ -269,7 +299,7 @@ func (tl *s7Tally) add(t *thread, r record) {
 // addTexts counts the texts of the tool errors the model reported, and those with no text.
 func (tl *s7Tally) addTexts(texts []string) {
 	for _, text := range texts {
-		tl.errTexts[trunc(text, 110)]++
+		tl.errTexts[trunc(text, s7ErrTextChars)]++
 		if strings.TrimSpace(strings.TrimPrefix(text, ansMCPError)) == "" {
 			tl.emptyErr++
 		}
@@ -310,7 +340,7 @@ func (e *env) s7PrintTally(ctx context.Context, tl s7Tally, p []*thread, statsBe
 // waitMCP waits until fakemcp answers /stats through its Service, and returns what it says.
 func (e *env) waitMCP(ctx context.Context, limit time.Duration) string {
 	var s string
-	for deadline := time.Now().Add(limit); time.Now().Before(deadline) && ctx.Err() == nil; sleep(ctx, 500*time.Millisecond) {
+	for deadline := time.Now().Add(limit); time.Now().Before(deadline) && ctx.Err() == nil; sleep(ctx, scenarioPoll) {
 		if s = e.mcpStats(ctx); strings.HasPrefix(s, "calls") {
 			break
 		}
@@ -321,7 +351,7 @@ func (e *env) waitMCP(ctx context.Context, limit time.Duration) string {
 // mcpStats reads fakemcp's counters through the API server's service proxy.
 func (e *env) mcpStats(ctx context.Context) string {
 	var s struct{ Started, Finished, Canceled int }
-	if err := e.do(ctx, "GET", e.svc("fakemcp", 8090)+"/stats", nil, &s); err != nil {
+	if err := e.do(ctx, "GET", e.svc("fakemcp", mcpStatsPort)+"/stats", nil, &s); err != nil {
 		return "stats: " + err.Error()
 	}
 	return fmt.Sprintf("calls since this pod started: %d started, %d finished, %d canceled by the caller", s.Started, s.Finished, s.Canceled)
@@ -333,14 +363,14 @@ func (e *env) s8(ctx context.Context) bool {
 	fmt.Println("== s8: is a tool loaded with search_tools still loaded after the Session changes hands?")
 	const delay = "[quirk:delay=8s]"
 	st := newStamper()
-	ts := chats("s8", 6)
+	ts := chats("s8", s8Threads)
 	for i, t := range ts {
 		m := e.say(ctx, t, fmt.Sprintf("s8-%02d-a", i+1), "[script:search] "+delay)
 		fmt.Printf("%s new thread %d: %s\n", st.at(), i+1, shortDeliveries(m))
 	}
 	// search_tools runs after the first model call (8 s); the Run goes on to call the tool after the second.
 	loadedInFlight := func(r record) bool { return inFlight(r) > 0 && r.hasEvent("tool_loaded", catalogTool) }
-	victimInst, onVictim, killAt, err := e.killWriter(ctx, st, ts, loadedInFlight, 40*time.Second)
+	victimInst, onVictim, killAt, err := e.killWriter(ctx, st, ts, loadedInFlight, s8CutWait)
 	if err != nil {
 		return fail("s8", err.Error())
 	}
@@ -359,21 +389,21 @@ func (e *env) s8(ctx context.Context) bool {
 // the Liveness TTL, then the others once the Runs settle. It returns the threads of the killed writer.
 func (e *env) s8AskLoaded(ctx context.Context, st stamper, ts, onVictim []*thread, killAt time.Time) map[*thread]bool {
 	onV := map[*thread]bool{}
-	sleep(ctx, time.Until(killAt.Add(3*time.Second))) // inside the Liveness TTL
+	sleep(ctx, time.Until(killAt.Add(s8AskAfter))) // inside the Liveness TTL
 	for _, t := range onVictim {
 		onV[t] = true
 		m := e.say(ctx, t, fmt.Sprintf("s8-%02d-b", t.n), "[script:loaded]")
 		fmt.Printf("%s loaded? after the kill in %s: %s\n", st.at(), t.session(), shortDeliveries(m))
 	}
 	fmt.Printf("%s waiting for the Runs to settle\n", st.at())
-	e.waitQuiet(ctx, ts, 15*time.Second, 100*time.Second)
+	e.waitQuiet(ctx, ts, s8Quiet1, s8Settle1)
 	for _, t := range ts {
 		if !onV[t] {
 			m := e.say(ctx, t, fmt.Sprintf("s8-%02d-b", t.n), "[script:loaded]")
 			fmt.Printf("%s loaded? in %s (writer alive): %s\n", st.at(), t.session(), shortDeliveries(m))
 		}
 	}
-	e.waitQuiet(ctx, ts, 10*time.Second, 60*time.Second)
+	e.waitQuiet(ctx, ts, s8Quiet2, s8Settle2)
 	return onV
 }
 
