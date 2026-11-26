@@ -35,6 +35,7 @@ var fileLayer = map[string]int{
 	"definitions_file.go":   layerStores,
 	"definitions_memory.go": layerStores,
 	"file.go":               layerStores,
+	"file_atomic.go":        layerStores,
 	"file_batch.go":         layerStores,
 	"file_instance.go":      layerStores,
 	"file_name.go":          layerStores,
