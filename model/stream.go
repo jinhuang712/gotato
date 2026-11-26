@@ -57,24 +57,34 @@ func (s *stream) Recv(ctx context.Context) (gotato.ModelEvent, error) {
 		if s.done {
 			return gotato.ModelEvent{}, io.EOF
 		}
-		event, err := readSSEEvent(ctx, s.reader)
-		if err != nil {
-			if errors.Is(err, io.EOF) && s.decodeEnd() {
-				continue
-			}
-			response, rerr := s.restart.recover(ctx, err)
-			if rerr != nil {
-				return gotato.ModelEvent{}, rerr
-			}
-			s.reopen(response)
-			continue
+		if err := s.readEvent(ctx); err != nil {
+			return gotato.ModelEvent{}, err
 		}
-		s.decode(event)
 	}
 	event := s.queue[0]
 	s.queue = s.queue[1:]
 	s.restart.delivered = true
 	return event, nil
+}
+
+// readEvent reads and decodes one event. At the end of the body it tells the
+// Decoder, and an end that does not settle the stream, or a cut, is
+// recovered on a re-issued response; the error is the one Recv returns.
+func (s *stream) readEvent(ctx context.Context) error {
+	event, err := readSSEEvent(ctx, s.reader)
+	if err == nil {
+		s.decode(event)
+		return nil
+	}
+	if errors.Is(err, io.EOF) && s.decodeEnd() {
+		return nil
+	}
+	response, rerr := s.restart.recover(ctx, err)
+	if rerr != nil {
+		return rerr
+	}
+	s.reopen(response)
+	return nil
 }
 
 // decode hands one event to the Decoder and takes what it yields.
