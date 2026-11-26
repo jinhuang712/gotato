@@ -102,18 +102,18 @@ func (e notPersisted) Unwrap() []error { return []error{e.cause, ErrNotPersisted
 
 // storeFailureOf classifies an error of a store call that made no Run write:
 // a load, a create, a heartbeat, a delete. A store's raw error becomes
-// store_failure, retryable, and marked not run when nothing of a Run had
-// happened (notRun), so a caller can send the request elsewhere. A failure
+// store_failure, retryable, and marked not run, since nothing of a Run had
+// happened, so a caller can send the request elsewhere. A failure
 // that is typed already keeps its code (not_found and conflict are the
 // store's answers); a store_failure from a write that landed no Run step gets
 // the not-run mark. An error of the caller's own context is returned as it is.
-func storeFailureOf(ctx context.Context, err error, notRun bool) error {
+func storeFailureOf(ctx context.Context, err error) error {
 	if err == nil || ctx.Err() != nil {
 		return err
 	}
 	var typed *gotato.RuntimeError
 	if errors.As(err, &typed) {
-		if typed.Code != gotato.CodeStoreFailure || typed.NotRun || !notRun {
+		if typed.Code != gotato.CodeStoreFailure || typed.NotRun {
 			return err
 		}
 		marked := *typed
@@ -121,7 +121,7 @@ func storeFailureOf(ctx context.Context, err error, notRun bool) error {
 		return &marked
 	}
 	failure := gotato.ErrorOf(gotato.CodeStoreFailure, "host: the store could not be reached")
-	failure.Operation, failure.Cause, failure.NotRun = "host.Store", err, notRun
+	failure.Operation, failure.Cause, failure.NotRun = "host.Store", err, true
 	return failure
 }
 

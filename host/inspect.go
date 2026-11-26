@@ -23,7 +23,7 @@ type InspectConfig struct {
 func (r *Runner) Inspect(ctx context.Context, sessionID string, config InspectConfig) (record.Report, error) {
 	s, err := store.Open(ctx, r.store.Records, sessionID)
 	if err != nil {
-		return record.Report{}, storeFailureOf(ctx, err, true)
+		return record.Report{}, storeFailureOf(ctx, err)
 	}
 	spec, err := r.agentOf(ctx, s)
 	if err != nil {

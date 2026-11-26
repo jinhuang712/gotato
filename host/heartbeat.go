@@ -53,7 +53,7 @@ func (r *Runner) Lapsed() bool { return r.instance.Lapsed() }
 // live makes sure this Runner's row is alive before it writes, beating once
 // and starting the renewals the first time.
 func (r *Runner) live(ctx context.Context) error {
-	return storeFailureOf(ctx, r.instance.Live(ctx), true)
+	return storeFailureOf(ctx, r.instance.Live(ctx))
 }
 
 // guardFor is the guard of the Writer of one name: it refuses a write once the

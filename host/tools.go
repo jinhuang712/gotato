@@ -153,7 +153,7 @@ func (r *Runner) openForTools(ctx context.Context, agent, sessionID string) (*re
 		var err error
 		s, err = store.Open(ctx, r.store.Records, sessionID)
 		if err != nil {
-			return nil, profile.AgentProfile{}, storeFailureOf(ctx, err, true)
+			return nil, profile.AgentProfile{}, storeFailureOf(ctx, err)
 		}
 	}
 	var spec profile.AgentProfile
@@ -242,7 +242,7 @@ func (r *Runner) SetToolActive(ctx context.Context, sessionID, toolID string, ac
 	// What the lock guards is the write of the switch.
 	read, err := store.Open(ctx, r.store.Records, sessionID)
 	if err != nil {
-		return ToolEntry{}, storeFailureOf(ctx, err, true)
+		return ToolEntry{}, storeFailureOf(ctx, err)
 	}
 	spec, err := r.agentOf(ctx, read)
 	if err != nil {

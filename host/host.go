@@ -379,7 +379,7 @@ func (r *Runner) Instance() string { return r.id() }
 func (r *Runner) Record(ctx context.Context, sessionID string) (record.Document, error) {
 	rec, err := store.View(ctx, r.store.Records, sessionID)
 	if err != nil {
-		return record.Document{}, storeFailureOf(ctx, err, true)
+		return record.Document{}, storeFailureOf(ctx, err)
 	}
 	return rec.Snapshot(), nil
 }
@@ -388,7 +388,7 @@ func (r *Runner) Record(ctx context.Context, sessionID string) (record.Document,
 // Record that is an Event, in the order of their numbers, as typed Events.
 func (r *Runner) Events(ctx context.Context, sessionID string) ([]gotato.Event, error) {
 	events, err := store.StoredEvents(ctx, r.store.Records, sessionID, 0, 0)
-	return events, storeFailureOf(ctx, err, true)
+	return events, storeFailureOf(ctx, err)
 }
 
 // Sessions lists the stored Sessions, the most recently updated first, a page
@@ -402,7 +402,7 @@ func (r *Runner) Sessions(ctx context.Context, q store.ListQuery) (store.ListPag
 		return store.ListPage{}, gotato.ErrorOf(gotato.CodeNotSupported, "host: the store does not list Sessions (its Records is not a store.Lister)")
 	}
 	page, err := lister.List(ctx, q)
-	return page, storeFailureOf(ctx, err, true)
+	return page, storeFailureOf(ctx, err)
 }
 
 // AgentProfiles lists the registered AgentProfile names, sorted.

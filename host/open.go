@@ -54,7 +54,7 @@ func (r *Runner) create(ctx context.Context, s *record.Record, agent string, opt
 	if err == nil {
 		r.cutStreams(ctx, s.ID(), s.RecordEpoch(), s.Head(), mark)
 	}
-	return writer, storeFailureOf(ctx, notRunIfLapsed(err), true)
+	return writer, storeFailureOf(ctx, notRunIfLapsed(err))
 }
 
 // open opens a stored Session for writing as this Runner's Instance. When the
@@ -129,7 +129,7 @@ func (r *Runner) openFailure(ctx context.Context, sessionID string, err error) e
 			// [LIVENESS] a Claim that landed with no Writer would hold the Session busy under this Instance for good.
 			r.markUnreleased(sessionID)
 		}
-		return storeFailureOf(ctx, notRunIfLapsed(err), true)
+		return storeFailureOf(ctx, notRunIfLapsed(err))
 	}
 	return nil
 }
@@ -201,7 +201,7 @@ func (r *Runner) acquireWarm(ctx context.Context, sessionID string, entry *warm.
 		// drop the owner's copy; the copy ages out by its TTL.
 		// [LIMITATION] a refusal and a delete both read as not found, so a Session deleted elsewhere stays warm until its TTL.
 		r.keepWarm(w, kept.spec)
-		return nil, nil, nil, storeFailureOf(ctx, notRunIfLapsed(staleErr), true)
+		return nil, nil, nil, storeFailureOf(ctx, notRunIfLapsed(staleErr))
 	case staleErr == nil && !stale:
 		if err := r.live(ctx); err != nil {
 			r.unloaded(sessionID, entry.Agent, "liveness_lapsed")

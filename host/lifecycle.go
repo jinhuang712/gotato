@@ -132,7 +132,7 @@ func (r *Runner) DeleteSession(ctx context.Context, sessionID string) error {
 		if err := r.store.Records.Delete(ctx, sessionID); err != nil {
 			// The Claim was written and the Record stays: give it back.
 			_ = r.releaseWriter(ctx, writer)
-			return storeFailureOf(ctx, err, true)
+			return storeFailureOf(ctx, err)
 		}
 		if warm != nil {
 			r.unloaded(sessionID, warm.Agent, "deleted")
@@ -149,7 +149,7 @@ func (r *Runner) DeleteSession(ctx context.Context, sessionID string) error {
 func (r *Runner) Fork(ctx context.Context, sessionID, newID string) (record.Info, error) {
 	parent, err := store.View(ctx, r.store.Records, sessionID)
 	if err != nil {
-		return record.Info{}, storeFailureOf(ctx, err, true)
+		return record.Info{}, storeFailureOf(ctx, err)
 	}
 	var options []record.Option
 	if newID != "" {

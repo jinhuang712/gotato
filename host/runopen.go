@@ -69,7 +69,7 @@ func (st *runState) openSession(ctx, runCtx context.Context) (openedSession, err
 			return opened, err
 		}
 		st.s, err = store.Open(runCtx, r.store.Records, st.sessionID)
-		err = storeFailureOf(runCtx, err, true)
+		err = storeFailureOf(runCtx, err)
 		opened.loadTime = clock.Since(r.clock, began)
 	} else {
 		opened.loadTime, opened.early, opened.reused, err = st.openWriter(runCtx, began)
