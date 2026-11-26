@@ -33,6 +33,15 @@ func main() {
 	}
 }
 
+// The HTTP server's header timeout, the drain budget at shutdown, the pause
+// that lets the reply loop read the last run_ended, and the FollowUp buffer.
+const (
+	readHeaderTimeout = 5 * time.Second
+	drainTimeout      = 30 * time.Second
+	replyLoopSettle   = 200 * time.Millisecond
+	followUpBuffer    = 32
+)
+
 // config is what the flags and the environment say about one start.
 type config struct {
 	storeDir, model, once, addr, advertise, instance, label string
@@ -187,7 +196,7 @@ func (c config) serveHTTP(runner *host.Runner, b *bot, log *slog.Logger) *http.S
 	}
 	mux.HandleFunc("/healthz", func(w http.ResponseWriter, _ *http.Request) { _, _ = fmt.Fprintln(w, "ok") })
 	mux.HandleFunc("/readyz", readyHandler(runner.Draining))
-	srv := &http.Server{Addr: c.addr, Handler: mux, ReadHeaderTimeout: 5 * time.Second}
+	srv := &http.Server{Addr: c.addr, Handler: mux, ReadHeaderTimeout: readHeaderTimeout}
 	go func() {
 		if err := srv.ListenAndServe(); err != nil && !errors.Is(err, http.ErrServerClosed) {
 			log.Error("http", "err", err)
@@ -209,12 +218,12 @@ func (c config) receiveEvents(ctx context.Context, log *slog.Logger, b *bot) err
 // shutdown drains the Runner, stops the reply loop and the HTTP server, then closes the Runner.
 func shutdown(log *slog.Logger, runner *host.Runner, srv *http.Server, stopReplies context.CancelFunc, wg *sync.WaitGroup) {
 	log.Info("shutting down")
-	drainCtx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+	drainCtx, cancel := context.WithTimeout(context.Background(), drainTimeout)
 	defer cancel()
 	if err := runner.Drain(drainCtx); err != nil {
 		log.Error("drain", "err", err)
 	}
-	time.Sleep(200 * time.Millisecond) // let the reply loop read the last run_ended
+	time.Sleep(replyLoopSettle) // let the reply loop read the last run_ended
 	stopReplies()
 	wg.Wait()
 	if srv != nil {
@@ -242,7 +251,7 @@ func readyHandler(draining func() bool) http.HandlerFunc {
 // buffer is refused (limit_exceeded) with nothing to retry against, as the Run
 // may last minutes.
 func botLimits() *gotato.CoreLimits {
-	return &gotato.CoreLimits{MaxFollowUpMessages: 32}
+	return &gotato.CoreLimits{MaxFollowUpMessages: followUpBuffer}
 }
 
 // instruction is the persona of the bot. Replace it with your own.
