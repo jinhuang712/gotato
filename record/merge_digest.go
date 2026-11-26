@@ -235,28 +235,46 @@ func appendResultRefs(results []string, text string) []string {
 // the Recap text of a merged Segment as the line shows it: a merged Segment
 // holds its refs in its Recap, so only those that the cut left out are added.
 func digestRefs(segment gotato.Segment, shown string) string {
-	var refs []string
 	if len(segment.Merged) > 0 {
-		for _, ref := range anyRef.FindAllString(withoutHeading(segment.Recap), -1) {
-			if !strings.Contains(shown, ref) && !slices.Contains(refs, ref) {
-				refs = append(refs, ref)
-			}
-		}
-		if len(refs) > digestMergedRefs {
-			refs = append(refs[:digestMergedRefs], "…")
-		}
-	} else {
-		msgs, results := segmentRefs(segment)
-		refs = append(refs, msgs[:min(len(msgs), digestMsgRefs)]...)
-		refs = append(refs, results[:min(len(results), digestResultRefs)]...)
-		if len(refs) > 0 && (len(msgs) > digestMsgRefs || len(results) > digestResultRefs) {
-			refs = append(refs, "…")
-		}
+		return mergedDigestRefs(segment, shown)
 	}
+	return ownDigestRefs(segment)
+}
+
+// refsText writes refs for a digest line, or "" when there are none.
+func refsText(refs []string) string {
 	if len(refs) == 0 {
 		return ""
 	}
 	return " Refs: " + strings.Join(refs, " ") + "."
+}
+
+// mergedDigestRefs writes the refs of a merged Segment's Recap that shown, the
+// Recap as the line shows it, left out.
+func mergedDigestRefs(segment gotato.Segment, shown string) string {
+	var refs []string
+	for _, ref := range anyRef.FindAllString(withoutHeading(segment.Recap), -1) {
+		if !strings.Contains(shown, ref) && !slices.Contains(refs, ref) {
+			refs = append(refs, ref)
+		}
+	}
+	if len(refs) > digestMergedRefs {
+		refs = append(refs[:digestMergedRefs], "…")
+	}
+	return refsText(refs)
+}
+
+// ownDigestRefs writes the refs a Segment's own Messages carry, as many as a
+// digest line keeps.
+func ownDigestRefs(segment gotato.Segment) string {
+	var refs []string
+	msgs, results := segmentRefs(segment)
+	refs = append(refs, msgs[:min(len(msgs), digestMsgRefs)]...)
+	refs = append(refs, results[:min(len(results), digestResultRefs)]...)
+	if len(refs) > 0 && (len(msgs) > digestMsgRefs || len(results) > digestResultRefs) {
+		refs = append(refs, "…")
+	}
+	return refsText(refs)
 }
 
 // clip cuts s at limit characters with an ellipsis.
