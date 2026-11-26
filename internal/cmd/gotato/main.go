@@ -28,6 +28,7 @@ import (
 	"github.com/jinhuang712/gotato/record"
 
 	"github.com/jinhuang712/gotato/host"
+	"github.com/jinhuang712/gotato/profile"
 	"github.com/jinhuang712/gotato/store"
 )
 
@@ -59,6 +60,11 @@ type cli struct {
 	// runners are the Runners this invocation built. They are closed when it
 	// ends, so the next process takes their Sessions over at once.
 	runners []*host.Runner
+
+	// testAgents are extra AgentProfiles that in-package tests register without
+	// changing the production echo/demo/gateway surface. It is empty in the
+	// built binary.
+	testAgents []profile.AgentProfile
 }
 
 // closeRunners removes the Liveness rows of the Runners this invocation built.
@@ -73,8 +79,13 @@ func (c *cli) closeRunners() {
 // Main runs the CLI and returns its exit code.
 func Main(args []string, stdin io.Reader, stdout, stderr io.Writer, getenv func(string) string) int {
 	c := &cli{stdin: stdin, stdout: stdout, stderr: stderr, getenv: getenv}
+	return c.execute(args)
+}
+
+// execute runs the CLI on args and returns its exit code.
+func (c *cli) execute(args []string) int {
 	defer c.closeRunners()
-	if getenv == nil {
+	if c.getenv == nil {
 		c.getenv = func(string) string { return "" }
 	}
 	// Scan the raw arguments for machine-output flags before dispatch. Flag

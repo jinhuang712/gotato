@@ -102,11 +102,6 @@ const defaultInstruction = "You are a helpful assistant."
 // defaultAgent is the AgentProfile a new Session runs when no flag names one.
 const defaultAgent = "echo"
 
-// testAgents lets in-package tests register deterministic AgentProfiles
-// without changing the production echo/demo/gateway surface. It is empty in
-// the built binary.
-var testAgents []profile.AgentProfile
-
 // newRuntime builds the Runner: echo and demo are always registered; gateway
 // is registered when its YAML loads.
 func (c *cli) newRuntime(flags modelFlags) (*cliRuntime, error) {
@@ -124,7 +119,7 @@ func (c *cli) newRuntime(flags modelFlags) (*cliRuntime, error) {
 		return nil, err
 	}
 	rt := &cliRuntime{store: st, defs: defs, storeDir: dir, gatewayCfg: c.gatewayConfigPath(flags)}
-	agents := rt.agentProfiles(tools)
+	agents := rt.agentProfiles(tools, c.testAgents)
 	if err := rt.registerAgents(agents); err != nil {
 		return nil, err
 	}
@@ -147,7 +142,7 @@ func (c *cli) newRuntime(flags modelFlags) (*cliRuntime, error) {
 // agentProfiles is the AgentProfiles of the CLI: echo, demo, those the tests
 // add, and gateway when its YAML loads. When it does not, the reason is kept in
 // gatewayErr.
-func (rt *cliRuntime) agentProfiles(tools []gotato.Tool) []profile.AgentProfile {
+func (rt *cliRuntime) agentProfiles(tools []gotato.Tool, testAgents []profile.AgentProfile) []profile.AgentProfile {
 	agents := []profile.AgentProfile{
 		{Name: "echo", Model: testkit.EchoModel{}, ModelName: "echo", Instruction: defaultInstruction, Tools: tools},
 		{Name: "demo", Model: testkit.DemoModel{}, ModelName: "demo", Instruction: defaultInstruction, Tools: tools},

@@ -300,8 +300,7 @@ func TestToolsListReportsTheEffectCap(t *testing.T) {
 	h := newHarness(t)
 	lookup := gotato.ToolWithEffect(testkit.NewFakeTool("lookup", "found"), gotato.ToolEffectRead)
 	push := testkit.NewFakeTool("push", "pushed") // declares no Effect, so it ranks as destructive
-	testAgents = []profile.AgentProfile{{Name: "reader", Model: testkit.EchoModel{}, Tools: []gotato.Tool{lookup, push}, MaxEffect: gotato.ToolEffectRead}}
-	defer func() { testAgents = nil }()
+	h.agents = []profile.AgentProfile{{Name: "reader", Model: testkit.EchoModel{}, Tools: []gotato.Tool{lookup, push}, MaxEffect: gotato.ToolEffectRead}}
 
 	var listing toolListing
 	h.mustJSON(h.ok("tools", "list", "--model", "reader", "--json"), &listing)
@@ -465,8 +464,7 @@ func TestRunIncompleteExitCode(t *testing.T) {
 	defer close(block)
 	model := testkit.NewFakeModel(testkit.Text("unreachable"))
 	model.Block = block
-	testAgents = []profile.AgentProfile{{Name: "blocking", Model: model, ModelName: "blocking", Instruction: defaultInstruction}}
-	defer func() { testAgents = nil }()
+	h.agents = []profile.AgentProfile{{Name: "blocking", Model: model, ModelName: "blocking", Instruction: defaultInstruction}}
 
 	code, out, _ := h.run("run", "--model", "blocking", "--timeout", "20ms", "--json", "hello")
 	if code != ExitRunIncomplete {

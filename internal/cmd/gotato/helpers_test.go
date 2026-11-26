@@ -15,6 +15,8 @@ import (
 type harness struct {
 	t    *testing.T
 	home string
+	// agents are extra AgentProfiles the CLI registers beside echo and demo.
+	agents []profile.AgentProfile
 }
 
 func newHarness(t *testing.T) *harness {
@@ -34,7 +36,8 @@ func (h *harness) run(args ...string) (int, string, string) {
 		}
 		return ""
 	}
-	code := Main(args, strings.NewReader(""), &stdout, &stderr, getenv)
+	c := &cli{stdin: strings.NewReader(""), stdout: &stdout, stderr: &stderr, getenv: getenv, testAgents: h.agents}
+	code := c.execute(args)
 	return code, stdout.String(), stderr.String()
 }
 
