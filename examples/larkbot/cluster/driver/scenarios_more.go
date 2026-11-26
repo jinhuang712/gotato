@@ -35,10 +35,10 @@ func (e *env) s3(ctx context.Context) bool {
 	const delay = "[quirk:delay=8s]"
 	st := newStamper()
 	before, err := e.pods(ctx)
-	if err != nil || len(before) != 3 {
+	if err != nil || len(before) != s3PodsAtStart {
 		return verdict("s3", false, fmt.Sprintf("want 3 bot pods to start with, have %v (%v)", podNames(before), err))
 	}
-	ts := chats("s3", 12)
+	ts := chats("s3", s3Threads)
 	say := func(i int, tag, d, what string) {
 		m := e.say(ctx, ts[i], tag, d)
 		fmt.Printf("%s %s thread %d: %s\n", st.at(), what, i+1, shortDeliveries(m))
@@ -80,7 +80,7 @@ type s3Run struct {
 // for the Runs to settle.
 func (r *s3Run) scaleDown(ctx context.Context) error {
 	e, st, ts, say, delay := r.e, r.st, r.ts, r.say, r.delay
-	for i := range 8 {
+	for i := range s3InFlight {
 		say(i, fmt.Sprintf("s3-%02d-a", i+1), delay, "new")
 	}
 	sleep(ctx, time.Second)
@@ -88,21 +88,21 @@ func (r *s3Run) scaleDown(ctx context.Context) error {
 	if err := e.scale(ctx, 1); err != nil {
 		return err
 	}
-	for i := range 4 { // into running threads, while pods drain
-		sleep(ctx, 700*time.Millisecond)
+	for i := range s3DownReplies { // into running threads, while pods drain
+		sleep(ctx, s3Stagger)
 		say(i, fmt.Sprintf("s3-%02d-q", i+1), delay, "reply into the running")
 	}
-	for i := 8; i < 10; i++ {
-		sleep(ctx, 700*time.Millisecond)
+	for i := s3InFlight; i < s3Started; i++ {
+		sleep(ctx, s3Stagger)
 		say(i, fmt.Sprintf("s3-%02d-a", i+1), delay, "new")
 	}
-	if err := e.waitPods(ctx, 1, 120*time.Second); err != nil {
+	if err := e.waitPods(ctx, 1, s3PodsWait); err != nil {
 		return err
 	}
 	one, _ := e.pods(ctx)
 	fmt.Printf("%s 1 pod: %v\n", st.at(), podNames(one))
 	fmt.Printf("%s waiting for the Runs to settle (between messages)\n", st.at())
-	e.waitQuiet(ctx, ts, 6*time.Second, 90*time.Second)
+	e.waitQuiet(ctx, ts, s3Quiet, s3Settle)
 	return nil
 }
 
@@ -110,35 +110,35 @@ func (r *s3Run) scaleDown(ctx context.Context) error {
 // returns the 5 pods.
 func (r *s3Run) scaleUp(ctx context.Context) (map[string]bool, error) {
 	e, st, ts, say, delay := r.e, r.st, r.ts, r.say, r.delay
-	for i := range ts[:10] { // a message in every thread, no Run going
+	for i := range ts[:s3Started] { // a message in every thread, no Run going
 		say(i, fmt.Sprintf("s3-%02d-b", i+1), delay, "reply after the Run ended in")
 	}
 	sleep(ctx, time.Second)
 	fmt.Printf("%s kubectl scale --replicas=5 (Runs in flight on the one pod)\n", st.at())
-	if err := e.scale(ctx, 5); err != nil {
+	if err := e.scale(ctx, s3PodsAtEnd); err != nil {
 		return nil, err
 	}
-	for i := 4; i < 8; i++ { // while the new pods start and become ready
+	for i := s3UpReplyFrom; i < s3InFlight; i++ { // while the new pods start and become ready
 		sleep(ctx, time.Second)
 		say(i, fmt.Sprintf("s3-%02d-c", i+1), delay, "reply into the running")
 	}
-	if err := e.waitPods(ctx, 5, 120*time.Second); err != nil {
+	if err := e.waitPods(ctx, s3PodsAtEnd, s3PodsWait); err != nil {
 		return nil, err
 	}
 	five, _ := e.pods(ctx)
 	fmt.Printf("%s 5 pods: %v\n", st.at(), podNames(five))
-	e.waitQuiet(ctx, ts, 6*time.Second, 90*time.Second)
-	for i := 10; i < 12; i++ {
+	e.waitQuiet(ctx, ts, s3Quiet, s3Settle)
+	for i := s3Started; i < s3Threads; i++ {
 		say(i, fmt.Sprintf("s3-%02d-a", i+1), "", "new")
 	}
-	for round := range 2 { // short Runs, every thread: the new pods are in the draw now
+	for round := range s3Rounds { // short Runs, every thread: the new pods are in the draw now
 		for i := range ts {
 			say(i, fmt.Sprintf("s3-%02d-d%d", i+1, round+1), "", "reply on 5 pods in")
 		}
-		sleep(ctx, 3*time.Second)
+		sleep(ctx, s3RoundGap)
 	}
 	fmt.Printf("%s waiting for the Runs to settle\n", st.at())
-	e.waitQuiet(ctx, ts, 15*time.Second, 90*time.Second)
+	e.waitQuiet(ctx, ts, s3FinalQuiet, s3Settle)
 	return five, nil
 }
 
@@ -180,7 +180,7 @@ func (e *env) s3ClaimsOf(r record, orig map[string]bool, served map[string]int) 
 		}
 		p := e.podOf(ev.Instance)
 		if p == "" {
-			p = "?" + ev.Instance[:8]
+			p = "?" + ev.Instance[:instanceChars]
 		}
 		served[p]++
 		if !orig[p] {
@@ -195,7 +195,7 @@ func (e *env) s3ClaimsOf(r record, orig map[string]bool, served map[string]int) 
 func (e *env) s4(ctx context.Context) bool {
 	fmt.Println("== s4: bots contend for the same Session")
 	st := newStamper()
-	ts := chats("s4", 3)
+	ts := chats("s4", s4Threads)
 	var out sync.Mutex
 	logf := func(i int, format string, a ...any) {
 		out.Lock()
@@ -211,7 +211,7 @@ func (e *env) s4(ctx context.Context) bool {
 	}
 	wg.Wait()
 	fmt.Printf("%s waiting for the Runs to settle\n", st.at())
-	e.waitQuiet(ctx, ts, 15*time.Second, 120*time.Second)
+	e.waitQuiet(ctx, ts, s4FinalQuiet, s4FinalWait)
 
 	fmt.Printf("\n%s results\n", st.at())
 	faults := e.report(ctx, ts)
@@ -266,15 +266,15 @@ func (e *env) s4Thread(ctx context.Context, i int, t *thread, seq [][]string, lo
 	}
 	// No Run takes more than 4 messages into its FollowUp buffer (limit_exceeded, a known bound), so
 	// each phase sends at most 4 while one Run is going; the phases are about who writes.
-	quiet := func() { e.waitQuiet(ctx, []*thread{t}, 6*time.Second, 60*time.Second) }
+	quiet := func() { e.waitQuiet(ctx, []*thread{t}, s4Quiet, s4Settle) }
 	m := e.say(ctx, t, fmt.Sprintf("s4-%02d-root", n), "[quirk:delay=6s]")
 	logf(i, "root: %s", shortDeliveries(m))
-	sleep(ctx, 1500*time.Millisecond) // the Run holds the Claim now
-	burst("b", 3, "")                 // into the Run in flight, from random pods: queued here, or forwarded
+	sleep(ctx, s4Holds)     // the Run holds the Claim now
+	burst("b", s4Burst, "") // into the Run in flight, from random pods: queued here, or forwarded
 	quiet()
-	sequential("s", 4, 150*time.Millisecond, "[quirk:delay=3s]") // the first starts a Run, the rest join it
+	sequential("s", s4Row, s4RowGap, "[quirk:delay=3s]") // the first starts a Run, the rest join it
 	quiet()
-	burst("r", 4, "[quirk:delay=3s]") // no Run going: the pods race to start one
+	burst("r", s4Race, "[quirk:delay=3s]") // no Run going: the pods race to start one
 	quiet()
 }
 

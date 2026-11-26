@@ -101,6 +101,42 @@ func (e *env) smoke(ctx context.Context) bool {
 	return verdict("smoke", true, "")
 }
 
+// The shape of s3: the pods it starts with and ends with, its threads, the threads with a Run in flight at the
+// first scale, the replies into running threads while the pods drain and while they start, the threads that
+// have started before the scale-up, the rounds of replies on five pods, and the pauses and waits.
+const (
+	s3PodsAtStart = 3
+	s3PodsAtEnd   = 5
+	s3Threads     = 12
+	s3InFlight    = 8
+	s3DownReplies = 4
+	s3UpReplyFrom = 4
+	s3Started     = 10
+	s3Rounds      = 2
+	s3Stagger     = 700 * time.Millisecond
+	s3RoundGap    = 3 * time.Second
+	s3PodsWait    = 120 * time.Second
+	s3Quiet       = 6 * time.Second
+	s3Settle      = 90 * time.Second
+	s3FinalQuiet  = 15 * time.Second
+	instanceChars = 8 // how much of a Runner instance ID names a pod that no log knows
+)
+
+// The shape of s4: its threads, the messages of each phase, the pause between messages in a row, and how long
+// the Run holds the Claim and how long a thread is quiet.
+const (
+	s4Threads    = 3
+	s4Burst      = 3
+	s4Row        = 4
+	s4Race       = 4
+	s4RowGap     = 150 * time.Millisecond
+	s4Holds      = 1500 * time.Millisecond
+	s4Quiet      = 6 * time.Second
+	s4Settle     = 60 * time.Second
+	s4FinalQuiet = 15 * time.Second
+	s4FinalWait  = 120 * time.Second
+)
+
 // The shape of s1: its threads, how many start before the restart, from which thread a reply goes into the
 // thread two behind, up to which thread a late reply goes, the Run's delay, the pauses, and how long it waits.
 const (
