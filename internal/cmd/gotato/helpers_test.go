@@ -69,3 +69,14 @@ func withAgents(cfg host.Config, agents ...profile.AgentProfile) host.Config {
 	cfg.Profiles, cfg.DefaultAgent = registry, agents[0].Name
 	return cfg
 }
+
+// jsonField returns m[key] as a T, and fails the test, naming what it got, when
+// it is another type.
+func jsonField[T any](t *testing.T, m map[string]any, key string) T {
+	t.Helper()
+	v, ok := m[key].(T)
+	if !ok {
+		t.Fatalf("field %q = %T, want %T", key, m[key], v)
+	}
+	return v
+}

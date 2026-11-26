@@ -63,7 +63,7 @@ func TestDemoToolLoopAndEvents(t *testing.T) {
 	h := newHarness(t)
 	var created map[string]any
 	h.mustJSON(h.ok("session", "create", "--json"), &created)
-	id := created["id"].(string)
+	id := jsonField[string](t, created, "id")
 
 	var outcome runOutcome
 	h.mustJSON(h.ok("run", "--session", id, "--model", "demo", "--json", "use-tool"), &outcome)
@@ -130,7 +130,7 @@ func TestContextInspectBuildCompact(t *testing.T) {
 	h := newHarness(t)
 	var created map[string]any
 	h.mustJSON(h.ok("session", "create", "--json"), &created)
-	id := created["id"].(string)
+	id := jsonField[string](t, created, "id")
 	for _, prompt := range []string{"one", "two", "three"} {
 		h.ok("run", "--session", id, "--quiet", prompt)
 	}
@@ -232,7 +232,7 @@ func TestAutoCompactViaCLI(t *testing.T) {
 	h := newHarness(t)
 	var created map[string]any
 	h.mustJSON(h.ok("session", "create", "--json", "--compact-ceiling", "20000"), &created)
-	id := created["id"].(string)
+	id := jsonField[string](t, created, "id")
 	var outcome runOutcome
 	compacted := false
 	for i := 0; i < 8 && !compacted; i++ {
@@ -272,7 +272,7 @@ func TestToolsActivationIsSessionState(t *testing.T) {
 	}
 	var created map[string]any
 	h.mustJSON(h.ok("session", "create", "--json"), &created)
-	id := created["id"].(string)
+	id := jsonField[string](t, created, "id")
 	h.ok("tools", "deactivate", "time.now", "--session", id, "--json")
 	h.mustJSON(h.ok("tools", "active", "--session", id, "--json"), &listing)
 	if len(listing.Tools) != 2 || listing.Tools[0].ID != "demo.echo" || listing.Tools[1].ID != "read_result" {
@@ -327,10 +327,10 @@ func TestForkIsIndependent(t *testing.T) {
 	h.mustJSON(h.ok("run", "--json", "root"), &first)
 	var fork map[string]any
 	h.mustJSON(h.ok("session", "fork", first.SessionID, "--json"), &fork)
-	if fork["parent_id"] != first.SessionID || fork["id"] == first.SessionID || int(fork["messages"].(float64)) != 2 {
+	if fork["parent_id"] != first.SessionID || fork["id"] == first.SessionID || int(jsonField[float64](t, fork, "messages")) != 2 {
 		t.Fatalf("fork = %v", fork)
 	}
-	h.ok("run", "--session", fork["id"].(string), "--quiet", "branch")
+	h.ok("run", "--session", jsonField[string](t, fork, "id"), "--quiet", "branch")
 	var parent map[string]any
 	h.mustJSON(h.ok("session", "show", first.SessionID, "--json"), &parent)
 	if messages, _ := parent["messages"].([]any); len(messages) != 2 {
@@ -436,7 +436,7 @@ func TestVersionAndEmptyEventsJSON(t *testing.T) {
 
 	var created map[string]any
 	h.mustJSON(h.ok("session", "create", "--json"), &created)
-	code, out, _ = h.run("events", "--session", created["id"].(string), "--json")
+	code, out, _ = h.run("events", "--session", jsonField[string](t, created, "id"), "--json")
 	if code != ExitOK {
 		t.Fatalf("events exit = %d", code)
 	}
@@ -535,7 +535,7 @@ func TestSessionDelete(t *testing.T) {
 	h := newHarness(t)
 	var created map[string]any
 	h.mustJSON(h.ok("session", "create", "--json"), &created)
-	id := created["id"].(string)
+	id := jsonField[string](t, created, "id")
 	var result map[string]any
 	h.mustJSON(h.ok("session", "delete", id, "--json"), &result)
 	if result["id"] != id || result["deleted"] != true {
@@ -684,7 +684,7 @@ func TestALargeToolResultIsSpilledAndShownAsAnEventWithoutItsBody(t *testing.T) 
 	h := newHarness(t)
 	var created map[string]any
 	h.mustJSON(h.ok("session", "create", "--json"), &created)
-	id := created["id"].(string)
+	id := jsonField[string](t, created, "id")
 	var outcome runOutcome
 	h.mustJSON(h.ok("run", "--session", id, "--model", "demo", "--json", "use-big-tool"), &outcome)
 	if outcome.Metrics.ToolCalls != 1 || outcome.Metrics.Turns != 2 {
@@ -693,7 +693,7 @@ func TestALargeToolResultIsSpilledAndShownAsAnEventWithoutItsBody(t *testing.T) 
 	out := h.ok("events", "--session", id, "--kind", "tool_result_spilled")
 	var event map[string]any
 	h.mustJSON(strings.TrimSpace(out), &event)
-	if event["kind"] != "tool_result_spilled" || event["call_id"] != "call-big" || event["tool_id"] != "demo.echo" || event["bytes"].(float64) < 32<<10 {
+	if event["kind"] != "tool_result_spilled" || event["call_id"] != "call-big" || event["tool_id"] != "demo.echo" || jsonField[float64](t, event, "bytes") < 32<<10 {
 		t.Fatalf("event = %v", event)
 	}
 	if _, hasBody := event["body"]; hasBody || len(out) > 4<<10 {
@@ -719,7 +719,7 @@ func TestContextInspectShowsTheCeiling(t *testing.T) {
 	h := newHarness(t)
 	var created map[string]any
 	h.mustJSON(h.ok("session", "create", "--json"), &created)
-	id := created["id"].(string)
+	id := jsonField[string](t, created, "id")
 	var fields map[string]any
 	h.mustJSON(h.ok("context", "inspect", id, "--json"), &fields)
 	if got, ok := fields["compact_ceiling_tokens"]; !ok || got != float64(0) {
@@ -730,7 +730,7 @@ func TestContextInspectShowsTheCeiling(t *testing.T) {
 	}
 	var set map[string]any
 	h.mustJSON(h.ok("session", "create", "--json", "--compact-ceiling", "20000"), &set)
-	if text := h.ok("context", "inspect", set["id"].(string)); !strings.Contains(text, "compact_ceiling_tokens 20000\n") {
+	if text := h.ok("context", "inspect", jsonField[string](t, set, "id")); !strings.Contains(text, "compact_ceiling_tokens 20000\n") {
 		t.Fatalf("text output = %s", text)
 	}
 }

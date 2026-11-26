@@ -14,7 +14,7 @@ func TestContextCompactMinTokensAndTheDefaultTail(t *testing.T) {
 	h := newHarness(t)
 	var created map[string]any
 	h.mustJSON(h.ok("session", "create", "--json"), &created)
-	id := created["id"].(string)
+	id := jsonField[string](t, created, "id")
 	for _, prompt := range []string{"one", "two", "three"} {
 		h.ok("run", "--session", id, "--quiet", prompt)
 	}
@@ -83,7 +83,7 @@ func TestContextCompactRecapModelIsAChoice(t *testing.T) {
 	} {
 		var created map[string]any
 		h.mustJSON(h.ok("session", "create", "--model", tc.model, "--json"), &created)
-		id := created["id"].(string)
+		id := jsonField[string](t, created, "id")
 		for _, prompt := range []string{"one", "two", "three"} {
 			h.ok("run", "--session", id, "--model", tc.model, "--quiet", prompt)
 		}
@@ -118,7 +118,7 @@ func TestContextCompactMergesTheOldestSegmentsPastTheDefaultBudget(t *testing.T)
 	h := newHarness(t)
 	var created map[string]any
 	h.mustJSON(h.ok("session", "create", "--model", "echo", "--json"), &created)
-	id := created["id"].(string)
+	id := jsonField[string](t, created, "id")
 
 	type inspected struct {
 		Request struct {
