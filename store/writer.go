@@ -380,13 +380,7 @@ func (w *Writer) flushLocked(ctx context.Context) ([]gotato.Event, error) {
 			return nil, err
 		}
 	}
-	began := time.Now()
-	err = w.store.Append(ctx, w.rec.ID(), entries[0].Seq-1, entries, header)
-	w.count(entries, time.Since(began), err)
-	if err != nil {
-		if !errors.Is(err, ErrConflict) && !errors.Is(err, record.ErrNotFound) {
-			err = storeFailure(err)
-		}
+	if err := w.appendEntries(ctx, entries, header); err != nil {
 		w.failed = err
 		return nil, err
 	}

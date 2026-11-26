@@ -43,7 +43,8 @@ var fileLayer = map[string]int{
 	"memory.go":             layerStores,
 	"store_check.go":        layerStores,
 	// the Writer
-	"writer.go": layerWriter,
+	"writer.go":        layerWriter,
+	"writer_append.go": layerWriter,
 }
 
 // knownBackEdges lists the uses that point up, as "user -> used" with the
