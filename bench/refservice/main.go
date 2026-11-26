@@ -25,6 +25,13 @@ import (
 	"github.com/jinhuang712/gotato/store"
 )
 
+const (
+	// readHeaderTimeout caps how long the server waits for a request's headers.
+	readHeaderTimeout = 10 * time.Second
+	// shutdownTimeout caps how long the server drains in-flight requests on a signal.
+	shutdownTimeout = 5 * time.Second
+)
+
 func main() {
 	addr := flag.String("addr", "127.0.0.1:0", "listen address")
 	storeDir := flag.String("store", "", "session store directory (default: a temp dir)")
@@ -73,12 +80,12 @@ func run(addr, storeDir, endpoint, modelName string) error {
 	}
 	fmt.Printf("listening %s\n", ln.Addr())
 
-	srv := &http.Server{Handler: httpapi.New(runner), ReadHeaderTimeout: 10 * time.Second}
+	srv := &http.Server{Handler: httpapi.New(runner), ReadHeaderTimeout: readHeaderTimeout}
 	ctx, stop := signal.NotifyContext(context.Background(), syscall.SIGINT, syscall.SIGTERM)
 	defer stop()
 	go func() {
 		<-ctx.Done()
-		shutdown, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+		shutdown, cancel := context.WithTimeout(context.Background(), shutdownTimeout)
 		defer cancel()
 		_ = srv.Shutdown(shutdown)
 	}()
