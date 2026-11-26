@@ -181,7 +181,7 @@ func refusedBeforeOutput(modelErr *RuntimeError, assistant Message) bool {
 // builds current again and reports changed.
 func (st *runState) prepareCall(turn TurnNumber, runStart int, current *turnBuild, refused *RuntimeError) (changed bool, failure *RuntimeError) {
 	a := st.a
-	changed, prepareErr := a.prepareTurn(st.runCtx, st.runID, turn, runStart, current.request, asError(refused))
+	changed, prepareErr := st.prepareTurn(turn, runStart, current.request, asError(refused))
 	if prepareErr != nil || !changed {
 		return false, prepareErr
 	}
@@ -392,13 +392,14 @@ func (st *runState) runTurn(turn TurnNumber, runStart int) (more bool, result Ru
 
 // prepareTurn gives the TurnPreparers their chance before a model call. It
 // reports whether one rewrote the Transcript.
-func (a *Session) prepareTurn(ctx context.Context, runID RunID, turn TurnNumber, runStart int, request ModelRequest, refusal error) (bool, *RuntimeError) {
+func (st *runState) prepareTurn(turn TurnNumber, runStart int, request ModelRequest, refusal error) (bool, *RuntimeError) {
+	a := st.a
 	if len(a.def.extensions.preparers) == 0 {
 		return false, nil
 	}
-	return a.def.extensions.prepareTurn(ctx, PendingTurn{
+	return a.def.extensions.prepareTurn(st.runCtx, PendingTurn{
 		SessionID:  a.def.id,
-		RunID:      runID,
+		RunID:      st.runID,
 		Turn:       turn,
 		Transcript: a.history.transcript,
 		RunStart:   runStart,
