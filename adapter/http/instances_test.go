@@ -437,21 +437,7 @@ func TestKilledInstanceMidTrafficLosesOnlyTheStepInFlight(t *testing.T) {
 	})
 	victim := c.instances[2]
 	// A Session that hashes to the victim: the proxy will clusterSend it there first.
-	var target string
-	var ids []string
-	// Which member an id hashes to is not up to the test (the ring is keyed
-	// by member names with a random suffix), so create until the victim owns
-	// one, and at least 60 exist.
-	for i := 0; i < 400 && (target == "" || len(ids) < 60); i++ {
-		id := c.create(task)
-		ids = append(ids, id)
-		if target == "" && c.proxy.owner(id) == victim.name {
-			target = id
-		}
-	}
-	if target == "" {
-		t.Fatal("no Session hashes to the instance that is killed")
-	}
+	target, ids := sessionsWithOneOn(t, c, task, victim)
 	// Traffic on every other Session, from the start.
 	var wg sync.WaitGroup
 	var mu sync.Mutex
@@ -509,6 +495,38 @@ func TestKilledInstanceMidTrafficLosesOnlyTheStepInFlight(t *testing.T) {
 	if c.proxy.owner(target) == victim.name {
 		t.Fatal("the dead instance still owns the Session in the ring")
 	}
+	total := checkAnsweredLanded(t, c, answered)
+	if total < 3 {
+		t.Fatal("too few Runs completed")
+	}
+	t.Logf("%d Runs answered 200, one instance killed holding a Claim, %d retried by the proxy", total, c.proxy.retries.Load())
+}
+
+// sessionsWithOneOn creates Sessions until one hashes to victim, and at least
+// 60 exist. It returns that Session and every Session it created.
+func sessionsWithOneOn(t *testing.T, c *cluster, task reftasks.Task, victim *member) (target string, ids []string) {
+	t.Helper()
+	// Which member an id hashes to is not up to the test (the ring is keyed
+	// by member names with a random suffix), so create until the victim owns
+	// one, and at least 60 exist.
+	for i := 0; i < 400 && (target == "" || len(ids) < 60); i++ {
+		id := c.create(task)
+		ids = append(ids, id)
+		if target == "" && c.proxy.owner(id) == victim.name {
+			target = id
+		}
+	}
+	if target == "" {
+		t.Fatal("no Session hashes to the instance that is killed")
+	}
+	return target, ids
+}
+
+// checkAnsweredLanded checks that each prompt answered 200 landed once and is
+// followed by its reply, and that none landed twice. It returns how many
+// prompts were answered 200.
+func checkAnsweredLanded(t *testing.T, c *cluster, answered map[string]map[string]bool) int {
+	t.Helper()
 	total := 0
 	for id, prompts := range answered {
 		view, err := store.View(context.Background(), c.backing.Records, id)
@@ -539,10 +557,7 @@ func TestKilledInstanceMidTrafficLosesOnlyTheStepInFlight(t *testing.T) {
 			total++
 		}
 	}
-	if total < 3 {
-		t.Fatal("too few Runs completed")
-	}
-	t.Logf("%d Runs answered 200, one instance killed holding a Claim, %d retried by the proxy", total, c.proxy.retries.Load())
+	return total
 }
 
 // holdModel answers at once, except for the prompt "hold", which waits for its
