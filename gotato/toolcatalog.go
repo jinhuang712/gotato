@@ -28,6 +28,22 @@ type toolCatalog struct {
 	maxEffect ToolEffect
 }
 
+// setStatus reports the ToolSet of state and its Tools the Effect cap lets
+// through, in ID order, for ToolSets.
+func (c *toolCatalog) setStatus(state *toolSetState) ToolSetStatus {
+	status := ToolSetStatus{Name: state.spec.Name, Description: state.spec.Description, Unavailable: state.failure != nil}
+	for i := range c.catalog {
+		entry := &c.catalog[i]
+		if entry.set != state || c.hidden(entry.spec) {
+			continue
+		}
+		loaded := (state.mode == modeActive || slices.Contains(c.loaded, entry.id))
+		status.Tools = append(status.Tools, ToolSetTool{Spec: cloneToolSpec(entry.spec), Loaded: loaded})
+	}
+	sort.Slice(status.Tools, func(i, j int) bool { return status.Tools[i].Spec.ID < status.Tools[j].Spec.ID })
+	return status
+}
+
 // installedToolSets names the ToolSets of configs, in install order. A
 // ToolSet whose Spec fails, or whose name is empty, holds a dot or repeats
 // another's, fails them all.

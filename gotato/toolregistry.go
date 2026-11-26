@@ -440,17 +440,7 @@ func (r *toolRegistry) toolSetStatus() []ToolSetStatus {
 	defer r.mu.Unlock()
 	out := make([]ToolSetStatus, 0, len(r.sets))
 	for _, state := range r.sets {
-		status := ToolSetStatus{Name: state.spec.Name, Description: state.spec.Description, Unavailable: state.failure != nil}
-		for i := range r.catalog {
-			entry := &r.catalog[i]
-			if entry.set != state || r.hidden(entry.spec) {
-				continue
-			}
-			loaded := (state.mode == modeActive || slices.Contains(r.loaded, entry.id))
-			status.Tools = append(status.Tools, ToolSetTool{Spec: cloneToolSpec(entry.spec), Loaded: loaded})
-		}
-		sort.Slice(status.Tools, func(i, j int) bool { return status.Tools[i].Spec.ID < status.Tools[j].Spec.ID })
-		out = append(out, status)
+		out = append(out, r.setStatus(state))
 	}
 	return out
 }
@@ -471,6 +461,12 @@ func (r *toolRegistry) rank(ctx context.Context, query string, exclude []string)
 	if searchErr != nil {
 		return nil, runtimeError(CodeExtensionFailure, SearchToolName, PublicText(searchErr, "ToolSearcher failed"), searchErr)
 	}
+	return knownRanked(ranked, candidates), nil
+}
+
+// knownRanked keeps the IDs of ranked that name one of candidates, once
+// each, in rank order.
+func knownRanked(ranked []string, candidates []ToolSpec) []string {
 	known := make(map[string]bool, len(candidates))
 	for _, spec := range candidates {
 		known[spec.ID] = true
@@ -481,7 +477,7 @@ func (r *toolRegistry) rank(ctx context.Context, query string, exclude []string)
 			out = append(out, id)
 		}
 	}
-	return out, nil
+	return out
 }
 
 // describeSet lists a catalog ToolSet's Tools with their descriptions, and
@@ -494,6 +490,12 @@ func (r *toolRegistry) describeSet(name string) string {
 	if unavailable {
 		return name + " is unavailable now; try again in a later Run."
 	}
+	return describeTools(name, specs, loaded)
+}
+
+// describeTools lists the Tools of the ToolSet name with their descriptions,
+// and marks those that are loaded.
+func describeTools(name string, specs []ToolSpec, loaded []bool) string {
 	var b strings.Builder
 	fmt.Fprintf(&b, "%s has %d tools:", name, len(specs))
 	for i, spec := range specs {
