@@ -68,18 +68,32 @@ func DefaultLimits() CoreLimits { return defaultLimits() }
 
 func defaultLimits() CoreLimits {
 	return CoreLimits{
-		MaxMessages:         10000,
-		MaxMessageBytes:     4 << 20,
-		MaxTranscriptBytes:  32 << 20,
-		MaxSteerMessages:    8,
-		MaxFollowUpMessages: 4,
-		MaxNotices:          16,
-		MaxParallelTools:    1,
-		ModelCallDeadline:   2 * time.Minute,
-		ToolCallDeadline:    2 * time.Minute,
+		MaxMessages:         defaultMaxMessages,
+		MaxMessageBytes:     defaultMaxMessageBytes,
+		MaxTranscriptBytes:  defaultMaxTranscriptBytes,
+		MaxSteerMessages:    defaultMaxSteerMessages,
+		MaxFollowUpMessages: defaultMaxFollowUpMessages,
+		MaxNotices:          defaultMaxNotices,
+		MaxParallelTools:    defaultMaxParallelTools,
+		ModelCallDeadline:   defaultCallDeadline,
+		ToolCallDeadline:    defaultCallDeadline,
 		SpillPreviewBytes:   defaultSpillPreviewBytes,
 	}
 }
+
+// The defaults of CoreLimits, which DefaultLimits reports.
+const (
+	defaultMaxMessages         = 10000
+	defaultMaxMessageBytes     = 4 << 20
+	defaultMaxTranscriptBytes  = 32 << 20
+	defaultMaxSteerMessages    = 8
+	defaultMaxFollowUpMessages = 4
+	defaultMaxNotices          = 16
+	defaultMaxParallelTools    = 1
+	// defaultCallDeadline is the default of both ModelCallDeadline and
+	// ToolCallDeadline.
+	defaultCallDeadline = 2 * time.Minute
+)
 
 // defaultSpillPreviewBytes is CoreLimits.SpillPreviewBytes by default: the
 // start of a spilled result that stays in the Context, about 2K tokens (bytes
