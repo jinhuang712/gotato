@@ -236,20 +236,25 @@ func runCompact(ctx context.Context, store SegmentStore, call compactCall) (Resu
 	if call.minTokens > 0 && EstimateTokens(stretch) < call.minTokens {
 		return skippedResult(store, all, CompactReasonBelowMinTokens), nil
 	}
-	why := call.why
-	if why == "" {
-		why = gotato.CompactionWhyOnDemand
+	if call.why == "" {
+		call.why = gotato.CompactionWhyOnDemand
 	}
 	cut, err := call.cutOf(stretch)
 	if err != nil {
-		store.Emit(gotato.CompactionStarted{Header: sessionHeader(store), Why: why})
-		return Result{}, failCompaction(store, why, err)
+		store.Emit(gotato.CompactionStarted{Header: sessionHeader(store), Why: call.why})
+		return Result{}, failCompaction(store, call.why, err)
 	}
 	if cut <= 0 {
 		return skippedResult(store, all, CompactReasonNothingToClose), nil
 	}
-	store.Emit(gotato.CompactionStarted{Header: sessionHeader(store), Why: why})
+	store.Emit(gotato.CompactionStarted{Header: sessionHeader(store), Why: call.why})
+	return call.closeStretch(ctx, store, all, stretch, cut)
+}
 
+// closeStretch closes the first cut Messages of stretch, the tail that ends
+// all, into a Segment, once compaction_started was emitted.
+func (call compactCall) closeStretch(ctx context.Context, store SegmentStore, all, stretch []gotato.Message, cut int) (Result, error) {
+	why := call.why
 	closed := stretch[:cut]
 	recap, err := writeRecap(ctx, store, call, closed, why)
 	if err != nil {
@@ -268,7 +273,7 @@ func runCompact(ctx context.Context, store SegmentStore, call compactCall) (Resu
 
 	before, _ := json.Marshal(all)
 	// What the Record holds after: the Segments before, the new one, the tail.
-	after := slices.Concat(flatten(segments), segment.Messages, tail)
+	after := slices.Concat(all[:len(all)-len(stretch)], segment.Messages, tail)
 	encoded, _ := json.Marshal(after)
 	rec := gotato.Compaction{
 		At:               time.Now().UTC(),
@@ -291,17 +296,22 @@ func runCompact(ctx context.Context, store SegmentStore, call compactCall) (Resu
 	}); err != nil {
 		return Result{}, failCompaction(store, why, err)
 	}
-	for _, id := range loaded {
-		if !slices.Contains(kept, id) {
-			store.Emit(gotato.ToolUnloaded{Header: sessionHeader(store), ToolID: id, Why: gotato.ToolUnloadedWhyCompaction})
-		}
-	}
+	emitUnloaded(store, loaded, kept)
 	result := Result{
 		SessionID: store.ID(), Replaced: true, Compaction: &rec,
 		MessagesBefore: len(all), MessagesAfter: len(after),
 		TokensBefore: rec.TokensBefore, TokensAfter: rec.TokensAfter,
 	}
 	return mergeAfterClose(ctx, store, call.Compactor, why, result)
+}
+
+// emitUnloaded emits a tool_unloaded Event for each loaded Tool not kept.
+func emitUnloaded(store SegmentStore, loaded, kept []string) {
+	for _, id := range loaded {
+		if !slices.Contains(kept, id) {
+			store.Emit(gotato.ToolUnloaded{Header: sessionHeader(store), ToolID: id, Why: gotato.ToolUnloadedWhyCompaction})
+		}
+	}
 }
 
 // mergeAfterClose merges the oldest Segments, in a Checkpoint of their own,
