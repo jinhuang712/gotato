@@ -90,8 +90,15 @@ type errorBody struct {
 	Message, Code, Type string
 }
 
+// The limits of an error body read: the bytes read at most, and the bytes of
+// its text kept as the Message.
+const (
+	maxErrorBodyBytes    = 64 << 10
+	maxErrorMessageBytes = 512
+)
+
 func readErrorBody(body io.Reader) errorBody {
-	data, _ := io.ReadAll(io.LimitReader(body, 64<<10))
+	data, _ := io.ReadAll(io.LimitReader(body, maxErrorBodyBytes))
 	if len(data) == 0 {
 		return errorBody{Message: "empty response"}
 	}
@@ -108,7 +115,7 @@ func readErrorBody(body io.Reader) errorBody {
 	}
 	if out.Message == "" {
 		out.Message = strings.TrimSpace(string(data))
-		out.Message = out.Message[:text.Cut(out.Message, 512)]
+		out.Message = out.Message[:text.Cut(out.Message, maxErrorMessageBytes)]
 	}
 	return out
 }
