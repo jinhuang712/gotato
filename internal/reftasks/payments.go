@@ -78,6 +78,13 @@ func PaymentsRecapCheckWith(faithful bool) RecapCheck {
 	}
 }
 
+// The amounts of the three failed orders, in cents.
+const (
+	amountO88213 = 12900
+	amountO88347 = 4550
+	amountO88502 = 30075
+)
+
 // failedCharges are the three charges of the batch that failed.
 var failedCharges = map[string]string{
 	"O-88213": `{"order":"O-88213","code":"card_expired","at":"2026-10-18T23:12:40+08:00","processor_ref":"ref_Zt0042"}`,
@@ -105,7 +112,7 @@ func paymentsTools() []gotato.Tool {
 	orders, err := gotato.NewFuncTool("orders.search", "Finds orders by ID.", func(_ context.Context, in struct {
 		IDs []string `json:"ids" description:"order IDs"`
 	}) (string, error) {
-		amounts := map[string]int{"O-88213": 12900, "O-88347": 4550, "O-88502": 30075}
+		amounts := map[string]int{"O-88213": amountO88213, "O-88347": amountO88347, "O-88502": amountO88502}
 		var parts []string
 		for _, id := range in.IDs {
 			if cents, ok := amounts[id]; ok {
