@@ -124,22 +124,11 @@ func rebuildRecord(entries []Entry, retain bool, segments []Entry) (*Record, err
 		return nil, gotato.ErrorOf(gotato.CodeInvalidArgument, "record: a log must start at a checkpoint")
 	}
 	s := &Record{eventLimit: defaultEventLimit, now: time.Now, metadata: map[string]string{}, retainRead: retain, closed: map[int]gotato.Segment{}, positions: map[gotato.MessageID]gotato.MessagePosition{}}
-	for _, entry := range segments {
-		if entry.Kind != gotato.EventKindSegmentClosed {
-			return nil, gotato.ErrorOf(gotato.CodeInvalidArgument, fmt.Sprintf("record: entry %d (%s) is not a segment_closed Entry", entry.Seq, entry.Kind))
-		}
-		if err := s.apply(entry); err != nil {
-			return nil, err
-		}
+	if err := applySegments(s, segments); err != nil {
+		return nil, err
 	}
-	for i, entry := range entries {
-		if i > 0 && entry.Seq <= entries[i-1].Seq {
-			return nil, gotato.ErrorOf(gotato.CodeInvalidArgument, fmt.Sprintf("record: entry %d follows entry %d", entry.Seq, entries[i-1].Seq))
-		}
-		if err := s.apply(entry); err != nil {
-			return nil, err
-		}
-		s.updatedAt = entry.At
+	if err := applyLog(s, entries); err != nil {
+		return nil, err
 	}
 	if s.id == "" {
 		return nil, gotato.ErrorOf(gotato.CodeInvalidArgument, "record: checkpoint has no id")
@@ -156,6 +145,34 @@ func rebuildRecord(entries []Entry, retain bool, segments []Entry) (*Record, err
 	s.last = s.head
 	s.logging = true
 	return s, nil
+}
+
+// applySegments folds the segment_closed Entries from before a Checkpoint
+// into s.
+func applySegments(s *Record, segments []Entry) error {
+	for _, entry := range segments {
+		if entry.Kind != gotato.EventKindSegmentClosed {
+			return gotato.ErrorOf(gotato.CodeInvalidArgument, fmt.Sprintf("record: entry %d (%s) is not a segment_closed Entry", entry.Seq, entry.Kind))
+		}
+		if err := s.apply(entry); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+// applyLog folds entries, in Seq order, into s.
+func applyLog(s *Record, entries []Entry) error {
+	for i, entry := range entries {
+		if i > 0 && entry.Seq <= entries[i-1].Seq {
+			return gotato.ErrorOf(gotato.CodeInvalidArgument, fmt.Sprintf("record: entry %d follows entry %d", entry.Seq, entries[i-1].Seq))
+		}
+		if err := s.apply(entry); err != nil {
+			return err
+		}
+		s.updatedAt = entry.At
+	}
+	return nil
 }
 
 // apply folds one Entry into the Record's state, as a rebuild does. The
