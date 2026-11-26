@@ -4,6 +4,9 @@ import (
 	"github.com/jinhuang712/gotato/gotato"
 )
 
+// tokensPerPriceUnit is the number of tokens a Price is stated per.
+const tokensPerPriceUnit = 1e6
+
 // Price is what a model charges, in US dollars per million tokens.
 type Price struct {
 	Input      float64 `json:"input"`
@@ -20,7 +23,7 @@ func (p Price) Cost(usage gotato.Usage) float64 {
 	return (float64(usage.InputTokens-cached)*p.Input +
 		float64(usage.OutputTokens)*p.Output +
 		float64(usage.CacheReadTokens)*p.CacheRead +
-		float64(usage.CacheWriteTokens)*p.CacheWrite) / 1e6
+		float64(usage.CacheWriteTokens)*p.CacheWrite) / tokensPerPriceUnit
 }
 
 // Report is what one workload run measured.
