@@ -190,21 +190,32 @@ func (p *segmentPick) UnmarshalJSON(data []byte) error {
 func readSegments(dir string, firsts []uint64) ([]record.Entry, error) {
 	var out []record.Entry
 	for _, first := range firsts {
-		data, err := os.ReadFile(filepath.Join(dir, batchName(first)))
-		if errors.Is(err, os.ErrNotExist) {
-			return nil, record.ErrNotFound
-		}
+		picked, err := readSegmentBatch(dir, first)
 		if err != nil {
 			return nil, err
 		}
-		var batch segmentBatch
-		if err := json.Unmarshal(data, &batch); err != nil {
-			return nil, fmt.Errorf("store: %s: %w", batchName(first), err)
-		}
-		for _, pick := range batch.Entries {
-			if pick.entry != nil {
-				out = append(out, *pick.entry)
-			}
+		out = append(out, picked...)
+	}
+	return out, nil
+}
+
+// readSegmentBatch returns the segment_closed Entries of the write that begins at first.
+func readSegmentBatch(dir string, first uint64) ([]record.Entry, error) {
+	data, err := os.ReadFile(filepath.Join(dir, batchName(first)))
+	if errors.Is(err, os.ErrNotExist) {
+		return nil, record.ErrNotFound
+	}
+	if err != nil {
+		return nil, err
+	}
+	var batch segmentBatch
+	if err := json.Unmarshal(data, &batch); err != nil {
+		return nil, fmt.Errorf("store: %s: %w", batchName(first), err)
+	}
+	var out []record.Entry
+	for _, pick := range batch.Entries {
+		if pick.entry != nil {
+			out = append(out, *pick.entry)
 		}
 	}
 	return out, nil
