@@ -43,6 +43,9 @@ const (
 	MergeReasonPickFailed MergeReason = "pick_failed"
 )
 
+// minMergeSegments is the fewest Segments a merge replaces.
+const minMergeSegments = 2
+
 // mergeDigestName is the Recap name recorded for a merge whose Recap is the
 // digest built by code.
 const mergeDigestName = "digest"
@@ -119,7 +122,7 @@ func mergeSizes(segments []gotato.Segment, budget int) MergeResult {
 	switch {
 	case result.SegmentTokens <= budget:
 		result.Reason = MergeReasonUnderBudget
-	case len(segments) < 2:
+	case len(segments) < minMergeSegments:
 		result.Reason = MergeReasonNothingToMerge
 	}
 	return result
