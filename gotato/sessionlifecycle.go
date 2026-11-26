@@ -238,36 +238,46 @@ func (l *sessionLife) setStatus(status SessionStatus) {
 	close(*l.changed.Swap(&next))
 }
 
+// The numbers a SessionStatus is stored as, atomically.
+const (
+	statusCodeUnknown uint32 = iota
+	statusCodeCreated
+	statusCodeIdle
+	statusCodeBusy
+	statusCodeClosing
+	statusCodeClosed
+)
+
 // encodeSessionStatus maps a status to the number stored atomically.
 func encodeSessionStatus(status SessionStatus) uint32 {
 	switch status {
 	case SessionStatusCreated:
-		return 1
+		return statusCodeCreated
 	case SessionStatusIdle:
-		return 2
+		return statusCodeIdle
 	case SessionStatusBusy:
-		return 3
+		return statusCodeBusy
 	case SessionStatusClosing:
-		return 4
+		return statusCodeClosing
 	case SessionStatusClosed:
-		return 5
+		return statusCodeClosed
 	default:
-		return 0
+		return statusCodeUnknown
 	}
 }
 
 // decodeSessionStatus is the inverse of encodeSessionStatus.
 func decodeSessionStatus(status uint32) SessionStatus {
 	switch status {
-	case 1:
+	case statusCodeCreated:
 		return SessionStatusCreated
-	case 2:
+	case statusCodeIdle:
 		return SessionStatusIdle
-	case 3:
+	case statusCodeBusy:
 		return SessionStatusBusy
-	case 4:
+	case statusCodeClosing:
 		return SessionStatusClosing
-	case 5:
+	case statusCodeClosed:
 		return SessionStatusClosed
 	default:
 		return SessionStatusCreated
