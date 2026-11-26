@@ -29,9 +29,9 @@ func checkEmptyEpoch(ctx context.Context, open Open) error {
 	if err := store.Create(ctx, "r1", []record.Entry{checkpoint(1, "a")}, header("r1", 1, "")); err != nil {
 		return fmt.Errorf("create: %w", err)
 	}
-	none = header("r1", 2, "")
+	none = header("r1", secondEntry, "")
 	none.Epoch = ""
-	if err := store.Append(ctx, "r1", 1, []record.Entry{fact(2, "a")}, none); !gotato.IsCode(err, gotato.CodeInvalidArgument) {
+	if err := store.Append(ctx, "r1", 1, []record.Entry{fact(secondEntry, "a")}, none); !gotato.IsCode(err, gotato.CodeInvalidArgument) {
 		return failf("Append with an empty Epoch returned %v, want invalid_argument: Header.Epoch is required", err)
 	}
 	log, err := store.Log(ctx, "r1", 0, 0)
@@ -63,7 +63,7 @@ func checkFieldsKept(ctx context.Context, open Open) error {
 // filled but Seq, Kind, Layer and Data.
 func filledEntries() ([]record.Entry, error) {
 	data := []byte(`{"filled":true}`)
-	entries := []record.Entry{filledEntry(1, gotato.EventKindSessionCreated, data), filledEntry(2, gotato.EventKindMessageCommitted, data)}
+	entries := []record.Entry{filledEntry(1, gotato.EventKindSessionCreated, data), filledEntry(secondEntry, gotato.EventKindMessageCommitted, data)}
 	for i := range entries {
 		entry := &entries[i]
 		seq, kind := entry.Seq, entry.Kind
@@ -170,40 +170,24 @@ func fillAll(v reflect.Value, path string, keep map[string]bool) error {
 
 var timeType = reflect.TypeFor[time.Time]()
 
+const (
+	// fillOffset is added to the counter of an integer field, so the value is no small number a default could equal.
+	fillOffset = 100
+	// fillFraction is added to the counter of a float field, so the value is no whole number.
+	fillFraction = 0.5
+)
+
 func fill(v reflect.Value, path string, keep map[string]bool, counter *int) error {
 	*counter++
 	n := *counter
+	if fillScalar(v, path, n) {
+		return nil
+	}
 	switch v.Kind() {
-	case reflect.String:
-		v.SetString(fmt.Sprintf("%s-%d", path, n))
-	case reflect.Bool:
-		v.SetBool(true)
-	case reflect.Int, reflect.Int8, reflect.Int16, reflect.Int32, reflect.Int64:
-		v.SetInt(int64(n) + 100)
-	case reflect.Uint, reflect.Uint8, reflect.Uint16, reflect.Uint32, reflect.Uint64:
-		v.SetUint(uint64(n) + 100)
-	case reflect.Float32, reflect.Float64:
-		v.SetFloat(float64(n) + 0.5)
 	case reflect.Struct:
-		if v.Type() == timeType {
-			v.Set(reflect.ValueOf(time.Date(2026, 10, 17, 1, 2, n%60, 123000000, time.UTC)))
-			return nil
-		}
-		for i := range v.NumField() {
-			field := v.Type().Field(i)
-			if !field.IsExported() || keep[field.Name] {
-				continue
-			}
-			if err := fill(v.Field(i), path+"."+field.Name, nil, counter); err != nil {
-				return err
-			}
-		}
+		return fillStruct(v, path, keep, counter, n)
 	case reflect.Map:
-		if v.Type().Key().Kind() != reflect.String || v.Type().Elem().Kind() != reflect.String {
-			return fmt.Errorf("storetest: the field %s is a %s, which the field check cannot fill: teach it, so that the new field is checked", path, v.Type())
-		}
-		v.Set(reflect.MakeMap(v.Type()))
-		v.SetMapIndex(reflect.ValueOf(fmt.Sprintf("key-%d", n)).Convert(v.Type().Key()), reflect.ValueOf(fmt.Sprintf("value-%d", n)).Convert(v.Type().Elem()))
+		return fillMap(v, path, n)
 	case reflect.Slice:
 		v.Set(reflect.MakeSlice(v.Type(), 1, 1))
 		return fill(v.Index(0), path+"[0]", nil, counter)
@@ -213,6 +197,54 @@ func fill(v reflect.Value, path string, keep map[string]bool, counter *int) erro
 	default:
 		return fmt.Errorf("storetest: the field %s is a %s, which the field check cannot fill: teach it, so that the new field is checked", path, v.Type())
 	}
+}
+
+// fillScalar sets v to a distinctive value of the counter n when it is a
+// string, a bool or a number, and reports whether it was one.
+func fillScalar(v reflect.Value, path string, n int) bool {
+	switch v.Kind() {
+	case reflect.String:
+		v.SetString(fmt.Sprintf("%s-%d", path, n))
+	case reflect.Bool:
+		v.SetBool(true)
+	case reflect.Int, reflect.Int8, reflect.Int16, reflect.Int32, reflect.Int64:
+		v.SetInt(int64(n) + fillOffset)
+	case reflect.Uint, reflect.Uint8, reflect.Uint16, reflect.Uint32, reflect.Uint64:
+		v.SetUint(uint64(n) + fillOffset)
+	case reflect.Float32, reflect.Float64:
+		v.SetFloat(float64(n) + fillFraction)
+	default:
+		return false
+	}
+	return true
+}
+
+// fillStruct fills a struct: a time by the counter n, any other struct by its
+// exported fields that are not in keep.
+func fillStruct(v reflect.Value, path string, keep map[string]bool, counter *int, n int) error {
+	if v.Type() == timeType {
+		v.Set(reflect.ValueOf(time.Date(2026, 10, 17, 1, 2, n%60, 123000000, time.UTC)))
+		return nil
+	}
+	for i := range v.NumField() {
+		field := v.Type().Field(i)
+		if !field.IsExported() || keep[field.Name] {
+			continue
+		}
+		if err := fill(v.Field(i), path+"."+field.Name, nil, counter); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+// fillMap fills a map of strings with one key and value of the counter n.
+func fillMap(v reflect.Value, path string, n int) error {
+	if v.Type().Key().Kind() != reflect.String || v.Type().Elem().Kind() != reflect.String {
+		return fmt.Errorf("storetest: the field %s is a %s, which the field check cannot fill: teach it, so that the new field is checked", path, v.Type())
+	}
+	v.Set(reflect.MakeMap(v.Type()))
+	v.SetMapIndex(reflect.ValueOf(fmt.Sprintf("key-%d", n)).Convert(v.Type().Key()), reflect.ValueOf(fmt.Sprintf("value-%d", n)).Convert(v.Type().Elem()))
 	return nil
 }
 
