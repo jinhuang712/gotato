@@ -233,36 +233,42 @@ func WithExtension(extension any) SessionOption {
 		if err := checkExtensionMethods(extension); err != nil {
 			return err
 		}
-		installed := false
-		if typed, ok := extension.(ContextTransformer); ok {
-			c.extensions.transformers = append(c.extensions.transformers, typed)
-			installed = true
-		}
-		if typed, ok := extension.(MessageConverter); ok {
-			c.extensions.converters = append(c.extensions.converters, typed)
-			installed = true
-		}
-		if typed, ok := extension.(PreToolUse); ok {
-			c.extensions.pre = append(c.extensions.pre, typed)
-			installed = true
-		}
-		if typed, ok := extension.(PostToolUse); ok {
-			c.extensions.post = append(c.extensions.post, typed)
-			installed = true
-		}
-		if typed, ok := extension.(TurnStopper); ok {
-			c.extensions.stoppers = append(c.extensions.stoppers, typed)
-			installed = true
-		}
-		if typed, ok := extension.(TurnPreparer); ok {
-			c.extensions.preparers = append(c.extensions.preparers, typed)
-			installed = true
-		}
-		if !installed {
+		if !c.extensions.install(extension) {
 			return runtimeError(CodeInvalidArgument, "WithExtension", "value implements no Extension interface", nil)
 		}
 		return nil
 	}
+}
+
+// install appends extension to the chain of each Extension interface it
+// implements, and reports whether it implements any.
+func (s *extensionSet) install(extension any) bool {
+	installed := false
+	if typed, ok := extension.(ContextTransformer); ok {
+		s.transformers = append(s.transformers, typed)
+		installed = true
+	}
+	if typed, ok := extension.(MessageConverter); ok {
+		s.converters = append(s.converters, typed)
+		installed = true
+	}
+	if typed, ok := extension.(PreToolUse); ok {
+		s.pre = append(s.pre, typed)
+		installed = true
+	}
+	if typed, ok := extension.(PostToolUse); ok {
+		s.post = append(s.post, typed)
+		installed = true
+	}
+	if typed, ok := extension.(TurnStopper); ok {
+		s.stoppers = append(s.stoppers, typed)
+		installed = true
+	}
+	if typed, ok := extension.(TurnPreparer); ok {
+		s.preparers = append(s.preparers, typed)
+		installed = true
+	}
+	return installed
 }
 
 // WithToolSet installs a ToolSet whose catalog entry lists its description and
