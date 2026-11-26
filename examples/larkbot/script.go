@@ -113,6 +113,9 @@ func toolCall(id, tool string, args any) testkit.Script {
 	return testkit.ToolCalls(gotato.ToolCall{ID: gotato.ToolCallID(id), ToolID: tool, Arguments: encoded})
 }
 
+// segmentCutBytes is how much of a read segment the readseg script quotes.
+const segmentCutBytes = 600
+
 // scriptState is what a script reads from the request and the Run so far.
 type scriptState struct {
 	arg    string
@@ -197,7 +200,7 @@ func (st scriptState) readSegment() testkit.Script {
 	if st.last.Status != gotato.ToolResultStatusOK {
 		return testkit.Text(ansSegError + " " + st.last.SafeError)
 	}
-	return testkit.Text(ansSegOK + " " + cut(resultText(*st.last), 600))
+	return testkit.Text(ansSegOK + " " + cut(resultText(*st.last), segmentCutBytes))
 }
 
 // reportResult is the one line the model says about a Tool Result: what came back, or the error it read.
