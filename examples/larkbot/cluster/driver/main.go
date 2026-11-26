@@ -266,25 +266,38 @@ func (e *env) readLogs() []logLine {
 	for _, f := range files {
 		pod := strings.TrimSuffix(filepath.Base(f), ".log")
 		data, _ := os.ReadFile(f) //nolint:gosec // our own temp directory
-		for l := range strings.SplitSeq(string(data), "\n") {
-			if !strings.Contains(l, "level=") {
-				continue
-			}
-			kv := map[string]string{}
-			for _, m := range kvRe.FindAllStringSubmatch(l, -1) {
-				v := m[2]
-				if strings.HasPrefix(v, `"`) {
-					var s string
-					if json.Unmarshal([]byte(v), &s) == nil {
-						v = s
-					}
-				}
-				kv[m[1]] = v
-			}
-			out = append(out, logLine{Pod: pod, Msg: kv["msg"], KV: kv})
-		}
+		out = append(out, logLines(pod, string(data))...)
 	}
 	return out
+}
+
+// logLines reads the slog text lines of one pod's log.
+func logLines(pod, data string) []logLine {
+	var out []logLine
+	for l := range strings.SplitSeq(data, "\n") {
+		if !strings.Contains(l, "level=") {
+			continue
+		}
+		kv := logFields(l)
+		out = append(out, logLine{Pod: pod, Msg: kv["msg"], KV: kv})
+	}
+	return out
+}
+
+// logFields reads the key=value pairs of one slog text line.
+func logFields(l string) map[string]string {
+	kv := map[string]string{}
+	for _, m := range kvRe.FindAllStringSubmatch(l, -1) {
+		v := m[2]
+		if strings.HasPrefix(v, `"`) {
+			var s string
+			if json.Unmarshal([]byte(v), &s) == nil {
+				v = s
+			}
+		}
+		kv[m[1]] = v
+	}
+	return kv
 }
 
 // pods lists the bot pods that exist now (name -> ready).
