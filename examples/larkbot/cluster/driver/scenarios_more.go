@@ -9,43 +9,6 @@ import (
 	"time"
 )
 
-// stamper prints elapsed time since a scenario began.
-type stamper struct{ start time.Time }
-
-func newStamper() stamper    { return stamper{time.Now()} }
-func (s stamper) at() string { return fmt.Sprintf("+%02ds", int(time.Since(s.start).Seconds())) }
-
-// chats makes n thread values for a scenario.
-func chats(scenario string, n int) []*thread {
-	id := runID()
-	var ts []*thread
-	for i := range n {
-		ts = append(ts, &thread{chat: fmt.Sprintf("oc_%s_%s_%02d", scenario, id, i+1), n: i + 1})
-	}
-	return ts
-}
-
-// waitPods waits until the bot has exactly n pods, all ready and none going away.
-func (e *env) waitPods(ctx context.Context, n int, limit time.Duration) error {
-	deadline := time.Now().Add(limit)
-	for time.Now().Before(deadline) && ctx.Err() == nil {
-		if ps, err := e.pods(ctx); err == nil && len(ps) == n && allReady(ps) {
-			return nil
-		}
-		sleep(ctx, time.Second)
-	}
-	return fmt.Errorf("the bot did not settle at %d ready pods within %s", n, limit)
-}
-
-// allReady says every pod of the list (name -> ready) is ready.
-func allReady(ps map[string]bool) bool {
-	ready := true
-	for _, ok := range ps {
-		ready = ready && ok
-	}
-	return ready
-}
-
 // reportStoreErrors prints the store errors of the bot logs, each a GOTATO-FAULT, and returns how many there are.
 func (e *env) reportStoreErrors() (faults int) {
 	for _, s := range storeErrors(e.readLogs()) {
