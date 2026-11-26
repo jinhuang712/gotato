@@ -199,14 +199,9 @@ func encodeResponsesRequest(model gotato.ModelConfig, request gotato.ModelReques
 		return nil, nil, err
 	}
 	layout := newDeferredLayout(request, native)
-	input := make([]any, 0, len(request.Messages)*2)
-	start := roundStart(request.Messages)
-	for i, message := range request.Messages {
-		items, err := convertResponsesMessage(message, names, keepsReasoning(model.Facts.RoundReasoning, i, start), layout)
-		if err != nil {
-			return nil, nil, err
-		}
-		input = append(input, items...)
+	input, err := responsesInput(model, request.Messages, names, layout)
+	if err != nil {
+		return nil, nil, err
 	}
 
 	// Deferred tools, per https://developers.openai.com/api/docs/guides/tools-tool-search
@@ -216,23 +211,9 @@ func encodeResponsesRequest(model gotato.ModelConfig, request gotato.ModelReques
 	// as a tool_search_call item, and our answer as a tool_search_output item
 	// that lists the functions it loads; a loaded function is injected at the
 	// end of the context, so the tool list stays the same.
-	ordered := orderedTools(layout, request)
-	tools := make([]any, 0, len(ordered))
-	for _, entry := range ordered {
-		spec := entry.spec
-		name, err := assignFunctionName(names, spec.ID)
-		if err != nil {
-			return nil, nil, err
-		}
-		parameters, err := toolSchema(spec, `{"type":"object"}`)
-		if err != nil {
-			return nil, nil, err
-		}
-		if layout != nil && isSearchToolID(spec.ID) {
-			tools = append(tools, responsesToolSearch{Type: "tool_search", Execution: "client", Description: spec.Description, Parameters: parameters})
-			continue
-		}
-		tools = append(tools, responsesTool{Type: "function", Name: name, Description: spec.Description, Parameters: parameters, DeferLoading: entry.deferred})
+	tools, err := responsesTools(orderedTools(layout, request), names, layout)
+	if err != nil {
+		return nil, nil, err
 	}
 
 	payload := responsesRequest{
@@ -246,27 +227,79 @@ func encodeResponsesRequest(model gotato.ModelConfig, request gotato.ModelReques
 		ParallelToolCalls: true,
 		Tools:             tools,
 	}
-	if request.Sampling.Temperature != nil {
-		payload.Temperature = request.Sampling.Temperature
-	}
-	if request.Sampling.MaxTokens != 0 {
-		payload.MaxOutputTokens = request.Sampling.MaxTokens
-	}
-	if model.Facts.CacheRetention == responsesCacheTTL {
-		payload.PromptCacheOptions = &responsesCacheOptions{TTL: "30m"}
-	}
-	if request.Sampling.ReasoningEffort != "" || request.Sampling.ReasoningSummary != "" {
-		summary := request.Sampling.ReasoningSummary
-		if summary == "" {
-			summary = "auto"
-		}
-		payload.Reasoning = &responsesReasoning{Effort: request.Sampling.ReasoningEffort, Summary: summary}
-	}
+	applyResponsesSampling(&payload, model, request.Sampling)
 	body, err := json.Marshal(payload)
 	if err != nil {
 		return nil, nil, fmt.Errorf("model: encode Responses request: %w", err)
 	}
 	return body, names, nil
+}
+
+// responsesInput converts the history into the request's input items.
+func responsesInput(model gotato.ModelConfig, messages []gotato.Message, names map[string]string, layout *deferredLayout) ([]any, error) {
+	input := make([]any, 0, len(messages)*2)
+	start := roundStart(messages)
+	for i, message := range messages {
+		items, err := convertResponsesMessage(message, names, keepsReasoning(model.Facts.RoundReasoning, i, start), layout)
+		if err != nil {
+			return nil, err
+		}
+		input = append(input, items...)
+	}
+	return input, nil
+}
+
+// responsesTools encodes the tools in the order they are sent, the search
+// tool as a client-executed tool_search when the native form is on.
+func responsesTools(ordered []layoutTool, names map[string]string, layout *deferredLayout) ([]any, error) {
+	tools := make([]any, 0, len(ordered))
+	for _, entry := range ordered {
+		tool, err := responsesFunctionTool(names, entry)
+		if err != nil {
+			return nil, err
+		}
+		if layout != nil && isSearchToolID(entry.spec.ID) {
+			tools = append(tools, responsesToolSearch{Type: "tool_search", Execution: "client", Description: tool.Description, Parameters: tool.Parameters})
+			continue
+		}
+		tools = append(tools, tool)
+	}
+	return tools, nil
+}
+
+// responsesFunctionTool encodes one tool as a function, deferred when the
+// layout defers it.
+func responsesFunctionTool(names map[string]string, entry layoutTool) (responsesTool, error) {
+	name, err := assignFunctionName(names, entry.spec.ID)
+	if err != nil {
+		return responsesTool{}, err
+	}
+	parameters, err := toolSchema(entry.spec, `{"type":"object"}`)
+	if err != nil {
+		return responsesTool{}, err
+	}
+	return responsesTool{Type: "function", Name: name, Description: entry.spec.Description, Parameters: parameters, DeferLoading: entry.deferred}, nil
+}
+
+// applyResponsesSampling sets the request's sampling fields, and asks for the
+// cache retention the model states when the API takes it.
+func applyResponsesSampling(payload *responsesRequest, model gotato.ModelConfig, sampling gotato.Sampling) {
+	if sampling.Temperature != nil {
+		payload.Temperature = sampling.Temperature
+	}
+	if sampling.MaxTokens != 0 {
+		payload.MaxOutputTokens = sampling.MaxTokens
+	}
+	if model.Facts.CacheRetention == responsesCacheTTL {
+		payload.PromptCacheOptions = &responsesCacheOptions{TTL: "30m"}
+	}
+	if sampling.ReasoningEffort != "" || sampling.ReasoningSummary != "" {
+		summary := sampling.ReasoningSummary
+		if summary == "" {
+			summary = "auto"
+		}
+		payload.Reasoning = &responsesReasoning{Effort: sampling.ReasoningEffort, Summary: summary}
+	}
 }
 
 // convertResponsesMessage turns one Message into the Responses input items it
