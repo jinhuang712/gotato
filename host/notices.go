@@ -224,6 +224,9 @@ func (r *Runner) queueTimeAway(ctx context.Context, spec profile.AgentProfile, r
 	_, _ = live.QueueNotice(ctx, gotato.NewNotice(gotato.NoticeSourceGotato, gotato.NoticeTimeAway, text))
 }
 
+// day is the length of a day, the largest unit away names.
+const day = 24 * time.Hour
+
 // away says how long the user was away in whole minutes, hours or days: the
 // largest unit that fits at least once, and "less than a minute" below that.
 func away(d time.Duration) string {
@@ -234,8 +237,8 @@ func away(d time.Duration) string {
 		return fmt.Sprintf("%d %ss", n, name)
 	}
 	switch {
-	case d >= 24*time.Hour:
-		return unit(int64(d/(24*time.Hour)), "day")
+	case d >= day:
+		return unit(int64(d/day), "day")
 	case d >= time.Hour:
 		return unit(int64(d/time.Hour), "hour")
 	case d >= time.Minute:
