@@ -25,12 +25,19 @@ func TestErrorCodesListsEveryCode(t *testing.T) {
 			continue
 		}
 		for _, spec := range gen.Specs {
-			value := spec.(*ast.ValueSpec)
+			value, ok := spec.(*ast.ValueSpec)
+			if !ok {
+				t.Fatalf("spec = %T, want *ast.ValueSpec", spec)
+			}
 			if id, ok := value.Type.(*ast.Ident); !ok || id.Name != "ErrorCode" {
 				continue
 			}
 			for _, lit := range value.Values {
-				text := lit.(*ast.BasicLit).Value
+				basic, ok := lit.(*ast.BasicLit)
+				if !ok {
+					t.Fatalf("lit = %T, want *ast.BasicLit", lit)
+				}
+				text := basic.Value
 				declared = append(declared, ErrorCode(text[1:len(text)-1]))
 			}
 		}

@@ -654,7 +654,11 @@ func TestAbortIsRecordedBeforeRunEnded(t *testing.T) {
 	if events[abortAt].Head().RunID != events[endAt].Head().RunID || events[abortAt].Head().RunID == "" {
 		t.Fatalf("AbortRequested names Run %q, RunEnded Run %q", events[abortAt].Head().RunID, events[endAt].Head().RunID)
 	}
-	if ended := events[endAt].(RunEnded); ended.Status != RunStatusCanceled {
+	ended, ok := events[endAt].(RunEnded)
+	if !ok {
+		t.Fatalf("events[endAt] = %T, want RunEnded", events[endAt])
+	}
+	if ended.Status != RunStatusCanceled {
 		t.Fatalf("RunEnded = %+v", ended)
 	}
 }

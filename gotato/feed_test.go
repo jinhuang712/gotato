@@ -381,7 +381,10 @@ func TestSubscribeFilterIsNotCalledConcurrently(t *testing.T) {
 // live waits until a subscription has caught up and takes live Events.
 func live(t *testing.T, sub Subscription) {
 	t.Helper()
-	s := sub.(*subscription)
+	s, ok := sub.(*subscription)
+	if !ok {
+		t.Fatalf("Subscription = %T, want *subscription", sub)
+	}
 	deadline := time.Now().Add(5 * time.Second)
 	for time.Now().Before(deadline) {
 		s.mu.Lock()

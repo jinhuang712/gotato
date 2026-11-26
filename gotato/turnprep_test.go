@@ -3,6 +3,7 @@ package gotato
 import (
 	"context"
 	"errors"
+	"fmt"
 	"sync"
 	"testing"
 	"time"
@@ -120,7 +121,10 @@ func TestATurnPreparerThatRewritesTheTranscriptHasTheRequestBuiltAgain(t *testin
 			return TurnPrepared{}, nil
 		}
 		// Keep the latest Turn, as a compaction does.
-		messages := p.Transcript.(*editableTranscript)
+		messages, ok := p.Transcript.(*editableTranscript)
+		if !ok {
+			return TurnPrepared{}, fmt.Errorf("the transcript is %T, want *editableTranscript", p.Transcript)
+		}
 		messages.messages = append([]Message{UserMessage("SEGMENT")}, messages.messages[len(messages.messages)-2:]...)
 		return TurnPrepared{Changed: true}, nil
 	})
