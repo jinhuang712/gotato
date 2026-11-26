@@ -97,11 +97,12 @@ func (e *env) s7(ctx context.Context) bool {
 			sleep(ctx, gap)
 		}
 	}
-	p, out, err := e.s7KillMCP(ctx, st, mk, sendAll)
+	run := &s7Run{e, st, mk, sendAll}
+	p, out, err := run.killMCP(ctx)
 	if err != nil {
 		return fail("s7", out)
 	}
-	if out, err := e.s7DeployBot(ctx, st, mk, sendAll); err != nil {
+	if out, err := run.deployBot(ctx); err != nil {
 		return fail("s7", out)
 	}
 	e.waitQuiet(ctx, all, 10*time.Second, 120*time.Second)
@@ -130,10 +131,18 @@ func (e *env) s7(ctx context.Context) bool {
 	return faultVerdict("s7", faults)
 }
 
-// s7KillMCP plays s7's phases around the SIGKILL of the MCP server (W, A, B, R, P, A2) and returns the P threads;
+// s7Run is one play of s7: the driver, the stamper, and the makers of its threads and of its sends.
+type s7Run struct {
+	e       *env
+	st      stamper
+	mk      func(string, int) []*thread
+	sendAll func(ts []*thread, phase, suffix, directive string, gap time.Duration)
+}
+
+// killMCP plays s7's phases around the SIGKILL of the MCP server (W, A, B, R, P, A2) and returns the P threads;
 // out and err say why the kill failed.
-func (e *env) s7KillMCP(ctx context.Context, st stamper, mk func(string, int) []*thread,
-	sendAll func(ts []*thread, phase, suffix, directive string, gap time.Duration)) (p []*thread, out string, err error) {
+func (run *s7Run) killMCP(ctx context.Context) (p []*thread, out string, err error) {
+	e, st, mk, sendAll := run.e, run.st, run.mk, run.sendAll
 	// W: every pod connects to the MCP server and loads its tools.
 	w := mk("W", 9)
 	sendAll(w, "W", "a", "[script:mcp=100ms]", 100*time.Millisecond)
@@ -173,10 +182,10 @@ func (e *env) s7KillMCP(ctx context.Context, st stamper, mk func(string, int) []
 	return p, "", nil
 }
 
-// s7DeployBot plays s7's phases around a rolling deploy of the bot (C, D, C2); out and err say why the
+// deployBot plays s7's phases around a rolling deploy of the bot (C, D, C2); out and err say why the
 // rollout could not start.
-func (e *env) s7DeployBot(ctx context.Context, st stamper, mk func(string, int) []*thread,
-	sendAll func(ts []*thread, phase, suffix, directive string, gap time.Duration)) (out string, err error) {
+func (run *s7Run) deployBot(ctx context.Context) (out string, err error) {
+	e, st, mk, sendAll := run.e, run.st, run.mk, run.sendAll
 	// C: calls of 8 s are in flight when the bot is deployed.
 	c := mk("C", 6)
 	sendAll(c, "C", "a", "[script:mcp=8s]", 200*time.Millisecond)
