@@ -13,6 +13,13 @@ import (
 // (^[a-zA-Z0-9_-]{1,64}$ for OpenAI-compatible APIs).
 const maxFunctionName = 64
 
+// The lengths, in hex characters, of the hash that ends a truncated name and
+// of the one that ends a collision fallback.
+const (
+	truncatedHashChars = 8
+	fallbackHashChars  = 16
+)
+
 // providerFunctionName returns the provider-facing name for a Tool ID. It is
 // the ID itself when the ID is already provider-safe, and otherwise the ID
 // with each unsafe character replaced by '_' (demo.echo becomes demo_echo).
@@ -27,7 +34,7 @@ func providerFunctionName(id string) string {
 		return hashedFunctionName(id)
 	}
 	if len(name) > maxFunctionName {
-		return name[:maxFunctionName-9] + "_" + shortHash(id, 8)
+		return name[:maxFunctionName-len("_")-truncatedHashChars] + "_" + shortHash(id, truncatedHashChars)
 	}
 	return name
 }
@@ -36,13 +43,13 @@ func providerFunctionName(id string) string {
 // of the full ID, unique per ID.
 func hashedFunctionName(id string) string {
 	prefix := sanitizeFunctionName(id)
-	if len(prefix) > maxFunctionName-17 {
-		prefix = prefix[:maxFunctionName-17]
+	if len(prefix) > maxFunctionName-len("_")-fallbackHashChars {
+		prefix = prefix[:maxFunctionName-len("_")-fallbackHashChars]
 	}
 	if prefix == "" {
 		prefix = "tool"
 	}
-	return prefix + "_" + shortHash(id, 16)
+	return prefix + "_" + shortHash(id, fallbackHashChars)
 }
 
 // plainFunctionName reports whether s matches ^[a-zA-Z0-9_-]{1,64}$, the
