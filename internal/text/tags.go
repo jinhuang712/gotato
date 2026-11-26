@@ -50,17 +50,26 @@ func EscapeTagsAs(s, lt string) string {
 func startsTag(rest string) bool {
 	rest = strings.TrimPrefix(rest, "/")
 	for _, name := range tagNames {
-		if len(rest) < len(name) || !strings.EqualFold(rest[:len(name)], name) {
-			continue
-		}
-		if len(rest) == len(name) {
-			return true
-		}
-		c := rest[len(name)]
-		isName := c >= 'a' && c <= 'z' || c >= 'A' && c <= 'Z' || c >= '0' && c <= '9' || c == '_' || c == '-'
-		if !isName {
+		if endsTagName(rest, name) {
 			return true
 		}
 	}
 	return false
+}
+
+// endsTagName reports whether rest begins with name, case-insensitively, and
+// name ends there or at a character no tag name uses.
+func endsTagName(rest, name string) bool {
+	if len(rest) < len(name) || !strings.EqualFold(rest[:len(name)], name) {
+		return false
+	}
+	if len(rest) == len(name) {
+		return true
+	}
+	return !isTagNameChar(rest[len(name)])
+}
+
+// isTagNameChar reports whether c can continue a tag name.
+func isTagNameChar(c byte) bool {
+	return c >= 'a' && c <= 'z' || c >= 'A' && c <= 'Z' || c >= '0' && c <= '9' || c == '_' || c == '-'
 }
