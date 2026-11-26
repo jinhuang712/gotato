@@ -15,13 +15,6 @@ import (
 	"github.com/jinhuang712/gotato/store"
 )
 
-const (
-	// spilledRows is how many rows the body of the spilled Entry holds; at 15 bytes each, a megabyte.
-	spilledRows = 70000
-	// writePause is how long the racing writer rests between its writes, so the readers get a turn.
-	writePause = 50 * time.Microsecond
-)
-
 const ruleOneRead = "Load must read the Record in one read: its Entries, its position and its Header all come from the same write"
 
 func checkCreateLoad(ctx context.Context, open Open) error {
@@ -70,7 +63,7 @@ func checkAppend(ctx context.Context, open Open) error {
 	if err := sameEntries("Log after Append", got, all, ruleLog); err != nil {
 		return err
 	}
-	tail, err := open().Log(ctx, "r1", createdHead, 0)
+	tail, err := open().Log(ctx, "r1", 3, 0)
 	if err != nil {
 		return failf("Log after 3: %w", err)
 	}
@@ -92,20 +85,15 @@ func checkLastCheckpoint(ctx context.Context, open Open) error {
 	if _, err := create(ctx, store, "r1"); err != nil {
 		return fmt.Errorf("create: %w", err)
 	}
-	const (
-		compactedAt   = createdHead + 1
-		loggedAt      = createdHead + 2
-		compactedHead = createdHead + 3
-	)
-	more := []record.Entry{compaction(compactedAt, "a"), logEntry(loggedAt, "a"), fact(compactedHead, "a")}
-	if err := store.Append(ctx, "r1", createdHead, more, header("r1", compactedHead, "2026-10-17T00:00:06.000Z")); err != nil {
+	more := []record.Entry{compaction(4, "a"), logEntry(5, "a"), fact(6, "a")}
+	if err := store.Append(ctx, "r1", 3, more, header("r1", 6, "2026-10-17T00:00:06.000Z")); err != nil {
 		return fmt.Errorf("append: %w", err)
 	}
 	loaded, err := open().Load(ctx, "r1")
 	if err != nil {
 		return fmt.Errorf("load: %w", err)
 	}
-	if loaded.Seq != compactedHead {
+	if loaded.Seq != 6 {
 		return failf("Load returned Seq %d, want 6: Seq is the last Entry's Seq", loaded.Seq)
 	}
 	return sameEntries("Load after a compaction_ended Entry", loaded.Entries, []record.Entry{more[0], more[2]}, "Load must start at the last Checkpoint (session_created or compaction_ended) and return its Layer fact Entries only")
@@ -120,15 +108,14 @@ func checkSpilledEntry(ctx context.Context, open Open) error {
 	if err != nil {
 		return fmt.Errorf("create: %w", err)
 	}
-	const spilledSeq = createdHead + 1
-	body, _ := json.Marshal(map[string]any{"seq": spilledSeq, "writer": "a", "body": strings.Repeat("row,paid,41.20\n", spilledRows)})
-	spilled := record.Entry{Seq: spilledSeq, Kind: gotato.EventKindToolResultSpilled, Layer: record.LayerLog, At: time.Date(2026, 10, 17, 0, 0, 4, 0, time.UTC), Data: body}
-	after := fact(spilledSeq+1, "a")
+	body, _ := json.Marshal(map[string]any{"seq": 4, "writer": "a", "body": strings.Repeat("row,paid,41.20\n", 70000)})
+	spilled := record.Entry{Seq: 4, Kind: gotato.EventKindToolResultSpilled, Layer: record.LayerLog, At: time.Date(2026, 10, 17, 0, 0, 4, 0, time.UTC), Data: body}
+	after := fact(5, "a")
 	more := []record.Entry{spilled, after}
-	if err := store.Append(ctx, "r1", createdHead, more, header("r1", spilledSeq+1, "2026-10-17T00:00:05.000Z")); err != nil {
+	if err := store.Append(ctx, "r1", 3, more, header("r1", 5, "2026-10-17T00:00:05.000Z")); err != nil {
 		return fmt.Errorf("append: %w", err)
 	}
-	got, err := open().Log(ctx, "r1", createdHead, 0)
+	got, err := open().Log(ctx, "r1", 3, 0)
 	if err != nil {
 		return failf("Log after 3: %w", err)
 	}
@@ -151,17 +138,8 @@ func checkSpilledEntry(ctx context.Context, open Open) error {
 // segment_closed Entry after the Checkpoint is an ordinary fact.
 func checkSegments(ctx context.Context, open Open) error {
 	store := open()
-	const (
-		firstSegment = 2
-		firstFact    = 3
-		firstHead    = 4
-		laterSegment = firstHead + 1
-		compactionAt = firstHead + 2
-		lastSegment  = firstHead + 3
-		laterHead    = firstHead + 4
-	)
-	first := []record.Entry{checkpoint(1, "a"), segment(firstSegment, "a"), fact(firstFact, "a"), logEntry(firstHead, "a")}
-	if err := store.Create(ctx, "r1", first, header("r1", firstHead, "2026-10-17T00:00:04.000Z")); err != nil {
+	first := []record.Entry{checkpoint(1, "a"), segment(2, "a"), fact(3, "a"), logEntry(4, "a")}
+	if err := store.Create(ctx, "r1", first, header("r1", 4, "2026-10-17T00:00:04.000Z")); err != nil {
 		return fmt.Errorf("create: %w", err)
 	}
 	loaded, err := open().Load(ctx, "r1")
@@ -174,8 +152,8 @@ func checkSegments(ctx context.Context, open Open) error {
 	if err := sameEntries("Load from the first Checkpoint", loaded.Entries, []record.Entry{first[0], first[1], first[2]}, ruleSegments); err != nil {
 		return err
 	}
-	more := []record.Entry{segment(laterSegment, "a"), compaction(compactionAt, "a"), segment(lastSegment, "a"), fact(laterHead, "a")}
-	if err := store.Append(ctx, "r1", firstHead, more, header("r1", laterHead, "2026-10-17T00:00:08.000Z")); err != nil {
+	more := []record.Entry{segment(5, "a"), compaction(6, "a"), segment(7, "a"), fact(8, "a")}
+	if err := store.Append(ctx, "r1", 4, more, header("r1", 8, "2026-10-17T00:00:08.000Z")); err != nil {
 		return fmt.Errorf("append: %w", err)
 	}
 	loaded, err = open().Load(ctx, "r1")
@@ -194,8 +172,6 @@ func checkSegments(ctx context.Context, open Open) error {
 // position, comes from another, as one that reads in two steps does, fails.
 func checkLoadRacingAppends(ctx context.Context, open Open) error {
 	const writes = 120
-	// firstAppend is the position of the first write after the Checkpoint.
-	const firstAppend = 2
 	if err := open().Create(ctx, "r1", []record.Entry{checkpoint(1, "w")}, header("r1", 1, "2026-10-17T00:00:00.000Z")); err != nil {
 		return fmt.Errorf("create: %w", err)
 	}
@@ -221,9 +197,9 @@ func checkLoadRacingAppends(ctx context.Context, open Open) error {
 	}
 	writer := open()
 	var writeErr error
-	for seq := uint64(firstAppend); seq <= writes && writeErr == nil; seq++ {
+	for seq := uint64(2); seq <= writes && writeErr == nil; seq++ {
 		writeErr = writer.Append(ctx, "r1", seq-1, []record.Entry{fact(seq, "w")}, header("r1", seq, "2026-10-17T00:00:00.000Z"))
-		time.Sleep(writePause)
+		time.Sleep(50 * time.Microsecond)
 	}
 	close(done)
 	wg.Wait()

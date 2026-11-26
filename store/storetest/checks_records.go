@@ -26,7 +26,7 @@ func checkDelete(ctx context.Context, open Open) error {
 	if _, err := store.Log(ctx, "r1", 0, 0); !errors.Is(err, record.ErrNotFound) {
 		return failf("Log after Delete returned %v, want ErrNotFound: Delete must remove the whole Record", err)
 	}
-	if err := store.Append(ctx, "r1", createdHead, []record.Entry{fact(appendedFact, "a")}, header("r1", appendedFact, "")); !errors.Is(err, record.ErrNotFound) {
+	if err := store.Append(ctx, "r1", 3, []record.Entry{fact(4, "a")}, header("r1", 4, "")); !errors.Is(err, record.ErrNotFound) {
 		return failf("Append after Delete returned %v, want ErrNotFound", err)
 	}
 	if err := store.Delete(ctx, "r1"); !errors.Is(err, record.ErrNotFound) {
@@ -48,7 +48,7 @@ func checkInvalidID(ctx context.Context, open Open) error {
 		_, logErr := st.Log(ctx, id, 0, 0)
 		calls := []error{
 			st.Create(ctx, id, []record.Entry{checkpoint(1, "a")}, header(id, 1, "")),
-			st.Append(ctx, id, 1, []record.Entry{fact(secondEntry, "a")}, header(id, secondEntry, "")),
+			st.Append(ctx, id, 1, []record.Entry{fact(2, "a")}, header(id, 2, "")),
 			loadErr,
 			logErr,
 			st.Delete(ctx, id),
@@ -122,7 +122,7 @@ func checkUnknown(ctx context.Context, open Open) error {
 	if _, err := store.Log(ctx, "missing", 0, 0); !errors.Is(err, record.ErrNotFound) {
 		return failf("Log of an unknown ID returned %v, want ErrNotFound", err)
 	}
-	if err := store.Append(ctx, "missing", 1, []record.Entry{fact(secondEntry, "a")}, header("missing", secondEntry, "")); !errors.Is(err, record.ErrNotFound) {
+	if err := store.Append(ctx, "missing", 1, []record.Entry{fact(2, "a")}, header("missing", 2, "")); !errors.Is(err, record.ErrNotFound) {
 		return failf("Append to an unknown ID returned %v, want ErrNotFound", err)
 	}
 	return nil
@@ -135,7 +135,7 @@ func checkCanceled(ctx context.Context, open Open) error {
 	}
 	canceled, cancel := context.WithCancel(ctx)
 	cancel()
-	if err := store.Append(canceled, "r1", createdHead, []record.Entry{fact(appendedFact, "a")}, header("r1", appendedFact, "")); err == nil {
+	if err := store.Append(canceled, "r1", 3, []record.Entry{fact(4, "a")}, header("r1", 4, "")); err == nil {
 		return failf("Append with a canceled context succeeded, want an error: every call must honor ctx")
 	}
 	if _, err := store.Load(canceled, "r1"); err == nil {

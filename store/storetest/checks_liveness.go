@@ -35,23 +35,12 @@ func checkLiveness(ctx context.Context, open OpenLiveness, _ livenessConfig) err
 	return nil
 }
 
-const (
-	// expiryTTL is the ttl of the row that checkExpiry lets run out.
-	expiryTTL = 50 * time.Millisecond
-	// expiryWait is how long checkExpiry waits: past expiryTTL.
-	expiryWait = 120 * time.Millisecond
-	// renewTTL is the ttl of the first Beat of checkBeatRenews, which the second Beat must outlive.
-	renewTTL = 80 * time.Millisecond
-	// renewWait is how long checkBeatRenews waits: past renewTTL.
-	renewWait = 160 * time.Millisecond
-)
-
 func checkExpiry(ctx context.Context, open OpenLiveness, config livenessConfig) error {
 	st := open()
-	if err := st.Beat(ctx, store.InstanceRow{ID: "instance-b"}, expiryTTL); err != nil {
+	if err := st.Beat(ctx, store.InstanceRow{ID: "instance-b"}, 50*time.Millisecond); err != nil {
 		return fmt.Errorf("beat: %w", err)
 	}
-	config.wait(expiryWait)
+	config.wait(120 * time.Millisecond)
 	if state, err := open().Instance(ctx, "instance-b"); err != nil || state.Alive {
 		return failf("Instance after its ttl returned %+v, %v, want not alive: a row expires by the store's clock", state, err)
 	}
@@ -93,13 +82,13 @@ func checkEndedRemoved(ctx context.Context, open OpenLiveness, _ livenessConfig)
 // whole row: the Draining flag and the Address are the last Beat's.
 func checkBeatRenews(ctx context.Context, open OpenLiveness, config livenessConfig) error {
 	st := open()
-	if err := st.Beat(ctx, store.InstanceRow{ID: "instance-d", Address: "http://old.example:1"}, renewTTL); err != nil {
+	if err := st.Beat(ctx, store.InstanceRow{ID: "instance-d", Address: "http://old.example:1"}, 80*time.Millisecond); err != nil {
 		return fmt.Errorf("beat: %w", err)
 	}
 	if err := st.Beat(ctx, store.InstanceRow{ID: "instance-d", Draining: true, Address: "http://new.example:2"}, time.Hour); err != nil {
 		return failf("a second Beat on a live row returned %v, want nil: Beat renews the row", err)
 	}
-	config.wait(renewWait)
+	config.wait(160 * time.Millisecond)
 	state, err := open().Instance(ctx, "instance-d")
 	if err != nil || !state.Alive {
 		return failf("Instance after a Beat that renewed the row for an hour returned %+v, %v, want alive: Beat renews the row until ttl from now, not from the first Beat", state, err)

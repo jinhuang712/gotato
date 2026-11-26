@@ -29,9 +29,9 @@ func checkEmptyEpoch(ctx context.Context, open Open) error {
 	if err := store.Create(ctx, "r1", []record.Entry{checkpoint(1, "a")}, header("r1", 1, "")); err != nil {
 		return fmt.Errorf("create: %w", err)
 	}
-	none = header("r1", secondEntry, "")
+	none = header("r1", 2, "")
 	none.Epoch = ""
-	if err := store.Append(ctx, "r1", 1, []record.Entry{fact(secondEntry, "a")}, none); !gotato.IsCode(err, gotato.CodeInvalidArgument) {
+	if err := store.Append(ctx, "r1", 1, []record.Entry{fact(2, "a")}, none); !gotato.IsCode(err, gotato.CodeInvalidArgument) {
 		return failf("Append with an empty Epoch returned %v, want invalid_argument: Header.Epoch is required", err)
 	}
 	log, err := store.Log(ctx, "r1", 0, 0)
@@ -63,7 +63,7 @@ func checkFieldsKept(ctx context.Context, open Open) error {
 // filled but Seq, Kind, Layer and Data.
 func filledEntries() ([]record.Entry, error) {
 	data := []byte(`{"filled":true}`)
-	entries := []record.Entry{filledEntry(1, gotato.EventKindSessionCreated, data), filledEntry(secondEntry, gotato.EventKindMessageCommitted, data)}
+	entries := []record.Entry{filledEntry(1, gotato.EventKindSessionCreated, data), filledEntry(2, gotato.EventKindMessageCommitted, data)}
 	for i := range entries {
 		entry := &entries[i]
 		seq, kind := entry.Seq, entry.Kind
@@ -170,13 +170,6 @@ func fillAll(v reflect.Value, path string, keep map[string]bool) error {
 
 var timeType = reflect.TypeFor[time.Time]()
 
-const (
-	// fillOffset is added to the counter of an integer field, so the value is no small number a default could equal.
-	fillOffset = 100
-	// fillFraction is added to the counter of a float field, so the value is no whole number.
-	fillFraction = 0.5
-)
-
 func fill(v reflect.Value, path string, keep map[string]bool, counter *int) error {
 	*counter++
 	n := *counter
@@ -208,11 +201,11 @@ func fillScalar(v reflect.Value, path string, n int) bool {
 	case reflect.Bool:
 		v.SetBool(true)
 	case reflect.Int, reflect.Int8, reflect.Int16, reflect.Int32, reflect.Int64:
-		v.SetInt(int64(n) + fillOffset)
+		v.SetInt(int64(n) + 100)
 	case reflect.Uint, reflect.Uint8, reflect.Uint16, reflect.Uint32, reflect.Uint64:
-		v.SetUint(uint64(n) + fillOffset)
+		v.SetUint(uint64(n) + 100)
 	case reflect.Float32, reflect.Float64:
-		v.SetFloat(float64(n) + fillFraction)
+		v.SetFloat(float64(n) + 0.5)
 	default:
 		return false
 	}
