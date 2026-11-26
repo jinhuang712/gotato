@@ -23,6 +23,10 @@ import (
 	"github.com/jinhuang712/gotato/store"
 )
 
+// beatsPerTTL is how many times the Row renews its row in one TTL; a renewal
+// is bounded by the time between two.
+const beatsPerTTL = 3
+
 // ErrLapsed refuses a write once this Instance cannot show that its row is
 // alive: another Instance may hold its Sessions by now.
 var ErrLapsed = lostRow("service: this instance's liveness row may have expired")
@@ -179,14 +183,14 @@ func (r *Row) Live(ctx context.Context) error {
 		return nil
 	}
 	r.started = true
-	r.ticker = clock.Every(r.cfg.Clock, r.cfg.TTL/3, r.tick)
+	r.ticker = clock.Every(r.cfg.Clock, r.cfg.TTL/beatsPerTTL, r.tick)
 	return nil
 }
 
 // tick is one beat of the renewals: the row, then whatever the Instance does
 // each beat.
 func (r *Row) tick() {
-	ctx, cancel := context.WithTimeout(context.Background(), r.cfg.TTL/3)
+	ctx, cancel := context.WithTimeout(context.Background(), r.cfg.TTL/beatsPerTTL)
 	_ = r.renew(ctx)
 	cancel()
 	if r.cfg.OnBeat != nil {
@@ -295,7 +299,7 @@ func (r *Row) MarkDraining(ctx context.Context) error {
 	if !started {
 		return nil
 	}
-	ctx, cancel := context.WithTimeout(ctx, r.cfg.TTL/3)
+	ctx, cancel := context.WithTimeout(ctx, r.cfg.TTL/beatsPerTTL)
 	defer cancel()
 	if err := r.renew(ctx); err != nil {
 		return fmt.Errorf("service: marking the liveness row draining: %w", err)
