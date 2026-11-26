@@ -568,7 +568,7 @@ func TestFencedWritePublishesSessionFenced(t *testing.T) {
 	if err := <-done; err == nil {
 		t.Fatal("the fenced Run succeeded")
 	}
-	if !fenced.Wait(5*time.Second, func(event gotato.Event) bool { return true }) {
+	if !fenced.Wait(5*time.Second, func(_ gotato.Event) bool { return true }) {
 		t.Fatal("no session_fenced was published to instance-a's Instance stream")
 	}
 	event, ok := fenced.Events()[0].(host.SessionFenced)

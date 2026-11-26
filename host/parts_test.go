@@ -22,7 +22,7 @@ func (keepLast) Cut(stretch []gotato.Message, _ record.CutInfo) int { return len
 // listBuilder is a user's Builder: one line per Message, no refs.
 type listBuilder struct{}
 
-func (listBuilder) Build(closed []gotato.Message, info record.SegmentInfo) (gotato.Segment, error) {
+func (listBuilder) Build(closed []gotato.Message, _ record.SegmentInfo) (gotato.Segment, error) {
 	var lines []string
 	for _, m := range closed {
 		lines = append(lines, string(m.Role)+": "+gotato.TextOf(m))

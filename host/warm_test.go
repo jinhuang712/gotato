@@ -149,7 +149,7 @@ func TestStaleWarmCopyIsReloaded(t *testing.T) {
 		t.Run(kind, func(t *testing.T) {
 			open := sharedStores(t, kind)
 			aStore := &tallyStore{parts: partsOf(open())}
-			model := testkit.NewFuncModel(func(_ context.Context, request gotato.ModelRequest) (testkit.Script, error) {
+			model := testkit.NewFuncModel(func(_ context.Context, _ gotato.ModelRequest) (testkit.Script, error) {
 				return testkit.Text("ok"), nil
 			})
 			a := warmInstance(t, asStore(aStore), "a", newFakeClock(), model, host.WarmPolicy{})

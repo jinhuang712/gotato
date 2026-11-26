@@ -171,7 +171,7 @@ type blockingGetStore struct {
 	started chan struct{}
 }
 
-func (s *blockingGetStore) Load(ctx context.Context, id string) (record.Loaded, error) {
+func (s *blockingGetStore) Load(ctx context.Context, _ string) (record.Loaded, error) {
 	s.once.Do(func() { close(s.started) })
 	<-ctx.Done()
 	return record.Loaded{}, ctx.Err()
