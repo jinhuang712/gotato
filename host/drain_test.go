@@ -33,26 +33,7 @@ func TestDrainCommitsRunsAndReleasesClaims(t *testing.T) {
 			b := instanceRunner(t, open(), "instance-b", testkit.EchoModel{}, host.Heartbeat{TTL: steadyLiveness.TTL, Wait: 100 * time.Millisecond})
 
 			const runs = 3
-			ids := make([]string, runs)
-			results := make([]chan error, runs)
-			for i := range runs {
-				s, err := a.CreateSession(ctx, host.CreateSessionRequest{Agent: "echo"})
-				if err != nil {
-					t.Fatal(err)
-				}
-				ids[i] = s.ID
-				results[i] = make(chan error, 1)
-				go func() {
-					result, err := a.Run(ctx, host.RunRequest{SessionID: s.ID, Prompt: fmt.Sprintf("p%d", i)})
-					if err == nil && (result.Result.Status != gotato.RunStatusCompleted || result.Reconnect != nil) {
-						err = fmt.Errorf("result = %+v, want completed and no reconnect", result)
-					}
-					results[i] <- err
-				}()
-			}
-			for range runs {
-				<-model.started
-			}
+			ids, results := startGatedRuns(t, ctx, a, model, runs)
 
 			drained := make(chan error, 1)
 			drainCtx, cancel := context.WithTimeout(ctx, 10*time.Second)
@@ -109,20 +90,7 @@ func TestDrainCommitsRunsAndReleasesClaims(t *testing.T) {
 			// Every Run is committed, and its Claim released, before the
 			// instance leaves: its row is still alive, yet another instance
 			// claims each Session without waiting.
-			for i, id := range ids {
-				view, err := store.View(ctx, open().Records, id)
-				if err != nil {
-					t.Fatal(err)
-				}
-				messages := view.Messages()
-				if len(messages) != 2 || gotato.TextOf(messages[1]) != fmt.Sprintf("done: p%d", i) {
-					t.Fatalf("Session %d = %d messages, want the prompt and its reply", i, len(messages))
-				}
-				if runs := view.Runs(); len(runs) != 1 || runs[0].Status != gotato.RunStatusCompleted {
-					t.Fatalf("Session %d runs = %+v, want one completed", i, runs)
-				}
-				checkReleased(t, open(), id, "instance-a")
-			}
+			checkCommittedAndReleased(t, ctx, open, ids)
 			if state, err := open().Liveness.Instance(ctx, a.Instance()); err != nil || !state.Alive {
 				t.Fatalf("instance-a after its drain = %+v, %v; want still alive", state, err)
 			}
@@ -140,6 +108,54 @@ func TestDrainCommitsRunsAndReleasesClaims(t *testing.T) {
 				t.Fatalf("instance-a after Close = %+v, %v; want not alive", state, err)
 			}
 		})
+	}
+}
+
+// startGatedRuns creates runs Sessions on a and starts a Run on each, held
+// at model's gate, and returns their IDs and the channels of their errors once
+// every Run has started.
+func startGatedRuns(t *testing.T, ctx context.Context, a *host.Runner, model *gatedEcho, runs int) ([]string, []chan error) {
+	t.Helper()
+	ids := make([]string, runs)
+	results := make([]chan error, runs)
+	for i := range runs {
+		s, err := a.CreateSession(ctx, host.CreateSessionRequest{Agent: "echo"})
+		if err != nil {
+			t.Fatal(err)
+		}
+		ids[i] = s.ID
+		results[i] = make(chan error, 1)
+		go func() {
+			result, err := a.Run(ctx, host.RunRequest{SessionID: s.ID, Prompt: fmt.Sprintf("p%d", i)})
+			if err == nil && (result.Result.Status != gotato.RunStatusCompleted || result.Reconnect != nil) {
+				err = fmt.Errorf("result = %+v, want completed and no reconnect", result)
+			}
+			results[i] <- err
+		}()
+	}
+	for range runs {
+		<-model.started
+	}
+	return ids, results
+}
+
+// checkCommittedAndReleased checks that the Session of each of ids holds its
+// prompt, its reply and one completed Run, and that instance-a released it.
+func checkCommittedAndReleased(t *testing.T, ctx context.Context, open func() store.Store, ids []string) {
+	t.Helper()
+	for i, id := range ids {
+		view, err := store.View(ctx, open().Records, id)
+		if err != nil {
+			t.Fatal(err)
+		}
+		messages := view.Messages()
+		if len(messages) != 2 || gotato.TextOf(messages[1]) != fmt.Sprintf("done: p%d", i) {
+			t.Fatalf("Session %d = %d messages, want the prompt and its reply", i, len(messages))
+		}
+		if runs := view.Runs(); len(runs) != 1 || runs[0].Status != gotato.RunStatusCompleted {
+			t.Fatalf("Session %d runs = %+v, want one completed", i, runs)
+		}
+		checkReleased(t, open(), id, "instance-a")
 	}
 }
 
