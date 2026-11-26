@@ -217,7 +217,7 @@ type stuckSearcher struct {
 	once             sync.Once
 }
 
-func (s *stuckSearcher) Search(_ context.Context, _ string, tools []ToolSpec) ([]string, error) {
+func (s *stuckSearcher) Search(_ context.Context, _ string, _ []ToolSpec) ([]string, error) {
 	first := false
 	s.once.Do(func() { first = true })
 	if first {
