@@ -140,7 +140,7 @@ func (a *Session) serve(cmd sessionCommand) (closing bool) {
 		}
 	}
 	if err != nil {
-		a.reply(cmd, promptResponse{err: err}, false)
+		a.reply(cmd, promptResponse{err: err})
 		return false
 	}
 	a.life.setStatus(SessionStatusBusy)
@@ -150,18 +150,28 @@ func (a *Session) serve(cmd sessionCommand) (closing bool) {
 	}
 	result, err := a.executeRun(cmd.ctx, prompt)
 	closing = a.life.closeRequested.Load()
-	a.reply(cmd, promptResponse{result: result, err: err}, !closing)
+	resp := promptResponse{result: result, err: err}
+	if closing {
+		a.reply(cmd, resp)
+	} else {
+		a.replyIdle(cmd, resp)
+	}
 	return closing
 }
 
-// reply gives the admission token back, records Idle when idle is set, and
-// only then delivers resp to the caller.
+// reply gives the admission token back, and only then delivers resp to the
+// caller.
 // [CONCURRENCY] the caller that receives resp must be able to start its next operation at once, not find this command's token held and be told Busy.
-func (a *Session) reply(cmd sessionCommand, resp promptResponse, idle bool) {
+func (a *Session) reply(cmd sessionCommand, resp promptResponse) {
 	<-a.life.admission
-	if idle {
-		a.life.setStatus(SessionStatusIdle)
-	}
+	cmd.result <- resp
+}
+
+// replyIdle is reply for a Session that stays open: it records Idle once the
+// admission token is back, before it delivers resp.
+func (a *Session) replyIdle(cmd sessionCommand, resp promptResponse) {
+	<-a.life.admission
+	a.life.setStatus(SessionStatusIdle)
 	cmd.result <- resp
 }
 
