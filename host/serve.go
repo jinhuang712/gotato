@@ -72,14 +72,22 @@ func (r *Runner) serve(ctx, runCtx context.Context, request RunRequest, stream *
 
 	// One Run per Session at a time. Every Session mutation goes through
 	// withSessionLock; the admission policy decides the busy behavior.
-	// A Run that follows another waits for the Session whatever the busy policy.
-	lockErr := r.sessionLock(runCtx, st.sessionID, follow != nil || handle.wait, func() error {
+	lockErr := r.sessionLock(runCtx, st.sessionID, st.queue(), func() error {
 		return st.serveLocked(ctx, runCtx)
 	})
 	if lockErr != nil {
 		return st.settleLockErr(ctx, runCtx, lockErr)
 	}
 	return st.out, st.runErr
+}
+
+// queue is the queue policy the Run takes the Session lock under.
+func (st *runState) queue() QueuePolicy {
+	// A Run that follows another waits for the Session whatever the busy policy.
+	if st.follow != nil || st.handle.wait {
+		return QueuePolicyWait
+	}
+	return st.r.bounds.Queue
 }
 
 // endStream ends the Run's stream, when it has one. What is queued is still

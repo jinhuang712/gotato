@@ -120,7 +120,7 @@ func (r *Runner) noticeBetweenRuns(ctx context.Context, request NoticeRequest) (
 	var number uint64
 	message := gotato.NewNotice(gotato.NoticeSourceService, request.Kind, request.Text)
 	message.ID = newMessageID()
-	err := r.sessionLock(ctx, request.SessionID, true, func() error {
+	err := r.sessionLock(ctx, request.SessionID, QueuePolicyWait, func() error {
 		var err error
 		number, err = r.writeNoticeLocked(ctx, request, message.ID)
 		return err

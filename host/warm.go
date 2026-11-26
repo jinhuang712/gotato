@@ -202,7 +202,7 @@ func (r *Runner) idleCompact(entry *warm.Entry, why gotato.CompactionWhy) {
 	}
 	defer end()
 	// Never wait for the Session: whoever holds it is using it.
-	if err := r.locks.acquire(ctx, entry.ID, false, nil); err != nil {
+	if err := r.locks.tryAcquire(entry.ID); err != nil {
 		return
 	}
 	defer r.locks.release(entry.ID)
