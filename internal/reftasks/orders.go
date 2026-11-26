@@ -84,7 +84,7 @@ func ConversationTask() Task {
 		Tools: []gotato.Tool{OrdersLookup()},
 		Model: ordersModel{},
 		Check: func(answers []string) error {
-			if len(answers) != 10 {
+			if len(answers) != conversationTurns {
 				return fmt.Errorf("got %d answers, want 10", len(answers))
 			}
 			last := answers[len(answers)-1]
@@ -132,13 +132,20 @@ func HistoryTask(size int) Task {
 	}
 }
 
+const (
+	// conversationTurns is how many prompts the conversation task has.
+	conversationTurns = 10
+	// firstHistoryOrder is the number of the first order of OrderHistory.
+	firstHistoryOrder = 1000
+)
+
 // OrderHistory returns size committed Messages of earlier lookups: a
 // question, the tool call, its result and the answer, repeated, ending with
 // an answer. An odd size is rounded down.
 func OrderHistory(size int) []gotato.Message {
 	messages := make([]gotato.Message, 0, size)
 	for n := 0; len(messages)+2 <= size; n++ {
-		id := strconv.Itoa(1000 + n)
+		id := strconv.Itoa(firstHistoryOrder + n)
 		question := gotato.UserMessage("Where is order " + id + "? I ordered it a while ago and would like an update.")
 		if len(messages)+4 > size {
 			answer := gotato.AssistantMessage("I can look up order " + id + " for you as soon as you confirm the number.")
