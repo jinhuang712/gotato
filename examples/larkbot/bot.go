@@ -29,6 +29,16 @@ const (
 	metaCard   = "lark.card"   // the id of the streaming card of the latest Run the bot started (the card's own id)
 )
 
+// The bot's forward client and the sizes it keeps.
+const (
+	forwardTimeout     = 10 * time.Minute // a forward can start a Run and wait for it
+	forwardDialTimeout = 3 * time.Second
+	forwardIdleConns   = 4    // idle connections kept per writer
+	seenCapacity       = 1024 // how many message ids the bot remembers, to drop a duplicate
+	forwardErrBytes    = 512  // how much of a writer's refusal goes into the error
+	shortRunes         = 40   // the longest text a one-line log shows
+)
+
 // target is where a Session's reply goes.
 type target struct{ chatID, messageID string }
 
@@ -136,9 +146,9 @@ type botConfig struct {
 
 func newBot(runner *host.Runner, records store.Records, send sender, cfg botConfig) *bot {
 	return &bot{runner: runner, records: records, send: send, agent: cfg.agent, model: cfg.model, label: cfg.label, log: cfg.log,
-		client: &http.Client{Timeout: 10 * time.Minute, // a forward can start a Run and wait for it
-			Transport: &http.Transport{DialContext: (&net.Dialer{Timeout: 3 * time.Second}).DialContext, MaxIdleConnsPerHost: 4}},
-		targets: map[string]target{}, replies: map[gotato.RunID]string{}, cards: map[string]*liveCard{}, streamEvery: defaultStreamEvery, seen: newSeenSet(1024),
+		client: &http.Client{Timeout: forwardTimeout,
+			Transport: &http.Transport{DialContext: (&net.Dialer{Timeout: forwardDialTimeout}).DialContext, MaxIdleConnsPerHost: forwardIdleConns}},
+		targets: map[string]target{}, replies: map[gotato.RunID]string{}, cards: map[string]*liveCard{}, streamEvery: defaultStreamEvery, seen: newSeenSet(seenCapacity),
 		gates: map[string]*gate{}, retry: defaultRetry(defaultRetryBudget)}
 }
 
@@ -148,8 +158,8 @@ func (b *bot) card(session string) cardInfo {
 
 // short cuts text for a one-line log.
 func short(s string) string {
-	if r := []rune(s); len(r) > 40 {
-		return string(r[:40]) + "..."
+	if r := []rune(s); len(r) > shortRunes {
+		return string(r[:shortRunes]) + "..."
 	}
 	return s
 }
@@ -308,7 +318,7 @@ func (b *bot) forward(ctx context.Context, addr, sessionID, text string) error {
 	if resp.StatusCode == http.StatusOK || resp.StatusCode == http.StatusAccepted {
 		return nil
 	}
-	msg, _ := io.ReadAll(io.LimitReader(resp.Body, 512))
+	msg, _ := io.ReadAll(io.LimitReader(resp.Body, forwardErrBytes))
 	return &deliveryError{err: fmt.Errorf("writer answered %d: %s", resp.StatusCode, bytes.TrimSpace(msg)),
 		notRun: resp.Header.Get(httpapi.NotRunHeader) == "true"}
 }
