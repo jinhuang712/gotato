@@ -239,12 +239,12 @@ func (e ContextEstimate) Total() int {
 func EstimateContext(built ModelContext, request ModelRequest) ContextEstimate {
 	tools, _ := json.Marshal(request.Tools)
 	est := ContextEstimate{
-		System:   (len(request.SystemInstructions) + 3) / 4,
-		ToolDefs: (len(tools) + 3) / 4,
+		System:   estimatedTokens(len(request.SystemInstructions)),
+		ToolDefs: estimatedTokens(len(tools)),
 	}
 	// The array's two brackets count with the history; each Message counts
 	// its own comma.
-	segments, history, results := 0, 2, 0
+	segments, history, results := 0, jsonBracketsBytes, 0
 	for _, message := range built.Messages {
 		sent := ForModel([]Message{message})
 		if len(sent) == 0 {
@@ -261,8 +261,16 @@ func EstimateContext(built ModelContext, request ModelRequest) ContextEstimate {
 			history += size
 		}
 	}
-	est.Segments, est.History, est.ToolResults = (segments+3)/4, (history+3)/4, (results+3)/4
+	est.Segments, est.History, est.ToolResults = estimatedTokens(segments), estimatedTokens(history), estimatedTokens(results)
 	return est
+}
+
+// bytesPerToken is the bytes EstimateContext counts as one token.
+const bytesPerToken = 4
+
+// estimatedTokens is the tokens EstimateContext counts for n bytes, rounded up.
+func estimatedTokens(n int) int {
+	return (n + bytesPerToken - 1) / bytesPerToken
 }
 
 // isSegmentMessage reports whether a Message renders a Segment: it holds a
