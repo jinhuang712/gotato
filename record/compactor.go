@@ -232,11 +232,16 @@ func checkRefs(built gotato.Segment, closed []gotato.Message) error {
 	}
 	msgRefs, resultRefs := segmentRefs(built)
 	for _, name := range append(msgRefs, resultRefs...) {
-		parsed, ok := ref.Parse(name)
-		known := ok && (parsed.Kind == ref.KindMessage && messages[parsed.ID] || parsed.Kind == ref.KindResult && calls[parsed.ID])
-		if !known {
+		if !knownRef(name, messages, calls) {
 			return fmt.Errorf("%w: the Segment carries the ref %s, which names nothing it closed", ErrBadPart, name)
 		}
 	}
 	return nil
+}
+
+// knownRef says the ref name names a Message among messages or a Tool call
+// among calls.
+func knownRef(name string, messages, calls map[string]bool) bool {
+	parsed, ok := ref.Parse(name)
+	return ok && (parsed.Kind == ref.KindMessage && messages[parsed.ID] || parsed.Kind == ref.KindResult && calls[parsed.ID])
 }
