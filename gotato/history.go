@@ -72,7 +72,7 @@ func (h *sessionHistory) commit(limits CoreLimits, message Message, enforce bool
 	if length > 0 {
 		candidate++
 	}
-	if enforce && limitExceededUint64(limits.MaxTranscriptBytes, candidate+2) {
+	if enforce && limitExceededUint64(limits.MaxTranscriptBytes, candidate+jsonBracketsBytes) {
 		return runtimeError(CodeLimitExceeded, "commitMessage", "maximum transcript bytes exceeded", nil)
 	}
 	if err := h.appendGuarded(message); err != nil {
@@ -121,7 +121,7 @@ func (h *sessionHistory) measure() error {
 		return runtimeError(CodeInternalInvariant, "Run", "cannot encode transcript", err)
 	}
 	// Exclude the surrounding brackets; commit adds them back.
-	h.size = uint64(len(encoded)) - 2
+	h.size = uint64(len(encoded)) - jsonBracketsBytes
 	return nil
 }
 
