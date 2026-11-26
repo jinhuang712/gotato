@@ -61,9 +61,9 @@ func (g *Server) answer(p *parsed, text string, q *quirks, tokens int) *plan {
 	if q.has("reasoning") {
 		pl.reasoning = "thinking about: " + text
 	}
-	pl.output = len(pl.text)/4 + len(pl.reasoning)/4 + 1
+	pl.output = len(pl.text)/bytesPerToken + len(pl.reasoning)/bytesPerToken + 1
 	if pl.call != nil {
-		pl.output += len(pl.call.args)/4 + 1
+		pl.output += len(pl.call.args)/bytesPerToken + 1
 	}
 	return pl
 }
