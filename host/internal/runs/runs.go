@@ -85,28 +85,46 @@ func (t *Table[H]) Admit(h H, id string, mem Memory, decide func(Counts) (releas
 	if t.draining {
 		return nil, nil, ErrDraining
 	}
-	if limit := mem.MaxSessions; limit > 0 {
-		has := mem.Cache.Get(id) != nil
-		evictable := mem.Cache.Victim(t.busy)
-		if (id == "" || (len(t.handles[id]) == 0 && !has)) && t.liveLocked(mem.Cache) >= limit {
-			if evictable == nil {
-				return nil, nil, ErrOverloaded
-			}
-			return evictable, nil, nil
-		}
+	if victim, err = t.boundLocked(id, mem); victim != nil || err != nil {
+		return victim, nil, err
 	}
 	if decide != nil {
-		counts := Counts{ActiveRuns: t.inflight, ActiveSessions: t.activeLocked()}
-		if mem.Cache != nil {
-			counts.WarmSessions = mem.Cache.Len()
-		}
-		if release, err = decide(counts); err != nil {
+		if release, err = decide(t.countsLocked(mem.Cache)); err != nil {
 			return nil, nil, err
 		}
 	}
 	t.inflight++
 	t.handles[id] = append(t.handles[id], h)
 	return nil, release, nil
+}
+
+// boundLocked applies the memory bound to a Run on session id: it returns the
+// warm copy to evict, or ErrOverloaded when none can be, or neither when the
+// Run fits. The caller holds the lock.
+func (t *Table[H]) boundLocked(id string, mem Memory) (*warm.Entry, error) {
+	limit := mem.MaxSessions
+	if limit <= 0 {
+		return nil, nil
+	}
+	has := mem.Cache.Get(id) != nil
+	evictable := mem.Cache.Victim(t.busy)
+	if (id == "" || (len(t.handles[id]) == 0 && !has)) && t.liveLocked(mem.Cache) >= limit {
+		if evictable == nil {
+			return nil, ErrOverloaded
+		}
+		return evictable, nil
+	}
+	return nil, nil
+}
+
+// countsLocked is the Instance's counts, as the Admitter is given them. The
+// caller holds the lock.
+func (t *Table[H]) countsLocked(cache *warm.Cache) Counts {
+	counts := Counts{ActiveRuns: t.inflight, ActiveSessions: t.activeLocked()}
+	if cache != nil {
+		counts.WarmSessions = cache.Len()
+	}
+	return counts
 }
 
 // busy says a Session has an admitted Run. The caller holds the lock.
