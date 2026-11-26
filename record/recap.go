@@ -281,28 +281,36 @@ replaced. Keep what is still open. Do not call tools. Do not address the user.
 Start with the first heading.
 `, label, recapHeadingBlock, text.MergeRecapAskPrefix)
 	for _, segment := range request.Segments {
-		name := "segment " + rangeLabel(segment.Numbers())
-		if len(segment.Merged) > 0 {
-			name += ", merged earlier, the far past"
-		}
-		if !segment.From.IsZero() {
-			name += ", " + segment.From.In(loc).Format("2006-01-02 15:04")
-			if !segment.To.IsZero() {
-				name += " to " + segment.To.In(loc).Format("2006-01-02 15:04")
-			}
-		}
-		recap := strings.TrimSpace(segment.Recap)
-		if recap == "" {
-			name += ", no recap: its conversation and tool calls"
-			recap = mergeDigest([]gotato.Segment{segment}, loc)
-		} else if refs := digestRefs(segment, ""); refs != "" {
-			// The refs of what the recap stands for, so the model can keep them
-			// next to what it states.
-			recap += "\n" + strings.TrimSpace(refs)
-		}
+		name, recap := mergeRecapOf(segment, loc)
 		fmt.Fprintf(&b, "\n--- recap of %s ---\n%s\n--- end ---\n", name, recap)
 	}
 	return b.String()
+}
+
+// mergeRecapOf names a Segment for the ask of a merge and gives what stands
+// for it there: its Recap with its refs, or the digest of a Segment that has no
+// Recap.
+func mergeRecapOf(segment gotato.Segment, loc *time.Location) (name, recap string) {
+	name = "segment " + rangeLabel(segment.Numbers())
+	if len(segment.Merged) > 0 {
+		name += ", merged earlier, the far past"
+	}
+	if from, to := digestTimes(segment, loc); from != "" {
+		name += ", " + from
+		if to != "" {
+			name += " to " + to
+		}
+	}
+	recap = strings.TrimSpace(segment.Recap)
+	if recap == "" {
+		name += ", no recap: its conversation and tool calls"
+		recap = mergeDigest([]gotato.Segment{segment}, loc)
+	} else if refs := digestRefs(segment, ""); refs != "" {
+		// The refs of what the recap stands for, so the model can keep them
+		// next to what it states.
+		recap += "\n" + strings.TrimSpace(refs)
+	}
+	return name, recap
 }
 
 // ValidateRecap checks a Recap's text: it starts with one of the five
