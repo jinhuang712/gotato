@@ -33,31 +33,17 @@ type sessionTools struct {
 // goroutine loads a Tool when the Tool Result that lists it commits;
 // search_tools only reads it, from its own goroutine.
 type toolRegistry struct {
+	toolCatalog
 	rootTools   []toolEntry
 	sources     []ToolSource
 	sourceTools []toolEntry
-	sets        []*toolSetState
-	catalog     []catalogTool
-	byCatalog   map[string]*catalogTool
 	byQualified map[string]toolEntry
 	specs       []ToolSpec
-	// loaded are the qualified IDs of the loaded catalog Tools, in load order.
-	loaded []string
-	// parked are the loaded Tools of a ToolSet that is unavailable now. They
-	// are not offered, and they come back when the ToolSet does. Only a
-	// Transcript that declares no Loaded needs them; a Record remembers.
-	parked []string
 	// fresh is true until the first Run: NewSession just resolved every
 	// ToolSet, so that Run does not resolve them again.
 	fresh    bool
 	search   *searchTool
 	searcher ToolSearcher
-	filter   func(string) bool
-	// kept is the filter's answer for every catalog Tool ID, asked outside
-	// the locks when the catalog or the root surface is resolved (screen).
-	kept map[string]bool
-	// maxEffect hides every Tool above it; ToolEffectUnspecified means no cap.
-	maxEffect ToolEffect
 	// mu guards sets, loaded, kept, specs, and byQualified. The only updater
 	// is the holder of the Session's admission token: it asks the host
 	// (ToolSources, ToolSets, the filter) with no lock held, takes in what it
@@ -71,40 +57,24 @@ type toolRegistry struct {
 
 func newToolRegistry(ctx context.Context, cfg *sessionConfig, caps Capabilities) (*toolRegistry, error) {
 	registry := &toolRegistry{
-		sources:   cfg.toolSources,
-		maxEffect: cfg.maxEffect,
-		filter:    cfg.toolFilter,
-		searcher:  cfg.toolSearcher,
-		byCatalog: map[string]*catalogTool{},
+		toolCatalog: toolCatalog{
+			maxEffect: cfg.maxEffect,
+			filter:    cfg.toolFilter,
+			byCatalog: map[string]*catalogTool{},
+		},
+		sources:  cfg.toolSources,
+		searcher: cfg.toolSearcher,
 	}
 	if registry.searcher == nil {
 		registry.searcher = bm25Searcher{}
 	}
 	registry.search = &searchTool{registry: registry}
-	names := map[string]bool{}
-	for _, entry := range cfg.toolSets {
-		spec, err := toolSetSpec(entry.set)
-		if err != nil {
-			return nil, err
-		}
-		// Normalize before the uniqueness check so "files" and " files " are
-		// the same ToolSet and qualified Tool IDs never contain stray spaces.
-		spec.Name = strings.TrimSpace(spec.Name)
-		if spec.Name == "" {
-			return nil, runtimeError(CodeInvalidArgument, "ToolSet", "ToolSet name is empty", nil)
-		}
-		if strings.Contains(spec.Name, ".") {
-			return nil, runtimeError(CodeInvalidArgument, "ToolSet", "ToolSet name cannot contain a dot: "+spec.Name, nil)
-		}
-		if names[spec.Name] {
-			return nil, runtimeError(CodeInvalidArgument, "ToolSet", "duplicate ToolSet name: "+spec.Name, nil)
-		}
-		names[spec.Name] = true
-		registry.sets = append(registry.sets, &toolSetState{set: entry.set, spec: spec, mode: entry.mode})
+	var err error
+	if registry.sets, err = installedToolSets(cfg.toolSets); err != nil {
+		return nil, err
 	}
 	// The root surface is taken in once the ToolSets are named, so it cannot
 	// take one of their names.
-	var err error
 	if registry.rootTools, err = intake("WithTools", cfg.tools, nil, registry.rootName); err != nil {
 		return nil, err
 	}
@@ -182,76 +152,6 @@ func (r *toolRegistry) resolveAll(ctx context.Context) ([]setResult, error) {
 	return results, nil
 }
 
-// catalogIDs lists the qualified IDs of the catalog that results resolve, or
-// of the catalog as it is when results is nil. Only the updater calls it.
-func (r *toolRegistry) catalogIDs(results []setResult) []string {
-	if results == nil {
-		ids := make([]string, 0, len(r.catalog))
-		for i := range r.catalog {
-			ids = append(ids, r.catalog[i].id)
-		}
-		return ids
-	}
-	var ids []string
-	for _, res := range results {
-		for _, entry := range res.tools {
-			ids = append(ids, r.qualify(res.state.spec.Name, entry.spec.ID))
-		}
-	}
-	return ids
-}
-
-// screen asks the WithToolFilter keep about every ID, with no lock held. A
-// Session without a filter keeps every Tool, and screen returns nil.
-func (r *toolRegistry) screen(ids []string) (map[string]bool, error) {
-	if r.filter == nil {
-		return nil, nil
-	}
-	kept := make(map[string]bool, len(ids))
-	err := callHost("WithToolFilter", func() error {
-		for _, id := range ids {
-			kept[id] = r.filter(id)
-		}
-		return nil
-	})
-	// [FAILURE-CLASS] a filter that panics fails the Run, loudly, rather than change the Tool surface unseen.
-	if err != nil {
-		return nil, runtimeError(CodeExtensionFailure, "WithToolFilter", PublicText(err, "WithToolFilter failed"), err)
-	}
-	return kept, nil
-}
-
-// refused reports whether the filter switched the catalog Tool id off.
-func (r *toolRegistry) refused(id string) bool {
-	return r.filter != nil && !r.kept[id]
-}
-
-// install replaces the catalog with what results resolved. A qualified ID is
-// unique: intake refuses a ToolSet that repeats a Tool ID, and a ToolSet's
-// name holds no dot. The caller holds mu, or is constructing.
-func (r *toolRegistry) install(results []setResult) {
-	for _, res := range results {
-		res.state.resolved, res.state.failure = res.tools, res.err
-	}
-	r.catalog = r.catalog[:0:0]
-	r.byCatalog = map[string]*catalogTool{}
-	for _, state := range r.sets {
-		for _, resolved := range state.resolved {
-			id := r.qualify(state.spec.Name, resolved.spec.ID)
-			visible := cloneToolSpec(resolved.spec)
-			visible.ID = id
-			if visible.Name == "" {
-				visible.Name = resolved.spec.ID
-			}
-			r.catalog = append(r.catalog, catalogTool{id: id, tool: resolved.tool, spec: visible, set: state})
-		}
-	}
-	sort.SliceStable(r.catalog, func(i, j int) bool { return r.catalog[i].id < r.catalog[j].id })
-	for i := range r.catalog {
-		r.byCatalog[r.catalog[i].id] = &r.catalog[i]
-	}
-}
-
 // setReport is what a Run's start learned about the ToolSets.
 type setReport struct {
 	// unavailable are the names of the ToolSets that did not resolve.
@@ -307,29 +207,6 @@ func (r *toolRegistry) apply(results []setResult, kept map[string]bool, recorded
 	return report
 }
 
-func (r *toolRegistry) setNamed(name string) *toolSetState {
-	for _, state := range r.sets {
-		if state.spec.Name == name {
-			return state
-		}
-	}
-	return nil
-}
-
-// known keeps the IDs that name a catalog Tool the Model can load: one that an
-// installed ToolSet carries and that is not installed active.
-func (r *toolRegistry) known(ids []string) []string {
-	var out []string
-	for _, id := range ids {
-		entry, ok := r.byCatalog[id]
-		if !ok || entry.set.mode == modeActive || slices.Contains(out, id) {
-			continue
-		}
-		out = append(out, id)
-	}
-	return out
-}
-
 // syncLoaded sets the loaded Tools to ids, the Transcript's list after a
 // rewrite such as a compaction. A Tool installed active is never among them.
 func (r *toolRegistry) syncLoaded(ids []string) {
@@ -341,11 +218,6 @@ func (r *toolRegistry) syncLoaded(ids []string) {
 	}
 	r.loaded = next
 	r.rebuild()
-}
-
-// hidden reports whether the Effect cap keeps a Tool from the Model.
-func (r *toolRegistry) hidden(spec ToolSpec) bool {
-	return r.maxEffect != ToolEffectUnspecified && !spec.Effect.Within(r.maxEffect)
 }
 
 // cappedEffect reports whether a Tool carries the qualified ID id and the
@@ -363,13 +235,6 @@ func (r *toolRegistry) cappedEffect(id string) (ToolEffect, bool) {
 		return entry.spec.Effect, true
 	}
 	return ToolEffectUnspecified, false
-}
-
-// indexable reports whether the Model may find and load a catalog Tool: the
-// Effect cap and the filter decide. No static Tool holds a catalog Tool's ID,
-// since none may take a name under a ToolSet's namespace (rootName).
-func (r *toolRegistry) indexable(entry *catalogTool) bool {
-	return !r.hidden(entry.spec) && !r.refused(entry.id)
 }
 
 // visibleTools is the visible Tool set as rebuild gathers it.
@@ -413,23 +278,13 @@ func (r *toolRegistry) rebuild() {
 	}
 	if hasCatalog {
 		r.search.setDescription(r.catalogText())
-		visible.add(r.qualify("", SearchToolName), r.search, r.search.Spec())
+		visible.add(qualify("", SearchToolName), r.search, r.search.Spec())
 	}
 	specs := visible.specs
 	sort.Slice(specs, func(i, j int) bool { return specs[i].ID < specs[j].ID })
 	r.byQualified = visible.byQualified
 	r.specs = specs
 	r.aliasStatic()
-}
-
-// catalogVisible reports whether a catalog Tool is offered: every Tool of an
-// active ToolSet that the cap and the filter let through, and a loaded Tool
-// the Model may find.
-func (r *toolRegistry) catalogVisible(entry *catalogTool) bool {
-	if entry.set.mode == modeActive {
-		return !r.hidden(entry.spec) && !r.refused(entry.id)
-	}
-	return r.indexable(entry) && slices.Contains(r.loaded, entry.id)
 }
 
 // aliasStatic lets the ID and the Name of every visible static Tool resolve
@@ -464,13 +319,6 @@ func (r *toolRegistry) staticTools() []toolEntry {
 		return r.rootTools
 	}
 	return slices.Concat(r.rootTools, r.sourceTools)
-}
-
-func (r *toolRegistry) qualify(namespace, local string) string {
-	if namespace == "" {
-		return local
-	}
-	return namespace + "." + local
 }
 
 // lookup returns the visible Tool the Model calls by id, with its Spec; ok is
@@ -533,17 +381,6 @@ func (r *toolRegistry) unavailableSet(id string) string {
 	r.mu.Lock()
 	defer r.mu.Unlock()
 	return r.unavailableSetLocked(id)
-}
-
-func (r *toolRegistry) unavailableSetLocked(id string) string {
-	name, _, dotted := strings.Cut(id, ".")
-	if !dotted {
-		return ""
-	}
-	if state := r.setNamed(name); state != nil && state.failure != nil {
-		return name
-	}
-	return ""
 }
 
 // load makes a catalog Tool visible when the Tool Result that lists it
@@ -639,49 +476,6 @@ func (r *toolRegistry) toolSetStatus() []ToolSetStatus {
 		out = append(out, status)
 	}
 	return out
-}
-
-// catalogText is the description of search_tools: each catalog ToolSet by what
-// its install mode shows. It lists a loaded Tool like any other, so the text
-// does not change while Tools load. The caller holds mu or is constructing.
-func (r *toolRegistry) catalogText() string {
-	var b strings.Builder
-	b.WriteString("Load tools before you call them. Pass names to load tools exactly, queries to search, or toolset to list a folded ToolSet.\n")
-	for _, state := range r.sets {
-		if state.mode == modeActive {
-			continue
-		}
-		var ids []string
-		for i := range r.catalog {
-			entry := &r.catalog[i]
-			if entry.set == state && r.indexable(entry) {
-				ids = append(ids, entry.id)
-			}
-		}
-		unavailable := state.failure != nil
-		if len(ids) == 0 && !unavailable {
-			continue
-		}
-		description := strings.TrimSpace(state.spec.Description)
-		b.WriteString("\n")
-		b.WriteString(state.spec.Name)
-		if description != "" {
-			b.WriteString(" — ")
-			b.WriteString(description)
-		}
-		if unavailable {
-			b.WriteString(" (unavailable now; no tools)\n")
-			continue
-		}
-		if state.mode == modeFolded {
-			fmt.Fprintf(&b, " (%d tools; pass toolset=%q to list them)\n", len(ids), state.spec.Name)
-			continue
-		}
-		b.WriteString("\n  ")
-		b.WriteString(strings.Join(ids, ", "))
-		b.WriteString("\n")
-	}
-	return b.String()
 }
 
 // rank asks the searcher about one query. A panic or an error is a failure of

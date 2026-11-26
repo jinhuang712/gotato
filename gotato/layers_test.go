@@ -73,6 +73,7 @@ var fileLayer = map[string]int{
 	"sessionlifecycle.go": layerSession,
 	"sessionoptions.go":   layerSession,
 	"spill.go":            layerSession,
+	"toolcatalog.go":      layerSession,
 	"toolbatch.go":        layerSession,
 	"toolrefresh.go":      layerSession,
 	"toolregistry.go":     layerSession,
