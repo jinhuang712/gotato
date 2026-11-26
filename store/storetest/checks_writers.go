@@ -16,15 +16,15 @@ func checkStaleWriter(ctx context.Context, open Open) error {
 		return fmt.Errorf("create: %w", err)
 	}
 	first, second := open(), open()
-	winner := []record.Entry{fact(4, "first")}
-	if err := first.Append(ctx, "r1", 3, winner, header("r1", 4, "2026-10-17T00:00:04.000Z")); err != nil {
+	winner := []record.Entry{fact(appendedFact, "first")}
+	if err := first.Append(ctx, "r1", createdHead, winner, header("r1", appendedFact, "2026-10-17T00:00:04.000Z")); err != nil {
 		return fmt.Errorf("first Append: %w", err)
 	}
-	stale := []record.Entry{fact(4, "second"), fact(5, "second")}
-	if err := second.Append(ctx, "r1", 3, stale, header("r1", 5, "2026-10-17T00:00:05.000Z")); !errors.Is(err, store.ErrConflict) {
+	stale := []record.Entry{fact(appendedFact, "second"), fact(appendedHead, "second")}
+	if err := second.Append(ctx, "r1", createdHead, stale, header("r1", appendedHead, "2026-10-17T00:00:05.000Z")); !errors.Is(err, store.ErrConflict) {
 		return fmt.Errorf("an Append for a position another writer already wrote returned %v, want ErrConflict: a position is written once", err)
 	}
-	got, err := open().Log(ctx, "r1", 3, 0)
+	got, err := open().Log(ctx, "r1", createdHead, 0)
 	if err != nil {
 		return fmt.Errorf("log: %w", err)
 	}
@@ -36,17 +36,17 @@ func checkContinuesHead(ctx context.Context, open Open) error {
 	if _, err := create(ctx, store, "r1"); err != nil {
 		return fmt.Errorf("create: %w", err)
 	}
-	if err := store.Append(ctx, "r1", 4, []record.Entry{fact(5, "a")}, header("r1", 5, "")); err == nil {
+	if err := store.Append(ctx, "r1", appendedFact, []record.Entry{fact(appendedHead, "a")}, header("r1", appendedHead, "")); err == nil {
 		return errors.New("an Append with after 4 to a Record whose head is 3 succeeded, want an error: a write must start at the head")
 	}
-	if err := store.Append(ctx, "r1", 3, []record.Entry{fact(5, "a")}, header("r1", 5, "")); err == nil {
+	if err := store.Append(ctx, "r1", createdHead, []record.Entry{fact(appendedHead, "a")}, header("r1", appendedHead, "")); err == nil {
 		return errors.New("an Append whose first Entry has Seq 5 after 3 succeeded, want an error: a write's Entries must have the Seqs after+1, after+2 and so on")
 	}
 	loaded, err := open().Load(ctx, "r1")
 	if err != nil {
 		return fmt.Errorf("load: %w", err)
 	}
-	if loaded.Seq != 3 {
+	if loaded.Seq != createdHead {
 		return fmt.Errorf("a refused Append moved the position to %d, want 3: %s", loaded.Seq, ruleAtomic)
 	}
 	return nil
@@ -64,7 +64,7 @@ func checkRace(ctx context.Context, open Open) error {
 		go func(i int) {
 			defer wg.Done()
 			writer := fmt.Sprintf("writer-%d", i)
-			errs[i] = open().Append(ctx, "r1", 3, []record.Entry{fact(4, writer), fact(5, writer)}, header("r1", 5, ""))
+			errs[i] = open().Append(ctx, "r1", createdHead, []record.Entry{fact(appendedFact, writer), fact(appendedHead, writer)}, header("r1", appendedHead, ""))
 		}(i)
 	}
 	wg.Wait()
@@ -82,12 +82,12 @@ func checkRace(ctx context.Context, open Open) error {
 	if winner < 0 {
 		return errors.New("no writer won position 4: of concurrent Appends at the same head, one must succeed")
 	}
-	got, err := open().Log(ctx, "r1", 3, 0)
+	got, err := open().Log(ctx, "r1", createdHead, 0)
 	if err != nil {
 		return fmt.Errorf("log: %w", err)
 	}
 	writer := fmt.Sprintf("writer-%d", winner)
-	return sameEntries("Log after the race", got, []record.Entry{fact(4, writer), fact(5, writer)}, "the Entries of the writer that won must all be stored, and none of the others: "+ruleAtomic)
+	return sameEntries("Log after the race", got, []record.Entry{fact(appendedFact, writer), fact(appendedHead, writer)}, "the Entries of the writer that won must all be stored, and none of the others: "+ruleAtomic)
 }
 
 // checkEpochKept: a store keeps Header.Epoch with the rest of the Header, from
@@ -108,9 +108,9 @@ func checkEpochKept(ctx context.Context, open Open) error {
 	if loaded.Header.Epoch != "epoch-1" {
 		return failf("Load after Create returned Epoch %q, want %q: a store must keep Header.Epoch", loaded.Header.Epoch, "epoch-1")
 	}
-	next := header("epoch", 2, "2026-10-17T00:00:02.000Z")
+	next := header("epoch", secondEntry, "2026-10-17T00:00:02.000Z")
 	next.Epoch = "epoch-1"
-	if err := store.Append(ctx, "epoch", 1, []record.Entry{fact(2, "a")}, next); err != nil {
+	if err := store.Append(ctx, "epoch", 1, []record.Entry{fact(secondEntry, "a")}, next); err != nil {
 		return fmt.Errorf("append: %w", err)
 	}
 	loaded, err = open().Load(ctx, "epoch")
@@ -125,54 +125,65 @@ func checkEpochKept(ctx context.Context, open Open) error {
 // ErrNotFound, whether or not the new Record is as long as the old one was,
 // and the new Record is left as it was.
 func checkDeletedWriter(ctx context.Context, open Open) error {
-	withEpoch := func(h record.Header, epoch string) record.Header {
-		h.Epoch = epoch
-		return h
-	}
 	old := open()
-	if err := old.Create(ctx, "r1", []record.Entry{checkpoint(1, "a"), fact(2, "a"), logEntry(3, "a")}, withEpoch(header("r1", 3, "2026-10-17T00:00:03.000Z"), "epoch-old")); err != nil {
+	if err := createWithEpoch(ctx, old, "a", "2026-10-17T00:00:03.000Z", "epoch-old"); err != nil {
 		return fmt.Errorf("create: %w", err)
 	}
 	// A write that lands warms any cache the handle keeps.
-	if err := old.Append(ctx, "r1", 3, []record.Entry{fact(4, "a")}, withEpoch(header("r1", 4, "2026-10-17T00:00:04.000Z"), "epoch-old")); err != nil {
+	if err := appendWithEpoch(ctx, old, "a", "2026-10-17T00:00:04.000Z", "epoch-old"); err != nil {
 		return fmt.Errorf("append: %w", err)
 	}
 	if err := open().Delete(ctx, "r1"); err != nil {
 		return fmt.Errorf("delete: %w", err)
 	}
+	if err := checkNewRecordSameLength(ctx, open, old); err != nil {
+		return err
+	}
+	return checkNewRecordLonger(ctx, open, old)
+}
+
+// checkNewRecordSameLength re-creates Record "r1" as long as the one the
+// writer old wrote, and checks that old's Append is ErrNotFound and writes
+// nothing.
+func checkNewRecordSameLength(ctx context.Context, open Open, old store.Records) error {
 	// The new Record is as long as the old one: a length check passes.
 	fresh := open()
-	if err := fresh.Create(ctx, "r1", []record.Entry{checkpoint(1, "b"), fact(2, "b"), logEntry(3, "b")}, withEpoch(header("r1", 3, "2026-10-17T00:00:05.000Z"), "epoch-new")); err != nil {
+	if err := createWithEpoch(ctx, fresh, "b", "2026-10-17T00:00:05.000Z", "epoch-new"); err != nil {
 		return fmt.Errorf("create again: %w", err)
 	}
-	if err := fresh.Append(ctx, "r1", 3, []record.Entry{fact(4, "b")}, withEpoch(header("r1", 4, "2026-10-17T00:00:06.000Z"), "epoch-new")); err != nil {
+	if err := appendWithEpoch(ctx, fresh, "b", "2026-10-17T00:00:06.000Z", "epoch-new"); err != nil {
 		return fmt.Errorf("append to the new record: %w", err)
 	}
-	err := old.Append(ctx, "r1", 4, []record.Entry{fact(5, "a")}, withEpoch(header("r1", 5, "2026-10-17T00:00:07.000Z"), "epoch-old"))
+	err := old.Append(ctx, "r1", appendedFact, []record.Entry{fact(appendedHead, "a")}, withEpoch(header("r1", appendedHead, "2026-10-17T00:00:07.000Z"), "epoch-old"))
 	if !errors.Is(err, record.ErrNotFound) {
 		return fmt.Errorf("an Append by the writer of the deleted Record, at the new Record's length, returned %v, want ErrNotFound: Append must compare Header.Epoch before the position", err)
 	}
 	loaded, err := open().Load(ctx, "r1")
-	if err != nil || loaded.Seq != 4 || loaded.Header.Epoch != "epoch-new" {
+	if err != nil || loaded.Seq != appendedFact || loaded.Header.Epoch != "epoch-new" {
 		return fmt.Errorf("the new Record after the refused Append has position %d and Epoch %q (%v), want position 4 and epoch-new: %s", loaded.Seq, loaded.Header.Epoch, err, ruleAtomic)
 	}
+	return nil
+}
 
+// checkNewRecordLonger re-creates Record "r1" longer than the one the writer
+// old wrote, and checks that old's Append is ErrNotFound and writes nothing.
+func checkNewRecordLonger(ctx context.Context, open Open, old store.Records) error {
 	// The new Record is longer, written as one batch that covers the
 	// position the old writer wants: it must not be written twice.
 	if err := open().Delete(ctx, "r1"); err != nil {
 		return fmt.Errorf("delete: %w", err)
 	}
-	if err := old.Create(ctx, "r1", []record.Entry{checkpoint(1, "a"), fact(2, "a"), logEntry(3, "a")}, withEpoch(header("r1", 3, "2026-10-17T00:00:08.000Z"), "epoch-third")); err != nil {
+	if err := createWithEpoch(ctx, old, "a", "2026-10-17T00:00:08.000Z", "epoch-third"); err != nil {
 		return fmt.Errorf("create a third time: %w", err)
 	}
 	if err := open().Delete(ctx, "r1"); err != nil {
 		return fmt.Errorf("delete: %w", err)
 	}
-	longer := []record.Entry{checkpoint(1, "c"), fact(2, "c"), logEntry(3, "c"), fact(4, "c")}
-	if err := open().Create(ctx, "r1", longer, withEpoch(header("r1", 4, "2026-10-17T00:00:09.000Z"), "epoch-fourth")); err != nil {
+	longer := []record.Entry{checkpoint(1, "c"), fact(createdFact, "c"), logEntry(createdHead, "c"), fact(appendedFact, "c")}
+	if err := open().Create(ctx, "r1", longer, withEpoch(header("r1", appendedFact, "2026-10-17T00:00:09.000Z"), "epoch-fourth")); err != nil {
 		return fmt.Errorf("create a fourth time: %w", err)
 	}
-	err = old.Append(ctx, "r1", 3, []record.Entry{fact(4, "a")}, withEpoch(header("r1", 4, "2026-10-17T00:00:10.000Z"), "epoch-third"))
+	err := appendWithEpoch(ctx, old, "a", "2026-10-17T00:00:10.000Z", "epoch-third")
 	if !errors.Is(err, record.ErrNotFound) {
 		return fmt.Errorf("an Append by the writer of the deleted Record, over a position the new Record holds, returned %v, want ErrNotFound: a mismatch of Header.Epoch is ErrNotFound, not ErrConflict, and it is checked before the position", err)
 	}
@@ -183,6 +194,25 @@ func checkDeletedWriter(ctx context.Context, open Open) error {
 	return sameEntries("Log after the refused Append", log, longer, "the refused Append must not write any Entry into the new Record, and "+ruleLog)
 }
 
+// withEpoch returns h with its Epoch set.
+func withEpoch(h record.Header, epoch string) record.Header {
+	h.Epoch = epoch
+	return h
+}
+
+// createWithEpoch creates Record "r1" as create does, written by writer, updated at the
+// time updated and of the given epoch.
+func createWithEpoch(ctx context.Context, st store.Records, writer, updated, epoch string) error {
+	entries := []record.Entry{checkpoint(1, writer), fact(createdFact, writer), logEntry(createdHead, writer)}
+	return st.Create(ctx, "r1", entries, withEpoch(header("r1", createdHead, updated), epoch))
+}
+
+// appendWithEpoch appends one fact of writer to Record "r1" after the head
+// that create leaves, updated at the time updated and of the given epoch.
+func appendWithEpoch(ctx context.Context, st store.Records, writer, updated, epoch string) error {
+	return st.Append(ctx, "r1", createdHead, []record.Entry{fact(appendedFact, writer)}, withEpoch(header("r1", appendedFact, updated), epoch))
+}
+
 // [OWNERSHIP] a writer of a deleted and re-created Record must never append to the new one.
 // checkEpochBeforePosition checks that an Append of a writer of a deleted and
 // re-created Record is ErrNotFound also when its position is wrong too.
@@ -190,9 +220,10 @@ func checkEpochBeforePosition(ctx context.Context, open Open) error {
 	if _, err := create(ctx, open(), "r1"); err != nil {
 		return fmt.Errorf("create: %w", err)
 	}
-	stale := header("r1", 9, "2026-10-17T00:00:09.000Z")
+	const staleHead = 9
+	stale := header("r1", staleHead, "2026-10-17T00:00:09.000Z")
 	stale.Epoch = "epoch-other"
-	err := open().Append(ctx, "r1", 8, []record.Entry{fact(9, "x")}, stale)
+	err := open().Append(ctx, "r1", staleHead-1, []record.Entry{fact(staleHead, "x")}, stale)
 	if !errors.Is(err, record.ErrNotFound) {
 		return fmt.Errorf("an Append naming another epoch at a position that is not the head returned %v, want ErrNotFound", err)
 	}
@@ -210,9 +241,9 @@ func checkConcurrentCreate(ctx context.Context, open Open) error {
 		go func(i int) {
 			defer wg.Done()
 			writer := fmt.Sprintf("creator-%d", i)
-			h := header("r1", 2, "2026-10-17T00:00:02.000Z")
+			h := header("r1", secondEntry, "2026-10-17T00:00:02.000Z")
 			h.Epoch = "epoch-" + writer
-			errs[i] = open().Create(ctx, "r1", []record.Entry{checkpoint(1, writer), fact(2, writer)}, h)
+			errs[i] = open().Create(ctx, "r1", []record.Entry{checkpoint(1, writer), fact(secondEntry, writer)}, h)
 		}(i)
 	}
 	wg.Wait()
