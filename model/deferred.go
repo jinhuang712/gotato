@@ -41,6 +41,13 @@ type deferredLayout struct {
 	searchCalls map[string]bool
 }
 
+// deferredMode says whether a request sends its deferred tools in the native
+// form; the zero value sends the plain list of the tools loaded so far.
+type deferredMode bool
+
+// deferredNative is the deferredMode that sends the native form.
+const deferredNative deferredMode = true
+
 type layoutTool struct {
 	spec     gotato.ToolSpec
 	deferred bool
@@ -55,8 +62,8 @@ func isSearchToolID(id string) bool {
 // newDeferredLayout lays the request's tools out for the native form. It
 // returns nil when the form is off or the Session has no catalog, and the
 // adapter then sends the plain list.
-func newDeferredLayout(request gotato.ModelRequest, native bool) *deferredLayout {
-	if !native || (len(request.LoadedTools) == 0 && len(request.UnloadedTools) == 0) {
+func newDeferredLayout(request gotato.ModelRequest, mode deferredMode) *deferredLayout {
+	if mode != deferredNative || (len(request.LoadedTools) == 0 && len(request.UnloadedTools) == 0) {
 		return nil
 	}
 	loaded := make(map[string]bool, len(request.LoadedTools))

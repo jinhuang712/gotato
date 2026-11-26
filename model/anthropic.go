@@ -138,7 +138,7 @@ func encodeAnthropicRequest(model gotato.ModelConfig, request gotato.ModelReques
 	// tool_reference blocks ("Custom tool search implementation"). The deferred
 	// tools come last, so the cache_control marker sits on a tool that is not
 	// deferred, as the API requires.
-	layout := newDeferredLayout(request, native)
+	layout := newDeferredLayout(request, deferredMode(native))
 	if payload.Tools, err = anthropicTools(orderedTools(layout, request), names); err != nil {
 		return nil, nil, err
 	}

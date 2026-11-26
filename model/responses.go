@@ -85,7 +85,7 @@ func encodeResponsesRequest(model gotato.ModelConfig, request gotato.ModelReques
 	if err != nil {
 		return nil, nil, err
 	}
-	layout := newDeferredLayout(request, native)
+	layout := newDeferredLayout(request, deferredMode(native))
 	input, err := responsesInput(model, request.Messages, names, layout)
 	if err != nil {
 		return nil, nil, err
