@@ -48,20 +48,7 @@ func TestActivationLimitRefusesANewSessionBeforeItRuns(t *testing.T) {
 	}
 
 	// Fill the instance: two Runs on two new Sessions, held by the model.
-	results := make(chan host.RunResponse, 2)
-	for _, prompt := range []string{"one", "two"} {
-		go func() {
-			result, _ := runner.Run(ctx, host.RunRequest{Prompt: prompt})
-			results <- result
-		}()
-	}
-	for range 2 {
-		select {
-		case <-model.started:
-		case <-time.After(5 * time.Second):
-			t.Fatal("the model was not called twice")
-		}
-	}
+	results := startHeldRuns(t, ctx, runner, model)
 	if got := runner.ActiveSessions(); got != 2 {
 		t.Fatalf("ActiveSessions = %d, want 2", got)
 	}
@@ -87,26 +74,7 @@ func TestActivationLimitRefusesANewSessionBeforeItRuns(t *testing.T) {
 			t.Fatalf("%s: a refused request returned a result: %+v", refusal.name, result)
 		}
 	}
-	// The Instance Events reach the recorder on their own goroutine: wait for
-	// both before counting them.
-	// The two refusals differ by Session: the new one names none. Wait is
-	// called again on the same Events, so count by what they name.
-	seen := map[gotato.SessionID]bool{}
-	if !instance.Wait(5*time.Second, func(e gotato.Event) bool {
-		if r, ok := e.(host.RunRejected); ok {
-			seen[r.SessionID] = true
-		}
-		return len(seen) >= 2 && seen[gotato.SessionID(idle.ID)]
-	}) {
-		t.Fatalf("want two run_rejected Events, one for the idle Session; got %v", instance.Kinds())
-	}
-	var reasons []string
-	for _, event := range instance.OfKind(host.EventKindRunRejected) {
-		reasons = append(reasons, event.(host.RunRejected).Why)
-	}
-	if len(reasons) != 2 || reasons[0] != "activation_limit" || reasons[1] != "activation_limit" {
-		t.Fatalf("run_rejected reasons = %v, want two activation_limit", reasons)
-	}
+	checkActivationRejections(t, instance, idle.ID)
 
 	// Nothing was activated: the model was not called, no Session was
 	// created, the idle one was not claimed, and the instance is as full as before.
@@ -135,20 +103,7 @@ func TestActivationLimitRefusesANewSessionBeforeItRuns(t *testing.T) {
 
 	// A Run on a Session that is active adds no activation: it reaches the
 	// busy policy, which rejects it as busy, not as overloaded.
-	var active string
-	for _, summary := range sessionsBefore {
-		loaded, err := store.Records.Load(ctx, summary.ID)
-		if err != nil {
-			t.Fatal(err)
-		}
-		if heldOf(loaded) {
-			active = summary.ID
-			break
-		}
-	}
-	if active == "" {
-		t.Fatal("no busy Session in the store")
-	}
+	active := busySessionOf(t, ctx, store, sessionsBefore)
 	if _, err := runner.Run(ctx, host.RunRequest{SessionID: active, Prompt: "again"}); !errors.Is(err, host.ErrBusy) {
 		t.Fatalf("Run on an active Session: err = %v, want ErrBusy", err)
 	}
@@ -176,6 +131,73 @@ func TestActivationLimitRefusesANewSessionBeforeItRuns(t *testing.T) {
 	if result, err := runner.Run(ctx, host.RunRequest{SessionID: idle.ID, Prompt: "now"}); err != nil || result.Result.Status != gotato.RunStatusCompleted {
 		t.Fatalf("Run after the limit eased = %+v, %v", result, err)
 	}
+}
+
+// startHeldRuns starts two Runs on two new Sessions on runner, and returns the
+// channel of their results once the model holds both.
+func startHeldRuns(t *testing.T, ctx context.Context, runner *host.Runner, model *gatedEcho) chan host.RunResponse {
+	t.Helper()
+	results := make(chan host.RunResponse, 2)
+	for _, prompt := range []string{"one", "two"} {
+		go func() {
+			result, _ := runner.Run(ctx, host.RunRequest{Prompt: prompt})
+			results <- result
+		}()
+	}
+	for range 2 {
+		select {
+		case <-model.started:
+		case <-time.After(5 * time.Second):
+			t.Fatal("the model was not called twice")
+		}
+	}
+	return results
+}
+
+// checkActivationRejections checks that instance recorded two run_rejected
+// Events for activation_limit, one of them for the Session idleID.
+func checkActivationRejections(t *testing.T, instance *testkit.EventRecorder, idleID string) {
+	t.Helper()
+	// The Instance Events reach the recorder on their own goroutine: wait for
+	// both before counting them.
+	// The two refusals differ by Session: the new one names none. Wait is
+	// called again on the same Events, so count by what they name.
+	seen := map[gotato.SessionID]bool{}
+	if !instance.Wait(5*time.Second, func(e gotato.Event) bool {
+		if r, ok := e.(host.RunRejected); ok {
+			seen[r.SessionID] = true
+		}
+		return len(seen) >= 2 && seen[gotato.SessionID(idleID)]
+	}) {
+		t.Fatalf("want two run_rejected Events, one for the idle Session; got %v", instance.Kinds())
+	}
+	var reasons []string
+	for _, event := range instance.OfKind(host.EventKindRunRejected) {
+		reasons = append(reasons, event.(host.RunRejected).Why)
+	}
+	if len(reasons) != 2 || reasons[0] != "activation_limit" || reasons[1] != "activation_limit" {
+		t.Fatalf("run_rejected reasons = %v, want two activation_limit", reasons)
+	}
+}
+
+// busySessionOf returns the ID of a Session of sessions that is held in st.
+func busySessionOf(t *testing.T, ctx context.Context, st store.Store, sessions []record.Info) string {
+	t.Helper()
+	var active string
+	for _, summary := range sessions {
+		loaded, err := st.Records.Load(ctx, summary.ID)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if heldOf(loaded) {
+			active = summary.ID
+			break
+		}
+	}
+	if active == "" {
+		t.Fatal("no busy Session in the store")
+	}
+	return active
 }
 
 // TestActivationLimitIsOffByDefault: without a limit, no number of Sessions is
