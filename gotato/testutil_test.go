@@ -220,7 +220,7 @@ type recordingModel struct {
 	gate     chan struct{}
 }
 
-func (m *recordingModel) Stream(ctx context.Context, request ModelRequest) (ModelStream, error) {
+func (m *recordingModel) Stream(_ context.Context, request ModelRequest) (ModelStream, error) {
 	m.mu.Lock()
 	index := len(m.requests)
 	m.requests = append(m.requests, cloneMessages(request.Messages))
@@ -318,7 +318,7 @@ func (t *countingTool) Spec() ToolSpec {
 	return ToolSpec{ID: "demo.echo", InputSchema: []byte(`{"type":"object","required":["value"],"properties":{"value":{"type":"string"}},"additionalProperties":false}`)}
 }
 
-func (t *countingTool) Execute(ctx context.Context, use ToolUse, progress ToolProgressFunc) (ToolResult, error) {
+func (t *countingTool) Execute(_ context.Context, _ ToolUse, _ ToolProgressFunc) (ToolResult, error) {
 	t.mu.Lock()
 	t.calls++
 	t.mu.Unlock()
@@ -347,7 +347,7 @@ func (t *namedTool) Spec() ToolSpec {
 	}
 }
 
-func (t *namedTool) Execute(ctx context.Context, use ToolUse, progress ToolProgressFunc) (ToolResult, error) {
+func (t *namedTool) Execute(ctx context.Context, _ ToolUse, _ ToolProgressFunc) (ToolResult, error) {
 	if t.tracker != nil {
 		t.tracker.enter()
 		defer t.tracker.leave()
@@ -407,7 +407,7 @@ type stubToolSet struct {
 
 func (s *stubToolSet) Spec() ToolSetSpec { return ToolSetSpec{Name: s.name} }
 
-func (s *stubToolSet) Tools(ctx context.Context) ([]Tool, error) {
+func (s *stubToolSet) Tools(_ context.Context) ([]Tool, error) {
 	s.calls++
 	if s.err != nil {
 		return nil, s.err
@@ -586,7 +586,7 @@ type testModel struct {
 	last    ModelRequest
 }
 
-func (m *testModel) Stream(ctx context.Context, request ModelRequest) (ModelStream, error) {
+func (m *testModel) Stream(_ context.Context, request ModelRequest) (ModelStream, error) {
 	m.mu.Lock()
 	index := m.calls
 	m.calls++
@@ -617,7 +617,7 @@ type scriptedTool struct {
 func (t *scriptedTool) Spec() ToolSpec {
 	return ToolSpec{ID: "demo.echo", InputSchema: []byte(`{"type":"object","required":["value"],"properties":{"value":{"type":"string"}},"additionalProperties":false}`)}
 }
-func (t *scriptedTool) Execute(ctx context.Context, use ToolUse, progress ToolProgressFunc) (ToolResult, error) {
+func (t *scriptedTool) Execute(_ context.Context, _ ToolUse, _ ToolProgressFunc) (ToolResult, error) {
 	t.mu.Lock()
 	t.calls++
 	t.mu.Unlock()
@@ -629,7 +629,7 @@ type toolModel struct {
 	mu    sync.Mutex
 }
 
-func (m *toolModel) Stream(ctx context.Context, request ModelRequest) (ModelStream, error) {
+func (m *toolModel) Stream(_ context.Context, _ ModelRequest) (ModelStream, error) {
 	m.mu.Lock()
 	call := m.calls
 	m.calls++
