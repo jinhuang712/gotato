@@ -352,31 +352,48 @@ func responsesLoadedTools(result *gotato.ToolResult, names map[string]string, la
 func responsesInputContent(parts []gotato.ContentPart) ([]any, error) {
 	content := make([]any, 0, len(parts))
 	for _, part := range parts {
-		switch part.Kind {
-		case gotato.ContentKindText:
-			if part.Text != "" {
-				content = append(content, map[string]any{"type": "input_text", "text": part.Text})
-			}
-		case gotato.ContentKindImage:
-			if len(part.Data) == 0 {
-				continue
-			}
-			mimeType := part.MIMEType
-			if mimeType == "" {
-				mimeType = "application/octet-stream"
-			}
-			content = append(content, map[string]any{
-				"type":      "input_image",
-				"detail":    "auto",
-				"image_url": "data:" + mimeType + ";base64," + base64.StdEncoding.EncodeToString(part.Data),
-			})
-		case gotato.ContentKindReasoning, gotato.ContentKindJSON:
-			if part.Text != "" || len(part.Data) > 0 {
-				return nil, fmt.Errorf("model: Responses user content kind %q is unsupported", part.Kind)
-			}
+		item, err := responsesInputItem(part)
+		if err != nil {
+			return nil, err
+		}
+		if item != nil {
+			content = append(content, item)
 		}
 	}
 	return content, nil
+}
+
+// responsesInputItem is one user Part as an input item, or nil for a Part
+// that sends nothing.
+func responsesInputItem(part gotato.ContentPart) (map[string]any, error) {
+	switch part.Kind {
+	case gotato.ContentKindText:
+		if part.Text != "" {
+			return map[string]any{"type": "input_text", "text": part.Text}, nil
+		}
+	case gotato.ContentKindImage:
+		if len(part.Data) > 0 {
+			return responsesInputImage(part), nil
+		}
+	case gotato.ContentKindReasoning, gotato.ContentKindJSON:
+		if part.Text != "" || len(part.Data) > 0 {
+			return nil, fmt.Errorf("model: Responses user content kind %q is unsupported", part.Kind)
+		}
+	}
+	return nil, nil
+}
+
+// responsesInputImage is an image Part as an input_image with a data URL.
+func responsesInputImage(part gotato.ContentPart) map[string]any {
+	mimeType := part.MIMEType
+	if mimeType == "" {
+		mimeType = "application/octet-stream"
+	}
+	return map[string]any{
+		"type":      "input_image",
+		"detail":    "auto",
+		"image_url": "data:" + mimeType + ";base64," + base64.StdEncoding.EncodeToString(part.Data),
+	}
 }
 
 // splitResponsesCallID reads a call ID as Sessions saved before
