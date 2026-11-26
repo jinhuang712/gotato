@@ -58,6 +58,12 @@ const (
 	exitGoalFailed = 3
 )
 
+// recapTokensCap is the largest -recap-max-tokens the command passes on, so the value fits the Recap's uint32 limit.
+const recapTokensCap = 1 << 31
+
+// priceFields is the number of prices in -price: input, output, cache_read and cache_write.
+const priceFields = 4
+
 func main() {
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt)
 	code := run(ctx, os.Args[1:], os.Stdout, os.Stderr, os.Getenv)
@@ -87,7 +93,7 @@ func run(ctx context.Context, args []string, stdout, stderr io.Writer, getenv fu
 	}
 
 	if c.recapCheck {
-		return runRecapCheck(ctx, workload.RecapCheckConfig{Model: cfg.Model, ModelName: cfg.ModelName, Store: cfg.Store, MaxTokens: uint32(min(c.recapTokens, 1<<31))}, c.minShare, stdout, stderr)
+		return runRecapCheck(ctx, workload.RecapCheckConfig{Model: cfg.Model, ModelName: cfg.ModelName, Store: cfg.Store, MaxTokens: uint32(min(c.recapTokens, recapTokensCap))}, c.minShare, stdout, stderr)
 	}
 	return runTasks(ctx, cfg, tasks, stdout, stderr)
 }
@@ -254,10 +260,10 @@ func parsePrice(value string) (workload.Price, error) {
 		return workload.Price{}, nil
 	}
 	fields := strings.Split(value, ",")
-	if len(fields) < 2 || len(fields) > 4 {
+	if len(fields) < 2 || len(fields) > priceFields {
 		return workload.Price{}, fmt.Errorf("-price wants input,output[,cache_read[,cache_write]], got %q", value)
 	}
-	numbers := make([]float64, 4)
+	numbers := make([]float64, priceFields)
 	for i, field := range fields {
 		n, err := strconv.ParseFloat(strings.TrimSpace(field), 64)
 		if err != nil || n < 0 {
