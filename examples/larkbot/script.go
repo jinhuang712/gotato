@@ -113,58 +113,91 @@ func toolCall(id, tool string, args any) testkit.Script {
 	return testkit.ToolCalls(gotato.ToolCall{ID: gotato.ToolCallID(id), ToolID: tool, Arguments: encoded})
 }
 
+// scriptState is what a script reads from the request and the Run so far.
+type scriptState struct {
+	arg    string
+	next   string             // the number of the next tool result, as text
+	last   *gotato.ToolResult // the newest result of this Run
+	texts  []string           // the text of each result of this Run
+	loaded bool               // the invoice tool is loaded
+}
+
 func playScript(name, arg string, r gotato.ModelRequest, run []gotato.Message) (testkit.Script, error) {
+	st := newScriptState(arg, r, run)
+	switch name {
+	case "export":
+		return st.export(), nil
+	case "mcp":
+		return st.mcp(), nil
+	case "search":
+		return st.search(), nil
+	case "load":
+		return st.load(), nil
+	case "readseg":
+		return st.readSegment(), nil
+	case "loaded":
+		return testkit.Text(fmt.Sprintf("%s %t", ansLoaded, st.loaded)), nil
+	}
+	return nil, fmt.Errorf("script: unknown script %q", name)
+}
+
+// newScriptState reads the request and the messages of this Run.
+func newScriptState(arg string, r gotato.ModelRequest, run []gotato.Message) scriptState {
 	results := 0
 	for _, msg := range r.Messages {
 		if msg.ToolResult != nil {
 			results++
 		}
 	}
-	var last *gotato.ToolResult // the newest result of this Run
-	var texts []string
+	st := scriptState{arg: arg, next: fmt.Sprintf("%d", results+1), loaded: slices.Contains(r.LoadedTools, mcpInvoice)}
 	for _, msg := range run {
 		if msg.ToolResult != nil {
-			last = msg.ToolResult
-			texts = append(texts, resultText(*msg.ToolResult))
+			st.last = msg.ToolResult
+			st.texts = append(st.texts, resultText(*msg.ToolResult))
 		}
 	}
-	next := fmt.Sprintf("%d", results+1)
-	switch name {
-	case "export":
-		if last == nil {
-			return toolCall(exportCall, exportToolID, map[string]string{}), nil
-		}
-		return testkit.Text(ansExported), nil
-	case "mcp":
-		if last == nil {
-			return toolCall("order-"+next, mcpOrderTool, map[string]string{"id": "ord-" + next, "delay": arg}), nil
-		}
-		return testkit.Text(reportResult(*last)), nil
-	case "search":
-		switch len(texts) {
-		case 0:
-			return toolCall("find-"+next, gotato.SearchToolName, map[string][]string{"names": {mcpInvoice}}), nil
-		case 1:
-			return toolCall("invoice-"+next, mcpInvoice, map[string]string{"id": "inv-1"}), nil
-		}
-		return testkit.Text(reportResult(*last)), nil
-	case "load":
-		if last == nil {
-			return toolCall("find-"+next, gotato.SearchToolName, map[string][]string{"names": {mcpInvoice}}), nil
-		}
-		return testkit.Text(ansLoadDone), nil
-	case "readseg":
-		if last == nil {
-			return toolCall("seg-"+next, ref.ReadSegment, map[string]int{"segment": 1}), nil
-		}
-		if last.Status != gotato.ToolResultStatusOK {
-			return testkit.Text(ansSegError + " " + last.SafeError), nil
-		}
-		return testkit.Text(ansSegOK + " " + cut(resultText(*last), 600)), nil
-	case "loaded":
-		return testkit.Text(fmt.Sprintf("%s %t", ansLoaded, slices.Contains(r.LoadedTools, mcpInvoice))), nil
+	return st
+}
+
+func (st scriptState) export() testkit.Script {
+	if st.last == nil {
+		return toolCall(exportCall, exportToolID, map[string]string{})
 	}
-	return nil, fmt.Errorf("script: unknown script %q", name)
+	return testkit.Text(ansExported)
+}
+
+func (st scriptState) mcp() testkit.Script {
+	if st.last == nil {
+		return toolCall("order-"+st.next, mcpOrderTool, map[string]string{"id": "ord-" + st.next, "delay": st.arg})
+	}
+	return testkit.Text(reportResult(*st.last))
+}
+
+func (st scriptState) search() testkit.Script {
+	switch len(st.texts) {
+	case 0:
+		return toolCall("find-"+st.next, gotato.SearchToolName, map[string][]string{"names": {mcpInvoice}})
+	case 1:
+		return toolCall("invoice-"+st.next, mcpInvoice, map[string]string{"id": "inv-1"})
+	}
+	return testkit.Text(reportResult(*st.last))
+}
+
+func (st scriptState) load() testkit.Script {
+	if st.last == nil {
+		return toolCall("find-"+st.next, gotato.SearchToolName, map[string][]string{"names": {mcpInvoice}})
+	}
+	return testkit.Text(ansLoadDone)
+}
+
+func (st scriptState) readSegment() testkit.Script {
+	if st.last == nil {
+		return toolCall("seg-"+st.next, ref.ReadSegment, map[string]int{"segment": 1})
+	}
+	if st.last.Status != gotato.ToolResultStatusOK {
+		return testkit.Text(ansSegError + " " + st.last.SafeError)
+	}
+	return testkit.Text(ansSegOK + " " + cut(resultText(*st.last), 600))
 }
 
 // reportResult is the one line the model says about a Tool Result: what came back, or the error it read.
