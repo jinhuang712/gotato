@@ -65,21 +65,27 @@ func ToolResults(request gotato.ModelRequest) []string {
 		if msg.Role != gotato.RoleToolResult {
 			continue
 		}
-		var b strings.Builder
-		for _, p := range msg.Parts {
-			b.WriteString(p.Text)
-		}
-		if b.Len() == 0 && msg.ToolResult != nil {
-			for _, p := range msg.ToolResult.Content {
-				b.WriteString(p.Text)
-			}
-			if b.Len() == 0 {
-				b.WriteString(msg.ToolResult.SafeError)
-			}
-		}
-		out = append(out, b.String())
+		out = append(out, toolResultText(msg))
 	}
 	return out
+}
+
+// toolResultText returns the text of one tool result Message: its Parts, else
+// the result content, else its safe error.
+func toolResultText(msg gotato.Message) string {
+	var b strings.Builder
+	for _, p := range msg.Parts {
+		b.WriteString(p.Text)
+	}
+	if b.Len() == 0 && msg.ToolResult != nil {
+		for _, p := range msg.ToolResult.Content {
+			b.WriteString(p.Text)
+		}
+		if b.Len() == 0 {
+			b.WriteString(msg.ToolResult.SafeError)
+		}
+	}
+	return b.String()
 }
 
 // UserText returns the text of every user Message in a request, one per
