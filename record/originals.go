@@ -123,10 +123,8 @@ func (o recordOriginals) result(ctx context.Context, call gotato.ToolCallID) (go
 // them is ErrRemoved when some of those Entries are gone or were not recorded,
 // so it may have been in them, and ErrNoOriginal otherwise.
 func (o recordOriginals) find(ctx context.Context, match func(gotato.Message) bool) (gotato.Message, error) {
-	for _, message := range slices.Backward(o.rec.Messages()) {
-		if match(message) {
-			return message, nil
-		}
+	if message, ok := lastMatch(o.rec.Messages(), match); ok {
+		return message, nil
 	}
 	gap := false
 	refs, _ := refsOf(o.rec.Segments())
@@ -136,16 +134,24 @@ func (o recordOriginals) find(ctx context.Context, match func(gotato.Message) bo
 			return gotato.Message{}, err
 		}
 		gap = gap || !same || !complete
-		for _, message := range slices.Backward(messages) {
-			if match(message) {
-				return message, nil
-			}
+		if message, ok := lastMatch(messages, match); ok {
+			return message, nil
 		}
 	}
 	if gap {
 		return gotato.Message{}, ErrRemoved
 	}
 	return gotato.Message{}, noOriginal{hint: o.listRefs()}
+}
+
+// lastMatch returns the latest of messages that match accepts.
+func lastMatch(messages []gotato.Message, match func(gotato.Message) bool) (gotato.Message, bool) {
+	for _, message := range slices.Backward(messages) {
+		if match(message) {
+			return message, true
+		}
+	}
+	return gotato.Message{}, false
 }
 
 // committed reads the Messages of one Segment's range from the log. same is
