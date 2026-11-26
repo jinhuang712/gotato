@@ -44,13 +44,16 @@ func (t *tracker) ends(event gotato.Event) bool {
 	return ok && ended.RunID == t.get() && ended.RunID != ""
 }
 
+// runStreamBuffer is how many Events a Run's stream holds for its reader.
+const runStreamBuffer = 1024
+
 // streamTo subscribes a Run's stream to feed and hands it over. It ends at the
 // RunEnded of the Run the tracker follows.
 func (r *Runner) streamTo(ctx context.Context, feed *gotato.Feed, stream *runStream, track *tracker) error {
 	if stream == nil {
 		return nil
 	}
-	sub, err := feed.Subscribe(ctx, gotato.SubscribeBuffer(1024), gotato.SubscribeUntil(track.ends))
+	sub, err := feed.Subscribe(ctx, gotato.SubscribeBuffer(runStreamBuffer), gotato.SubscribeUntil(track.ends))
 	if err != nil {
 		return err
 	}
