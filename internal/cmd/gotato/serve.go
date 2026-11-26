@@ -35,6 +35,7 @@ type serveFlags struct {
 	forward          bool
 }
 
+// bindServe binds the flags of gotato serve beside the model flags to f.
 func bindServe(fs *flag.FlagSet, f *serveFlags) {
 	fs.StringVar(&f.addr, "addr", "127.0.0.1:8787", "listen address")
 	fs.IntVar(&f.maxRuns, "max-runs", 0, "maximum concurrent runs; 0 disables the bound")
