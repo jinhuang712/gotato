@@ -65,19 +65,7 @@ func (a *AutoCompactor) PrepareTurn(ctx context.Context, pending gotato.PendingT
 	}
 	ceiling := a.CeilingTokens()
 	overhead := requestOverhead(pending.Request)
-	segments := a.store.Segments()
-	state := TurnState{
-		Run: pending.RunID, Turn: pending.Turn, Overflow: pending.Overflow,
-		Tokens:        a.size(slices.Concat(flatten(segments), a.store.Tail()), overhead),
-		CeilingTokens: ceiling, BudgetTokens: a.compactor.effectiveBudget(),
-	}
-	if pending.Turn == 1 {
-		// Sized as a merge sizes them, one Segment at a time.
-		for _, segment := range segments {
-			state.SegmentTokens += EstimateTokens(segment.Messages)
-		}
-	}
-	why, due := a.due(ctx, state)
+	why, due := a.due(ctx, a.turnState(pending, ceiling, overhead))
 	if !due {
 		return gotato.TurnPrepared{}, nil
 	}
@@ -90,19 +78,44 @@ func (a *AutoCompactor) PrepareTurn(ctx context.Context, pending gotato.PendingT
 	if err != nil || pending.Overflow || ceiling <= 0 {
 		return prepared, err
 	}
+	return prepared, a.checkCeiling(prepared, dropped, overhead, ceiling)
+}
+
+// turnState is the TurnState the Trigger is asked about before pending's model
+// call.
+func (a *AutoCompactor) turnState(pending gotato.PendingTurn, ceiling, overhead int) TurnState {
+	segments := a.store.Segments()
+	state := TurnState{
+		Run: pending.RunID, Turn: pending.Turn, Overflow: pending.Overflow,
+		Tokens:        a.size(slices.Concat(flatten(segments), a.store.Tail()), overhead),
+		CeilingTokens: ceiling, BudgetTokens: a.compactor.effectiveBudget(),
+	}
+	if pending.Turn == 1 {
+		// Sized as a merge sizes them, one Segment at a time.
+		for _, segment := range segments {
+			state.SegmentTokens += EstimateTokens(segment.Messages)
+		}
+	}
+	return state
+}
+
+// checkCeiling returns an error of CodeLimitExceeded when the Context is still
+// past the ceiling after the Turn's compaction.
+func (a *AutoCompactor) checkCeiling(prepared gotato.TurnPrepared, dropped bool, overhead, ceiling int) error {
 	// After a compaction the old usage no longer counts: the size is
 	// estimated afresh from what the Context is now.
-	if fresh := EstimateTokens(slices.Concat(flatten(a.store.Segments()), a.store.Tail())) + overhead; fresh > ceiling {
-		why := "the Context is still past the ceiling after its compaction"
-		switch {
-		case dropped:
-			why = "the Context is past the ceiling and its compaction failed"
-		case !prepared.Changed:
-			why = "the Context is past the ceiling and there is nothing to compact"
-		}
-		return prepared, gotato.ErrorOf(gotato.CodeLimitExceeded, fmt.Sprintf("%s (about %d tokens, ceiling %d)", why, fresh, ceiling))
+	fresh := EstimateTokens(slices.Concat(flatten(a.store.Segments()), a.store.Tail())) + overhead
+	if fresh <= ceiling {
+		return nil
 	}
-	return prepared, nil
+	why := "the Context is still past the ceiling after its compaction"
+	switch {
+	case dropped:
+		why = "the Context is past the ceiling and its compaction failed"
+	case !prepared.Changed:
+		why = "the Context is past the ceiling and there is nothing to compact"
+	}
+	return gotato.ErrorOf(gotato.CodeLimitExceeded, fmt.Sprintf("%s (about %d tokens, ceiling %d)", why, fresh, ceiling))
 }
 
 // due asks the Trigger. One that panics, or says a compaction is due without
