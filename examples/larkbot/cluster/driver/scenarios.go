@@ -56,6 +56,23 @@ func allReady(ps map[string]bool) bool {
 	return ready
 }
 
+// How long smoke waits for the card, and how often it looks.
+const (
+	smokeCardWait = 30 * time.Second
+	smokeCardPoll = 500 * time.Millisecond
+)
+
+// waitCards waits until the chat has a card, and returns the cards it has at the end.
+func (e *env) waitCards(ctx context.Context, chat string) []card {
+	var cs []card
+	for deadline := time.Now().Add(smokeCardWait); time.Now().Before(deadline); sleep(ctx, smokeCardPoll) {
+		if cs, _ = e.cards(ctx, chat); len(cs) > 0 {
+			break
+		}
+	}
+	return cs
+}
+
 // smoke: one message, one card from one of the pods, the message once in the Transcript with one reply.
 func (e *env) smoke(ctx context.Context) bool {
 	fmt.Println("== smoke")
@@ -70,12 +87,7 @@ func (e *env) smoke(ctx context.Context) bool {
 		return verdict("smoke", false, m.err.Error())
 	}
 	fmt.Printf("sent %s, deliveries %+v\n", m.sent.MessageID, m.sent.Deliveries)
-	var cs []card
-	for deadline := time.Now().Add(30 * time.Second); time.Now().Before(deadline); sleep(ctx, 500*time.Millisecond) {
-		if cs, _ = e.cards(ctx, t.chat); len(cs) > 0 {
-			break
-		}
-	}
+	cs := e.waitCards(ctx, t.chat)
 	if len(cs) == 0 {
 		e.printErrors()
 	}
