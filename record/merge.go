@@ -101,27 +101,38 @@ func mergeOldest(ctx context.Context, store SegmentStore, c Compactor, budget in
 	if why == "" {
 		why = gotato.CompactionWhyPastBudget
 	}
-	result := MergeResult{BudgetTokens: budget}
 	segments := store.Segments()
+	result := mergeSizes(segments, budget)
+	if result.Reason != "" {
+		return result, nil
+	}
+	return merging{store: store, c: c, why: why}.run(ctx, segments, result)
+}
+
+// mergeSizes is the MergeResult of segments before a merge: their size against
+// budget, with the reason no merge is needed, if none is.
+func mergeSizes(segments []gotato.Segment, budget int) MergeResult {
+	result := MergeResult{BudgetTokens: budget}
 	for _, segment := range segments {
 		result.SegmentTokens += EstimateTokens(segment.Messages)
 	}
 	switch {
 	case result.SegmentTokens <= budget:
 		result.Reason = MergeReasonUnderBudget
-		return result, nil
 	case len(segments) < 2:
 		result.Reason = MergeReasonNothingToMerge
-		return result, nil
 	}
-	picker := c.picker()
-	count, err := callPart("Picker", func() (int, error) { return picker.Pick(cloneSegments(segments), budget), nil })
-	if err == nil && (count < 0 || count == 1 || count > len(segments)) {
-		err = fmt.Errorf("%w: the Picker returned %d for %d Segments; a merge replaces two or more of the first", ErrBadPart, count, len(segments))
-	}
+	return result
+}
+
+// run merges the oldest of segments, which pass result's budget: it asks the
+// Picker how many, writes their Recap and commits the merge.
+func (m merging) run(ctx context.Context, segments []gotato.Segment, result MergeResult) (MergeResult, error) {
+	store, why := m.store, m.why
+	count, err := m.pick(segments, result.BudgetTokens)
 	if err != nil {
 		store.Emit(gotato.CompactionStarted{Header: sessionHeader(store), Why: why})
-		return failMerge(store, why, result, MergeReasonPickFailed, causeOf(err), err), nil
+		return m.fail(result, MergeReasonPickFailed, causeOf(err), err), nil
 	}
 	if count == 0 {
 		result.Reason = MergeReasonNothingToMerge
@@ -131,7 +142,7 @@ func mergeOldest(ctx context.Context, store SegmentStore, c Compactor, budget in
 
 	store.Emit(gotato.CompactionStarted{Header: sessionHeader(store), Why: why})
 
-	recapName, recap, recapErr, err := mergeRecap(ctx, store, c, cloneSegments(replaced), why, &result)
+	recapName, recap, recapErr, err := m.recap(ctx, cloneSegments(replaced), &result)
 	if err != nil {
 		return result, err
 	}
@@ -140,9 +151,20 @@ func mergeOldest(ctx context.Context, store SegmentStore, c Compactor, budget in
 		if errors.Is(recapErr, ErrBadRecap) {
 			cause = gotato.CodeModelProtocolFailure
 		}
-		return failMerge(store, why, result, MergeReasonRecapFailed, cause, recapErr), nil
+		return m.fail(result, MergeReasonRecapFailed, cause, recapErr), nil
 	}
-	return commitMerge(store, c, why, result, segments, count, recapName, recap), nil
+	return m.commit(result, segments, count, recapName, recap), nil
+}
+
+// pick asks the Compactor's Picker how many of the oldest segments to merge,
+// and refuses a count a merge cannot take.
+func (m merging) pick(segments []gotato.Segment, budget int) (int, error) {
+	picker := m.c.picker()
+	count, err := callPart("Picker", func() (int, error) { return picker.Pick(cloneSegments(segments), budget), nil })
+	if err == nil && (count < 0 || count == 1 || count > len(segments)) {
+		err = fmt.Errorf("%w: the Picker returned %d for %d Segments; a merge replaces two or more of the first", ErrBadPart, count, len(segments))
+	}
+	return count, err
 }
 
 // cloneSegments copies Segments deeply, so a part cannot change what the frame
@@ -155,12 +177,21 @@ func cloneSegments(segments []gotato.Segment) []gotato.Segment {
 	return out
 }
 
-// mergeRecap writes the Recap of the merge: the model's when the Compactor's
+// merging is one merge of the oldest Segments: the store it writes, the
+// Compactor it runs and why it runs.
+type merging struct {
+	store SegmentStore
+	c     Compactor
+	why   gotato.CompactionWhy
+}
+
+// recap writes the Recap of the merge: the model's when the Compactor's
 // Recap is a MergeRecapWriter, else the digest. It records the model call's
 // usage in result. recapErr is a Recap that failed or broke the rules, which
 // leaves the Segments unmerged; err is a canceled ctx, after a
 // compaction_failed Event.
-func mergeRecap(ctx context.Context, store SegmentStore, c Compactor, replaced []gotato.Segment, why gotato.CompactionWhy, result *MergeResult) (name, recap string, recapErr, err error) {
+func (m merging) recap(ctx context.Context, replaced []gotato.Segment, result *MergeResult) (name, recap string, recapErr, err error) {
+	store, c, why := m.store, m.c, m.why
 	writer, ok := c.Recap.(MergeRecapWriter)
 	if !ok {
 		return mergeDigestName, mergeDigest(replaced, c.Location), nil, nil
@@ -183,10 +214,11 @@ func mergeRecap(ctx context.Context, store SegmentStore, c Compactor, replaced [
 	return writer.Name(), recap, nil, nil
 }
 
-// commitMerge builds the merged Segment from the first count segments and
+// commit builds the merged Segment from the first count segments and
 // writes it with its Checkpoint. A write that fails leaves the Segments
 // unmerged and says so in the result.
-func commitMerge(store SegmentStore, c Compactor, why gotato.CompactionWhy, result MergeResult, segments []gotato.Segment, count int, recapName, recap string) MergeResult {
+func (m merging) commit(result MergeResult, segments []gotato.Segment, count int, recapName, recap string) MergeResult {
+	store, c, why := m.store, m.c, m.why
 	replaced := segments[:count]
 	tail := store.Tail()
 	before := slices.Concat(flatten(segments), tail)
@@ -223,7 +255,7 @@ func commitMerge(store SegmentStore, c Compactor, why gotato.CompactionWhy, resu
 	if _, err := callStore("SegmentStore.MergeSegments", func() (gotato.Segment, error) {
 		return store.MergeSegments(why, merged, numbers, tail, &rec)
 	}); err != nil {
-		return failMerge(store, why, result, MergeReasonWriteFailed, causeOf(err), err)
+		return m.fail(result, MergeReasonWriteFailed, causeOf(err), err)
 	}
 	result.Merged, result.Reason = true, ""
 	result.Segment, result.Replaced = merged.Number, merged.Numbers()
@@ -232,10 +264,10 @@ func commitMerge(store SegmentStore, c Compactor, why gotato.CompactionWhy, resu
 	return result
 }
 
-// failMerge emits the compaction_failed Event of a merge and returns result
+// fail emits the compaction_failed Event of a merge and returns result
 // with the reason and the error text.
-func failMerge(store SegmentStore, why gotato.CompactionWhy, result MergeResult, reason MergeReason, cause gotato.ErrorCode, err error) MergeResult {
-	store.Emit(gotato.CompactionFailed{Header: sessionHeader(store), Why: why, Cause: cause})
+func (m merging) fail(result MergeResult, reason MergeReason, cause gotato.ErrorCode, err error) MergeResult {
+	m.store.Emit(gotato.CompactionFailed{Header: sessionHeader(m.store), Why: m.why, Cause: cause})
 	result.Reason, result.Error = reason, publicMergeError(reason, err)
 	return result
 }
