@@ -81,12 +81,24 @@ func (s *ownerStore) seen(op string) []bool {
 	return append([]bool(nil), s.calls[op]...)
 }
 
-func callAs(t *testing.T, server *httptest.Server, caller, method, path string, body any) (int, []byte) {
+// callerClient is a client of server that names itself in the X-Caller header.
+type callerClient struct {
+	server *httptest.Server
+	caller string
+}
+
+// asCaller makes the client of server that names itself caller.
+func asCaller(server *httptest.Server, caller string) callerClient {
+	return callerClient{server, caller}
+}
+
+// do makes one request as the caller and returns the status and the body.
+func (c callerClient) do(t *testing.T, method, path string, body any) (int, []byte) {
 	t.Helper()
 	data, _ := json.Marshal(body)
-	req, _ := http.NewRequest(method, server.URL+path, bytes.NewReader(data))
+	req, _ := http.NewRequest(method, c.server.URL+path, bytes.NewReader(data))
 	req.Header.Set("Content-Type", "application/json")
-	req.Header.Set("X-Caller", caller)
+	req.Header.Set("X-Caller", c.caller)
 	resp, err := http.DefaultClient.Do(req)
 	if err != nil {
 		t.Fatal(err)
@@ -135,11 +147,11 @@ func TestRequestContextReachesTheStoreAndARefusalAnswers404(t *testing.T) {
 	var status int
 	var body []byte
 	for _, prompt := range []string{"one", "two", "three"} {
-		if status, body = callAs(t, second, "alice", http.MethodPost, "/v1/sessions/"+id+"/runs", map[string]any{"prompt": prompt}); status != http.StatusOK {
+		if status, body = asCaller(second, "alice").do(t, http.MethodPost, "/v1/sessions/"+id+"/runs", map[string]any{"prompt": prompt}); status != http.StatusOK {
 			t.Fatalf("run = %d %s", status, body)
 		}
 	}
-	if status, body = callAs(t, second, "alice", http.MethodPost, "/v1/sessions/"+id+"/compact", map[string]any{"min_tokens": 1}); status != http.StatusOK {
+	if status, body = asCaller(second, "alice").do(t, http.MethodPost, "/v1/sessions/"+id+"/compact", map[string]any{"min_tokens": 1}); status != http.StatusOK {
 		t.Fatalf("compact = %d %s", status, body)
 	}
 	for _, op := range []string{"create", "load", "log", "append"} {
@@ -161,17 +173,17 @@ func TestRequestContextReachesTheStoreAndARefusalAnswers404(t *testing.T) {
 			{"read", http.MethodGet, "/v1/sessions/" + id},
 			{"run", http.MethodPost, "/v1/sessions/" + id + "/runs"},
 		} {
-			if status, body = callAs(t, server, "mallory", tc.method, tc.path, map[string]any{"prompt": "hi"}); status != http.StatusNotFound {
+			if status, body = asCaller(server, "mallory").do(t, tc.method, tc.path, map[string]any{"prompt": "hi"}); status != http.StatusNotFound {
 				t.Errorf("%s by another caller = %d %s, want 404", tc.name, status, body)
 			}
 		}
 	}
 	// A cancel by another caller answers 404 here too, with no Run going on.
-	if status, body = callAs(t, third, "mallory", http.MethodPost, "/v1/sessions/"+id+"/abort", nil); status != http.StatusNotFound {
+	if status, body = asCaller(third, "mallory").do(t, http.MethodPost, "/v1/sessions/"+id+"/abort", nil); status != http.StatusNotFound {
 		t.Errorf("cancel by another caller = %d %s, want 404", status, body)
 	}
 	// The owner still reads it.
-	if status, body = callAs(t, third, "alice", http.MethodGet, "/v1/sessions/"+id, nil); status != http.StatusOK {
+	if status, body = asCaller(third, "alice").do(t, http.MethodGet, "/v1/sessions/"+id, nil); status != http.StatusOK {
 		t.Errorf("read by the owner = %d %s", status, body)
 	}
 }
@@ -223,17 +235,17 @@ func TestARefusalAlsoGuardsALiveRun(t *testing.T) {
 		{"notice", "/notices", notice},
 		{"abort", "/abort", nil},
 	} {
-		if status, body := callAs(t, server, "mallory", http.MethodPost, "/v1/sessions/"+id+tc.path, tc.body); status != http.StatusNotFound {
+		if status, body := asCaller(server, "mallory").do(t, http.MethodPost, "/v1/sessions/"+id+tc.path, tc.body); status != http.StatusNotFound {
 			t.Errorf("%s by another caller = %d %s, want 404", tc.name, status, body)
 		}
 	}
-	if status, body := callAs(t, server, "alice", http.MethodPost, "/v1/sessions/"+id+"/messages", steer); status >= 300 {
+	if status, body := asCaller(server, "alice").do(t, http.MethodPost, "/v1/sessions/"+id+"/messages", steer); status >= 300 {
 		t.Errorf("steer by the owner = %d %s", status, body)
 	}
-	if status, body := callAs(t, server, "alice", http.MethodPost, "/v1/sessions/"+id+"/notices", notice); status >= 300 {
+	if status, body := asCaller(server, "alice").do(t, http.MethodPost, "/v1/sessions/"+id+"/notices", notice); status >= 300 {
 		t.Errorf("notice by the owner = %d %s", status, body)
 	}
-	if status, body := callAs(t, server, "alice", http.MethodPost, "/v1/sessions/"+id+"/abort", nil); status != http.StatusAccepted {
+	if status, body := asCaller(server, "alice").do(t, http.MethodPost, "/v1/sessions/"+id+"/abort", nil); status != http.StatusAccepted {
 		t.Errorf("cancel by the owner = %d %s", status, body)
 	}
 }
