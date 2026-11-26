@@ -281,18 +281,27 @@ func withOverflowPhrases(base model.Classifier, phrases []string) model.Classifi
 		if v.Overflow || (f.Status != 0 && f.Status != 400 && f.Status != 413) {
 			return v
 		}
-		for _, text := range []string{f.Message, f.Code, f.Type} {
-			lower := strings.ToLower(text)
-			for _, phrase := range phrases {
-				if strings.Contains(lower, phrase) {
-					// The limit the message names, if its wording is one the default reads.
-					limit := model.DefaultClassifier(model.Failure{Status: 400, Message: f.Message, Type: "context_length_exceeded"}).Limit
-					return model.Verdict{Overflow: true, Limit: limit}
-				}
+		if !holdsPhrase(f, phrases) {
+			return v
+		}
+		// The limit the message names, if its wording is one the default reads.
+		limit := model.DefaultClassifier(model.Failure{Status: 400, Message: f.Message, Type: "context_length_exceeded"}).Limit
+		return model.Verdict{Overflow: true, Limit: limit}
+	}
+}
+
+// holdsPhrase reports whether the message, code or type of a Failure holds
+// one of the phrases, matched without regard to case.
+func holdsPhrase(f model.Failure, phrases []string) bool {
+	for _, text := range []string{f.Message, f.Code, f.Type} {
+		lower := strings.ToLower(text)
+		for _, phrase := range phrases {
+			if strings.Contains(lower, phrase) {
+				return true
 			}
 		}
-		return v
 	}
+	return false
 }
 
 // expandBraceEnvDocument resolves ${NAME} references in every string scalar of
