@@ -156,7 +156,7 @@ func (st *runState) serveLocked(ctx, runCtx context.Context) error {
 	}
 	spec, err := st.resolveAgent(runCtx)
 	if request.SessionID != "" {
-		st.announceOpen(spec, err == nil, opened.early, opened.reused, opened.loadTime)
+		st.announceOpen(spec, err, opened)
 	}
 	if err != nil {
 		return st.abandon(runCtx, err)

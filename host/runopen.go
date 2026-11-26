@@ -156,18 +156,19 @@ func (st *runState) joinFeed(ctx, runCtx context.Context) error {
 	return nil
 }
 
-// announceOpen labels the Feed with the Agent's name and publishes the Events
-// the open wrote and the session_loaded Event.
-func (st *runState) announceOpen(spec profile.AgentProfile, known bool, early []gotato.Event, reused bool, loadTime time.Duration) {
+// announceOpen labels the Feed with the Agent's name, none when agentErr says
+// the Agent is not known, and publishes the Events the open wrote and the
+// session_loaded Event.
+func (st *runState) announceOpen(spec profile.AgentProfile, agentErr error, opened openedSession) {
 	label := spec.Name
-	if !known {
+	if agentErr != nil {
 		label = ""
 	}
 	setLabel(st.feed, label)
 	if st.writer != nil {
-		st.r.publishOpened(st.writer, early, label)
+		st.r.publishOpened(st.writer, opened.early, label)
 	}
-	if !reused {
-		st.r.notice(loadedEvent(st.sessionID, st.s.Len(), loadTime, nil), label)
+	if !opened.reused {
+		st.r.notice(loadedEvent(st.sessionID, st.s.Len(), opened.loadTime, nil), label)
 	}
 }
