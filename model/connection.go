@@ -36,6 +36,10 @@ type Connection struct {
 const (
 	defaultConnectTimeout        = 10 * time.Second
 	defaultResponseHeaderTimeout = 60 * time.Second
+	// dialKeepAlive is the keep-alive period of the client's connections.
+	dialKeepAlive = 30 * time.Second
+	// idleConnTimeout is how long an idle connection stays in the pool.
+	idleConnTimeout = 90 * time.Second
 )
 
 // NewHTTPClient returns an HTTP client with timeouts on it, so a stalled
@@ -50,11 +54,11 @@ func NewHTTPClient(connect, header time.Duration) *http.Client {
 	return &http.Client{
 		Transport: &http.Transport{
 			Proxy:                 http.ProxyFromEnvironment,
-			DialContext:           (&net.Dialer{Timeout: connect, KeepAlive: 30 * time.Second}).DialContext,
+			DialContext:           (&net.Dialer{Timeout: connect, KeepAlive: dialKeepAlive}).DialContext,
 			TLSHandshakeTimeout:   connect,
 			ResponseHeaderTimeout: header,
 			ExpectContinueTimeout: time.Second,
-			IdleConnTimeout:       90 * time.Second,
+			IdleConnTimeout:       idleConnTimeout,
 		},
 	}
 }
