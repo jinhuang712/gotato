@@ -105,13 +105,7 @@ func limitLines(items []item, limit int) {
 		if !items[i].isCalls {
 			continue
 		}
-		keep := items[i].lines
-		if shown+len(keep) > limit {
-			keep = keep[:max(limit-shown, 0)]
-			for _, line := range items[i].lines[len(keep):] {
-				over[line.ToolID] += max(line.Count, 1)
-			}
-		}
+		keep := capLines(items[i].lines, limit-shown, over)
 		shown += len(keep)
 		items[i].lines = keep
 		if len(keep) > 0 {
@@ -121,6 +115,25 @@ func limitLines(items []item, limit int) {
 	if len(over) == 0 || last < 0 {
 		return
 	}
+	items[last].overflow = overflowLine(over)
+}
+
+// capLines keeps the first room of lines and counts the rest in over, by tool
+// name.
+func capLines(lines []callLine, room int, over map[string]int) []callLine {
+	if len(lines) <= room {
+		return lines
+	}
+	keep := lines[:max(room, 0)]
+	for _, line := range lines[len(keep):] {
+		over[line.ToolID] += max(line.Count, 1)
+	}
+	return keep
+}
+
+// overflowLine counts the calls past the cap of a Segment's tool call lines,
+// over, by tool name.
+func overflowLine(over map[string]int) string {
 	names := make([]string, 0, len(over))
 	for name := range over {
 		names = append(names, name)
@@ -132,7 +145,7 @@ func limitLines(items []item, limit int) {
 		counts = append(counts, fmt.Sprintf("%s ×%d", text.EscapeTags(oneLine(name)), over[name]))
 		total += over[name]
 	}
-	items[last].overflow = fmt.Sprintf("… %d more calls: %s", total, strings.Join(counts, ", "))
+	return fmt.Sprintf("… %d more calls: %s", total, strings.Join(counts, ", "))
 }
 
 // cutRunes returns the first n bytes of s, less a rune cut in half.
