@@ -140,17 +140,9 @@ func (r record) unanswered() bool {
 // inversions counts the adjacent pairs of tags, sent one after the other, that the Transcript holds in the
 // other order (a tag the Transcript lacks is skipped).
 func (r record) inversions(tags []string) int {
-	idx := func(tag string) int {
-		for i, m := range r.Messages {
-			if m.Role == "user" && strings.Contains(r.text(i), tag) {
-				return i
-			}
-		}
-		return -1
-	}
 	n, prev := 0, -1
 	for _, tag := range tags {
-		i := idx(tag)
+		i := r.userIndex(tag)
 		if i < 0 {
 			continue
 		}
@@ -160,6 +152,16 @@ func (r record) inversions(tags []string) int {
 		prev = i
 	}
 	return n
+}
+
+// userIndex is the index of the first user message that carries the tag, or -1.
+func (r record) userIndex(tag string) int {
+	for i, m := range r.Messages {
+		if m.Role == "user" && strings.Contains(r.text(i), tag) {
+			return i
+		}
+	}
+	return -1
 }
 
 func (e *env) record(ctx context.Context, id string) (record, error) {
@@ -173,27 +175,40 @@ func (e *env) record(ctx context.Context, id string) (record, error) {
 // Each finding is a GOTATO-FAULT.
 func recordFaults(r record) []string {
 	var out []string
-	holder, epoch := "", 0
+	var chain claimChain
 	for i, ev := range r.Events {
 		if ev.Number != i+1 {
 			out = append(out, fmt.Sprintf("position gap: event %d (%s) has number %d", i+1, ev.Kind, ev.Number))
 			break
 		}
-		switch ev.Kind {
-		case "session_claimed":
-			if holder != "" && ev.From != holder && ev.Instance != holder {
-				out = append(out, fmt.Sprintf("two claims overlap at %d: %s claims while %s holds it (from=%q)", ev.Number, ev.Instance, holder, ev.From))
-			}
-			if ev.Epoch < epoch {
-				out = append(out, fmt.Sprintf("epoch went back at %d: %d after %d", ev.Number, ev.Epoch, epoch))
-			}
-			holder, epoch = ev.Instance, ev.Epoch
-		case "session_released":
-			if ev.Instance != holder {
-				out = append(out, fmt.Sprintf("released by %s at %d, held by %q", ev.Instance, ev.Number, holder))
-			}
-			holder = ""
+		out = append(out, chain.check(ev)...)
+	}
+	return out
+}
+
+// claimChain follows who holds a Session and at what epoch, event by event.
+type claimChain struct {
+	holder string
+	epoch  int
+}
+
+// check takes one event and returns the faults it shows against the chain so far.
+func (c *claimChain) check(ev recordEvent) []string {
+	var out []string
+	switch ev.Kind {
+	case "session_claimed":
+		if c.holder != "" && ev.From != c.holder && ev.Instance != c.holder {
+			out = append(out, fmt.Sprintf("two claims overlap at %d: %s claims while %s holds it (from=%q)", ev.Number, ev.Instance, c.holder, ev.From))
 		}
+		if ev.Epoch < c.epoch {
+			out = append(out, fmt.Sprintf("epoch went back at %d: %d after %d", ev.Number, ev.Epoch, c.epoch))
+		}
+		c.holder, c.epoch = ev.Instance, ev.Epoch
+	case "session_released":
+		if ev.Instance != c.holder {
+			out = append(out, fmt.Sprintf("released by %s at %d, held by %q", ev.Instance, ev.Number, c.holder))
+		}
+		c.holder = ""
 	}
 	return out
 }
