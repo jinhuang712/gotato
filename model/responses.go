@@ -220,10 +220,20 @@ func convertResponsesMessage(message gotato.Message, names map[string]string, re
 // reasoning items and function calls, in that order.
 func responsesAssistantItems(message gotato.Message, names map[string]string, replay reasoningReplay, layout *deferredLayout) ([]any, error) {
 	items := make([]any, 0, len(message.Parts)+len(message.ToolCalls))
+	items, err := appendResponsesAssistantParts(items, message.Parts, replay)
+	if err != nil {
+		return nil, err
+	}
+	return appendResponsesCalls(items, message.ToolCalls, names, replay, layout)
+}
+
+// appendResponsesAssistantParts adds the Parts of an assistant Message as
+// output messages and reasoning items.
+func appendResponsesAssistantParts(items []any, parts []gotato.ContentPart, replay reasoningReplay) ([]any, error) {
 	// Adjacent text Parts are one output message: transcripts saved
 	// before Gotato coalesced deltas hold a reply as its fragments.
 	var text strings.Builder
-	for _, part := range message.Parts {
+	for _, part := range parts {
 		if part.Kind == gotato.ContentKindReasoning && replay == reasoningDropped {
 			continue
 		}
@@ -232,8 +242,13 @@ func responsesAssistantItems(message gotato.Message, names map[string]string, re
 			return nil, err
 		}
 	}
-	items = flushResponsesText(items, &text)
-	for _, call := range message.ToolCalls {
+	return flushResponsesText(items, &text), nil
+}
+
+// appendResponsesCalls adds the Tool Calls of an assistant Message as
+// function calls, and calls to the search tool as tool_search_call items.
+func appendResponsesCalls(items []any, calls []gotato.ToolCall, names map[string]string, replay reasoningReplay, layout *deferredLayout) ([]any, error) {
+	for _, call := range calls {
 		name, err := assignFunctionName(names, call.ToolID)
 		if err != nil {
 			return nil, err
