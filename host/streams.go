@@ -211,11 +211,7 @@ func (r *Runner) dropStream(stream *SessionStream) {
 func (r *Runner) startStream(stream *SessionStream) (recheck bool, older []*SessionStream, over bool) {
 	r.streams.mu.Lock()
 	defer r.streams.mu.Unlock()
-	for _, epoch := range stream.seen {
-		if epoch != stream.RecordEpoch {
-			recheck = true
-		}
-	}
+	recheck = sawOtherEpoch(stream)
 	stream.seen = nil
 	if recheck {
 		return true, nil, false
@@ -223,6 +219,26 @@ func (r *Runner) startStream(stream *SessionStream) (recheck bool, older []*Sess
 	stream.started = true
 	r.streams.starts++
 	stream.startedAt = r.streams.starts
+	return false, r.olderStreamsLocked(stream), r.streams.over
+}
+
+// sawOtherEpoch reports whether this Instance saw the stream's Record with
+// another epoch than the stream's while the stream opened.
+func sawOtherEpoch(stream *SessionStream) bool {
+	other := false
+	for _, epoch := range stream.seen {
+		if epoch != stream.RecordEpoch {
+			other = true
+		}
+	}
+	return other
+}
+
+// olderStreamsLocked returns the started streams of the stream's Session that
+// are of another Record than the stream, and marks the ones still opening
+// with the stream's epoch. The caller holds r.streams.mu.
+func (r *Runner) olderStreamsLocked(stream *SessionStream) []*SessionStream {
+	var older []*SessionStream
 	for other := range r.streams.open {
 		if other == stream || other.sessionID != stream.sessionID {
 			continue
@@ -235,7 +251,7 @@ func (r *Runner) startStream(stream *SessionStream) (recheck bool, older []*Sess
 			older = append(older, other)
 		}
 	}
-	return false, older, r.streams.over
+	return older
 }
 
 // streamMark returns the number of the last stream start, to take before a
