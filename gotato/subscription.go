@@ -248,22 +248,8 @@ func (s *subscription) forward(ctx context.Context) {
 			s.finish(nil)
 			return
 		}
-		select {
-		case s.out <- event:
-		case <-s.done:
+		if !w.send(ctx, event) || w.stopAt(event) {
 			return
-		case <-ctx.Done():
-			s.finish(ctx.Err())
-			return
-		}
-		if s.until != nil {
-			var last bool
-			// [LIVENESS] a panic in done ends this one Subscription, not the process.
-			err := callHost("SubscribeUntil", func() error { last = s.until(event); return nil })
-			if err != nil || last {
-				s.finish(extensionFailure("Subscription", err))
-				return
-			}
 		}
 	}
 }

@@ -33,6 +33,35 @@ func (w *forwarder) take(ctx context.Context) (Event, bool, error) {
 	}
 }
 
+// send hands event to Next, and reports false when the stream ended first.
+func (w *forwarder) send(ctx context.Context, event Event) bool {
+	select {
+	case w.out <- event:
+		return true
+	case <-w.done:
+		return false
+	case <-ctx.Done():
+		w.finish(ctx.Err())
+		return false
+	}
+}
+
+// stopAt reports whether the stream ends after event, as SubscribeUntil
+// says, and ends it when it does.
+func (w *forwarder) stopAt(event Event) bool {
+	if w.until == nil {
+		return false
+	}
+	var last bool
+	// [LIVENESS] a panic in done ends this one Subscription, not the process.
+	err := callHost("SubscribeUntil", func() error { last = w.until(event); return nil })
+	if err != nil || last {
+		w.finish(extensionFailure("Subscription", err))
+		return true
+	}
+	return false
+}
+
 // advance does what state says when nothing is queued: it catches up from
 // the source, ends the stream, or waits. ended is true when the stream ended
 // without an error.
