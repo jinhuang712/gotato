@@ -16,7 +16,7 @@ import (
 
 func TestClientHonorsRetryAfter(t *testing.T) {
 	var calls atomic.Int32
-	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
 		if calls.Add(1) == 1 {
 			w.Header().Set("retry-after-ms", "50")
 			http.Error(w, "slow down", http.StatusTooManyRequests)
@@ -49,7 +49,7 @@ func TestClientHonorsRetryAfter(t *testing.T) {
 
 func TestClientDoesNotRetryTerminalQuota(t *testing.T) {
 	var calls atomic.Int32
-	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
 		calls.Add(1)
 		w.WriteHeader(http.StatusTooManyRequests)
 		_, _ = w.Write([]byte(`{"error":{"message":"You exceeded your current quota: insufficient_quota"}}`))
@@ -74,7 +74,7 @@ func TestClientDoesNotRetryTerminalQuota(t *testing.T) {
 
 func TestClientRetriesBeforeStreamStarts(t *testing.T) {
 	var calls atomic.Int32
-	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
 		if calls.Add(1) == 1 {
 			http.Error(w, "temporary", http.StatusBadGateway)
 			return
@@ -177,7 +177,7 @@ func TestA200WithAJSONErrorBodySurfacesTheProvidersError(t *testing.T) {
 // provider's own text.
 func TestClientRetryIsAnEvent(t *testing.T) {
 	var calls atomic.Int32
-	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
 		if calls.Add(1) == 1 {
 			http.Error(w, "secret provider detail", http.StatusServiceUnavailable)
 			return
