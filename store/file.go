@@ -269,6 +269,17 @@ func (f *FileStore) List(ctx context.Context, q ListQuery) (ListPage, error) {
 	if err != nil {
 		return ListPage{}, err
 	}
+	out, err := collectInfos(names, f.info)
+	if err != nil {
+		return ListPage{}, err
+	}
+	return pageOf(out, q)
+}
+
+// collectInfos returns the Info of every Record directory in names, read by
+// info. A Record that vanished is skipped, and any other failure is reported
+// together, one error for all the unreadable Records.
+func collectInfos(names []os.DirEntry, info func(id string) (record.Info, error)) ([]record.Info, error) {
 	out := make([]record.Info, 0, len(names))
 	var unreadable []string
 	for _, name := range names {
@@ -279,7 +290,7 @@ func (f *FileStore) List(ctx context.Context, q ListQuery) (ListPage, error) {
 		if !ok {
 			continue
 		}
-		summary, err := f.info(id)
+		summary, err := info(id)
 		if errors.Is(err, record.ErrNotFound) {
 			continue
 		}
@@ -290,9 +301,9 @@ func (f *FileStore) List(ctx context.Context, q ListQuery) (ListPage, error) {
 		out = append(out, summary)
 	}
 	if len(unreadable) > 0 {
-		return ListPage{}, fmt.Errorf("store: %d unreadable session(s): %s", len(unreadable), strings.Join(unreadable, "; "))
+		return nil, fmt.Errorf("store: %d unreadable session(s): %s", len(unreadable), strings.Join(unreadable, "; "))
 	}
-	return pageOf(out, q)
+	return out, nil
 }
 
 // info reads a Record's Info from the Header of its last write alone.
