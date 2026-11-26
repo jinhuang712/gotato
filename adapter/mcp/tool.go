@@ -55,11 +55,7 @@ func (t *tool) Execute(ctx context.Context, use gotato.ToolUse, progress gotato.
 		params.Arguments = json.RawMessage(use.Arguments)
 	}
 	if progress != nil {
-		// A server sends progress only to a call that carries a token.
-		token := fmt.Sprintf("gotato-%d", t.set.tokens.Add(1))
-		params.SetProgressToken(token)
-		t.set.progress.Store(token, progress)
-		defer t.set.progress.Delete(token)
+		defer t.trackProgress(params, progress)()
 	}
 	// A server that forgot the session (it restarted) answers 404 before it
 	// runs anything, so the call is sent once more on a new session, even for
@@ -72,21 +68,42 @@ func (t *tool) Execute(ctx context.Context, use gotato.ToolUse, progress gotato.
 		}
 		result, err := session.CallTool(ctx, params)
 		if err == nil {
-			if result.NeedsInput() {
-				return gotato.ToolResult{Status: gotato.ToolResultStatusFailed, SafeError: needsInput,
-					Content: []gotato.ContentPart{{Kind: gotato.ContentKindText, Text: needsInput}}}, nil
-			}
-			return convertResult(result), nil
+			return resultOrNeedsInput(result), nil
 		}
 		t.set.drop(session, err)
 		if attempt == 0 && errors.Is(err, sdk.ErrSessionMissing) && ctx.Err() == nil {
 			continue
 		}
-		return gotato.ToolResult{}, callError{
-			error:  fmt.Errorf("mcp %s.%s: %w", t.set.name, t.name, err),
-			public: fmt.Sprintf("mcp %s.%s: the server did not take the call", t.set.name, t.name),
-		}
+		return gotato.ToolResult{}, t.callFailure(err)
 	}
+}
+
+// trackProgress registers progress for params under a new token and returns
+// the function that removes it.
+func (t *tool) trackProgress(params *sdk.CallToolParams, progress gotato.ToolProgressFunc) func() {
+	// A server sends progress only to a call that carries a token.
+	token := fmt.Sprintf("gotato-%d", t.set.tokens.Add(1))
+	params.SetProgressToken(token)
+	t.set.progress.Store(token, progress)
+	return func() { t.set.progress.Delete(token) }
+}
+
+// callFailure wraps err, the SDK's error for a call, as a callError.
+func (t *tool) callFailure(err error) callError {
+	return callError{
+		error:  fmt.Errorf("mcp %s.%s: %w", t.set.name, t.name, err),
+		public: fmt.Sprintf("mcp %s.%s: the server did not take the call", t.set.name, t.name),
+	}
+}
+
+// resultOrNeedsInput converts result, or is the failed Tool Result of a call
+// that asked for input.
+func resultOrNeedsInput(result *sdk.CallToolResult) gotato.ToolResult {
+	if result.NeedsInput() {
+		return gotato.ToolResult{Status: gotato.ToolResultStatusFailed, SafeError: needsInput,
+			Content: []gotato.ContentPart{{Kind: gotato.ContentKindText, Text: needsInput}}}
+	}
+	return convertResult(result)
 }
 
 // [SECURITY] the public text is fixed: the SDK error names URLs and hosts and stays the cause.
