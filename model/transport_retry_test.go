@@ -45,7 +45,10 @@ func TestTransportRetryWaitIsCappedByMaxWait(t *testing.T) {
 	if len(retries) != 1 {
 		t.Fatalf("model_retried Events = %d, want 1", len(retries))
 	}
-	retried := retries[0].(gotato.ModelRetried)
+	retried, ok := retries[0].(gotato.ModelRetried)
+	if !ok {
+		t.Fatalf("retries[0] = %T, want gotato.ModelRetried", retries[0])
+	}
 	if retried.WaitMS > 20 || elapsed > time.Second {
 		t.Fatalf("transport retry waited %v ms (elapsed %s), want at most MaxWait 20ms", retried.WaitMS, elapsed)
 	}

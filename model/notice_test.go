@@ -71,8 +71,15 @@ func TestNoticeAfterToolResultsReachesEachWireAPIAsTaggedText(t *testing.T) {
 			}
 			if api == APIAnthropicMessages {
 				// Joined to the user turn that holds the Tool Result, after it.
-				blocks := last["content"].([]any)
-				if first := blocks[0].(map[string]any); first["type"] != "tool_result" {
+				blocks, ok := last["content"].([]any)
+				if !ok {
+					t.Fatalf("last content = %T, want []any", last["content"])
+				}
+				first, ok := blocks[0].(map[string]any)
+				if !ok {
+					t.Fatalf("blocks[0] = %T, want map[string]any", blocks[0])
+				}
+				if first["type"] != "tool_result" {
 					t.Fatalf("the Tool Result is not first in its turn: %v", blocks)
 				}
 			}

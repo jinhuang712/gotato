@@ -203,7 +203,10 @@ func TestClientRetryIsAnEvent(t *testing.T) {
 	if len(retries) != 1 {
 		t.Fatalf("model_retried Events = %d, want 1: %v", len(retries), recorder.Kinds())
 	}
-	retried := retries[0].(gotato.ModelRetried)
+	retried, ok := retries[0].(gotato.ModelRetried)
+	if !ok {
+		t.Fatalf("retries[0] = %T, want gotato.ModelRetried", retries[0])
+	}
 	if retried.Attempt != 1 || retried.Error != "the provider answered 503" || retried.RunID == "" || retried.Number == 0 {
 		t.Fatalf("model_retried = %+v", retried)
 	}
@@ -289,7 +292,10 @@ func TestEveryAPIReportsRetriesAsEvents(t *testing.T) {
 				if len(retries) != 1 {
 					t.Fatalf("model_retried Events = %d, want 1: %v", len(retries), recorder.Kinds())
 				}
-				retried := retries[0].(gotato.ModelRetried)
+				retried, ok := retries[0].(gotato.ModelRetried)
+				if !ok {
+					t.Fatalf("retries[0] = %T, want gotato.ModelRetried", retries[0])
+				}
 				if retried.Attempt != 1 || retried.WaitMS <= 0 || retried.Error != failure.error {
 					t.Fatalf("model_retried = %+v, want attempt 1, a wait, %q", retried, failure.error)
 				}

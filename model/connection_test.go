@@ -293,7 +293,10 @@ func TestTheDefaultHTTPClientHasTheOldTimeoutsAndAGivenOneIsKept(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	transport := client.httpClient.Transport.(*http.Transport)
+	transport, ok := client.httpClient.Transport.(*http.Transport)
+	if !ok {
+		t.Fatalf("client.httpClient.Transport = %T, want *http.Transport", client.httpClient.Transport)
+	}
 	if transport.ResponseHeaderTimeout != 60*time.Second || transport.TLSHandshakeTimeout != 10*time.Second {
 		t.Fatalf("defaults changed: header %v, tls %v", transport.ResponseHeaderTimeout, transport.TLSHandshakeTimeout)
 	}
