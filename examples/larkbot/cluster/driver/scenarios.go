@@ -64,62 +64,87 @@ func (e *env) smoke(ctx context.Context) bool {
 	return verdict("smoke", true, "")
 }
 
+// The shape of s1: its threads, how many start before the restart, from which thread a reply goes into the
+// thread two behind, up to which thread a late reply goes, the Run's delay, the pauses, and how long it waits.
+const (
+	s1Threads   = 12
+	s1Early     = 6
+	s1QueueFrom = 8
+	s1LateTo    = 9
+	s1Delay     = "[quirk:delay=8s]"
+	s1Stagger   = 700 * time.Millisecond
+	s1LateGap   = 500 * time.Millisecond
+	s1Quiet     = 25 * time.Second
+	s1Settle    = 90 * time.Second
+)
+
 // s1: a rolling deploy while Runs are in flight.
 func (e *env) s1(ctx context.Context) bool {
 	fmt.Println("== s1: rolling deploy with Runs in flight")
-	const delay = "[quirk:delay=8s]"
 	id := runID()
 	var ts []*thread
-	for i := range 12 {
+	for i := range s1Threads {
 		ts = append(ts, &thread{chat: fmt.Sprintf("oc_s1_%s_%02d", id, i+1)})
 	}
 	start := time.Now()
 	at := func() string { return fmt.Sprintf("+%02ds", int(time.Since(start).Seconds())) }
-	for i := range 6 {
-		m := e.say(ctx, ts[i], fmt.Sprintf("s1-%02d-a", i+1), delay)
+	for i := range s1Early {
+		m := e.say(ctx, ts[i], fmt.Sprintf("s1-%02d-a", i+1), s1Delay)
 		fmt.Printf("%s new thread %d: %s\n", at(), i+1, shortDeliveries(m))
-		sleep(ctx, 700*time.Millisecond)
+		sleep(ctx, s1Stagger)
 	}
 	fmt.Printf("%s kubectl rollout restart deployment/larkbot\n", at())
 	if out, err := e.kubectl(ctx, "rollout", "restart", "deployment/larkbot"); err != nil {
 		return verdict("s1", false, out)
 	}
+	rolled := e.rolloutStatus(ctx, "larkbot")
+	e.s1DuringRollout(ctx, ts, at)
+	if err := <-rolled; err != nil {
+		fmt.Println("rollout:", err)
+	}
+	fmt.Printf("%s rollout done\n", at())
+	for i := s1Early; i < s1LateTo; i++ { // threads whose writer pod is gone
+		m := e.say(ctx, ts[i], fmt.Sprintf("s1-%02d-c", i+1), s1Delay)
+		fmt.Printf("%s late reply in thread %d: %s\n", at(), i+1, shortDeliveries(m))
+		sleep(ctx, s1LateGap)
+	}
+	fmt.Printf("%s waiting for the Runs to settle\n", at())
+	e.waitQuiet(ctx, ts, s1Quiet, s1Settle)
+	fmt.Printf("\n%s results\n", at())
+	faults := e.report(ctx, ts)
+	return verdict("s1", faults == 0, fmt.Sprintf("%d GOTATO-FAULT", faults))
+}
+
+// s1DuringRollout sends while the bot rolls: new threads, replies into threads whose Run is still going, and
+// replies in the first threads.
+func (e *env) s1DuringRollout(ctx context.Context, ts []*thread, at func() string) {
+	for i := s1Early; i < s1Threads; i++ {
+		sleep(ctx, time.Second)
+		m := e.say(ctx, ts[i], fmt.Sprintf("s1-%02d-a", i+1), s1Delay)
+		fmt.Printf("%s new thread %d: %s\n", at(), i+1, shortDeliveries(m))
+		if i >= s1QueueFrom { // a reply into a thread whose Run is still going: queued, or forwarded to its writer
+			m := e.say(ctx, ts[i-2], fmt.Sprintf("s1-%02d-q", i-1), s1Delay)
+			fmt.Printf("%s reply into the running thread %d: %s\n", at(), i-1, shortDeliveries(m))
+		}
+	}
+	for i := range s1Early { // replies in threads whose Run is in flight or just ended
+		sleep(ctx, time.Second)
+		m := e.say(ctx, ts[i], fmt.Sprintf("s1-%02d-b", i+1), s1Delay)
+		fmt.Printf("%s reply in thread %d: %s\n", at(), i+1, shortDeliveries(m))
+	}
+}
+
+// rolloutStatus waits for the rollout of a Deployment in the background; the channel gets its error.
+func (e *env) rolloutStatus(ctx context.Context, deployment string) <-chan error {
 	rolled := make(chan error, 1)
 	go func() {
-		out, err := e.kubectl(ctx, "rollout", "status", "deployment/larkbot", "--timeout=170s")
+		out, err := e.kubectl(ctx, "rollout", "status", "deployment/"+deployment, "--timeout=170s")
 		if err != nil {
 			err = fmt.Errorf("%w: %s", err, out)
 		}
 		rolled <- err
 	}()
-	for i := 6; i < 12; i++ {
-		sleep(ctx, time.Second)
-		m := e.say(ctx, ts[i], fmt.Sprintf("s1-%02d-a", i+1), delay)
-		fmt.Printf("%s new thread %d: %s\n", at(), i+1, shortDeliveries(m))
-		if i >= 8 { // a reply into a thread whose Run is still going: queued, or forwarded to its writer
-			m := e.say(ctx, ts[i-2], fmt.Sprintf("s1-%02d-q", i-1), delay)
-			fmt.Printf("%s reply into the running thread %d: %s\n", at(), i-1, shortDeliveries(m))
-		}
-	}
-	for i := range 6 { // replies in threads whose Run is in flight or just ended
-		sleep(ctx, time.Second)
-		m := e.say(ctx, ts[i], fmt.Sprintf("s1-%02d-b", i+1), delay)
-		fmt.Printf("%s reply in thread %d: %s\n", at(), i+1, shortDeliveries(m))
-	}
-	if err := <-rolled; err != nil {
-		fmt.Println("rollout:", err)
-	}
-	fmt.Printf("%s rollout done\n", at())
-	for i := 6; i < 9; i++ { // threads whose writer pod is gone
-		m := e.say(ctx, ts[i], fmt.Sprintf("s1-%02d-c", i+1), delay)
-		fmt.Printf("%s late reply in thread %d: %s\n", at(), i+1, shortDeliveries(m))
-		sleep(ctx, 500*time.Millisecond)
-	}
-	fmt.Printf("%s waiting for the Runs to settle\n", at())
-	e.waitQuiet(ctx, ts, 25*time.Second, 90*time.Second)
-	fmt.Printf("\n%s results\n", at())
-	faults := e.report(ctx, ts)
-	return verdict("s1", faults == 0, fmt.Sprintf("%d GOTATO-FAULT", faults))
+	return rolled
 }
 
 func shortDeliveries(m *msg) string {
