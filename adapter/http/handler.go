@@ -166,7 +166,7 @@ func WithKeepAlive(d time.Duration) Option {
 func WithForwarding(client *http.Client, allow func(address string) bool) Option {
 	return func(h *Handler) {
 		if client == nil {
-			client = &http.Client{Timeout: 30 * time.Second}
+			client = &http.Client{Timeout: defaultForwardTimeout}
 		}
 		own := *client
 		own.CheckRedirect = func(*http.Request, []*http.Request) error { return http.ErrUseLastResponse }
@@ -175,9 +175,15 @@ func WithForwarding(client *http.Client, allow func(address string) bool) Option
 	}
 }
 
+// defaultForwardTimeout is the timeout of the client WithForwarding makes for a nil client.
+const defaultForwardTimeout = 30 * time.Second
+
+// defaultKeepAlive is how long a stream waits for an Event before it sends a keep-alive comment.
+const defaultKeepAlive = 15 * time.Second
+
 // New creates a Handler over runner.
 func New(runner *host.Runner, options ...Option) *Handler {
-	h := &Handler{runner: runner, mux: http.NewServeMux(), keepAlive: 15 * time.Second, maxBody: defaultMaxBody}
+	h := &Handler{runner: runner, mux: http.NewServeMux(), keepAlive: defaultKeepAlive, maxBody: defaultMaxBody}
 	for _, option := range options {
 		if option != nil {
 			option(h)
