@@ -148,6 +148,26 @@ func TestMessagesMidRunLandOnceOnTheWriter(t *testing.T) {
 		}
 	}
 
+	checkCommittedOnceInOrder(t, st, id, accepted)
+	view, err := store.View(ctx, st.Records, id)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, message := range view.Messages() {
+		if message.Role == gotato.RoleUser && refused[gotato.TextOf(message)] {
+			t.Fatalf("a refused message landed in the Record: %q", gotato.TextOf(message))
+		}
+	}
+	if n := violations.Load(); n != 0 {
+		t.Fatalf("%d of %d model calls came from an instance that did not hold the Session", n, calls.Load())
+	}
+}
+
+// checkCommittedOnceInOrder checks that the accepted messages of the Session
+// id were committed in the order each source queued them, each once and none
+// dropped.
+func checkCommittedOnceInOrder(t *testing.T, st store.Store, id string, accepted map[gotato.MessageID]string) {
+	t.Helper()
 	queued, committed, dropped := messageEvents(t, st, id)
 	for source, order := range queued {
 		var got []gotato.MessageID
@@ -170,18 +190,6 @@ func TestMessagesMidRunLandOnceOnTheWriter(t *testing.T) {
 		if committedOnce[messageID] != 1 || dropped[messageID] {
 			t.Fatalf("message %s: committed %d times, dropped %v; want committed once", messageID, committedOnce[messageID], dropped[messageID])
 		}
-	}
-	view, err := store.View(ctx, st.Records, id)
-	if err != nil {
-		t.Fatal(err)
-	}
-	for _, message := range view.Messages() {
-		if message.Role == gotato.RoleUser && refused[gotato.TextOf(message)] {
-			t.Fatalf("a refused message landed in the Record: %q", gotato.TextOf(message))
-		}
-	}
-	if n := violations.Load(); n != 0 {
-		t.Fatalf("%d of %d model calls came from an instance that did not hold the Session", n, calls.Load())
 	}
 }
 
