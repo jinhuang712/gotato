@@ -32,17 +32,21 @@ func hasTagMeta(messages []Message) bool {
 		if message.Role == RoleNotice && message.StopReason != StopReasonCutOff {
 			return true
 		}
-		for _, part := range message.Parts {
-			if _, ok := part.Metadata[MetaTag]; ok {
-				return true
-			}
+		if partsTagged(message.Parts) {
+			return true
 		}
-		if message.ToolResult != nil {
-			for _, part := range message.ToolResult.Content {
-				if _, ok := part.Metadata[MetaTag]; ok {
-					return true
-				}
-			}
+		if message.ToolResult != nil && partsTagged(message.ToolResult.Content) {
+			return true
+		}
+	}
+	return false
+}
+
+// partsTagged reports whether any Part of parts is marked MetaTag.
+func partsTagged(parts []ContentPart) bool {
+	for _, part := range parts {
+		if _, ok := part.Metadata[MetaTag]; ok {
+			return true
 		}
 	}
 	return false
