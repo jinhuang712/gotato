@@ -159,20 +159,26 @@ func (s extensionSet) prepareTurn(ctx context.Context, pending PendingTurn) (boo
 			if s.advisory(current, err) {
 				continue
 			}
-			var own *RuntimeError
-			if errors.As(err.Cause, &own) && own != nil {
-				return changed, own
-			}
-			// A preparer that failed while the Run was being stopped reports
-			// the stop, not a failure of its own.
-			if stopped := contextFailure(ctx, "TurnPreparer"); stopped != nil {
-				return changed, stopped
-			}
-			return changed, err
+			return changed, preparerFailure(ctx, err)
 		}
 		changed = changed || prepared.Changed
 	}
 	return changed, nil
+}
+
+// preparerFailure is the failure that ends the Run when a blocking
+// TurnPreparer failed with err.
+func preparerFailure(ctx context.Context, err *RuntimeError) *RuntimeError {
+	var own *RuntimeError
+	if errors.As(err.Cause, &own) && own != nil {
+		return own
+	}
+	// A preparer that failed while the Run was being stopped reports
+	// the stop, not a failure of its own.
+	if stopped := contextFailure(ctx, "TurnPreparer"); stopped != nil {
+		return stopped
+	}
+	return err
 }
 
 // advisory reports whether a failure from this Extension is advisory, and
