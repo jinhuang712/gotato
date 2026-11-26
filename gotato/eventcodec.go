@@ -51,6 +51,10 @@ func decodeAs[E Event](data []byte) (Event, error) {
 	return event, nil
 }
 
+// jsonBracketsBytes is the size of the two brackets of a JSON object or
+// array, and so of an empty one.
+const jsonBracketsBytes = 2
+
 // marshalKind encodes v, an object, with "kind" as its first key.
 func marshalKind(kind EventKind, v any) ([]byte, error) {
 	body, err := json.Marshal(v)
@@ -61,7 +65,7 @@ func marshalKind(kind EventKind, v any) ([]byte, error) {
 	out.WriteString(`{"kind":`)
 	name, _ := json.Marshal(kind)
 	out.Write(name)
-	if len(body) > 2 {
+	if len(body) > jsonBracketsBytes {
 		out.WriteByte(',')
 		out.Write(body[1:])
 	} else {
