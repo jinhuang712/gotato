@@ -73,16 +73,28 @@ type supportOrder struct {
 	Payment          string        `json:"payment"`
 }
 
+// How long ago each of the customer's orders was delivered, in days, and the
+// number of days policy RR-3 allows a refund after delivery.
+const (
+	deliveredDaysA5208 = 58
+	deliveredDaysA5531 = 13
+	deliveredDaysA4977 = 128
+	deliveredDaysA5390 = 36
+	refundWindowDays   = 30
+	// standardShipping is the shipping of an order, in USD.
+	standardShipping = 4.90
+)
+
 // supportOrders are customer C-1042's orders, out of date order. An older
 // order holds the same teapot, past the refund window.
 var supportOrders = []supportOrder{
-	{ID: "A-5208", Placed: "2026-08-14", Status: "delivered", DeliveredDaysAgo: 58, Shipping: 4.90, Payment: "card ending 4421",
+	{ID: "A-5208", Placed: "2026-08-14", Status: "delivered", DeliveredDaysAgo: deliveredDaysA5208, Shipping: standardShipping, Payment: "card ending 4421",
 		Items: []supportItem{{"CT-200", "Ceramic teapot, 1.2 L, celadon", 48.00}, {"TC-110", "Tea cups, set of 4", 26.00}}},
-	{ID: "A-5531", Placed: "2026-09-28", Status: "delivered", DeliveredDaysAgo: 13, Shipping: 4.90, Payment: "card ending 4421",
+	{ID: "A-5531", Placed: "2026-09-28", Status: "delivered", DeliveredDaysAgo: deliveredDaysA5531, Shipping: standardShipping, Payment: "card ending 4421",
 		Items: []supportItem{{"CT-200", "Ceramic teapot, 1.2 L, celadon", 48.00}, {"TS-014", "Tea sampler, 12 kinds", 22.50}}},
-	{ID: "A-4977", Placed: "2026-06-02", Status: "delivered", DeliveredDaysAgo: 128, Shipping: 0, Payment: "card ending 4421",
+	{ID: "A-4977", Placed: "2026-06-02", Status: "delivered", DeliveredDaysAgo: deliveredDaysA4977, Shipping: 0, Payment: "card ending 4421",
 		Items: []supportItem{{"GT-500", "Green tea, sencha, 500 g", 31.00}}},
-	{ID: "A-5390", Placed: "2026-09-05", Status: "delivered", DeliveredDaysAgo: 36, Shipping: 4.90, Payment: "card ending 4421",
+	{ID: "A-5390", Placed: "2026-09-05", Status: "delivered", DeliveredDaysAgo: deliveredDaysA5390, Shipping: standardShipping, Payment: "card ending 4421",
 		Items: []supportItem{{"KB-030", "Kettle, gooseneck, 0.8 L", 64.00}}},
 }
 
@@ -111,6 +123,16 @@ func findSupportOrder(id string) (supportOrder, bool) {
 // SupportTools returns the support case's Tools. They keep no state: the
 // refund ID is derived from the order and the item.
 func SupportTools() []gotato.Tool {
+	return []gotato.Tool{
+		gotato.ToolWithEffect(customerOrdersTool(), gotato.ToolEffectRead),
+		gotato.ToolWithEffect(orderDetailsTool(), gotato.ToolEffectRead),
+		gotato.ToolWithEffect(policySearchTool(), gotato.ToolEffectRead),
+		gotato.ToolWithEffect(orderRefundTool(), gotato.ToolEffectWriteExternal),
+	}
+}
+
+// customerOrdersTool lists a customer's orders.
+func customerOrdersTool() gotato.Tool {
 	listOrders, err := gotato.NewFuncTool(CustomerOrdersID, "Lists a customer's orders with the date each was placed and its status.",
 		func(_ context.Context, in struct {
 			CustomerID string `json:"customer_id" description:"the customer ID, such as C-1042"`
@@ -127,6 +149,11 @@ func SupportTools() []gotato.Tool {
 	if err != nil {
 		panic(err)
 	}
+	return listOrders
+}
+
+// orderDetailsTool reads one order.
+func orderDetailsTool() gotato.Tool {
 	getOrder, err := gotato.NewFuncTool(OrderDetailsID, "Reads one order: its items with SKU and price, delivery, shipping and payment.",
 		func(_ context.Context, in struct {
 			ID string `json:"id" description:"the order ID, such as A-1234"`
@@ -140,6 +167,11 @@ func SupportTools() []gotato.Tool {
 	if err != nil {
 		panic(err)
 	}
+	return getOrder
+}
+
+// policySearchTool returns the refund policy.
+func policySearchTool() gotato.Tool {
 	searchPolicy, err := gotato.NewFuncTool(PolicySearchID, "Searches the support policies and returns the section that applies.",
 		func(_ context.Context, in struct {
 			Query string `json:"query" description:"what the policy should cover, such as damaged item refund"`
@@ -149,6 +181,11 @@ func SupportTools() []gotato.Tool {
 	if err != nil {
 		panic(err)
 	}
+	return searchPolicy
+}
+
+// orderRefundTool refunds one item of an order, if the policy allows it.
+func orderRefundTool() gotato.Tool {
 	refund, err := gotato.NewFuncTool(OrderRefundID, "Refunds one item of an order to the original payment method, if the policy allows it.",
 		func(_ context.Context, in struct {
 			OrderID string `json:"order_id" description:"the order ID"`
@@ -176,12 +213,7 @@ func SupportTools() []gotato.Tool {
 	if err != nil {
 		panic(err)
 	}
-	return []gotato.Tool{
-		gotato.ToolWithEffect(listOrders, gotato.ToolEffectRead),
-		gotato.ToolWithEffect(getOrder, gotato.ToolEffectRead),
-		gotato.ToolWithEffect(searchPolicy, gotato.ToolEffectRead),
-		gotato.ToolWithEffect(refund, gotato.ToolEffectWriteExternal),
-	}
+	return refund
 }
 
 // SupportCaseTask is an agentic loop in one Run: the model lists the
