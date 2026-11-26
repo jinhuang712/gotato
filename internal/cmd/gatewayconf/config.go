@@ -10,6 +10,7 @@ package gatewayconf
 import (
 	"bytes"
 	"fmt"
+	"net/http"
 	"os"
 	"strings"
 	"time"
@@ -25,6 +26,13 @@ const (
 	APIChatCompletions   = "openai-chat-completions"
 	APIResponses         = "openai-responses"
 	APIAnthropicMessages = "anthropic-messages"
+)
+
+// The timeouts a file that sets one of connect_timeout and
+// response_header_timeout gets for the other.
+const (
+	defaultConnectTimeout        = 10 * time.Second
+	defaultResponseHeaderTimeout = 60 * time.Second
 )
 
 // Config is what a gateway file stands for, in the arguments of model.New.
@@ -206,7 +214,7 @@ func (in file) addOptions(config *Config, d fileDurations) error {
 		if d.connect < 0 || d.header < 0 {
 			return fmt.Errorf("connect_timeout and response_header_timeout cannot be negative")
 		}
-		config.Connection.HTTPClient = model.NewHTTPClient(withDefault(d.connect, 10*time.Second), withDefault(d.header, 60*time.Second))
+		config.Connection.HTTPClient = model.NewHTTPClient(withDefault(d.connect, defaultConnectTimeout), withDefault(d.header, defaultResponseHeaderTimeout))
 	}
 	if phrases := cleanPhrases(in.OverflowPhrases); len(phrases) > 0 {
 		config.Options = append(config.Options, model.WithClassifier(withOverflowPhrases(model.DefaultClassifier, phrases)))
@@ -278,14 +286,14 @@ func cleanPhrases(phrases []string) []string {
 func withOverflowPhrases(base model.Classifier, phrases []string) model.Classifier {
 	return func(f model.Failure) model.Verdict {
 		v := base(f)
-		if v.Overflow || (f.Status != 0 && f.Status != 400 && f.Status != 413) {
+		if v.Overflow || (f.Status != 0 && f.Status != http.StatusBadRequest && f.Status != http.StatusRequestEntityTooLarge) {
 			return v
 		}
 		if !holdsPhrase(f, phrases) {
 			return v
 		}
 		// The limit the message names, if its wording is one the default reads.
-		limit := model.DefaultClassifier(model.Failure{Status: 400, Message: f.Message, Type: "context_length_exceeded"}).Limit
+		limit := model.DefaultClassifier(model.Failure{Status: http.StatusBadRequest, Message: f.Message, Type: "context_length_exceeded"}).Limit
 		return model.Verdict{Overflow: true, Limit: limit}
 	}
 }
