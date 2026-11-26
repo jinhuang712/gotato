@@ -59,34 +59,13 @@ func encodeChatRequest(model gotato.ModelConfig, request gotato.ModelRequest) ([
 	if err != nil {
 		return nil, nil, err
 	}
-	messages := make([]chatMessage, 0, len(request.Messages)+1)
-	if request.SystemInstructions != "" {
-		messages = append(messages, chatMessage{Role: "system", Content: request.SystemInstructions})
+	messages, err := chatMessages(model, request, names)
+	if err != nil {
+		return nil, nil, err
 	}
-	start := roundStart(request.Messages)
-	for i, message := range request.Messages {
-		replay := keepsReasoning(model.Facts.RoundReasoning, i, start)
-		converted, err := convertChatMessage(message, names, replay)
-		if err != nil {
-			return nil, nil, err
-		}
-		// A reply that was only reasoning has nothing left to send.
-		if replay == reasoningDropped && converted.Role == "assistant" && converted.Content == "" && len(converted.ToolCalls) == 0 && gotato.ReasoningOf(message) != "" {
-			continue
-		}
-		messages = append(messages, converted)
-	}
-	tools := make([]chatTool, 0, len(request.Tools))
-	for _, spec := range request.Tools {
-		name, err := assignFunctionName(names, spec.ID)
-		if err != nil {
-			return nil, nil, err
-		}
-		parameters, err := toolSchema(spec, `{}`)
-		if err != nil {
-			return nil, nil, err
-		}
-		tools = append(tools, chatTool{Type: "function", Function: chatFunction{Name: name, Description: spec.Description, Parameters: parameters}})
+	tools, err := chatTools(request.Tools, names)
+	if err != nil {
+		return nil, nil, err
 	}
 	payload := chatRequest{Model: model.Name, Messages: messages, Tools: tools, Stream: true, StreamOptions: &chatStreamOptions{IncludeUsage: true}}
 	payload.Temperature = request.Sampling.Temperature
@@ -96,6 +75,46 @@ func encodeChatRequest(model gotato.ModelConfig, request gotato.ModelRequest) ([
 		return nil, nil, fmt.Errorf("model: encode request: %w", err)
 	}
 	return body, names, nil
+}
+
+// chatMessages converts the system instructions and the history into the
+// request's messages.
+func chatMessages(model gotato.ModelConfig, request gotato.ModelRequest, names map[string]string) ([]chatMessage, error) {
+	messages := make([]chatMessage, 0, len(request.Messages)+1)
+	if request.SystemInstructions != "" {
+		messages = append(messages, chatMessage{Role: "system", Content: request.SystemInstructions})
+	}
+	start := roundStart(request.Messages)
+	for i, message := range request.Messages {
+		replay := keepsReasoning(model.Facts.RoundReasoning, i, start)
+		converted, err := convertChatMessage(message, names, replay)
+		if err != nil {
+			return nil, err
+		}
+		// A reply that was only reasoning has nothing left to send.
+		if replay == reasoningDropped && converted.Role == "assistant" && converted.Content == "" && len(converted.ToolCalls) == 0 && gotato.ReasoningOf(message) != "" {
+			continue
+		}
+		messages = append(messages, converted)
+	}
+	return messages, nil
+}
+
+// chatTools encodes the tools as functions.
+func chatTools(specs []gotato.ToolSpec, names map[string]string) ([]chatTool, error) {
+	tools := make([]chatTool, 0, len(specs))
+	for _, spec := range specs {
+		name, err := assignFunctionName(names, spec.ID)
+		if err != nil {
+			return nil, err
+		}
+		parameters, err := toolSchema(spec, `{}`)
+		if err != nil {
+			return nil, err
+		}
+		tools = append(tools, chatTool{Type: "function", Function: chatFunction{Name: name, Description: spec.Description, Parameters: parameters}})
+	}
+	return tools, nil
 }
 
 func convertChatMessage(message gotato.Message, names map[string]string, replay reasoningReplay) (chatMessage, error) {
