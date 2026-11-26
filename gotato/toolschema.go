@@ -200,26 +200,32 @@ func checkSchemaAdditional(schema, properties, object map[string]any, path strin
 // float64, bool, and nil.
 func enumAllows(allowed []any, value any) bool {
 	for _, candidate := range allowed {
-		switch expected := candidate.(type) {
-		case string:
-			if actual, ok := value.(string); ok && actual == expected {
-				return true
-			}
-		case float64:
-			if actual, ok := value.(float64); ok && actual == expected {
-				return true
-			}
-		case bool:
-			if actual, ok := value.(bool); ok && actual == expected {
-				return true
-			}
-		case nil:
-			if value == nil {
-				return true
-			}
+		if enumMatches(candidate, value) {
+			return true
 		}
 	}
 	return false
+}
+
+// enumMatches reports whether value equals candidate, one value of an enum.
+func enumMatches(candidate, value any) bool {
+	switch expected := candidate.(type) {
+	case string:
+		return equalAs(expected, value)
+	case float64:
+		return equalAs(expected, value)
+	case bool:
+		return equalAs(expected, value)
+	case nil:
+		return value == nil
+	}
+	return false
+}
+
+// equalAs reports whether value is a T equal to expected.
+func equalAs[T comparable](expected T, value any) bool {
+	actual, ok := value.(T)
+	return ok && actual == expected
 }
 
 func describeEnum(allowed []any) string {
