@@ -386,28 +386,38 @@ func (a anthropicWire) validateReasoning(p *parsed) *apiError {
 		return nil
 	}
 	blocks := req.blocks[last]
-	dropMismatch := req.dropsMismatch()
-	dropped := false
-	for j, b := range blocks {
-		if b["type"] != "thinking" {
-			continue
-		}
-		mismatch, e := a.checkThinking(p.raw, last, j, b)
-		if e != nil {
-			return e
-		}
-		if !mismatch {
-			continue
-		}
-		if !dropMismatch {
-			return a.invalid(fmt.Sprintf("messages.%d.content.%d: Invalid `signature` in `thinking` block. The block is bound to a different conversation. Remove the block, or set `thinking.block_binding.prefix_mismatch_behavior` to \"drop_block\".", last, j))
-		}
-		dropped = true
+	dropped, e := a.checkThinkingBlocks(p.raw, req, last)
+	if e != nil {
+		return e
 	}
 	if len(blockIDs(blocks, "tool_use", "id")) > 0 && !dropped && !startsWithThinking(blocks) {
 		return a.invalid(fmt.Sprintf("messages.%d.content.0.type: Expected `thinking` or `redacted_thinking`, but found `%v`. When `thinking` is enabled, a final `assistant` message must start with a thinking block (preceding the lastmost set of `tool_use` and `tool_result` blocks). We recommend you include thinking blocks from previous turns. To avoid this requirement, disable `thinking`. Please consult our documentation at https://docs.claude.com/en/docs/build-with-claude/extended-thinking", last, firstType(blocks))) //nolint:misspell // the provider spells it so
 	}
 	return nil
+}
+
+// checkThinkingBlocks checks every thinking block of message last, and reports
+// whether one written under another prefix was dropped, as the request asks.
+func (a anthropicWire) checkThinkingBlocks(raw map[string]any, req *anthropicRequest, last int) (bool, *apiError) {
+	dropMismatch := req.dropsMismatch()
+	dropped := false
+	for j, b := range req.blocks[last] {
+		if b["type"] != "thinking" {
+			continue
+		}
+		mismatch, e := a.checkThinking(raw, last, j, b)
+		if e != nil {
+			return false, e
+		}
+		if !mismatch {
+			continue
+		}
+		if !dropMismatch {
+			return false, a.invalid(fmt.Sprintf("messages.%d.content.%d: Invalid `signature` in `thinking` block. The block is bound to a different conversation. Remove the block, or set `thinking.block_binding.prefix_mismatch_behavior` to \"drop_block\".", last, j))
+		}
+		dropped = true
+	}
+	return dropped, nil
 }
 
 // lastAssistant returns the index of the last assistant message, or -1.
