@@ -102,21 +102,28 @@ func RunRecapCheck(ctx context.Context, cfg RecapCheckConfig, check reftasks.Rec
 	if r.report.Model == "" && cfg.Model == nil {
 		r.report.Model = "fake"
 	}
+	err = r.play(ctx, st)
+	return r.report, err
+}
+
+// play runs the conversation, asks the questions, compacts the Session and
+// asks them again, and scores the answers.
+func (r *recapRun) play(ctx context.Context, st store.Store) error {
 	if err := r.converse(ctx); err != nil {
-		return r.report, err
+		return err
 	}
-	r.report.Answers = make([]RecapAnswer, len(check.Questions))
+	r.report.Answers = make([]RecapAnswer, len(r.check.Questions))
 	if err := r.ask(ctx, func(a *RecapAnswer, text string, ok bool) { a.Before, a.BeforeCorrect = text, ok }); err != nil {
-		return r.report, err
+		return err
 	}
 	if err := r.compact(ctx, st); err != nil {
-		return r.report, err
+		return err
 	}
 	if err := r.ask(ctx, func(a *RecapAnswer, text string, ok bool) { a.After, a.AfterCorrect = text, ok }); err != nil {
-		return r.report, err
+		return err
 	}
 	r.report.score()
-	return r.report, nil
+	return nil
 }
 
 // newRecapRunner builds the Runner of the check, with the conversation's
