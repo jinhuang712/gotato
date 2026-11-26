@@ -164,21 +164,29 @@ func checkSegment(built gotato.Segment, closed []gotato.Message) error {
 		return fmt.Errorf("%w: the Segment has no Messages", ErrBadPart)
 	}
 	for i, message := range built.Messages {
-		switch {
-		case message.Role != gotato.RoleUser && message.Role != gotato.RoleAssistant:
-			return fmt.Errorf("%w: Message %d of the Segment has role %q, not user or assistant", ErrBadPart, i+1, message.Role)
-		case len(message.ToolCalls) > 0 || message.ToolResult != nil || message.Notice != nil:
-			return fmt.Errorf("%w: Message %d of the Segment holds a tool call, a tool result or a notice", ErrBadPart, i+1)
-		}
-		for _, part := range message.Parts {
-			if tag, tagged := part.Metadata[gotato.MetaTag]; tagged {
-				if err := checkTagged(tag, part); err != nil {
-					return fmt.Errorf("%w: Message %d: %w", ErrBadPart, i+1, err)
-				}
-			}
+		if err := checkSegmentMessage(i, message); err != nil {
+			return err
 		}
 	}
 	return checkRefs(built, closed)
+}
+
+// checkSegmentMessage is what checkSegment requires of Message i of a Segment.
+func checkSegmentMessage(i int, message gotato.Message) error {
+	switch {
+	case message.Role != gotato.RoleUser && message.Role != gotato.RoleAssistant:
+		return fmt.Errorf("%w: Message %d of the Segment has role %q, not user or assistant", ErrBadPart, i+1, message.Role)
+	case len(message.ToolCalls) > 0 || message.ToolResult != nil || message.Notice != nil:
+		return fmt.Errorf("%w: Message %d of the Segment holds a tool call, a tool result or a notice", ErrBadPart, i+1)
+	}
+	for _, part := range message.Parts {
+		if tag, tagged := part.Metadata[gotato.MetaTag]; tagged {
+			if err := checkTagged(tag, part); err != nil {
+				return fmt.Errorf("%w: Message %d: %w", ErrBadPart, i+1, err)
+			}
+		}
+	}
+	return nil
 }
 
 // checkTagged requires a Part marked MetaTag to be one of Gotato's four tags,
