@@ -443,7 +443,11 @@ func repairCalls(out, messages []gotato.Message, i int, started map[gotato.ToolC
 	}
 	out = append(out, messages[i:end]...)
 	for _, call := range missing {
-		out = append(out, repairResult(call, started[call.ID]))
+		if started[call.ID] {
+			out = append(out, stoppedResult(call))
+		} else {
+			out = append(out, notRunResult(call))
+		}
 	}
 	return out, end
 }
@@ -466,18 +470,20 @@ func missingResults(messages []gotato.Message, i int) (missing []gotato.ToolCall
 	return missing, end
 }
 
-// repairResult is the failed result repair adds for a call: stopped when it
-// had started, not run when it had not. Its ID comes from the call's, so
-// every load works out the same Message.
-func repairResult(call gotato.ToolCall, started bool) gotato.Message {
-	text := notRunToolResult
-	if started {
-		text = StoppedToolResult
-	}
-	return repairResultWith(call, started, text)
+// stoppedResult is the failed result repair adds for a call that had started.
+// Its ID comes from the call's, so every load works out the same Message.
+func stoppedResult(call gotato.ToolCall) gotato.Message {
+	return repairResultWith(call, true, StoppedToolResult)
 }
 
-// repairResultWith is repairResult with the text given.
+// notRunResult is the failed result repair adds for a call that had not
+// started, with an ID that comes from the call's, as stoppedResult's does.
+func notRunResult(call gotato.ToolCall) gotato.Message {
+	return repairResultWith(call, false, notRunToolResult)
+}
+
+// repairResultWith is the failed result repair adds for a call, with the
+// text given; started says whether the call had started.
 func repairResultWith(call gotato.ToolCall, started bool, text string) gotato.Message {
 	return gotato.Message{
 		ID:    gotato.MessageID("repair-" + string(call.ID)),
