@@ -54,13 +54,10 @@ func (l larkSender) Reply(ctx context.Context, messageID, content string) (strin
 	if err != nil {
 		return "", err
 	}
-	if !resp.Success() {
-		return "", errors.New(resp.Msg)
-	}
 	if resp.Data == nil {
-		return "", nil
+		return sentID(resp.Code, resp.Msg, nil)
 	}
-	return deref(resp.Data.MessageId), nil
+	return sentID(resp.Code, resp.Msg, resp.Data.MessageId)
 }
 
 func (l larkSender) Create(ctx context.Context, chatID, content string) (string, error) {
@@ -69,13 +66,19 @@ func (l larkSender) Create(ctx context.Context, chatID, content string) (string,
 	if err != nil {
 		return "", err
 	}
-	if !resp.Success() {
-		return "", errors.New(resp.Msg)
+	var id *string
+	if resp.Data != nil {
+		id = resp.Data.MessageId
 	}
-	if resp.Data == nil {
-		return "", nil
+	return sentID(resp.Code, resp.Msg, id)
+}
+
+// sentID is the id of the message a send made, or the error Lark answered with.
+func sentID(code int, msg string, id *string) (string, error) {
+	if code != 0 {
+		return "", errors.New(msg)
 	}
-	return deref(resp.Data.MessageId), nil
+	return deref(id), nil
 }
 
 // Update replaces the content of a card the bot posted.
