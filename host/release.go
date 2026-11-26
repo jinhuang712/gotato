@@ -53,6 +53,10 @@ func (r *Runner) releaseWriter(ctx context.Context, writer *store.Writer) error 
 	return err
 }
 
+// beatsPerTTL is how many times the Runner renews its Liveness row in one
+// Heartbeat.TTL; a pass of repairReleases is bounded by the time between two.
+const beatsPerTTL = 3
+
 // repairReleases writes again the release of each Session that this Instance
 // failed to release. It runs on every heartbeat tick, so a Session is busy
 // under an idle holder for a third of the Liveness TTL after the store
@@ -68,7 +72,7 @@ func (r *Runner) repairReleases() {
 	// One bound for the whole pass, so that a slow store cannot hold back the
 	// next renewal.
 	// [LIVENESS] a slow store cannot hold back the next Liveness renewal.
-	ctx, cancel := context.WithTimeout(context.Background(), r.heartbeat.TTL/3)
+	ctx, cancel := context.WithTimeout(context.Background(), r.heartbeat.TTL/beatsPerTTL)
 	defer cancel()
 	for _, id := range ids {
 		// Clear the mark before the attempt: a mark set meanwhile is a new
