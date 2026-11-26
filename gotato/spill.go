@@ -105,12 +105,18 @@ func spillPreview(call ToolCallID, body string, page, preview int) string {
 	return b.String()
 }
 
+// The sizes humanBytes writes a length in.
+const (
+	kibibyte = 1 << 10
+	mebibyte = 1 << 20
+)
+
 func humanBytes(n int) string {
 	switch {
-	case n >= 1<<20:
-		return fmt.Sprintf("%.1f MiB", float64(n)/(1<<20))
-	case n >= 1<<10:
-		return fmt.Sprintf("%d KiB", (n+1<<10-1)>>10)
+	case n >= mebibyte:
+		return fmt.Sprintf("%.1f MiB", float64(n)/mebibyte)
+	case n >= kibibyte:
+		return fmt.Sprintf("%d KiB", (n+kibibyte-1)/kibibyte)
 	}
 	return fmt.Sprintf("%d bytes", n)
 }
