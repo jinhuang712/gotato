@@ -30,6 +30,9 @@ type thread struct {
 
 func (t *thread) session() string { return sessionOf(t.root) }
 
+// quietPoll is how often waitQuiet looks at the threads.
+const quietPoll = 2 * time.Second
+
 const (
 	gapKnown = "KNOWN-BOT-GAP"
 	fault    = "GOTATO-FAULT"
@@ -74,25 +77,30 @@ func (e *env) waitQuiet(ctx context.Context, ts []*thread, quiet, limit time.Dur
 	deadline := time.Now().Add(limit)
 	last, lastChange := -1, time.Now()
 	for time.Now().Before(deadline) && ctx.Err() == nil {
-		total, busy := 0, 0
-		for _, t := range ts {
-			if cs, err := e.cards(ctx, t.chat); err == nil {
-				total += len(cs)
-			}
-			if t.root != "" {
-				if r, err := e.record(ctx, t.session()); err == nil {
-					busy += inFlight(r)
-				}
-			}
-		}
+		total, busy := e.quietSample(ctx, ts)
 		if total != last {
 			last, lastChange = total, time.Now()
 		}
 		if busy == 0 && time.Since(lastChange) >= quiet {
 			return
 		}
-		sleep(ctx, 2*time.Second)
+		sleep(ctx, quietPoll)
 	}
+}
+
+// quietSample counts the cards of the threads and the Runs in flight in them.
+func (e *env) quietSample(ctx context.Context, ts []*thread) (total, busy int) {
+	for _, t := range ts {
+		if cs, err := e.cards(ctx, t.chat); err == nil {
+			total += len(cs)
+		}
+		if t.root != "" {
+			if r, err := e.record(ctx, t.session()); err == nil {
+				busy += inFlight(r)
+			}
+		}
+	}
+	return total, busy
 }
 
 // outcome of a message that is not in its Transcript exactly once, from the bot logs.
