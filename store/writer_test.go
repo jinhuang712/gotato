@@ -280,7 +280,11 @@ func TestReleasePublishesSessionReleased(t *testing.T) {
 	if got := kindsOf(published); len(got) != 2 || got[1] != gotato.EventKindSessionReleased || published[1].Head().Number != 4 {
 		t.Fatalf("Release published %v", got)
 	}
-	if released := published[1].(gotato.SessionReleased); released.Instance != "instance-a" || released.Epoch != 1 {
+	released, ok := published[1].(gotato.SessionReleased)
+	if !ok {
+		t.Fatalf("published[1] = %T, want gotato.SessionReleased", published[1])
+	}
+	if released.Instance != "instance-a" || released.Epoch != 1 {
 		t.Fatalf("session_released = %+v", released)
 	}
 	entries, err := st.Log(ctx, "rel", 3, 0)
@@ -453,12 +457,20 @@ func TestCreateWritesSessionCreatedThenTheFirstClaim(t *testing.T) {
 		}
 	}
 	created, _ := entries[0].Event("c1")
-	if c := created.(gotato.SessionCreated); len(c.Messages) != 1 || c.Metadata["app"] != "test" {
+	c, ok := created.(gotato.SessionCreated)
+	if !ok {
+		t.Fatalf("created = %T, want gotato.SessionCreated", created)
+	}
+	if len(c.Messages) != 1 || c.Metadata["app"] != "test" {
 		t.Fatalf("session_created = %+v", c)
 	}
 	claimed, _ := entries[1].Event("c1")
-	if c := claimed.(gotato.SessionClaimed); c.Instance != "instance-a" || c.Epoch != 1 || c.Why != gotato.ClaimWhyNewSession || c.From != "" {
-		t.Fatalf("session_claimed = %+v", c)
+	claim, ok := claimed.(gotato.SessionClaimed)
+	if !ok {
+		t.Fatalf("claimed = %T, want gotato.SessionClaimed", claimed)
+	}
+	if claim.Instance != "instance-a" || claim.Epoch != 1 || claim.Why != gotato.ClaimWhyNewSession || claim.From != "" {
+		t.Fatalf("session_claimed = %+v", claim)
 	}
 	if rec.Head() != 2 {
 		t.Fatalf("Head = %d, want 2", rec.Head())
