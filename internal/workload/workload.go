@@ -68,6 +68,19 @@ func Run(ctx context.Context, cfg Config, tasks []reftasks.Task) (Report, error)
 	if cfg.Store.Records == nil || cfg.Store.Liveness == nil {
 		cfg.Store = memoryStore()
 	}
+	report := newReport(cfg)
+	for _, task := range tasks {
+		taskReport, err := runTask(ctx, cfg, task)
+		if err != nil {
+			return report, fmt.Errorf("workload: %s: %w", task.Name, err)
+		}
+		report.addTask(taskReport)
+	}
+	return report, nil
+}
+
+// newReport starts the report of a run of cfg.
+func newReport(cfg Config) Report {
 	report := Report{Model: cfg.ModelName, Plays: cfg.Plays, Concurrency: cfg.Concurrency}
 	if report.Model == "" && cfg.Model == nil {
 		report.Model = "fake"
@@ -76,34 +89,22 @@ func Run(ctx context.Context, cfg Config, tasks []reftasks.Task) (Report, error)
 		price := cfg.Price
 		report.Price = &price
 	}
-	for _, task := range tasks {
-		taskReport, err := runTask(ctx, cfg, task)
-		if err != nil {
-			return report, fmt.Errorf("workload: %s: %w", task.Name, err)
-		}
-		report.Tasks = append(report.Tasks, taskReport)
-		report.ContextMismatches += taskReport.ContextMismatches
-		for _, failure := range taskReport.Failures {
-			if failure.Cause == CauseGotato || failure.Cause == CauseStore {
-				report.GotatoFailures += failure.Count
-			}
+	return report
+}
+
+// addTask adds what one task measured to the report.
+func (r *Report) addTask(task TaskReport) {
+	r.Tasks = append(r.Tasks, task)
+	r.ContextMismatches += task.ContextMismatches
+	for _, failure := range task.Failures {
+		if failure.Cause == CauseGotato || failure.Cause == CauseStore {
+			r.GotatoFailures += failure.Count
 		}
 	}
-	return report, nil
 }
 
 func runTask(ctx context.Context, cfg Config, task reftasks.Task) (TaskReport, error) {
-	model := task.Model
-	if cfg.Model != nil {
-		model = cfg.Model
-	}
-	// A task with a window plays against a fake Model that has one: the
-	// driver counts every request against it, and refuses one over it.
-	var windowed *windowModel
-	if task.Window > 0 && cfg.Model == nil {
-		windowed = newWindowModel(model, task.Window)
-		model = windowed
-	}
+	model, windowed := taskModel(cfg, task)
 	spec := profile.AgentProfile{
 		Name:        task.Name,
 		Model:       model,
@@ -128,10 +129,38 @@ func runTask(ctx context.Context, cfg Config, task reftasks.Task) (TaskReport, e
 		return TaskReport{}, err
 	}
 
+	started := time.Now()
+	plays := runPlays(ctx, runner, cfg, task)
+	elapsed := time.Since(started)
+
+	fold := newTaskFold(cfg, task, windowed, contextInspector{runner: inspector, store: inspectStore})
+	for i, p := range plays {
+		fold.add(ctx, i, p)
+	}
+	return fold.finish(elapsed), nil
+}
+
+// taskModel returns the Model a task plays against: the live one when the
+// config has it, else the task's fake. A task with a window plays against a
+// fake Model that has one: the driver counts every request against it, and
+// refuses one over it. That Model is returned too, or nil.
+func taskModel(cfg Config, task reftasks.Task) (gotato.Model, *windowModel) {
+	model := task.Model
+	if cfg.Model != nil {
+		model = cfg.Model
+	}
+	if task.Window > 0 && cfg.Model == nil {
+		windowed := newWindowModel(model, task.Window)
+		return windowed, windowed
+	}
+	return model, nil
+}
+
+// runPlays plays the task cfg.Plays times, cfg.Concurrency at once.
+func runPlays(ctx context.Context, runner *host.Runner, cfg Config, task reftasks.Task) []play {
 	plays := make([]play, cfg.Plays)
 	slots := make(chan struct{}, cfg.Concurrency)
 	var wg sync.WaitGroup
-	started := time.Now()
 	for i := range plays {
 		slots <- struct{}{}
 		wg.Add(1)
@@ -142,46 +171,7 @@ func runTask(ctx context.Context, cfg Config, task reftasks.Task) (TaskReport, e
 		}(i)
 	}
 	wg.Wait()
-	elapsed := time.Since(started)
-
-	report := TaskReport{Task: task.Name, Plays: cfg.Plays}
-	if windowed != nil {
-		report.Window = &WindowReport{Window: task.Window}
-	}
-	failures := newFailureSet()
-	var total stats
-	var laterInput, laterCached uint64
-	for i, p := range plays {
-		if p.passed {
-			report.Passed++
-		}
-		if windowed != nil {
-			report.Window.add(windowed.seriesOf(host.CacheKey(p.sessionID)), p.final, i == 0)
-		}
-		report.Runs += p.runs
-		report.Turns += p.turns
-		report.ToolCalls += p.toolCalls
-		report.Usage = addUsage(report.Usage, p.usage)
-		laterInput += p.laterInput
-		laterCached += p.laterCached
-		total.add(p.stats)
-		for _, failure := range p.failures {
-			failures.add(failure)
-		}
-		// A task with a window compacts, so a Turn is no longer built from the
-		// Session's first Messages, which this check inspects.
-		if !cfg.SkipContextCheck && p.final != nil && task.Window == 0 {
-			checkContext(ctx, inspector, inspectStore, p.final, p.builds, &report)
-		}
-	}
-	report.Failures = failures.list()
-	report.CostUSD = cfg.Price.Cost(report.Usage)
-	if laterInput > 0 {
-		rate := float64(laterCached) / float64(laterInput)
-		report.CacheHitRate = &rate
-	}
-	report.Time = total.timing(elapsed, report.Turns, report.Runs)
-	return report, nil
+	return plays
 }
 
 // play is what one play of a task saw.
@@ -419,39 +409,6 @@ type toolCall struct {
 	toolID   string
 	status   string
 	executed bool
-}
-
-// checkContext inspects, for every Turn, the Transcript that Turn was built
-// from (the Session's first Messages, since a reference task never compacts)
-// and compares its prefix hash with the Turn's context_built Event (O9).
-func checkContext(ctx context.Context, inspector *host.Runner, st store.Store, final *record.Record, builds []build, report *TaskReport) {
-	messages := final.Messages()
-	mismatch := func(detail string) {
-		report.ContextMismatches++
-		if report.ContextDetail == "" {
-			report.ContextDetail = detail
-		}
-	}
-	for _, b := range builds {
-		report.ContextTurns++
-		if b.messages > len(messages) {
-			mismatch(fmt.Sprintf("a Turn was built from %d messages, but the Session holds %d", b.messages, len(messages)))
-			continue
-		}
-		s := record.New(record.WithMetadata(final.Metadata()), record.WithMessages(messages[:b.messages]...), reftasks.WithLoadedToolsOf(messages[:b.messages]))
-		if _, err := store.CreateWriter(ctx, st.Records, s, inspector.Instance()); err != nil {
-			mismatch("saving the Transcript to inspect: " + err.Error())
-			continue
-		}
-		inspection, err := inspector.Inspect(ctx, s.ID(), host.InspectConfig{})
-		_ = st.Records.Delete(ctx, s.ID())
-		switch {
-		case err != nil:
-			mismatch("inspecting: " + err.Error())
-		case inspection.PrefixHash != b.prefix:
-			mismatch(fmt.Sprintf("the Turn built from %d messages sent prefix %s, inspection shows %s", b.messages, b.prefix, inspection.PrefixHash))
-		}
-	}
 }
 
 func addUsage(a, b gotato.Usage) gotato.Usage {
