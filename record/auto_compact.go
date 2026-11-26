@@ -140,29 +140,10 @@ func (a *AutoCompactor) due(ctx context.Context, state TurnState) (why gotato.Co
 func (a *AutoCompactor) compact(ctx context.Context, pending gotato.PendingTurn, why gotato.CompactionWhy) (prepared gotato.TurnPrepared, dropped bool, err error) {
 	// What the Run has staged is written first, so the compaction's Events
 	// follow it.
-	if pending.Flush != nil {
-		if err := pending.Flush(ctx); err != nil {
-			return prepared, false, err
-		}
+	if err := flushPending(ctx, pending); err != nil {
+		return prepared, false, err
 	}
-	call := compactCall{Compactor: a.compactor, why: why, keepLastTurn: true, run: pending.RunID}
-	// A Recap read from the request the Run is about to send is read from
-	// the provider's cache. On an overflow that request is the one just
-	// refused, and the ask would only make it longer: the writer gets no
-	// Context, and a Recap that needs one is skipped (Compaction.RecapError).
-	if !pending.Overflow && why != gotato.CompactionWhyOverflow {
-		call.context = func(context.Context) (gotato.ModelRequest, error) { return pending.Request, nil }
-	}
-	if pending.Turn == 1 {
-		call.currentRun = pending.RunID
-	}
-	// The budget of the Segments is half the ceiling, or the default. On an
-	// overflow the limit the refusal names, if any, sizes it too.
-	budget := a.compactor.effectiveBudget()
-	if limit := refusalLimit(pending.Refusal); pending.Overflow && limit > 0 {
-		budget = min(budget, limit)
-	}
-	call.SegmentBudgetTokens = budget
+	call := a.compactCall(pending, why)
 	result, err := runCompact(ctx, a.store, call)
 	// A compaction that was dropped counts as the Turn's; one that found
 	// nothing to close does not.
@@ -181,7 +162,7 @@ func (a *AutoCompactor) compact(ctx context.Context, pending gotato.PendingTurn,
 	merge := result.Merge
 	if !result.Replaced {
 		// Nothing to close, but the Segments may still pass their budget.
-		merged, err := mergeOldest(ctx, a.store, call.Compactor, budget, why)
+		merged, err := mergeOldest(ctx, a.store, call.Compactor, call.SegmentBudgetTokens, why)
 		a.started = a.started || merged.Merged || merged.Error != ""
 		if err != nil {
 			return prepared, false, err
@@ -189,24 +170,59 @@ func (a *AutoCompactor) compact(ctx context.Context, pending gotato.PendingTurn,
 		merge = &merged
 		prepared.Changed = merged.Merged
 	}
+	return prepared, false, overflowMergeError(pending, merge)
+}
+
+// compactCall is the compactCall of the compaction before pending's model call.
+func (a *AutoCompactor) compactCall(pending gotato.PendingTurn, why gotato.CompactionWhy) compactCall {
+	call := compactCall{Compactor: a.compactor, why: why, keepLastTurn: true, run: pending.RunID}
+	// A Recap read from the request the Run is about to send is read from
+	// the provider's cache. On an overflow that request is the one just
+	// refused, and the ask would only make it longer: the writer gets no
+	// Context, and a Recap that needs one is skipped (Compaction.RecapError).
+	if !pending.Overflow && why != gotato.CompactionWhyOverflow {
+		call.context = func(context.Context) (gotato.ModelRequest, error) { return pending.Request, nil }
+	}
+	if pending.Turn == 1 {
+		call.currentRun = pending.RunID
+	}
+	// The budget of the Segments is half the ceiling, or the default. On an
+	// overflow the limit the refusal names, if any, sizes it too.
+	budget := a.compactor.effectiveBudget()
+	if limit := refusalLimit(pending.Refusal); pending.Overflow && limit > 0 {
+		budget = min(budget, limit)
+	}
+	call.SegmentBudgetTokens = budget
+	return call
+}
+
+// overflowMergeError returns an error of CodeContextOverflow when pending was
+// refused as too long and merge could not be written.
+func overflowMergeError(pending gotato.PendingTurn, merge *MergeResult) error {
 	if pending.Overflow && merge != nil && merge.Error != "" {
 		// A merge that could not be written leaves the far past as it was:
 		// the caller is told, not left with a request that is refused again.
-		return prepared, false, gotato.ErrorOf(gotato.CodeContextOverflow,
+		return gotato.ErrorOf(gotato.CodeContextOverflow,
 			fmt.Sprintf("the provider refused the request as too long, the Segments alone pass their limit (about %d tokens, limit %d), and merging the oldest failed, so nothing was merged: %s",
 				merge.SegmentTokens, merge.BudgetTokens, merge.Error))
 	}
-	return prepared, false, nil
+	return nil
+}
+
+// flushPending writes what the Run has staged, if it can.
+func flushPending(ctx context.Context, pending gotato.PendingTurn) error {
+	if pending.Flush != nil {
+		return pending.Flush(ctx)
+	}
+	return nil
 }
 
 // mergeOnly merges the oldest Segments when they pass their budget, with no
 // Segment to close. A merge that fails leaves them as they are and the Run goes
 // on.
 func (a *AutoCompactor) mergeOnly(ctx context.Context, pending gotato.PendingTurn, why gotato.CompactionWhy) (gotato.TurnPrepared, error) {
-	if pending.Flush != nil {
-		if err := pending.Flush(ctx); err != nil {
-			return gotato.TurnPrepared{}, err
-		}
+	if err := flushPending(ctx, pending); err != nil {
+		return gotato.TurnPrepared{}, err
 	}
 	merge, err := mergeOldest(ctx, a.store, a.compactor, a.compactor.effectiveBudget(), why)
 	// A merge that found nothing to merge did not start one.
