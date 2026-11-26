@@ -98,13 +98,16 @@ func (c *Client) retryOrFail(failure Failure, header http.Header, attempt int, t
 	return gotato.ModelRetry{}, newError(failure, verdict)
 }
 
+// jitterDivisor sets the most jitter a backoff takes: a quarter of it.
+const jitterDivisor = 4
+
 // withJitter adds up to 25% to a backoff so a fleet recovering from the same
 // outage does not retry in lockstep. The delay never shrinks below the base.
 func withJitter(delay time.Duration) time.Duration {
 	if delay <= 0 {
 		return delay
 	}
-	span := delay / 4
+	span := delay / jitterDivisor
 	if span <= 0 {
 		return delay
 	}
