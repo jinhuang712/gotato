@@ -32,7 +32,7 @@ type eventSpec struct {
 // envelope is the body of the im.message.receive_v1 event for one message.
 func envelope(eventID, messageID string, e eventSpec) []byte {
 	content, _ := json.Marshal(map[string]string{"text": e.Text})
-	now := strconv.FormatInt(time.Now().UnixMilli(), 10)
+	now := strconv.FormatInt(time.Now().UnixMilli(), decimal)
 	msg := map[string]any{"message_id": messageID, "create_time": now, "chat_id": e.Chat, "chat_type": "group",
 		"message_type": "text", "content": string(content)}
 	if e.RootID != "" {
@@ -124,7 +124,7 @@ func (c *courier) deliverEvent(ctx context.Context, out Sent, body []byte) Sent 
 		}
 		d.Millis = time.Since(start).Milliseconds()
 		out.Deliveries = append(out.Deliveries, d)
-		if (d.Status >= 200 && d.Status < 300) || !c.cfg.Redeliver || attempt >= c.cfg.MaxRedeliver || ctx.Err() != nil {
+		if (d.Status >= http.StatusOK && d.Status < http.StatusMultipleChoices) || !c.cfg.Redeliver || attempt >= c.cfg.MaxRedeliver || ctx.Err() != nil {
 			return out
 		}
 		time.Sleep(c.cfg.RetryDelay)
