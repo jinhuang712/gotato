@@ -29,6 +29,9 @@ import (
 // the applications, the reference service, the notes and the worktrees.
 var skipped = map[string]bool{"internal": true, "examples": true, "bench": true, "notes": true, "testdata": true, ".claude": true, ".git": true, "bin": true}
 
+// maxGlossaryLineBytes is the longest line of GLOSSARY.md that countTerms reads.
+const maxGlossaryLineBytes = 1 << 20
+
 type weight struct{ names, settings int }
 
 func main() {
@@ -216,7 +219,7 @@ func countTerms(path string) (int, error) {
 	}
 	n := 0
 	sc := bufio.NewScanner(bytes.NewReader(b))
-	sc.Buffer(make([]byte, 1<<20), 1<<20)
+	sc.Buffer(make([]byte, maxGlossaryLineBytes), maxGlossaryLineBytes)
 	for sc.Scan() {
 		line := sc.Text()
 		if strings.HasPrefix(line, "| ") && !strings.HasPrefix(line, "| Term ") {
