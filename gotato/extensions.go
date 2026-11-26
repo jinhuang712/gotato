@@ -215,6 +215,16 @@ func guard(stage string, call func() error) *RuntimeError {
 // transformContext applies the transformers and then the converters. Neither
 // output is committed: this is the value handed to the Model for one Turn.
 func (s extensionSet) transformContext(ctx context.Context, snapshot ContextSnapshot) ([]Message, *RuntimeError) {
+	messages, err := s.runTransformers(ctx, snapshot)
+	if err != nil {
+		return nil, err
+	}
+	return s.runConverters(ctx, messages)
+}
+
+// runTransformers applies the ContextTransformers in installation order to
+// the Messages of snapshot.
+func (s extensionSet) runTransformers(ctx context.Context, snapshot ContextSnapshot) ([]Message, *RuntimeError) {
 	messages := snapshot.Messages
 	for _, transformer := range s.transformers {
 		var produced []Message
@@ -233,6 +243,12 @@ func (s extensionSet) transformContext(ctx context.Context, snapshot ContextSnap
 		}
 		messages = produced
 	}
+	return messages, nil
+}
+
+// runConverters applies the MessageConverters in installation order to
+// messages.
+func (s extensionSet) runConverters(ctx context.Context, messages []Message) ([]Message, *RuntimeError) {
 	for _, converter := range s.converters {
 		var produced []Message
 		current := converter
