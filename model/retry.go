@@ -27,7 +27,14 @@ type Retry struct {
 // DefaultRetry is the Retry a Client uses unless WithRetry says otherwise:
 // 2 retries, from 200 milliseconds, never waiting more than 60 seconds. Treat
 // it as a constant.
-var DefaultRetry = Retry{Max: 2, Backoff: 200 * time.Millisecond, MaxWait: 60 * time.Second}
+var DefaultRetry = Retry{Max: defaultRetryMax, Backoff: defaultRetryBackoff, MaxWait: defaultRetryMaxWait}
+
+// The settings of DefaultRetry.
+const (
+	defaultRetryMax     = 2
+	defaultRetryBackoff = 200 * time.Millisecond
+	defaultRetryMaxWait = 60 * time.Second
+)
 
 // WithRetry sets the Client's Retry. WithRetry(Retry{}) turns retries off.
 func WithRetry(retry Retry) Option {
