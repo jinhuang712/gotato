@@ -165,7 +165,10 @@ func phaseCounts(ok, errs map[string]int, phases []string) string {
 	return strings.Join(parts, "; ")
 }
 
-func round(d time.Duration) time.Duration { return d.Round(100 * time.Millisecond) }
+// roundStep is the step the durations of the report are rounded to.
+const roundStep = 100 * time.Millisecond
+
+func round(d time.Duration) time.Duration { return d.Round(roundStep) }
 
 var sessionIDRe = regexp.MustCompile(`session ID: \w+`)
 
