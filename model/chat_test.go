@@ -17,7 +17,7 @@ import (
 // Client made of them.
 func streamedCalls(t *testing.T, chunks ...string) []gotato.ToolCall {
 	t.Helper()
-	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
 		w.Header().Set("Content-Type", "text/event-stream")
 		for _, chunk := range chunks {
 			writeSSE(t, w, chunk)
@@ -101,7 +101,7 @@ func TestChatSplitsParallelCallsThatShareOrLackAnIndex(t *testing.T) {
 
 func chatStreamOf(t *testing.T, chunks ...string) gotato.ModelStream {
 	t.Helper()
-	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
 		w.Header().Set("Content-Type", "text/event-stream")
 		for _, chunk := range chunks {
 			writeSSE(t, w, chunk)
@@ -215,7 +215,7 @@ func TestClientStreamNormalizesTextAndUsage(t *testing.T) {
 }
 
 func TestClientStreamReassemblesToolCall(t *testing.T) {
-	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
 		w.Header().Set("Content-Type", "text/event-stream")
 		name := providerFunctionName("demo.echo")
 		_, _ = w.Write([]byte(`data: {"choices":[{"delta":{"tool_calls":[{"index":0,"id":"call-1","function":{"name":"` + name + `","arguments":"{\"value\":"}}]}}]}` + "\n\n"))
@@ -255,7 +255,7 @@ func TestClientStreamReassemblesToolCall(t *testing.T) {
 // It must reach Core as {}, or Core fails it as invalid JSON and the Tool can
 // never run.
 func TestClientStreamDefaultsEmptyToolArguments(t *testing.T) {
-	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
 		w.Header().Set("Content-Type", "text/event-stream")
 		_, _ = w.Write([]byte(`data: {"choices":[{"delta":{"tool_calls":[{"index":0,"id":"call-1","function":{"name":"now","arguments":""}}]},"finish_reason":"tool_calls"}]}` + "\n\n"))
 		_, _ = w.Write([]byte("data: [DONE]\n\n"))
