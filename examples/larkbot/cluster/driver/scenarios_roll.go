@@ -15,41 +15,71 @@ type mcpRoll struct {
 	oldPod, logPath string
 }
 
+// The shape of the graceful roll of the MCP server: the G and N threads, the gap between the sends, how long the
+// pods get to be ready, the pause before the roll, the most H threads, and how long it waits afterwards.
+const (
+	mcpRollThreads = 6
+	mcpRollGap     = 200 * time.Millisecond
+	mcpRollReady   = 60 * time.Second
+	mcpRollHold    = 2 * time.Second
+	mcpRollMaxH    = 60
+	mcpRollQuiet   = 4 * time.Second
+	mcpRollSettle  = 60 * time.Second
+)
+
 // rollMCP is the last phase of s7: a graceful roll of the MCP server, the way a deploy does it (rollout restart:
 // SIGTERM, fakemcp drains, the new pod takes over), next to the abrupt kill of phase A. G are calls of 8 s at the
 // server in flight when the roll starts, H is one new thread a second while it goes on, N are new threads after
 // it, and G2 is a second message in the G threads.
 func (e *env) rollMCP(ctx context.Context, st stamper, mk func(string, int) []*thread,
 	sendAll func(ts []*thread, phase, suffix, directive string, gap time.Duration)) (roll mcpRoll, out string, err error) {
-	e.waitReadyPods(ctx, "fakemcp", 60*time.Second)
+	e.waitReadyPods(ctx, "fakemcp", mcpRollReady)
 	roll.oldPod, _ = e.kubectl(ctx, "get", "pods", "-l", "app=fakemcp", "-o", "jsonpath={.items[0].metadata.name}")
 	roll.logPath = filepath.Join(e.logDir, "fakemcp-"+roll.oldPod+".log")
 	stopFollow := e.followFile(ctx, roll.oldPod, roll.logPath)
-	g := mk("G", 6)
-	sendAll(g, "G", "a", "[script:mcp=8s]", 200*time.Millisecond)
-	sleep(ctx, 2*time.Second)
+	g := mk("G", mcpRollThreads)
+	sendAll(g, "G", "a", "[script:mcp=8s]", mcpRollGap)
+	sleep(ctx, mcpRollHold)
 	fmt.Printf("%s graceful: kubectl rollout restart deployment/fakemcp (old pod %s)\n", st.at(), roll.oldPod)
 	rollAt := time.Now()
 	if out, err := e.kubectl(ctx, "rollout", "restart", "deployment/fakemcp"); err != nil {
 		stopFollow()
 		return roll, out, err
 	}
-	// The roll lasts until the old pod is gone: `rollout status` returns once the new pod is ready, while the
-	// old one is still draining its calls.
+	h, rollErr := e.sendDuringRoll(ctx, st, mk, e.mcpRolled(ctx, roll.oldPod))
+	if rollErr != nil {
+		fmt.Println("rollout:", rollErr)
+	}
+	fmt.Printf("%s rollout done and the old pod gone after %s; %d threads sent during it\n", st.at(), round(time.Since(rollAt)), len(h))
+	e.waitQuiet(ctx, g, mcpRollQuiet, mcpRollSettle)
+	stopFollow()
+	n := mk("N", mcpRollThreads) // new threads after the roll
+	sendAll(n, "N", "a", "[script:mcp=2s]", mcpRollGap)
+	sendAll(g, "G2", "b", "[script:mcp=2s]", mcpRollGap) // a second message in the threads that were in flight
+	return roll, "", nil
+}
+
+// mcpRolled waits for the roll of the MCP server in the background; the channel gets its error.
+// The roll lasts until the old pod is gone: `rollout status` returns once the new pod is ready, while the
+// old one is still draining its calls.
+func (e *env) mcpRolled(ctx context.Context, oldPod string) <-chan error {
 	rolled := make(chan error, 1)
 	go func() {
 		out, err := e.kubectl(ctx, "rollout", "status", "deployment/fakemcp", "--timeout=120s")
 		if err == nil {
-			out, err = e.kubectl(ctx, "wait", "--for=delete", "pod/"+roll.oldPod, "--timeout=60s")
+			out, err = e.kubectl(ctx, "wait", "--for=delete", "pod/"+oldPod, "--timeout=60s")
 		}
 		if err != nil {
 			err = fmt.Errorf("%w: %s", err, out)
 		}
 		rolled <- err
 	}()
-	var h []*thread
-	var rollErr error
-	for done := false; !done && len(h) < 60; {
+	return rolled
+}
+
+// sendDuringRoll sends one new H thread a second until the roll is over, and returns the threads and the roll's error.
+func (e *env) sendDuringRoll(ctx context.Context, st stamper, mk func(string, int) []*thread, rolled <-chan error) (h []*thread, rollErr error) {
+	for done := false; !done && len(h) < mcpRollMaxH; {
 		select {
 		case rollErr = <-rolled:
 			done = true
@@ -64,16 +94,7 @@ func (e *env) rollMCP(ctx context.Context, st stamper, mk func(string, int) []*t
 			sleep(ctx, time.Second)
 		}
 	}
-	if rollErr != nil {
-		fmt.Println("rollout:", rollErr)
-	}
-	fmt.Printf("%s rollout done and the old pod gone after %s; %d threads sent during it\n", st.at(), round(time.Since(rollAt)), len(h))
-	e.waitQuiet(ctx, g, 4*time.Second, 60*time.Second)
-	stopFollow()
-	n := mk("N", 6) // new threads after the roll
-	sendAll(n, "N", "a", "[script:mcp=2s]", 200*time.Millisecond)
-	sendAll(g, "G2", "b", "[script:mcp=2s]", 200*time.Millisecond) // a second message in the threads that were in flight
-	return roll, "", nil
+	return h, rollErr
 }
 
 // reportRoll prints what the graceful phase of s7 shows and returns its GOTATO-FAULT count. ok and errs are the
