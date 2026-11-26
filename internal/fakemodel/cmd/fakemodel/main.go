@@ -16,6 +16,13 @@ import (
 	"github.com/jinhuang712/gotato/internal/fakemodel"
 )
 
+const (
+	// readHeaderTimeout bounds the time a client may take to send its headers.
+	readHeaderTimeout = 10 * time.Second
+	// shutdownTimeout bounds the wait for open requests when the server stops.
+	shutdownTimeout = 5 * time.Second
+)
+
 func main() {
 	addr := flag.String("addr", "127.0.0.1:8080", "address to listen on")
 	flag.Parse()
@@ -23,13 +30,13 @@ func main() {
 	server := &http.Server{
 		Addr:              *addr,
 		Handler:           fakemodel.New(),
-		ReadHeaderTimeout: 10 * time.Second,
+		ReadHeaderTimeout: readHeaderTimeout,
 	}
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt)
 	defer stop()
 	go func() {
 		<-ctx.Done()
-		shutdown, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+		shutdown, cancel := context.WithTimeout(context.Background(), shutdownTimeout)
 		defer cancel()
 		_ = server.Shutdown(shutdown)
 	}()
