@@ -127,8 +127,15 @@ type bot struct {
 	ackDelay time.Duration // test only: hold the event's HTTP answer this long, so the sender sees a late ack
 }
 
-func newBot(runner *host.Runner, records store.Records, send sender, agent, model, label string, log *slog.Logger) *bot {
-	return &bot{runner: runner, records: records, send: send, agent: agent, model: model, label: label, log: log,
+// botConfig names a bot: the agent it runs, the model and instance label its
+// card shows, and the logger.
+type botConfig struct {
+	agent, model, label string
+	log                 *slog.Logger
+}
+
+func newBot(runner *host.Runner, records store.Records, send sender, cfg botConfig) *bot {
+	return &bot{runner: runner, records: records, send: send, agent: cfg.agent, model: cfg.model, label: cfg.label, log: cfg.log,
 		client: &http.Client{Timeout: 10 * time.Minute, // a forward can start a Run and wait for it
 			Transport: &http.Transport{DialContext: (&net.Dialer{Timeout: 3 * time.Second}).DialContext, MaxIdleConnsPerHost: 4}},
 		targets: map[string]target{}, replies: map[gotato.RunID]string{}, cards: map[string]*liveCard{}, streamEvery: defaultStreamEvery, seen: newSeenSet(1024),

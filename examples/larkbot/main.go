@@ -168,7 +168,7 @@ func (c config) newBot(runner *host.Runner, records store.Records, agent profile
 		opts = append(opts, lark.WithOpenBaseUrl(c.larkBase))
 	}
 	api := lark.NewClient(c.appID, c.appSecret, opts...)
-	b := newBot(runner, records, larkSender{api}, agent.Name, agent.ModelName, lbl, log)
+	b := newBot(runner, records, larkSender{api}, botConfig{agent: agent.Name, model: agent.ModelName, label: lbl, log: log})
 	b.retry = defaultRetry(c.retryBudget)
 	b.ackDelay = c.ackDelay
 	return b

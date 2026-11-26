@@ -140,7 +140,7 @@ func newInstanceWith(t *testing.T, st storeParts, name string, model *testkit.Fu
 	}
 	srv.Start()
 	snd := &fakeSender{}
-	b := newBot(runner, st, snd, "fake", "fake", name, logger(t))
+	b := newBot(runner, st, snd, botConfig{agent: "fake", model: "fake", label: name, log: logger(t)})
 	ctx, cancel := context.WithCancel(context.Background())
 	t.Cleanup(cancel)
 	go b.replyLoop(ctx)

@@ -171,7 +171,7 @@ func newLarkInstance(t *testing.T, st storeParts, name, fakeURL string, model go
 	}
 	t.Cleanup(func() { closeRunner(runner) })
 	api := lark.NewClient("fake", "fake", lark.WithOpenBaseUrl(fakeURL))
-	b := newBot(runner, st, larkSender{api}, "fake", "fake", name, logger(t))
+	b := newBot(runner, st, larkSender{api}, botConfig{agent: "fake", model: "fake", label: name, log: logger(t)})
 	li.runner, li.bot, li.srv = runner, b, srv
 
 	events := larkEventHandler(b)
