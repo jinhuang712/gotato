@@ -13,16 +13,27 @@ import (
 	"github.com/jinhuang712/gotato/store"
 )
 
-// touch makes a leftover: a directory (or a file) of the given age.
-func touch(t *testing.T, path string, dir bool, age time.Duration) {
+// touchDir makes a leftover directory of the given age.
+func touchDir(t *testing.T, path string, age time.Duration) {
 	t.Helper()
-	if dir {
-		if err := os.MkdirAll(filepath.Join(path, "inner"), 0o755); err != nil {
-			t.Fatal(err)
-		}
-	} else if err := os.WriteFile(path, []byte("x"), 0o600); err != nil {
+	if err := os.MkdirAll(filepath.Join(path, "inner"), 0o755); err != nil {
 		t.Fatal(err)
 	}
+	backdate(t, path, age)
+}
+
+// touchFile makes a leftover file of the given age.
+func touchFile(t *testing.T, path string, age time.Duration) {
+	t.Helper()
+	if err := os.WriteFile(path, []byte("x"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	backdate(t, path, age)
+}
+
+// backdate sets the modification and access time of path to age ago.
+func backdate(t *testing.T, path string, age time.Duration) {
+	t.Helper()
 	at := time.Now().Add(-age)
 	if err := os.Chtimes(path, at, at); err != nil {
 		t.Fatal(err)
@@ -56,12 +67,12 @@ func TestFileStoreSweepsOldLeftoversAtOpen(t *testing.T) {
 	if err := os.MkdirAll(filepath.Join(dir, ".instances"), 0o755); err != nil {
 		t.Fatal(err)
 	}
-	touch(t, oldCreating, true, old)
-	touch(t, oldDeleted, true, old)
-	touch(t, youngCreating, true, time.Minute)
-	touch(t, youngDeleted, true, time.Minute)
-	touch(t, oldTmp, false, old)
-	touch(t, youngTmp, false, time.Minute)
+	touchDir(t, oldCreating, old)
+	touchDir(t, oldDeleted, old)
+	touchDir(t, youngCreating, time.Minute)
+	touchDir(t, youngDeleted, time.Minute)
+	touchFile(t, oldTmp, old)
+	touchFile(t, youngTmp, time.Minute)
 
 	// A second store on the same directory, as another process would open it.
 	second, err := store.NewFileStore(dir)
@@ -111,8 +122,8 @@ func TestFileStoreSweepsOldTempFilesOfARecord(t *testing.T) {
 	epoch := filepath.Join(dir, "r", epochs[0].Name())
 	oldTmp := filepath.Join(epoch, ".tmp-old")
 	youngTmp := filepath.Join(epoch, ".tmp-young")
-	touch(t, oldTmp, false, 48*time.Hour)
-	touch(t, youngTmp, false, time.Minute)
+	touchFile(t, oldTmp, 48*time.Hour)
+	touchFile(t, youngTmp, time.Minute)
 
 	other, err := store.NewFileStore(dir) // another process, with a cold cache
 	if err != nil {
