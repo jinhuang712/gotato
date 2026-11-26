@@ -63,7 +63,7 @@ func (t *turnRun) endAnswerTurn(st *runState, replyNumber uint64) (bool, RunResu
 		return st.failTurn(stopErr)
 	}
 	if decision.Stop {
-		return st.settleTurn(turn, assistant, true, decision.Reason)
+		return st.settleTurn(turn, assistant, decision)
 	}
 	// Safe boundary at settlement: Steer and FollowUp both apply here.
 	// Cancellation is checked first so a queued continuation is never
@@ -87,7 +87,7 @@ func (t *turnRun) endAnswerTurn(st *runState, replyNumber uint64) (bool, RunResu
 		}
 		return true, RunResult{}, nil
 	}
-	return st.settleTurn(turn, assistant, false, "")
+	return st.settleTurn(turn, assistant, StopDecision{})
 }
 
 // endToolTurn runs the Tool calls of a Turn's reply and ends the Turn: the Run
@@ -106,7 +106,7 @@ func (t *turnRun) endToolTurn(st *runState) (bool, RunResult, error) {
 		return st.failTurn(stopErr)
 	}
 	if decision.Stop {
-		return st.settleTurn(turn, assistant, true, decision.Reason)
+		return st.settleTurn(turn, assistant, decision)
 	}
 	// Safe boundary between Turns: Steer applies, FollowUp waits for
 	// settlement.

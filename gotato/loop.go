@@ -115,15 +115,16 @@ func (st *runState) fail(err *RuntimeError) (RunResult, error) {
 	return result, err
 }
 
-// settle ends the Run as completed with assistant as its final Message. When
-// the write that ends it fails, the Run failed instead.
-func (st *runState) settle(turn TurnNumber, assistant Message, stopped bool, reason string) (RunResult, error) {
+// settle ends the Run as completed with assistant as its final Message, and
+// says so when a TurnStopper stopped it (decision). When the write that ends
+// it fails, the Run failed instead.
+func (st *runState) settle(turn TurnNumber, assistant Message, decision StopDecision) (RunResult, error) {
 	final := assistant.Clone()
 	result := RunResult{RunID: st.runID, Status: RunStatusCompleted, FinalMessage: &final, Usage: st.usage, Metrics: st.metrics()}
 	writeErr := st.end(turn, result, func(e *RunEnded) {
-		if stopped {
+		if decision.Stop {
 			e.StoppedByExtension = true
-			e.StopReason = reason
+			e.StopReason = decision.Reason
 		}
 	})
 	if writeErr != nil {
@@ -326,8 +327,8 @@ func (st *runState) failTurn(err *RuntimeError) (bool, RunResult, error) {
 }
 
 // settleTurn ends the Run as completed with assistant as its final Message.
-func (st *runState) settleTurn(turn TurnNumber, assistant Message, stopped bool, reason string) (bool, RunResult, error) {
-	result, err := st.settle(turn, assistant, stopped, reason)
+func (st *runState) settleTurn(turn TurnNumber, assistant Message, decision StopDecision) (bool, RunResult, error) {
+	result, err := st.settle(turn, assistant, decision)
 	return false, result, err
 }
 
