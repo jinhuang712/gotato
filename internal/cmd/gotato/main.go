@@ -97,7 +97,11 @@ func Main(args []string, stdin io.Reader, stdout, stderr io.Writer, getenv func(
 		c.usageTo(c.stderr)
 		return c.usageError("a command is required")
 	}
-	command, rest := rest[0], rest[1:]
+	return c.dispatch(rest[0], rest[1:])
+}
+
+// dispatch runs the command with its arguments.
+func (c *cli) dispatch(command string, rest []string) int {
 	switch command {
 	case "run":
 		return c.cmdRun(rest)
@@ -114,21 +118,26 @@ func Main(args []string, stdin io.Reader, stdout, stderr io.Writer, getenv func(
 	case "serve":
 		return c.cmdServe(rest)
 	case "version":
-		fs := c.newFlagSet("version")
-		if _, err := parseInterspersed(fs, rest); err != nil {
-			if errors.Is(err, flag.ErrHelp) {
-				c.usage()
-				return ExitOK
-			}
-			return c.parseError(err)
-		}
-		return c.emit(map[string]any{"version": Version}, Version)
+		return c.cmdVersion(rest)
 	case "help", "-h", "--help":
 		c.usage()
 		return ExitOK
 	default:
 		return c.usageError("unknown command " + command)
 	}
+}
+
+// cmdVersion prints the version.
+func (c *cli) cmdVersion(args []string) int {
+	fs := c.newFlagSet("version")
+	if _, err := parseInterspersed(fs, args); err != nil {
+		if errors.Is(err, flag.ErrHelp) {
+			c.usage()
+			return ExitOK
+		}
+		return c.parseError(err)
+	}
+	return c.emit(map[string]any{"version": Version}, Version)
 }
 
 func (c *cli) bindCommon(fs *flag.FlagSet) {
