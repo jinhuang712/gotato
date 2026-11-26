@@ -10,11 +10,19 @@ import (
 	"github.com/jinhuang712/gotato/store"
 )
 
-// spillRecord stores a Record named id whose log holds a tool_result_spilled
-// Entry with body at position padTo. holder, when not nil, is the Message the
-// Record starts with (it carries the reference).
-func spillRecord(t *testing.T, st store.Records, id, body string, holder *gotato.Message, padTo uint64) {
+// spill is a Record that spillRecord stores: named id, whose log holds a
+// tool_result_spilled Entry with body at position padTo. holder, when not nil,
+// is the Message the Record starts with (it carries the reference).
+type spill struct {
+	id, body string
+	holder   *gotato.Message
+	padTo    uint64
+}
+
+// spillRecord stores the Record sp describes.
+func spillRecord(t *testing.T, st store.Records, sp spill) {
 	t.Helper()
+	id, body, holder, padTo := sp.id, sp.body, sp.holder, sp.padTo
 	ctx := context.Background()
 	options := []record.Option{record.WithID(id)}
 	if holder != nil {
@@ -46,7 +54,7 @@ func TestForkSpilledBodyOfARecreatedParentIsPruned(t *testing.T) {
 	ctx := context.Background()
 	st := store.NewMemoryStore()
 	message := spilledHolder()
-	spillRecord(t, st, "parent", "ORIGINAL BODY", &message, 5)
+	spillRecord(t, st, spill{id: "parent", body: "ORIGINAL BODY", holder: &message, padTo: 5})
 	parent, err := store.Open(ctx, st, "parent")
 	if err != nil {
 		t.Fatal(err)
@@ -65,7 +73,7 @@ func TestForkSpilledBodyOfARecreatedParentIsPruned(t *testing.T) {
 	if _, pruned, err := fork.SpilledBody(ctx, st, ref); err != nil || !pruned {
 		t.Fatalf("parent gone: pruned %v err %v, want pruned", pruned, err)
 	}
-	spillRecord(t, st, "parent", "SECRET BODY of an unrelated Session", nil, 5)
+	spillRecord(t, st, spill{id: "parent", body: "SECRET BODY of an unrelated Session", padTo: 5})
 	body, pruned, err := fork.SpilledBody(ctx, st, ref)
 	if err != nil {
 		t.Fatal(err)
@@ -81,7 +89,7 @@ func TestForkOfForkSpilledBodyKeepsTheSourceEpoch(t *testing.T) {
 	ctx := context.Background()
 	st := store.NewMemoryStore()
 	message := spilledHolder()
-	spillRecord(t, st, "root", "ORIGINAL BODY", &message, 5)
+	spillRecord(t, st, spill{id: "root", body: "ORIGINAL BODY", holder: &message, padTo: 5})
 	root, err := store.Open(ctx, st, "root")
 	if err != nil {
 		t.Fatal(err)
@@ -101,7 +109,7 @@ func TestForkOfForkSpilledBodyKeepsTheSourceEpoch(t *testing.T) {
 	if err := st.Delete(ctx, "root"); err != nil {
 		t.Fatal(err)
 	}
-	spillRecord(t, st, "root", "SECRET", nil, 5)
+	spillRecord(t, st, spill{id: "root", body: "SECRET", padTo: 5})
 	if body, pruned, err := leaf.SpilledBody(ctx, st, ref); err != nil || !pruned {
 		t.Fatalf("recreated root: body %q pruned %v err %v, want pruned", body, pruned, err)
 	}
