@@ -103,15 +103,23 @@ const (
 func (e ToolEffect) rank() int {
 	switch e {
 	case ToolEffectRead:
-		return 1
+		return rankRead
 	case ToolEffectWriteLocal:
-		return 2
+		return rankWriteLocal
 	case ToolEffectWriteExternal:
-		return 3
+		return rankWriteExternal
 	default:
-		return 4
+		return rankDestructive
 	}
 }
+
+// The ranks of the effects, by impact.
+const (
+	rankRead = iota + 1
+	rankWriteLocal
+	rankWriteExternal
+	rankDestructive
+)
 
 // Within reports whether e is at or below ceiling.
 func (e ToolEffect) Within(ceiling ToolEffect) bool { return e.rank() <= ceiling.rank() }
