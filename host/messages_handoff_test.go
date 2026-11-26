@@ -312,7 +312,10 @@ func TestAFollowingRunThatFailsDropsItsMessages(t *testing.T) {
 		runtime.Gosched()
 	}
 	for i, event := range recorded.OfKind(gotato.EventKindMessageDropped) {
-		dropped := event.(gotato.MessageDropped)
+		dropped, ok := event.(gotato.MessageDropped)
+		if !ok {
+			t.Fatalf("event = %T, want gotato.MessageDropped", event)
+		}
 		if dropped.MessageID != ids[i] || dropped.Why != "run_failed" {
 			t.Fatalf("dropped %+v; want message %s with why run_failed", dropped, ids[i])
 		}
@@ -555,7 +558,11 @@ func TestAbortOfSettledRunMustNotStopTheFollowOnRun(t *testing.T) {
 	for {
 		ended := rec.OfKind(gotato.EventKindRunEnded)
 		if len(ended) >= 2 {
-			if second := ended[1].(gotato.RunEnded); second.Status != gotato.RunStatusCompleted {
+			second, ok := ended[1].(gotato.RunEnded)
+			if !ok {
+				t.Fatalf("ended[1] = %T, want gotato.RunEnded", ended[1])
+			}
+			if second.Status != gotato.RunStatusCompleted {
 				t.Fatalf("the follow-on Run ended %q, want completed (it was never the target of the abort)", second.Status)
 			}
 			return

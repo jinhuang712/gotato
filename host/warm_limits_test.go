@@ -114,8 +114,8 @@ func TestMaxWarmSessionsEvictsTheOldestIdle(t *testing.T) {
 	if runner.WarmSessions() != 2 {
 		t.Fatalf("WarmSessions = %d after a third Session went idle, want the limit of 2", runner.WarmSessions())
 	}
-	waitFor(t, func() bool { return len(evictedIDs(instance)) >= 1 })
-	if got := evictedIDs(instance); !slices.Equal(got, []string{first.SessionID}) {
+	waitFor(t, func() bool { return len(evictedIDs(t, instance)) >= 1 })
+	if got := evictedIDs(t, instance); !slices.Equal(got, []string{first.SessionID}) {
 		t.Fatalf("evicted %v, want the longest-idle Session %q (not %q or %q)", got, first.SessionID, second.SessionID, third.SessionID)
 	}
 }
@@ -223,10 +223,15 @@ func drain(started chan string) {
 
 // evictedIDs returns the Sessions the recorder saw leave memory as evicted, in
 // order.
-func evictedIDs(rec *testkit.EventRecorder) []string {
+func evictedIDs(t *testing.T, rec *testkit.EventRecorder) []string {
+	t.Helper()
 	var out []string
 	for _, event := range rec.OfKind(gotato.EventKindSessionUnloaded) {
-		if unloaded := event.(gotato.SessionUnloaded); unloaded.Why == "evicted" {
+		unloaded, ok := event.(gotato.SessionUnloaded)
+		if !ok {
+			t.Fatalf("event = %T, want gotato.SessionUnloaded", event)
+		}
+		if unloaded.Why == "evicted" {
 			out = append(out, string(unloaded.SessionID))
 		}
 	}
@@ -260,8 +265,8 @@ func TestMemoryLimitEvictsTheLongestIdleWarmSessionAndRefusesOnlyWhenAllRun(t *t
 		t.Fatalf("session_unloaded = %v, want [evicted]", got)
 	}
 	// The Instance stream is delivered after the Run returns.
-	waitFor(t, func() bool { return len(evictedIDs(instance)) >= 1 })
-	if got := evictedIDs(instance); !slices.Equal(got, []string{first.SessionID}) {
+	waitFor(t, func() bool { return len(evictedIDs(t, instance)) >= 1 })
+	if got := evictedIDs(t, instance); !slices.Equal(got, []string{first.SessionID}) {
 		t.Fatalf("evicted %v, want the longest-idle Session %q", got, first.SessionID)
 	}
 	if runner.WarmSessions() != 2 {
@@ -332,8 +337,8 @@ func TestMemoryLimitNeverEvictsARunningSession(t *testing.T) {
 		t.Fatalf("the running Session ended %+v", busy.Result)
 	}
 	// The Instance stream is delivered after the Run returns.
-	waitFor(t, func() bool { return len(evictedIDs(instance)) >= 1 })
-	if got := evictedIDs(instance); !slices.Equal(got, []string{idle.SessionID}) {
+	waitFor(t, func() bool { return len(evictedIDs(t, instance)) >= 1 })
+	if got := evictedIDs(t, instance); !slices.Equal(got, []string{idle.SessionID}) {
 		t.Fatalf("evicted %v, want only the idle Session %q", got, idle.SessionID)
 	}
 }
@@ -356,8 +361,8 @@ func TestMemoryLimitEvictsInOrderOfIdleTime(t *testing.T) {
 	clock.Advance(time.Minute)
 	runOn(t, runner, "", "e")
 
-	waitFor(t, func() bool { return len(evictedIDs(instance)) >= 2 })
-	if want, got := []string{ids[1], ids[2]}, evictedIDs(instance); !slices.Equal(got, want) {
+	waitFor(t, func() bool { return len(evictedIDs(t, instance)) >= 2 })
+	if want, got := []string{ids[1], ids[2]}, evictedIDs(t, instance); !slices.Equal(got, want) {
 		t.Fatalf("evicted %v, want %v (longest idle first)", got, want)
 	}
 	if runner.WarmSessions() != 3 {
@@ -437,8 +442,8 @@ func TestEvictionCancelsAnIdleCompactionInProgress(t *testing.T) {
 		t.Fatal("the idle compaction did not end")
 	}
 	// The Instance stream is delivered after the Run returns.
-	waitFor(t, func() bool { return len(evictedIDs(instance)) >= 1 })
-	if got := evictedIDs(instance); !slices.Equal(got, []string{first.SessionID}) {
+	waitFor(t, func() bool { return len(evictedIDs(t, instance)) >= 1 })
+	if got := evictedIDs(t, instance); !slices.Equal(got, []string{first.SessionID}) {
 		t.Fatalf("evicted %v, want [%s]", got, first.SessionID)
 	}
 	kinds := storedKinds(t, asStore(store), first.SessionID)

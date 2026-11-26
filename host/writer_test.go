@@ -489,11 +489,17 @@ func TestRunWritesClaimAndRelease(t *testing.T) {
 	if claimed < 0 || started < 0 || ended < 0 || released < 0 || claimed >= started || started >= ended || ended >= released {
 		t.Fatalf("Events = %v, want session_claimed, run_started, run_ended, session_released in that order", numbered(events))
 	}
-	claim := events[claimed].(gotato.SessionClaimed)
+	claim, ok := events[claimed].(gotato.SessionClaimed)
+	if !ok {
+		t.Fatalf("events[claimed].(gotato.SessionClaimed) = %T, want gotato.SessionClaimed", events[claimed])
+	}
 	if claim.Why != gotato.ClaimWhyIdle || !isInstance(claim.Instance, "instance-a") || claim.Epoch != 1 {
 		t.Fatalf("claim = %+v, want instance-a at epoch 1, why idle", claim)
 	}
-	release := events[released].(gotato.SessionReleased)
+	release, ok := events[released].(gotato.SessionReleased)
+	if !ok {
+		t.Fatalf("events[released].(gotato.SessionReleased) = %T, want gotato.SessionReleased", events[released])
+	}
 	if !isInstance(release.Instance, "instance-a") || release.Epoch != 1 {
 		t.Fatalf("release = %+v, want instance-a at epoch 1", release)
 	}
