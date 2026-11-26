@@ -436,7 +436,7 @@ func TestContextOverflowRunReportsItsCodeAndMapsTo422(t *testing.T) {
 // caller's headers (its credentials) and the body to a host allow never saw.
 func TestForwardDoesNotFollowARedirectOutOfTheAllowList(t *testing.T) {
 	var elsewhere atomic.Int32
-	other := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+	other := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
 		elsewhere.Add(1)
 		w.WriteHeader(http.StatusAccepted)
 	}))
