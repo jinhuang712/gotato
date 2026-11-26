@@ -140,13 +140,7 @@ func (a *Session) spill(ctx context.Context, runID RunID, turn TurnNumber, toolI
 	if !keeps {
 		return result, nil
 	}
-	size := 0
-	for _, part := range result.Content {
-		if part.Kind == ContentKindText {
-			size += len(part.Text)
-		}
-	}
-	if size <= a.def.spillPage {
+	if textBytes(result.Content) <= a.def.spillPage {
 		return result, nil
 	}
 	body := spillBody(result.Content)
@@ -159,22 +153,46 @@ func (a *Session) spill(ctx context.Context, runID RunID, turn TurnNumber, toolI
 	}
 	// The Journal may return Events it had queued before this one, such as a
 	// metadata change: the Seq is the number of the spilled body's own Entry.
-	var seq uint64
-	for _, event := range written {
-		if spilled, ok := event.(ToolResultSpilled); ok && spilled.CallID == result.CallID {
-			seq = spilled.Head().Number
-		}
-	}
+	seq := spilledSeq(written, result.CallID)
 	if seq == 0 {
 		return result, runtimeError(CodeStoreFailure, "spill", "the Journal did not return the spilled result it wrote", nil)
 	}
-	content := []ContentPart{{Kind: ContentKindText, Text: spillPreview(result.CallID, body, a.def.spillPage, min(int(a.def.limits.SpillPreviewBytes), a.def.spillPage))}}
-	for _, part := range result.Content {
+	result.Content = spilledContent(result.Content, spillPreview(result.CallID, body, a.def.spillPage, min(int(a.def.limits.SpillPreviewBytes), a.def.spillPage)))
+	result.Spilled = &SpilledResult{Seq: seq, Bytes: len(body)}
+	return result, nil
+}
+
+// textBytes is the length of the text of the text Parts of parts.
+func textBytes(parts []ContentPart) int {
+	size := 0
+	for _, part := range parts {
+		if part.Kind == ContentKindText {
+			size += len(part.Text)
+		}
+	}
+	return size
+}
+
+// spilledSeq is the number of the ToolResultSpilled Event of call among
+// written, or 0 when it is not there.
+func spilledSeq(written []Event, call ToolCallID) uint64 {
+	var seq uint64
+	for _, event := range written {
+		if spilled, ok := event.(ToolResultSpilled); ok && spilled.CallID == call {
+			seq = spilled.Head().Number
+		}
+	}
+	return seq
+}
+
+// spilledContent is the content of a spilled result: the preview in place of
+// the text, then the Parts of parts that are not text, as they were.
+func spilledContent(parts []ContentPart, preview string) []ContentPart {
+	content := []ContentPart{{Kind: ContentKindText, Text: preview}}
+	for _, part := range parts {
 		if part.Kind != ContentKindText {
 			content = append(content, part)
 		}
 	}
-	result.Content = content
-	result.Spilled = &SpilledResult{Seq: seq, Bytes: len(body)}
-	return result, nil
+	return content
 }
