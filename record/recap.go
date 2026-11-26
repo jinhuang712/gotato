@@ -387,53 +387,75 @@ func (m ModelRecap) complete(ctx context.Context, request gotato.ModelRequest) (
 		return gotato.Message{}, errors.New("record: Model returned a nil stream")
 	}
 	defer func() { _ = stream.Close() }()
-	var (
-		b          strings.Builder
-		usage      gotato.Usage
-		stop       gotato.StopReason
-		calledTool bool
-		completed  bool
-	)
-	for !completed {
+	reply, err := readRecapReply(ctx, stream)
+	if err != nil {
+		return gotato.Message{}, err
+	}
+	if !reply.completed {
+		return gotato.Message{}, errors.New("record: model stream ended before ModelEventKindDone")
+	}
+	spent := gotato.Message{Role: gotato.RoleAssistant, Usage: reply.usage}
+	switch {
+	case reply.calledTool || reply.stop == gotato.StopReasonToolCalls:
+		return spent, fmt.Errorf("%w: the reply called a tool", ErrBadRecap)
+	case reply.stop == gotato.StopReasonMaxTokens:
+		return spent, fmt.Errorf("%w: the reply was cut off at the output limit", ErrBadRecap)
+	}
+	text, err := ValidateRecap(reply.text)
+	if err != nil {
+		return spent, err
+	}
+	message := gotato.AssistantMessage(text)
+	message.Usage = reply.usage
+	return message, nil
+}
+
+// recapReply is what the model stream of a Recap said: its text, its usage,
+// why it stopped, whether it called a tool and whether it completed.
+type recapReply struct {
+	text       string
+	usage      gotato.Usage
+	stop       gotato.StopReason
+	calledTool bool
+	completed  bool
+}
+
+// readRecapReply reads stream until it is done or ends.
+func readRecapReply(ctx context.Context, stream gotato.ModelStream) (recapReply, error) {
+	var b strings.Builder
+	var reply recapReply
+	for !reply.completed {
 		event, err := stream.Recv(ctx)
 		if err != nil {
 			if errors.Is(err, io.EOF) {
 				break
 			}
-			return gotato.Message{}, err
+			return recapReply{}, err
 		}
-		switch event.Kind {
-		case gotato.ModelEventKindTextDelta:
+		if event.Kind == gotato.ModelEventKindTextDelta {
 			b.WriteString(event.Text)
-		case gotato.ModelEventKindToolCall:
-			calledTool = true
-		case gotato.ModelEventKindUsage:
-			usage = event.Usage
-		case gotato.ModelEventKindDone:
-			completed = true
-			stop = event.StopReason
-			if event.Usage.TotalTokens != 0 || event.Usage.InputTokens != 0 || event.Usage.OutputTokens != 0 {
-				usage = event.Usage
-			}
+			continue
+		}
+		reply.add(event)
+	}
+	reply.text = b.String()
+	return reply, nil
+}
+
+// add takes in an event of the stream that is not text.
+func (r *recapReply) add(event gotato.ModelEvent) {
+	switch event.Kind {
+	case gotato.ModelEventKindToolCall:
+		r.calledTool = true
+	case gotato.ModelEventKindUsage:
+		r.usage = event.Usage
+	case gotato.ModelEventKindDone:
+		r.completed = true
+		r.stop = event.StopReason
+		if event.Usage.TotalTokens != 0 || event.Usage.InputTokens != 0 || event.Usage.OutputTokens != 0 {
+			r.usage = event.Usage
 		}
 	}
-	if !completed {
-		return gotato.Message{}, errors.New("record: model stream ended before ModelEventKindDone")
-	}
-	spent := gotato.Message{Role: gotato.RoleAssistant, Usage: usage}
-	switch {
-	case calledTool || stop == gotato.StopReasonToolCalls:
-		return spent, fmt.Errorf("%w: the reply called a tool", ErrBadRecap)
-	case stop == gotato.StopReasonMaxTokens:
-		return spent, fmt.Errorf("%w: the reply was cut off at the output limit", ErrBadRecap)
-	}
-	text, err := ValidateRecap(b.String())
-	if err != nil {
-		return spent, err
-	}
-	reply := gotato.AssistantMessage(text)
-	reply.Usage = usage
-	return reply, nil
 }
 
 // guardedCall calls a func a host supplied; a panic in it is the error it
