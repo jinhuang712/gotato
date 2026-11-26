@@ -364,40 +364,45 @@ func lastPerGroup(messages []gotato.Message, groups []string) map[int]bool {
 // with a line that says so, and stands an image or a file in with a
 // placeholder. Reasoning is left out.
 func keptParts(parts []gotato.ContentPart, limit, number int) []gotato.ContentPart {
-	budget := limit * 4
+	budget := limit * bytesPerToken
+	out, cut := cutParts(parts, budget)
+	if cut {
+		out = append(out, taggedPart(gotato.TagSegment, numberAttr(number),
+			fmt.Sprintf("This message was cut after %d of %d bytes (%d tokens). read_segment(%d) returns the rest.", budget, textBytes(parts), limit, number)))
+	}
+	return out
+}
+
+// textBytes is the size of the text Parts of parts, in bytes.
+func textBytes(parts []gotato.ContentPart) int {
 	total := 0
 	for _, part := range parts {
 		if isText(part) {
 			total += len(part.Text)
 		}
 	}
-	var out []gotato.ContentPart
+	return total
+}
+
+// cutParts is keptParts without the line that says the text was cut: cut says
+// it was, past budget bytes.
+func cutParts(parts []gotato.ContentPart, budget int) (out []gotato.ContentPart, cut bool) {
 	used := 0
-	cut := false
 	for _, part := range parts {
 		switch {
 		case part.Kind == gotato.ContentKindReasoning:
-		case isText(part):
-			if part.Text == "" {
-				continue
-			}
-			if used+len(part.Text) > budget {
-				out = append(out, gotato.ContentPart{Kind: part.Kind, Text: cutRunes(part.Text, budget-used)})
-				cut = true
-			} else {
-				used += len(part.Text)
-				out = append(out, gotato.ContentPart{Kind: part.Kind, Text: part.Text})
-			}
-		default:
+			continue
+		case !isText(part):
 			out = append(out, placeholder(part))
+			continue
+		case part.Text == "":
+			continue
 		}
-		if cut {
-			break
+		if used+len(part.Text) > budget {
+			return append(out, gotato.ContentPart{Kind: part.Kind, Text: cutRunes(part.Text, budget-used)}), true
 		}
+		used += len(part.Text)
+		out = append(out, gotato.ContentPart{Kind: part.Kind, Text: part.Text})
 	}
-	if cut {
-		out = append(out, taggedPart(gotato.TagSegment, numberAttr(number),
-			fmt.Sprintf("This message was cut after %d of %d bytes (%d tokens). read_segment(%d) returns the rest.", budget, total, limit, number)))
-	}
-	return out
+	return out, false
 }
