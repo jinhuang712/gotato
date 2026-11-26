@@ -59,10 +59,10 @@ func digestLine(segment gotato.Segment, loc *time.Location) string {
 		label = "Segments " + rangeLabel(segment.Numbers()) + " (merged earlier)"
 	}
 	span := ""
-	if !segment.From.IsZero() {
-		span = ", " + segment.From.In(loc).Format("2006-01-02 15:04")
-		if !segment.To.IsZero() {
-			span += " to " + segment.To.In(loc).Format("2006-01-02 15:04")
+	if from, to := digestTimes(segment, loc); from != "" {
+		span = ", " + from
+		if to != "" {
+			span += " to " + to
 		}
 	}
 	line := "- " + label + span + ":"
@@ -70,17 +70,8 @@ func digestLine(segment gotato.Segment, loc *time.Location) string {
 		shown := clip(withoutHeading(segment.Recap), digestMergedChars)
 		return line + " " + shown + digestRefs(segment, shown)
 	}
-	if users := userTexts(segment); len(users) > 0 {
-		shown := users[:min(len(users), digestUsersPerSeg)]
-		for i := range shown {
-			shown[i] = `"` + clip(shown[i], digestUserChars) + `"`
-		}
-		line += " the user wrote " + strings.Join(shown, " / ")
-		if more := len(users) - len(shown); more > 0 {
-			line += fmt.Sprintf(" / and %d more.", more)
-		} else {
-			line += "."
-		}
+	if users, more := digestUsers(segment); users != "" {
+		line += " the user wrote " + users + moreUsers(more)
 	}
 	if tools := toolCounts(segment.ToolCalls); tools != "" {
 		line += " " + tools + "."
@@ -89,6 +80,41 @@ func digestLine(segment gotato.Segment, loc *time.Location) string {
 		line += " Its recap: " + clip(recap, digestRecapChars)
 	}
 	return line + digestRefs(segment, "")
+}
+
+// digestTimes formats when a Segment started and ended for its digest line:
+// from is "" when the start is not known, and to when the end is not.
+func digestTimes(segment gotato.Segment, loc *time.Location) (from, to string) {
+	if !segment.From.IsZero() {
+		from = segment.From.In(loc).Format("2006-01-02 15:04")
+		if !segment.To.IsZero() {
+			to = segment.To.In(loc).Format("2006-01-02 15:04")
+		}
+	}
+	return from, to
+}
+
+// digestUsers quotes the start of a Segment's first user Messages for its
+// digest line, or "", and counts those left out.
+func digestUsers(segment gotato.Segment) (quoted string, more int) {
+	users := userTexts(segment)
+	if len(users) == 0 {
+		return "", 0
+	}
+	shown := users[:min(len(users), digestUsersPerSeg)]
+	for i := range shown {
+		shown[i] = `"` + clip(shown[i], digestUserChars) + `"`
+	}
+	return strings.Join(shown, " / "), len(users) - len(shown)
+}
+
+// moreUsers ends the quoted user Messages of a digest line, counting those
+// left out.
+func moreUsers(more int) string {
+	if more > 0 {
+		return fmt.Sprintf(" / and %d more.", more)
+	}
+	return "."
 }
 
 // userTexts returns the user's own words in a Segment, one per Message: its
